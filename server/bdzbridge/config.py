@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     smtp_from: str = ""                 # default: smtp_user
     notify_to: str = ""                 # comma-separated recipients
     notify_webhook: str = ""            # POST {"subject", "body", "title", "message"} as JSON (ntfy, chat hooks, ...)
+    notify_free_gb: float = 50.0        # warn once when the HDD's free space drops below this (0 = never)
 
     def ensure_token(self) -> str:
         if not self.api_token:

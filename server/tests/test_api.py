@@ -59,9 +59,11 @@ class FakeXsrs:
         all_ = [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
                               False, True, "HDD", 4376, genre_code=48),
                 RecordedTitle("0x0000010000034d79", "録画したドラマ　第２話[字]", datetime(2026, 9, 12, 21, 0, tzinfo=JST), 3600, 2, 1048, 230,
-                              True, False, "HDD", 4000, genre_code=48),
+                              True, False, "HDD", 4000, genre_code=48, last_played=datetime(2026, 9, 13, 1, 0, tzinfo=JST), resume_sec=754),
                 RecordedTitle("0x0000010000034d7a", "別の番組[字]", datetime(2026, 9, 11, 21, 0, tzinfo=JST), 1800, 2, 1024, 240,
-                              False, False, "HDD", 900, genre_code=0)]
+                              False, False, "HDD", 900, genre_code=0),
+                RecordedTitle("0x0000010000034d7b", "録画したドラマ[再]", datetime(2026, 9, 10, 15, 0, tzinfo=JST), 4150, 2, 1049, 230,
+                              False, False, "HDD", 4300, genre_code=48, resume_sec=0)]
         return [t for t in all_ if t.id not in deleted]
 
     async def list_titles(self, count=100, start=0):
@@ -344,7 +346,7 @@ class FakeNotifier:
 
     def __init__(self):
         self.sent = []
-        self.s = type("S", (), {"notify_to": "me@example.com"})()
+        self.s = type("S", (), {"notify_to": "me@example.com", "notify_free_gb": 50.0})()
 
     async def send(self, subject, body):
         self.sent.append((subject, body))
@@ -418,10 +420,10 @@ def test_title_delete(client):
 
 def test_title_groups_and_bulk_delete(client):
     groups = client.get("/api/v1/titles/groups", headers=H).json()
-    assert [(g["name"], g["count"], g["protected_count"], g["size_mb"]) for g in groups] == [("録画したドラマ", 2, 1, 8376), ("別の番組", 1, 0, 900)]
+    assert [(g["name"], g["count"], g["protected_count"], g["size_mb"]) for g in groups] == [("録画したドラマ", 3, 1, 12676), ("別の番組", 1, 0, 900)]
     key = groups[0]["key"]
     members = client.get("/api/v1/titles", headers=H, params={"series": key}).json()
-    assert [m["id"] for m in members] == ["0x0000010000034d78", "0x0000010000034d79"] and members[0]["series"] == key
+    assert [m["id"] for m in members] == ["0x0000010000034d78", "0x0000010000034d79", "0x0000010000034d7b"] and members[0]["series"] == key
     assert [g["name"] for g in client.get("/api/v1/titles/groups", headers=H, params={"genre": 0}).json()] == ["別の番組"]
     job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"]})
     assert job.status_code == 202 and job.json()["total"] == 3
@@ -433,7 +435,7 @@ def test_title_groups_and_bulk_delete(client):
     assert r["finished"] and r["done"] == 3 and r["error"] is None
     assert r["deleted"] == ["0x0000010000034d78"]
     assert [(s["id"], s["reason"]) for s in r["skipped"]] == [("0x0000010000034d79", "protected"), ("0x1", "not found")]
-    assert [g["count"] for g in client.get("/api/v1/titles/groups", headers=H).json()] == [1, 1]
+    assert [g["count"] for g in client.get("/api/v1/titles/groups", headers=H).json()] == [2, 1]
     assert client.get("/api/v1/titles/delete/nope", headers=H).status_code == 404
 
 
@@ -458,3 +460,38 @@ async def _false():
 async def _true(calls, mac):
     calls.append(mac)
     return True
+
+
+def test_watch_state_and_monitor(client):
+    ts = {t["id"]: t for t in client.get("/api/v1/titles", headers=H).json()}
+    assert ts["0x0000010000034d78"]["watch_state"] == "unwatched"
+    assert ts["0x0000010000034d79"]["watch_state"] == "partway" and ts["0x0000010000034d79"]["resume_sec"] == 754
+    assert ts["0x0000010000034d7a"]["watch_state"] == "watched"
+    c = _autorec_client(client)
+    r = c.post("/api/v1/monitor/run", headers=H).json()  # the fake recorder has 8.5 GB free
+    assert r["low_space"] is True and r["free_gb"] == 8.6 and r["notified"] == ["email"]
+    assert "HDD 残量警告" in c.bridge.notifier.sent[-1][0]
+    assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is False and len(c.bridge.notifier.sent) == 1
+    # a reservation the recorder flags as conflicting is reported once
+    other = Reservation("0x7", "重なる予約", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 900, "1", 2, 1040, None, 240, False, True, "HDD", None, "2000")
+    c.bridge.recorder.xsrs.reservations.append(other)
+    r = c.post("/api/v1/monitor/run", headers=H).json()
+    assert r["new_conflicts"] == ["0x7"] and "予約の重複 1 件" in c.bridge.notifier.sent[-1][0] and "重なる予約" in c.bridge.notifier.sent[-1][1]
+    assert c.post("/api/v1/monitor/run", headers=H).json()["new_conflicts"] == [] and len(c.bridge.notifier.sent) == 2
+
+
+def test_duplicate_scan_suggests_the_later_copy(client):
+    job = client.post("/api/v1/titles/duplicates", headers=H)
+    assert job.status_code == 202
+    for _ in range(100):
+        r = client.get(f"/api/v1/titles/duplicates/{job.json()['id']}", headers=H).json()
+        if r["finished"]:
+            break
+        time.sleep(0.02)
+    assert r["error"] is None and r["total"] == 2 and r["done"] == 2
+    assert len(r["sets"]) == 1
+    s = r["sets"][0]
+    assert s["confidence"] == "high" and {i["id"] for i in s["items"]} == {"0x0000010000034d78", "0x0000010000034d7b"}
+    assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
+    assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
+    assert client.bridge.store.title_summary("0x0000010000034d78") == "あらすじ"

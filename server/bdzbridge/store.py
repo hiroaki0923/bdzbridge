@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS auto_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id INTEGER NOT NULL, bt TEXT NOT NULL, service_id INTEGER NOT NULL,
   event_id INTEGER NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL, status TEXT NOT NULL, message TEXT,
   at TEXT NOT NULL, UNIQUE (rule_id, bt, service_id, event_id));
+CREATE TABLE IF NOT EXISTS title_summaries (id TEXT PRIMARY KEY, summary TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
 CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
 """
@@ -108,6 +109,16 @@ class Store:
             self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                             (f"epg_refreshed:{bt}", datetime.now(JST).isoformat(timespec="seconds")))
         return len(rows)
+
+    # --- recorded-title summaries (for duplicate detection; the recorder is slow to ask) ---
+    def title_summary(self, title_id: str) -> str | None:
+        r = self.db.execute("SELECT summary FROM title_summaries WHERE id=?", (title_id,)).fetchone()
+        return r[0] if r else None
+
+    def set_title_summary(self, title_id: str, summary: str) -> None:
+        with self._lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO title_summaries (id, summary, at) VALUES (?,?,?)",
+                            (title_id, summary, datetime.now(JST).isoformat(timespec="seconds")))
 
     # --- auto-reservation rules ---
     def rules(self) -> list[dict]:
