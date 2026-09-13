@@ -1,0 +1,7 @@
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+notes/
+CLAUDE.local.md
+server/tests/fixtures/*.dat
