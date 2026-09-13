@@ -162,6 +162,64 @@ class RecorderSelect(BaseModel):
     host: str
 
 
+class RuleCreate(BaseModel):
+    query: str = Field(min_length=1, max_length=100, description="matched case-insensitively (NFKC) against the title, or title + description")
+    broadcasting: Broadcasting | None = None
+    service_id: int | None = None
+    title_only: bool = True
+    quality: Quality | None = None
+
+
+class RuleUpdate(BaseModel):
+    enabled: bool | None = None
+    quality: Quality | None = None
+    title_only: bool | None = None
+
+
+class Rule(BaseModel):
+    id: int
+    query: str
+    broadcasting: Broadcasting | None = None
+    service_id: int | None = None
+    service_name: str | None = None
+    title_only: bool
+    quality: Quality
+    enabled: bool
+    created: datetime
+
+
+class AutoLogEntry(BaseModel):
+    id: int
+    rule_id: int
+    rule_query: str | None = None
+    broadcasting: str
+    service_id: int
+    event_id: int
+    title: str
+    start: datetime
+    status: Literal["reserved", "conflict", "error"]
+    message: str | None = None
+    at: datetime
+
+
+class AutoRunResult(BaseModel):
+    rules: int
+    checked: int
+    reserved: int
+    conflicts: int
+    errors: int
+    notified: list[str] = Field(default_factory=list, description="channels that delivered the report: email, webhook")
+    at: datetime | None = None
+
+
+class NotifyStatus(BaseModel):
+    configured: bool
+    email: bool
+    webhook: bool
+    to: str | None = None
+    sent: list[str] = Field(default_factory=list)
+
+
 class Defaults(BaseModel):
     quality: Quality
     repeat: Repeat

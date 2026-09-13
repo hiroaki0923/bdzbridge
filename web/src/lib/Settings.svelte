@@ -8,6 +8,8 @@
     busy = true; error = ''
     try { await fn(); await loadStatus(); toast(label) } catch (e) { error = e.message } finally { busy = false }
   }
+  let notify = $state(null)
+  $effect(() => { api('/notify').then((n) => (notify = n)).catch(() => (notify = null)) })
   const epg = $derived(app.status?.epg ?? {})
   const names = { td: '地デジ', bs: 'BS', cs: 'CS', bs4k: 'BS4K', cs4k: 'CS4K' }
 </script>
@@ -25,6 +27,15 @@
   <button class="btn ghost" disabled={busy} onclick={() => run('電源を入れました', () => api('/recorder/power', { method: 'POST' }))}>レコーダーの電源を入れる</button>
   <button class="btn ghost" disabled={busy} onclick={() => run('予約を再読込しました', loadReservations)}>予約一覧を再読込</button>
   {#if error}<p class="error">{error}</p>{/if}
+</div>
+<div class="card">
+  <div class="title">通知</div>
+  <div class="muted">
+    {#if notify === null}—
+    {:else if !notify.configured}未設定です。サーバーの .env に RECBRIDGE_SMTP_*（メール）か RECBRIDGE_NOTIFY_WEBHOOK を書くと、自動予約の結果が届きます。
+    {:else}メール: {notify.email ? notify.to : 'なし'} · Webhook: {notify.webhook ? 'あり' : 'なし'}{/if}
+  </div>
+  {#if notify?.configured}<button class="btn ghost" disabled={busy} onclick={() => run('テスト通知を送りました', () => api('/notify/test', { method: 'POST' }))}>テスト通知を送る</button>{/if}
 </div>
 <div class="card">
   <button class="btn ghost" onclick={onreselect}>レコーダーを選び直す</button>

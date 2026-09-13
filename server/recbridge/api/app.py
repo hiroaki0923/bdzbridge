@@ -12,7 +12,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
+from ..autorec import run_rules
 from ..config import Settings
+from ..notify import Notifier
 from ..recorder import codes, discovery
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
@@ -86,6 +88,9 @@ class Bridge:
         self.refresh_lock = asyncio.Lock()
         self.last_error: str | None = None
         self.http = httpx.AsyncClient(timeout=10.0)
+        self.notifier = Notifier(settings, self.http)
+        self.clock = lambda: datetime.now(JST)  # tests override this
+        self.last_autorec: dict | None = None
 
     @property
     def configured(self) -> bool:
@@ -167,7 +172,13 @@ class Bridge:
                     await asyncio.to_thread(self.store.replace_logos, bt, logos)
                     result[bt]["logos"] = len(logos)
             self.last_error = None
-            return result
+        if any("programs" in v and v["programs"] for v in result.values()):
+            try:
+                self.last_autorec = await run_rules(self, self.clock())
+                result["auto"] = self.last_autorec
+            except Exception as e:
+                log.warning("auto-reservation failed: %s", e)
+        return result
 
     async def refresh_loop(self) -> None:
         first = self.settings.epg_refresh_on_start
@@ -404,6 +415,83 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
                 await rec.xsrs.delete_reservation(reservation_id)
         except XsrsError as e:
             raise HTTPException(502 if e.code not in ("701", "801") else 404, str(e))
+
+    # --- keyword auto-reservation ---
+    def rule_out(b: Bridge, r: dict) -> S.Rule:
+        name = None
+        if r["bt"] and r["service_id"] is not None:
+            ch = [c for c in b.store.channels(r["bt"]) if c["service_id"] == r["service_id"]]
+            name = ch[0]["name"] if ch else None
+        return S.Rule(id=r["id"], query=r["query"], broadcasting=r["bt"], service_id=r["service_id"], service_name=name,
+                      title_only=bool(r["title_only"]), quality=r["quality"], enabled=bool(r["enabled"]), created=r["created"])
+
+    def log_out(r: dict) -> S.AutoLogEntry:
+        return S.AutoLogEntry(id=r["id"], rule_id=r["rule_id"], rule_query=r["rule_query"], broadcasting=r["bt"],
+                              service_id=r["service_id"], event_id=r["event_id"], title=r["title"],
+                              start=datetime.fromtimestamp(r["start"], JST), status=r["status"], message=r["message"], at=r["at"])
+
+    @app.get(v1 + "/rules", response_model=list[S.Rule], dependencies=[Depends(auth)])
+    async def rules(request: Request):
+        b = bridge_of(request)
+        return [rule_out(b, r) for r in b.store.rules()]
+
+    @app.post(v1 + "/rules", response_model=S.Rule, status_code=201, dependencies=[Depends(auth)])
+    async def rule_create(request: Request, req: S.RuleCreate,
+                          run: bool = Query(False, description="apply every rule right away (reserves on the recorder)")):
+        b = bridge_of(request)
+        r = b.store.add_rule(req.query, req.broadcasting, req.service_id, req.title_only, req.quality or b.settings.default_quality)
+        if run and b.configured:
+            b.last_autorec = await run_rules(b, b.clock())
+        return rule_out(b, r)
+
+    @app.get(v1 + "/rules/log", response_model=list[S.AutoLogEntry], dependencies=[Depends(auth)])
+    async def rules_log(request: Request, limit: int = Query(50, le=500)):
+        return [log_out(r) for r in bridge_of(request).store.auto_log(limit)]
+
+    @app.post(v1 + "/rules/run", response_model=S.AutoRunResult, dependencies=[Depends(auth)])
+    async def rules_run(request: Request):
+        b = bridge_of(request)
+        b.require_recorder()
+        b.last_autorec = await run_rules(b, b.clock())
+        return b.last_autorec
+
+    @app.get(v1 + "/rules/{rule_id}/matches", response_model=list[S.Program], dependencies=[Depends(auth)])
+    async def rule_matches(request: Request, rule_id: int):
+        """Upcoming programs the rule matches (reserved or not)."""
+        b = bridge_of(request)
+        r = b.store.rule(rule_id)
+        if r is None:
+            raise HTTPException(404, "rule not found")
+        return [program_out(p, True) for p in b.store.rule_matches(r, since=b.clock() + timedelta(minutes=1))]
+
+    @app.patch(v1 + "/rules/{rule_id}", response_model=S.Rule, dependencies=[Depends(auth)])
+    async def rule_update(request: Request, rule_id: int, req: S.RuleUpdate):
+        b = bridge_of(request)
+        r = b.store.update_rule(rule_id, enabled=req.enabled, quality=req.quality, title_only=req.title_only)
+        if r is None:
+            raise HTTPException(404, "rule not found")
+        return rule_out(b, r)
+
+    @app.delete(v1 + "/rules/{rule_id}", status_code=204, dependencies=[Depends(auth)])
+    async def rule_delete(request: Request, rule_id: int):
+        if not bridge_of(request).store.delete_rule(rule_id):
+            raise HTTPException(404, "rule not found")
+
+    @app.get(v1 + "/notify", response_model=S.NotifyStatus, dependencies=[Depends(auth)])
+    async def notify_status(request: Request):
+        n = bridge_of(request).notifier
+        return S.NotifyStatus(configured=n.configured, email=n.email_configured, webhook=n.webhook_configured,
+                              to=n.s.notify_to or None)
+
+    @app.post(v1 + "/notify/test", response_model=S.NotifyStatus, dependencies=[Depends(auth)])
+    async def notify_test(request: Request):
+        n = bridge_of(request).notifier
+        if not n.configured:
+            raise HTTPException(400, "no notification channel configured (RECBRIDGE_SMTP_* / RECBRIDGE_NOTIFY_*)")
+        sent = await n.send("[recbridge] テスト通知", "recbridge からのテスト通知です。自動予約の結果はこの宛先に届きます。\n")
+        if not sent:
+            raise HTTPException(502, "sending failed; see the server log")
+        return S.NotifyStatus(configured=True, email=n.email_configured, webhook=n.webhook_configured, to=n.s.notify_to or None, sent=sent)
 
     @app.get(v1 + "/titles", response_model=list[S.RecordedTitle], dependencies=[Depends(auth)])
     async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0):

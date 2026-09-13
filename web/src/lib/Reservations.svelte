@@ -4,6 +4,25 @@
   let confirmTarget = $state(null)
   let busy = $state(false)
   let error = $state('')
+  let rules = $state([])
+  let autoLog = $state([])
+  let autoOpen = $state(false)
+  let autoBusy = $state(false)
+  async function loadAuto() {
+    try { [rules, autoLog] = await Promise.all([api('/rules'), api('/rules/log', { query: { limit: 10 } })]) } catch { /* older server */ }
+  }
+  $effect(() => { loadAuto() })
+  async function toggleRule(r) { await api(`/rules/${r.id}`, { method: 'PATCH', body: { enabled: !r.enabled } }); await loadAuto() }
+  async function deleteRule(r) { await api(`/rules/${r.id}`, { method: 'DELETE' }); await loadAuto(); toast('自動予約を削除しました') }
+  async function runRules() {
+    autoBusy = true; error = ''
+    try {
+      const res = await api('/rules/run', { method: 'POST' })
+      toast(`自動予約: ${res.reserved} 件予約${res.conflicts ? '、重複 ' + res.conflicts + ' 件' : ''}${res.errors ? '、失敗 ' + res.errors + ' 件' : ''}`)
+      await Promise.all([loadReservations(), loadAuto()])
+    } catch (e) { error = e.message } finally { autoBusy = false }
+  }
+  const statusLabel = { reserved: '予約', conflict: '重複', error: '失敗' }
   const SORTS = [['time', '日時'], ['genre', 'ジャンル'], ['channel', '局']]
   let sort = $state(localStorage.getItem('recbridge.resSort') || 'time')
   $effect(() => { localStorage.setItem('recbridge.resSort', sort) })
@@ -42,6 +61,25 @@
 </script>
 
 <div class="row" style="justify-content: space-between"><h1>予約 <span class="muted">{app.reservations.length} 件</span></h1><button class="chip" onclick={refresh}>{busy ? '…' : '更新'}</button></div>
+<div class="card">
+  <button class="row" style="width:100%; justify-content: space-between" onclick={() => (autoOpen = !autoOpen)}>
+    <span class="title">自動予約 <span class="muted">{rules.length} 件のキーワード</span></span><span class="muted">{autoOpen ? '閉じる' : '開く'}</span>
+  </button>
+  {#if autoOpen}
+    {#if rules.length === 0}<p class="muted">検索タブでキーワードを検索して「自動予約」を押すと登録できます。番組表の更新のたびに該当番組を予約して通知します。</p>{/if}
+    {#each rules as r (r.id)}
+      <div class="field">
+        <span><b>{r.query}</b><br /><span class="muted">{r.service_name ?? (r.broadcasting ? app.defaults?.broadcastings?.[r.broadcasting] ?? r.broadcasting : '全放送')} · {r.quality} · {r.title_only ? 'タイトル' : 'タイトル+説明'}</span></span>
+        <span class="row"><button class="chip" class:on={r.enabled} onclick={() => toggleRule(r)}>{r.enabled ? '有効' : '停止中'}</button><button class="chip" onclick={() => deleteRule(r)}>削除</button></span>
+      </div>
+    {/each}
+    {#if rules.length}<button class="btn ghost" disabled={autoBusy} onclick={runRules}>{autoBusy ? '実行中…' : '今すぐ実行'}</button>{/if}
+    {#if autoLog.length}
+      <p class="muted" style="margin:10px 0 4px">最近の結果</p>
+      {#each autoLog as l (l.id)}<div class="muted">{fmtDateTime(l.start)} {l.title} — {statusLabel[l.status] ?? l.status}{l.message ? '（' + l.message + '）' : ''}</div>{/each}
+    {/if}
+  {/if}
+</div>
 <div class="seg">{#each SORTS as [id, label]}<button class:on={sort === id} onclick={() => (sort = id)}>{label}</button>{/each}</div>
 {#if app.reservations.length === 0}<div class="list"><p class="empty">予約はありません</p></div>{/if}
 {#each groups as g (g.key)}
