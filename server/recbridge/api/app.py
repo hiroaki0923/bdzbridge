@@ -38,7 +38,8 @@ def _genres_from_code(code: int | None) -> list[S.Genre]:
 def program_out(p: ProgramRow, compact: bool = False) -> S.Program:
     return S.Program(broadcasting=p.bt, service_id=p.service_id, service_name=p.service_name, event_id=p.event_id,
                      start=p.start, end=p.end, duration_sec=int((p.end - p.start).total_seconds()), title=p.title,
-                     description=p.description, extended=p.extended, genres=_genres(p.genres),
+                     description="" if compact else p.description, extended="" if compact else p.extended,
+                     genres=_genres(p.genres),
                      copy_control=p.copy_control, parental_rating=p.parental, is_reference=p.is_reference,
                      ref_service_id=p.ref_service_id, ref_event_id=p.ref_event_id)
 
@@ -286,13 +287,14 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     async def programs(request: Request, broadcasting: S.Broadcasting | None = None, service_id: int | None = None,
                        date: str | None = Query(None, description="YYYY-MM-DD; TV day 04:00-04:00 JST"),
                        since: datetime | None = None, until: datetime | None = None, q: str | None = None,
+                       compact: bool = Query(False, description="omit description/extended (for the grid view)"),
                        limit: int = Query(500, le=5000), offset: int = 0):
         store = bridge_of(request).store
         if date:
             since, until = store.day_range(datetime.fromisoformat(date).replace(tzinfo=JST))
         rows = store.programs(bt=broadcasting, service_id=service_id, since=since, until=until, query=q,
                               limit=limit, offset=offset)
-        return [program_out(p) for p in rows]
+        return [program_out(p, compact) for p in rows]
 
     @app.get(v1 + "/programs/now", response_model=list[S.Program], dependencies=[Depends(auth)])
     async def programs_now(request: Request, broadcasting: S.Broadcasting = "td"):
