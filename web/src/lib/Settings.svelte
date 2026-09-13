@@ -25,7 +25,12 @@
     {#if epg.last_error}<span class="error">取得エラー: {epg.last_error}</span>{/if}
   </div>
   <button class="btn ghost" disabled={busy} onclick={() => run('番組表を更新しました', () => api('/epg/refresh', { method: 'POST' }))}>番組表を今すぐ更新</button>
-  <button class="btn ghost" disabled={busy} onclick={() => run('電源を入れました', () => api('/recorder/power', { method: 'POST' }))}>レコーダーの電源を入れる</button>
+  {#if app.status?.reachable === false}
+    <p class="error">レコーダーがネットワークに応答していません。{app.status.mac ? 'Wake-on-LAN で起動を試せます。' : 'MAC アドレスが分からないので、本体の電源を入れてください。'}</p>
+    {#if app.status.mac}<button class="btn" disabled={busy} onclick={() => run('起動しました', () => api('/recorder/wake', { method: 'POST' }))}>レコーダーを起動する（Wake-on-LAN）</button>{/if}
+  {:else}
+    <button class="btn ghost" disabled={busy} onclick={() => run('電源を入れました', () => api('/recorder/power', { method: 'POST' }))}>レコーダーの電源を入れる</button>
+  {/if}
   <button class="btn ghost" disabled={busy} onclick={() => run('予約を再読込しました', loadReservations)}>予約一覧を再読込</button>
   {#if error}<p class="error">{error}</p>{/if}
 </div>

@@ -198,6 +198,8 @@ class RecorderStatus(BaseModel):
     power: str | None = None
     play: str | None = None
     storage: Storage | None = None
+    reachable: bool | None = Field(default=None, description="False when the recorder is not answering on the network (try POST /recorder/wake)")
+    mac: str | None = None
     epg: dict
 
 

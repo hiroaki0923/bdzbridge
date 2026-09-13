@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BDZBRIDGE_", env_file=".env", extra="ignore")
 
     recorder_host: str = ""             # empty = use the host saved via the API, else start unconfigured
+    recorder_mac: str = ""              # for Wake-on-LAN; default: learned from the ARP table when the recorder is selected
     scan_networks: str = ""             # comma-separated CIDRs to scan; default: the primary interface's /24
     api_token: str = ""                 # empty = generate one at startup and print it
     db_path: str = "data/bdzbridge.sqlite3"
