@@ -252,6 +252,26 @@ class XsrsClient:
         text = _find_text(res, "channelList") or ""
         return [int(x) for x in text.split("_") if x]
 
+    async def play_control(self, title_id: str, operation: str, position: int = 0) -> None:
+        """Playback on the TV connected to the recorder. operation: play | stop | pause (lower case; "pause" toggles,
+        there is no resume). "play" with a Position restarts from the beginning on the BDZ-FBT4100.
+        The recorder must be fully on (X_PowerControl "on"); in network standby it answers error 880."""
+        await self._call("/X_PvrControl", PVR_TYPE, "X_PlayControlTitle",
+                         [("TitleID", title_id), ("Operation", operation), ("Position", position)])
+
+    async def title_detail(self, title_id: str) -> dict:
+        """Summary and detail paragraphs of a recorded title (from its EPG data)."""
+        res = await self._pvr("X_GetTitleDetail", [("Id", title_id)])
+        root = ET.fromstring(res)
+        out = {"summary": "", "details": []}
+        for e in root:
+            tag = e.tag.split("}")[-1]
+            if tag == "summary":
+                out["summary"] = (e.text or "").strip()
+            elif tag.startswith("detail"):
+                out["details"].append((e.text or "").strip())
+        return out
+
     # --- ContentDirectory ---
     async def browse_children(self, object_id: str, count: int = 5, control_url: str = "/DMSContentDirectory") -> str:
         """Raw DIDL-Lite of a container's children (used to learn the media server's streaming port)."""

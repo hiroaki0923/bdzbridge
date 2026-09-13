@@ -54,11 +54,17 @@ def reservation_out(r: XReservation, store: Store | None = None) -> S.Reservatio
                          created_by_app=r.creator == "2200")
 
 
-def title_out(t: XTitle) -> S.RecordedTitle:
-    return S.RecordedTitle(id=t.id, title=t.title, start=t.start, duration_sec=t.duration_sec,
-                           broadcasting=codes.BROADCASTING_BY_CODE.get(t.broadcasting_type, str(t.broadcasting_type)),
-                           service_id=t.service_id, quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)),
-                           protected=t.protected, is_new=t.is_new, destination=t.destination, size_mb=t.size_mb)
+def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
+    bt = codes.BROADCASTING_BY_CODE.get(t.broadcasting_type, str(t.broadcasting_type))
+    name = None
+    if store and bt in codes.EPG_FILES:
+        ch = [c for c in store.channels(bt) if c["service_id"] == t.service_id]
+        name = ch[0]["name"] if ch else None
+    return S.RecordedTitle(id=t.id, title=t.title, start=t.start, duration_sec=t.duration_sec, broadcasting=bt,
+                           service_id=t.service_id, service_name=name,
+                           quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)), protected=t.protected,
+                           is_new=t.is_new, destination=t.destination, size_mb=t.size_mb,
+                           dlna_id=RecorderClient.cds_id(t.id))
 
 
 class Bridge:
@@ -376,10 +382,77 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
 
     @app.get(v1 + "/titles", response_model=list[S.RecordedTitle], dependencies=[Depends(auth)])
     async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0):
-        rec = bridge_of(request).require_recorder()
+        b = bridge_of(request)
+        rec = b.require_recorder()
         async with rec.lock:
             items = await rec.xsrs.list_titles(count=limit, start=offset)
-        return [title_out(t) for t in items]
+        return [title_out(t, b.store) for t in items]
+
+    def _playback(st: dict) -> S.PlaybackStatus:
+        return S.PlaybackStatus(power=st.get("powerstatus"), play=st.get("playstatus"), title_id=st.get("item"),
+                                position_sec=int(st["position"]) if st.get("position", "").isdigit() else None,
+                                chapter=int(st["chapterNumber"]) if st.get("chapterNumber", "").isdigit() else None)
+
+    async def _ensure_on(rec: RecorderClient) -> dict:
+        """Playback needs the recorder fully on; wake it and wait up to ~15 s."""
+        st = await rec.xsrs.play_status()
+        if st.get("powerstatus") == "PowerOn":
+            return st
+        await rec.xsrs.power_on()
+        for _ in range(15):
+            await asyncio.sleep(1)
+            st = await rec.xsrs.play_status()
+            if st.get("powerstatus") == "PowerOn":
+                return st
+        raise HTTPException(503, "recorder did not power on")
+
+    @app.get(v1 + "/recorder/playback", response_model=S.PlaybackStatus, dependencies=[Depends(auth)])
+    async def playback_status(request: Request):
+        rec = bridge_of(request).require_recorder()
+        async with rec.lock:
+            return _playback(await rec.xsrs.play_status())
+
+    @app.post(v1 + "/recorder/playback", response_model=S.PlaybackStatus, dependencies=[Depends(auth)])
+    async def playback_control(request: Request, req: S.PlaybackControl):
+        rec = bridge_of(request).require_recorder()
+        try:
+            async with rec.lock:
+                st = await rec.xsrs.play_status()
+                title_id = st.get("item")
+                if not title_id:
+                    raise HTTPException(409, "nothing is playing")
+                paused = st.get("playstatus") == "Paused"
+                if req.operation == "resume" and not paused:
+                    raise HTTPException(409, "not paused")
+                # There is no resume operation; "pause" toggles between Paused and Playing.
+                await rec.xsrs.play_control(title_id, "pause" if req.operation == "resume" else req.operation)
+                await asyncio.sleep(1)
+                return _playback(await rec.xsrs.play_status())
+        except XsrsError as e:
+            raise HTTPException(502, str(e))
+
+    @app.post(v1 + "/titles/{title_id}/play", response_model=S.PlaybackStatus, dependencies=[Depends(auth)])
+    async def title_play(request: Request, title_id: str, position_sec: int = Query(0, ge=0)):
+        """Start playing a recorded title on the TV connected to the recorder."""
+        rec = bridge_of(request).require_recorder()
+        try:
+            async with rec.lock:
+                await _ensure_on(rec)
+                await rec.xsrs.play_control(title_id, "play", position_sec)
+                await asyncio.sleep(2)
+                return _playback(await rec.xsrs.play_status())
+        except XsrsError as e:
+            raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
+
+    @app.get(v1 + "/titles/{title_id}", response_model=S.TitleDetail, dependencies=[Depends(auth)])
+    async def title_detail(request: Request, title_id: str):
+        rec = bridge_of(request).require_recorder()
+        try:
+            async with rec.lock:
+                detail = await rec.xsrs.title_detail(title_id)
+        except XsrsError as e:
+            raise HTTPException(404 if e.code in ("701", "803", "820") else 502, str(e))
+        return S.TitleDetail(id=title_id, summary=detail["summary"], details=detail["details"])
 
     static_dir = Path(settings.static_dir) if settings.static_dir else Path(__file__).resolve().parents[3] / "web" / "dist"
     if static_dir.is_dir():

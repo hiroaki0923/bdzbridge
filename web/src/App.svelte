@@ -6,6 +6,7 @@
   import Guide from './lib/Guide.svelte'
   import Search from './lib/Search.svelte'
   import Reservations from './lib/Reservations.svelte'
+  import Titles from './lib/Titles.svelte'
   import Settings from './lib/Settings.svelte'
   import ProgramSheet from './lib/ProgramSheet.svelte'
 
@@ -29,7 +30,7 @@
   onMount(boot)
 
   const tabs = [
-    ['guide', '番組表', '📺'], ['search', '検索', '🔍'], ['reservations', '予約', '⏺'], ['settings', '設定', '⚙️'],
+    ['guide', '番組表', '📺'], ['search', '検索', '🔍'], ['reservations', '予約', '⏺'], ['titles', '録画', '🎞'], ['settings', '設定', '⚙️'],
   ]
 </script>
 
@@ -42,6 +43,7 @@
     {#if app.tab === 'guide'}<Guide />
     {:else if app.tab === 'search'}<Search />
     {:else if app.tab === 'reservations'}<Reservations />
+    {:else if app.tab === 'titles'}<Titles />
     {:else}<Settings onreselect={() => (phase = 'recorder')} onlogout={() => (phase = 'token')} />{/if}
   </main>
   <nav class="tabbar">

@@ -101,11 +101,31 @@ class RecordedTitle(BaseModel):
     duration_sec: int
     broadcasting: str
     service_id: int
+    service_name: str | None = None
     quality: str
     protected: bool
     is_new: bool
     destination: str
     size_mb: int | None
+    dlna_id: str = Field(description="the title's DLNA object id on the recorder")
+
+
+class PlaybackStatus(BaseModel):
+    power: str | None = None
+    play: str | None = None
+    title_id: str | None = None
+    position_sec: int | None = None
+    chapter: int | None = None
+
+
+class PlaybackControl(BaseModel):
+    operation: Literal["stop", "pause", "resume"] = Field(description="resume is only valid while paused")
+
+
+class TitleDetail(BaseModel):
+    id: str
+    summary: str = ""
+    details: list[str] = []
 
 
 class RecorderStatus(BaseModel):

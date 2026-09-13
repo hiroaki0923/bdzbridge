@@ -34,6 +34,9 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | POST | /api/v1/reservations | create (409 on conflict unless `force`) |
 | PATCH | /api/v1/reservations/{id} | change quality / repeat (time-based ones: also title, start, duration) |
 | DELETE | /api/v1/reservations/{id} | delete |
-| GET | /api/v1/titles | recorded titles |
+| GET | /api/v1/titles?limit=&offset= | recorded titles (newest first) |
+| GET | /api/v1/titles/{id} | program text of one title |
+| POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
+| GET/POST | /api/v1/recorder/playback | playback status / `{"operation":"pause"|"resume"|"stop"}` |
 
 Reservation body: `{"broadcasting":"td","service_id":1024,"event_id":14792,"quality":"LSR","repeat":"none"}` or, without an event id, `start` + `duration_sec` + `title`.
