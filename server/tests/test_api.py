@@ -267,3 +267,25 @@ def test_channels_carry_logos(client):
     assert by_id[1024]["logo"].startswith("data:image/png;base64,")
     assert b"PLTE" in base64.b64decode(by_id[1024]["logo"].split(",", 1)[1])
     assert by_id[1025]["logo"] is None
+
+
+def test_reservations_carry_program_genres(client):
+    client.post("/api/v1/epg/refresh", headers=H)
+    r = client.post("/api/v1/reservations", headers=H,
+                    json={"broadcasting": "td", "service_id": 1024, "event_id": 14792, "quality": "LSR", "repeat": "none"})
+    assert r.status_code == 201, r.text
+    res = [x for x in client.get("/api/v1/reservations", headers=H).json() if x["event_id"] == 14792]
+    assert res and [g["label"] for g in res[0]["genres"]] == ["ニュース／報道", "ニュース／報道"]
+    assert res[0]["genres"][1]["level2"] == 1
+
+
+def test_titles_and_reservations_fall_back_to_genre_code(client):
+    from recbridge.api.app import reservation_out
+    from recbridge.recorder.xsrs import Reservation
+
+    ts = client.get("/api/v1/titles", headers=H).json()
+    assert [g["label"] for g in ts[0]["genres"]] == ["ドラマ"] and ts[0]["genres"][0]["level2"] == 0
+    r = Reservation("0x1", "x", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 1800, "1", 2, 1024, None, 230, False, False, "HDD", None, None,
+                    genre_code=112)
+    assert [g.label for g in reservation_out(r).genres] == ["アニメ／特撮"]
+

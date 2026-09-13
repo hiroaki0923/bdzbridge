@@ -25,6 +25,7 @@ h1 { font-size: 20px; margin: 14px 0 8px; }
 .seg button { flex: 1; padding: 7px 0; border-radius: 8px; font-size: 14px; }
 .seg button.on { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
 .list { background: var(--card); border-radius: 12px; overflow: hidden; }
+.group-head { font-size: 13px; font-weight: 600; padding: 12px 4px 4px; }
 .item { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); width: 100%; text-align: left; }
 .item:first-child { border-top: 0; }
 .item .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; padding-top: 1px; }

@@ -47,17 +47,21 @@ def reservation_out(r: XReservation, store: Store | None = None) -> S.Reservatio
     bt = codes.BROADCASTING_BY_CODE.get(r.broadcasting_type, str(r.broadcasting_type))
     repeat = codes.REPEAT_BY_CODE.get(r.repeat_code, r.repeat_code)
     quality = codes.QUALITY_BY_CODE.get(r.quality_code, str(r.quality_code))
-    name = None
-    if store:
-        ch = [c for c in store.channels(bt) if c["service_id"] == r.service_id] if bt in codes.EPG_FILES else []
+    name, genres = None, []
+    if store and bt in codes.EPG_FILES:
+        ch = [c for c in store.channels(bt) if c["service_id"] == r.service_id]
         name = ch[0]["name"] if ch else None
+        if r.event_id is not None and (p := store.program(bt, r.service_id, r.event_id)):
+            genres = _genres(p.genres)
+    if not genres:
+        genres = _genres_from_code(r.genre_code)
     return S.Reservation(id=r.id, title=r.title, start=r.start, end=r.start + timedelta(seconds=r.duration_sec),
                          duration_sec=r.duration_sec, broadcasting=bt, service_id=r.service_id, service_name=name,
                          event_id=r.event_id, tracks_program=r.event_id is not None, repeat=repeat,
                          repeat_label=codes.REPEAT_LABEL.get(repeat, repeat), quality=quality,
                          quality_label=codes.QUALITY_LABEL.get(quality, quality), recording=r.recording,
                          conflict=r.conflict, destination=r.destination, size_mb=r.size_mb,
-                         created_by_app=r.creator == "2200")
+                         created_by_app=r.creator == "2200", genres=genres)
 
 
 def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
