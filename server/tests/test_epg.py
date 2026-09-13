@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from recbridge.recorder import epg as epgmod
-from recbridge.recorder.epg import decode_epg_file, encode_epg_file, encode_service, parse_service
+from bdzbridge.recorder import epg as epgmod
+from bdzbridge.recorder.epg import decode_epg_file, encode_epg_file, encode_service, parse_service
 
-REAL = Path(os.environ.get("RECBRIDGE_TEST_EPG_FILE", "tests/fixtures/EPG_TRDEPG_FILE.dat"))
+REAL = Path(os.environ.get("BDZBRIDGE_TEST_EPG_FILE", "tests/fixtures/EPG_TRDEPG_FILE.dat"))
 
 
 def test_roundtrip(services):
@@ -28,7 +28,7 @@ def test_service_record_layout(services):
     assert parse_service(rec).service_id == 1024
 
 
-@pytest.mark.skipif(not REAL.exists(), reason="set RECBRIDGE_TEST_EPG_FILE to a captured EPG_TRDEPG_FILE.dat")
+@pytest.mark.skipif(not REAL.exists(), reason="set BDZBRIDGE_TEST_EPG_FILE to a captured EPG_TRDEPG_FILE.dat")
 def test_real_file_decodes():
     out = decode_epg_file(REAL.read_bytes())
     nhk = next(s for s in out if s.service_id == 1024)
@@ -37,7 +37,7 @@ def test_real_file_decodes():
 
 
 def test_clean_maps_arib_symbols():
-    from recbridge.recorder.epg import _clean
+    from bdzbridge.recorder.epg import _clean
     assert _clean("ニュース\x00\x00".encode()) == "ニュース[字][手]"
     assert _clean("謎の記号".encode()) == "謎の記号"
 

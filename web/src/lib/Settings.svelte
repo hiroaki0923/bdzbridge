@@ -33,7 +33,7 @@
   <div class="title">通知</div>
   <div class="muted">
     {#if notify === null}—
-    {:else if !notify.configured}未設定です。サーバーの .env に RECBRIDGE_SMTP_*（メール）か RECBRIDGE_NOTIFY_WEBHOOK を書くと、自動予約の結果が届きます。
+    {:else if !notify.configured}未設定です。サーバーの .env に BDZBRIDGE_SMTP_*（メール）か BDZBRIDGE_NOTIFY_WEBHOOK を書くと、自動予約の結果が届きます。
     {:else}メール: {notify.email ? notify.to : 'なし'} · Webhook: {notify.webhook ? 'あり' : 'なし'}{/if}
   </div>
   {#if notify?.configured}<button class="btn ghost" disabled={busy} onclick={() => run('テスト通知を送りました', () => api('/notify/test', { method: 'POST' }))}>テスト通知を送る</button>{/if}
@@ -42,4 +42,4 @@
   <button class="btn ghost" onclick={onreselect}>レコーダーを選び直す</button>
   <button class="btn ghost" onclick={() => { setToken(''); onlogout() }}>トークンを変更（サインアウト）</button>
 </div>
-<p class="muted" style="text-align:center">recbridge web 0.1</p>
+<p class="muted" style="text-align:center">bdzbridge web 0.1</p>

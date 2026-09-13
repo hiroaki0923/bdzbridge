@@ -89,7 +89,7 @@ GET http://<recorder>:60151//EPG_TRDLOGO_FILE.dat     局ロゴ（BS/CS/ADVBSD/A
 
 ## 検証
 
-2026-09-13 に BDZ-FBT4100 で取得した地デジ 26 局・8 日分（8,388 番組）を復号し、event_id と番組名が同じ放送の他の番組表と一致することを確認した。得られる service_id / event_id は、予約 API（`xsrs-api.md`）の `scheduledChannelID` / `desiredMatchingID` にそのまま使える。実装は `server/recbridge/recorder/epg.py`。
+2026-09-13 に BDZ-FBT4100 で取得した地デジ 26 局・8 日分（8,388 番組）を復号し、event_id と番組名が同じ放送の他の番組表と一致することを確認した。得られる service_id / event_id は、予約 API（`xsrs-api.md`）の `scheduledChannelID` / `desiredMatchingID` にそのまま使える。実装は `server/bdzbridge/recorder/epg.py`。
 
 ## 局ロゴファイル
 

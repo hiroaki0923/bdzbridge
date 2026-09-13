@@ -32,7 +32,7 @@ from ..recorder.xsrs import (
 from ..store import ProgramRow, Store
 from . import schemas as S
 
-log = logging.getLogger("recbridge")
+log = logging.getLogger("bdzbridge")
 bearer = HTTPBearer(auto_error=False)
 
 
@@ -271,7 +271,7 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
             if bridge is None:
                 await b.close()
 
-    app = FastAPI(title="recbridge", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="bdzbridge", version="0.1.0", lifespan=lifespan)
 
     async def auth(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> None:
         if creds is None or creds.credentials != token:
@@ -540,8 +540,8 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     async def notify_test(request: Request):
         n = bridge_of(request).notifier
         if not n.configured:
-            raise HTTPException(400, "no notification channel configured (RECBRIDGE_SMTP_* / RECBRIDGE_NOTIFY_*)")
-        sent = await n.send("[recbridge] テスト通知", "recbridge からのテスト通知です。自動予約の結果はこの宛先に届きます。\n")
+            raise HTTPException(400, "no notification channel configured (BDZBRIDGE_SMTP_* / BDZBRIDGE_NOTIFY_*)")
+        sent = await n.send("[bdzbridge] テスト通知", "bdzbridge からのテスト通知です。自動予約の結果はこの宛先に届きます。\n")
         if not sent:
             raise HTTPException(502, "sending failed; see the server log")
         return S.NotifyStatus(configured=True, email=n.email_configured, webhook=n.webhook_configured, to=n.s.notify_to or None, sent=sent)

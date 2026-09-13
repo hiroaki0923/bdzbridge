@@ -1,5 +1,5 @@
-// Thin client for the recbridge JSON API. Same origin in production; Vite proxies /api in dev.
-const TOKEN_KEY = 'recbridge.token'
+// Thin client for the bdzbridge JSON API. Same origin in production; Vite proxies /api in dev.
+const TOKEN_KEY = 'bdzbridge.token'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || ''

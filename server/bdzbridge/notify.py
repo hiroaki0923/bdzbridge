@@ -10,7 +10,7 @@ import httpx
 
 from .config import Settings
 
-log = logging.getLogger("recbridge.notify")
+log = logging.getLogger("bdzbridge.notify")
 
 
 class Notifier:
@@ -33,7 +33,7 @@ class Notifier:
     def _send_mail(self, subject: str, body: str) -> None:
         msg = EmailMessage()
         msg["Subject"] = subject
-        msg["From"] = self.s.smtp_from or self.s.smtp_user or f"recbridge@{self.s.smtp_host}"
+        msg["From"] = self.s.smtp_from or self.s.smtp_user or f"bdzbridge@{self.s.smtp_host}"
         msg["To"] = ", ".join(a.strip() for a in self.s.notify_to.split(",") if a.strip())
         msg.set_content(body)
         if self.s.smtp_port == 465:

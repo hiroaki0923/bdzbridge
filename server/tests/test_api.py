@@ -9,12 +9,12 @@ from datetime import datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from recbridge.api.app import Bridge, create_app
-from recbridge.config import Settings
-from recbridge.recorder.epg import JST
-from recbridge.recorder.logo import Logo, with_palette
-from recbridge.recorder.xsrs import Reservation, parse_reservation
-from recbridge.store import Store
+from bdzbridge.api.app import Bridge, create_app
+from bdzbridge.config import Settings
+from bdzbridge.recorder.epg import JST
+from bdzbridge.recorder.logo import Logo, with_palette
+from bdzbridge.recorder.xsrs import Reservation, parse_reservation
+from bdzbridge.store import Store
 from tests.conftest import make_services
 from tests.test_logo import make_png
 
@@ -54,7 +54,7 @@ class FakeXsrs:
         self.reservations = [r for r in self.reservations if r.id != rid]
 
     def _titles(self):
-        from recbridge.recorder.xsrs import RecordedTitle
+        from bdzbridge.recorder.xsrs import RecordedTitle
         deleted = getattr(self, "deleted", set())
         all_ = [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
                               False, True, "HDD", 4376, genre_code=48),
@@ -93,7 +93,7 @@ class FakeXsrs:
         return "35.003.1"
 
     async def delete_title(self, title_id):
-        from recbridge.recorder.xsrs import XsrsError
+        from bdzbridge.recorder.xsrs import XsrsError
         if title_id not in {t.id for t in self._titles()}:
             raise XsrsError("X_DeleteTitle", 500, "701")
         self.deleted = getattr(self, "deleted", set()) | {title_id}
@@ -113,7 +113,7 @@ class FakeRecorder:
         self.info = None
 
     async def discover(self):
-        from recbridge.recorder.client import RecorderInfo
+        from bdzbridge.recorder.client import RecorderInfo
         self.info = RecorderInfo("127.0.0.1", "BDR - TEST", "BDZ-TEST", "BDZ-TEST", True, "uuid:x")
         return self.info
 
@@ -204,7 +204,7 @@ def test_status_and_defaults(client):
 
 
 def test_unconfigured_mode(tmp_path, monkeypatch):
-    from recbridge.recorder import discovery as disc
+    from bdzbridge.recorder import discovery as disc
 
     settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "u.sqlite3"), epg_refresh_on_start=False)
     store = Store(settings.db_path)
@@ -256,7 +256,7 @@ def test_reservation_update(client):
 
 
 def test_epg_refresh_skips_recorders_without_epg(client):
-    from recbridge.recorder.client import RecorderInfo
+    from bdzbridge.recorder.client import RecorderInfo
     client.bridge.recorder.info = RecorderInfo("127.0.0.1", "BDR - OLD", "BDZ-OLD", "BDZ-OLD", False, "uuid:old")
     res = client.post("/api/v1/epg/refresh", headers=H).json()
     assert res["epg_capable"] is False
@@ -315,8 +315,8 @@ def test_reservations_carry_program_genres(client):
 
 
 def test_titles_and_reservations_fall_back_to_genre_code(client):
-    from recbridge.api.app import reservation_out
-    from recbridge.recorder.xsrs import Reservation
+    from bdzbridge.api.app import reservation_out
+    from bdzbridge.recorder.xsrs import Reservation
 
     ts = client.get("/api/v1/titles", headers=H).json()
     assert [g["label"] for g in ts[0]["genres"]] == ["ドラマ"] and ts[0]["genres"][0]["level2"] == 0
@@ -355,7 +355,7 @@ def test_rules_reserve_matching_programs_once(client):
     logs = c.get("/api/v1/rules/log", headers=H).json()
     assert [(x["status"], x["event_id"], x["rule_query"]) for x in logs] == [("reserved", 14794, "vivant")]
     sent = c.bridge.notifier.sent
-    assert len(sent) == 1 and sent[0][0] == "[recbridge] 自動予約 1 件" and "ＶＩＶＡＮＴ" in sent[0][1] and "「vivant」" in sent[0][1]
+    assert len(sent) == 1 and sent[0][0] == "[bdzbridge] 自動予約 1 件" and "ＶＩＶＡＮＴ" in sent[0][1] and "「vivant」" in sent[0][1]
     # a second pass finds nothing new and stays quiet
     run = c.post("/api/v1/rules/run", headers=H).json()
     assert (run["checked"], run["reserved"], run["notified"]) == (1, 0, []) and len(sent) == 1

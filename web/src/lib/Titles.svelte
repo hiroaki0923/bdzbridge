@@ -2,8 +2,8 @@
   import { api, fmtDateTime, fmtDate, fmtTime, fmtBytes } from '../api.js'
   import { app, loadStatus, toast } from '../store.svelte.js'
   const PAGE = 30
-  let mode = $state(localStorage.getItem('recbridge.titleMode') || 'list') // list | groups
-  $effect(() => { localStorage.setItem('recbridge.titleMode', mode) })
+  let mode = $state(localStorage.getItem('bdzbridge.titleMode') || 'list') // list | groups
+  $effect(() => { localStorage.setItem('bdzbridge.titleMode', mode) })
   let titles = $state([]) // newest first, 30 at a time (no filter)
   let all = $state(null) // every title; fetched once a genre is chosen
   let hasMore = $state(true)
@@ -11,8 +11,8 @@
   let busy = $state(true) // true until the first load finishes, so the empty state never flashes
   let loaded = $state(false)
   let error = $state('')
-  let genre = $state(localStorage.getItem('recbridge.titleGenre') ?? '') // '' = all, else the ARIB level-1 code
-  $effect(() => { localStorage.setItem('recbridge.titleGenre', genre) })
+  let genre = $state(localStorage.getItem('bdzbridge.titleGenre') ?? '') // '' = all, else the ARIB level-1 code
+  $effect(() => { localStorage.setItem('bdzbridge.titleGenre', genre) })
   let selected = $state(null)
   let detail = $state(null)
   let playback = $state(null)

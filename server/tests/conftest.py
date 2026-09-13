@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from recbridge.recorder.epg import JST, Program, Service
+from bdzbridge.recorder.epg import JST, Program, Service
 
 
 def make_services() -> list[Service]:

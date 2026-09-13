@@ -383,7 +383,7 @@ wheels = [
 ]
 
 [[package]]
-name = "recbridge"
+name = "bdzbridge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
