@@ -110,6 +110,7 @@ class RecordedTitle(BaseModel):
     size_mb: int | None
     dlna_id: str = Field(description="the title's DLNA object id on the recorder")
 
+    genres: list[Genre] = Field(default_factory=list, description="from the recorder's genreID")
 
 class PlaybackStatus(BaseModel):
     power: str | None = None
@@ -166,3 +167,4 @@ class Defaults(BaseModel):
     qualities: dict[str, str]
     repeats: dict[str, str]
     broadcastings: dict[str, str]
+    genres: dict[int, str] = Field(default_factory=dict, description="ARIB level-1 genre code → label")

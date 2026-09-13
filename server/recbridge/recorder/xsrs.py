@@ -46,6 +46,7 @@ class Reservation:
     destination: str
     size_mb: int | None
     creator: str | None
+    genre_code: int | None = None  # genreID: ARIB content nibbles as level1 * 16 + level2
 
 
 @dataclass
@@ -61,6 +62,12 @@ class RecordedTitle:
     is_new: bool
     destination: str
     size_mb: int | None
+    genre_code: int | None = None
+
+
+def _genre_code(item: ET.Element) -> int | None:
+    g = _text(item, "genreID", "")
+    return int(g) if g.isdigit() else None
 
 
 def _fmt_start(dt: datetime) -> str:
@@ -165,6 +172,7 @@ def parse_reservation(item: ET.Element) -> Reservation:
         destination=_text(item, "recordDestinationID", "HDD"),
         size_mb=int(_text(item, "recordSize")) if _text(item, "recordSize") else None,
         creator=_text(item, "reservationCreatorID", "") or None,
+        genre_code=_genre_code(item),
     )
 
 
@@ -182,6 +190,7 @@ def parse_title(item: ET.Element) -> RecordedTitle:
         is_new=_text(item, "titleNewFlag", "0") == "1",
         destination=_text(item, "recordDestinationID", "HDD"),
         size_mb=int(_text(item, "recordSize")) if _text(item, "recordSize") else None,
+        genre_code=_genre_code(item),
     )
 
 
