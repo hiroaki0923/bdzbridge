@@ -15,6 +15,7 @@ class Channel(BaseModel):
     service_id: int
     name: str
     sort: int
+    logo: str | None = Field(default=None, description="station logo as a data: URL (64x36 PNG from the recorder)")
 
 
 class Genre(BaseModel):

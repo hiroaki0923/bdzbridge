@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -10,9 +11,11 @@ from fastapi.testclient import TestClient
 from recbridge.api.app import Bridge, create_app
 from recbridge.config import Settings
 from recbridge.recorder.epg import JST
+from recbridge.recorder.logo import Logo, with_palette
 from recbridge.recorder.xsrs import Reservation, parse_reservation
 from recbridge.store import Store
 from tests.conftest import make_services
+from tests.test_logo import make_png
 
 TOKEN = "t"
 H = {"Authorization": f"Bearer {TOKEN}"}
@@ -90,6 +93,9 @@ class FakeRecorder:
 
     async def fetch_epg(self, bt):
         return make_services() if bt == "td" else None
+
+    async def fetch_logos(self, bt):
+        return [Logo(11, 1024, with_palette(make_png()))] if bt == "td" else None
 
 
     async def close(self):
@@ -252,3 +258,11 @@ def test_play_on_tv_and_stop(client):
     r = client.post("/api/v1/recorder/playback", headers=H, json={"operation": "stop"})
     assert r.status_code == 200 and r.json()["play"] == "Stopped"
     assert client.post("/api/v1/recorder/playback", headers=H, json={"operation": "stop"}).status_code == 409
+
+
+def test_channels_carry_logos(client):
+    client.post("/api/v1/epg/refresh", headers=H)
+    by_id = {c["service_id"]: c for c in client.get("/api/v1/channels?broadcasting=td", headers=H).json()}
+    assert by_id[1024]["logo"].startswith("data:image/png;base64,")
+    assert b"PLTE" in base64.b64decode(by_id[1024]["logo"].split(",", 1)[1])
+    assert by_id[1025]["logo"] is None

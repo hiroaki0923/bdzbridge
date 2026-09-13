@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from recbridge.recorder import epg as epgmod
 from recbridge.recorder.epg import decode_epg_file, encode_epg_file, encode_service, parse_service
 
 REAL = Path(os.environ.get("RECBRIDGE_TEST_EPG_FILE", "tests/fixtures/EPG_TRDEPG_FILE.dat"))
@@ -39,3 +40,7 @@ def test_clean_maps_arib_symbols():
     from recbridge.recorder.epg import _clean
     assert _clean("ニュース\x00\x00".encode()) == "ニュース[字][手]"
     assert _clean("謎の記号".encode()) == "謎の記号"
+
+
+def test_clean_spells_out_broadcast_symbols():
+    assert epgmod._clean("\U0001f19e\U0001f1a7ニュース[字]".encode()) == "[4K][HDR]ニュース[字]"
