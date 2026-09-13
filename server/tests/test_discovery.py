@@ -2,7 +2,7 @@ from pathlib import Path
 
 import httpx
 
-from recbridge.recorder import discovery
+from bdzbridge.recorder import discovery
 
 SAMPLE = Path(__file__).resolve().parent / "fixtures" / "description.xml"
 
@@ -44,7 +44,7 @@ async def test_discover_falls_back_to_scan(monkeypatch):
 
 
 def test_port_from_didl():
-    from recbridge.recorder.client import port_from_didl
+    from bdzbridge.recorder.client import port_from_didl
     didl = ('<DIDL-Lite><item id="TUNTRD_1024"><dc:title>x</dc:title>'
             '<res protocolInfo="http-get:*:application/x-dtcp1:*">http://192.0.2.10:60151/ObjID=TUNTRD_1024_ResID=/LIVE.mpg</res></item></DIDL-Lite>')
     assert port_from_didl(didl) == 60151

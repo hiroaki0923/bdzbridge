@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'recbridge',
-        short_name: 'recbridge',
+        name: 'bdzbridge',
+        short_name: 'bdzbridge',
         description: 'レコーダーの番組表と録画予約',
         theme_color: '#1c1c1e',
         background_color: '#1c1c1e',

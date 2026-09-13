@@ -24,10 +24,10 @@
 </script>
 
 <main>
-  <h1>recbridge</h1>
+  <h1>bdzbridge</h1>
   {#if mode === 'token'}
     <div class="card">
-      <p class="muted">サーバーのアクセストークンを入力してください（RECBRIDGE_API_TOKEN）。</p>
+      <p class="muted">サーバーのアクセストークンを入力してください（BDZBRIDGE_API_TOKEN）。</p>
       <input class="search" type="password" placeholder="トークン" bind:value={token} onkeydown={(e) => e.key === 'Enter' && saveToken()} />
       <button class="btn" disabled={busy || !token.trim()} onclick={saveToken}>接続</button>
       {#if msg}<p class="error">{msg}</p>{/if}

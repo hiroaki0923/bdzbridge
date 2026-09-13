@@ -3,8 +3,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-from recbridge.recorder.epg import JST
-from recbridge.recorder.xsrs import build_create_elements, build_update_elements, parse_reservation
+from bdzbridge.recorder.epg import JST
+from bdzbridge.recorder.xsrs import build_create_elements, build_update_elements, parse_reservation
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -43,7 +43,7 @@ def test_update_elements_carry_the_id():
 def test_parse_title_reads_genre_code():
     import xml.etree.ElementTree as ET
 
-    from recbridge.recorder.xsrs import parse_title
+    from bdzbridge.recorder.xsrs import parse_title
 
     item = ET.fromstring('<item id="0x0000010000034d78"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900'
                          '</scheduledStartDateTime><scheduledDuration>60</scheduledDuration>'
@@ -53,7 +53,7 @@ def test_parse_title_reads_genre_code():
 
 
 def test_title_update_elements_carry_only_the_changes():
-    from recbridge.recorder.xsrs import build_title_update_elements
+    from bdzbridge.recorder.xsrs import build_title_update_elements
 
     el = build_title_update_elements("0x0000010000034d78", protected=True)
     assert el == ('<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><item id="0x0000010000034d78">'

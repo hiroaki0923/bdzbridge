@@ -18,7 +18,7 @@ from .epg import Service, decode_epg_file
 from .logo import Logo, decode_logo_file
 from .xsrs import XsrsClient
 
-log = logging.getLogger("recbridge.recorder")
+log = logging.getLogger("bdzbridge.recorder")
 DEFAULT_STREAM_PORT = 60151
 
 

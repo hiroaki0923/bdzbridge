@@ -14,7 +14,7 @@ from .recorder.epg import JST
 from .recorder.xsrs import XsrsError, build_create_elements
 from .store import ProgramRow
 
-log = logging.getLogger("recbridge.autorec")
+log = logging.getLogger("bdzbridge.autorec")
 
 
 def _line(p: ProgramRow, note: str = "") -> str:
@@ -74,7 +74,7 @@ async def run_rules(bridge, now: datetime | None = None) -> dict:
             parts.append("重複のため予約していません:\n" + "\n".join(lines["conflict"]))
         if lines["error"]:
             parts.append("予約に失敗しました:\n" + "\n".join(lines["error"]))
-        subject = f"[recbridge] 自動予約 {result['reserved']} 件"
+        subject = f"[bdzbridge] 自動予約 {result['reserved']} 件"
         if result["conflicts"]:
             subject += f"、重複 {result['conflicts']} 件"
         if result["errors"]:

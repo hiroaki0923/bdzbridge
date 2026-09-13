@@ -1,6 +1,6 @@
-# recbridge web
+# bdzbridge web
 
-Mobile-first PWA for the recbridge API (Vite + Svelte 5, no TypeScript, no UI library).
+Mobile-first PWA for the bdzbridge API (Vite + Svelte 5, no TypeScript, no UI library).
 
 ```
 npm install

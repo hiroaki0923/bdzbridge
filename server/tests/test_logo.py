@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from recbridge.recorder.logo import LOGO_CLUT, decode_logo_file, encode_logo_file, with_palette
+from bdzbridge.recorder.logo import LOGO_CLUT, decode_logo_file, encode_logo_file, with_palette
 
 
 def _chunk(kind: bytes, data: bytes) -> bytes:
@@ -45,9 +45,9 @@ def test_rejects_non_png():
         with_palette(b"not a png")
 
 
-@pytest.mark.skipif(not os.environ.get("RECBRIDGE_TEST_LOGO_FILE"), reason="set RECBRIDGE_TEST_LOGO_FILE to a real logo file")
+@pytest.mark.skipif(not os.environ.get("BDZBRIDGE_TEST_LOGO_FILE"), reason="set BDZBRIDGE_TEST_LOGO_FILE to a real logo file")
 def test_real_file():
-    logos = decode_logo_file(Path(os.environ["RECBRIDGE_TEST_LOGO_FILE"]).read_bytes())
+    logos = decode_logo_file(Path(os.environ["BDZBRIDGE_TEST_LOGO_FILE"]).read_bytes())
     assert logos
     for lg in logos:
         w, h = struct.unpack(">II", lg.png[16:24])

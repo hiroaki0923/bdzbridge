@@ -1,4 +1,4 @@
-from recbridge.recorder.series import series_key, series_name
+from bdzbridge.recorder.series import series_key, series_name
 
 
 def test_series_name_cuts_at_episode_markers():
