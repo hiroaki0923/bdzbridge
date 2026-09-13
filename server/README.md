@@ -26,7 +26,7 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | GET | /api/v1/defaults | default quality/repeat and label tables |
 | POST | /api/v1/epg/refresh | re-download the EPG now |
 | GET | /api/v1/channels?broadcasting=td\|bs\|cs\|bs4k | channel list; `logo` is a data: URL of the station logo when the recorder has one |
-| GET | /api/v1/programs?broadcasting=&service_id=&date=YYYY-MM-DD&q= | programs (TV day 04:00–04:00 JST) |
+| GET | /api/v1/programs?broadcasting=&service_id=&date=YYYY-MM-DD&q=&compact= | programs (TV day 04:00–04:00 JST); `compact=true` drops the text fields |
 | GET | /api/v1/programs/now?broadcasting=td | now on air |
 | GET | /api/v1/programs/{bt}/{service_id}/{event_id} | one program |
 | GET | /api/v1/reservations | reservations on the recorder |

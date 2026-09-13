@@ -39,7 +39,7 @@ Every API call needs `Authorization: Bearer <RECBRIDGE_API_TOKEN>`.
 - `recbridge/recorder/client.py` — one recorder: discovery, EPG download from port 60151, and an `asyncio.Lock` serializing every request (the recorder returns 503 to concurrent requests).
 - `recbridge/store.py` — SQLite cache of channels/programs with NFKC/case-folded search text. Sub-channel "reference" events resolve to the parent program in SQL. A TV day is 04:00–04:00 JST. `SCHEMA_VERSION` rebuilds the cache on change.
 - `recbridge/api/app.py` — routes under `/api/v1`, background EPG refresh, and `Bridge` (settings, selected recorder or None, store). Recorder selection order: `RECBRIDGE_RECORDER_HOST` → host saved in SQLite `meta` (re-discovered by UDN if it moved) → unconfigured (only discovery/select and cached EPG work). Tests inject a fake recorder through `create_app(settings, bridge)`.
-- Web: `src/api.js` (fetch wrapper, reservation index), `src/store.svelte.js` (shared state), `src/lib/*.svelte` (Setup, Guide, Search, Reservations, Settings, ProgramSheet, ProgramList).
+- Web: `src/api.js` (fetch wrapper, reservation index), `src/store.svelte.js` (shared state), `src/lib/*.svelte` (Setup, Guide with ProgramList or GuideGrid, Search, Reservations, Titles, Settings, ProgramSheet). The grid view loads a whole TV day with `compact=true`.
 
 ## Recorder facts that shape the code
 

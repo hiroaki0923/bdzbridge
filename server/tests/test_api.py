@@ -269,6 +269,14 @@ def test_channels_carry_logos(client):
     assert by_id[1025]["logo"] is None
 
 
+def test_programs_compact_drops_text(client):
+    client.post("/api/v1/epg/refresh", headers=H)
+    full = client.get("/api/v1/programs?broadcasting=td&service_id=1024", headers=H).json()
+    compact = client.get("/api/v1/programs?broadcasting=td&service_id=1024&compact=true", headers=H).json()
+    assert [p["title"] for p in full] == [p["title"] for p in compact]
+    assert any(p["description"] for p in full) and not any(p["description"] or p["extended"] for p in compact)
+
+
 def test_reservations_carry_program_genres(client):
     client.post("/api/v1/epg/refresh", headers=H)
     r = client.post("/api/v1/reservations", headers=H,
@@ -288,4 +296,3 @@ def test_titles_and_reservations_fall_back_to_genre_code(client):
     r = Reservation("0x1", "x", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 1800, "1", 2, 1024, None, 230, False, False, "HDD", None, None,
                     genre_code=112)
     assert [g.label for g in reservation_out(r).genres] == ["アニメ／特撮"]
-
