@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from ..autorec import run_rules
 from ..config import Settings
 from ..notify import Notifier
-from ..recorder import codes, discovery
+from ..recorder import codes, discovery, wol
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
 from ..recorder.series import series_key, series_name
@@ -167,7 +167,25 @@ class Bridge:
             self.store.set_meta("recorder_host", host)
             self.store.set_meta("recorder_udn", info.udn)
             self.store.set_meta("recorder_name", info.friendly_name)
+        if not self.settings.recorder_mac and (mac := await wol.mac_for(host)):
+            self.store.set_meta("recorder_mac", mac)  # for Wake-on-LAN later
         return client
+
+    @property
+    def mac(self) -> str | None:
+        return self.settings.recorder_mac or self.store.get_meta("recorder_mac")
+
+    async def reachable(self) -> bool:
+        return self.recorder is not None and await wol.port_open(self.recorder.host, 64220)
+
+    async def wake(self) -> bool:
+        """Wake-on-LAN, then wait for the reservation service to answer. False when it stays silent."""
+        rec = self.require_recorder()
+        if not self.mac:
+            raise HTTPException(409, "the recorder's MAC address is not known; set BDZBRIDGE_RECORDER_MAC")
+        if await wol.port_open(rec.host, 64220):
+            return True
+        return await wol.wake(rec.host, self.mac)
 
     async def resolve_recorder(self) -> None:
         """Startup: env var wins; else the saved host; if it moved, find it again by UDN."""
@@ -308,6 +326,10 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         epg["last_error"] = b.last_error
         if b.recorder is None:
             return S.RecorderStatus(configured=False, host=b.store.get_meta("recorder_host"), epg=epg)
+        reachable = await b.reachable()
+        if not reachable:
+            return S.RecorderStatus(configured=True, host=b.recorder.host, reachable=False, mac=b.mac, epg=epg,
+                                    friendly_name=b.store.get_meta("recorder_name"), udn=b.store.get_meta("recorder_udn"))
         info = b.recorder.info or await b.recorder.discover()
         fw = power = play = storage = None
         try:
@@ -323,11 +345,20 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
             log.warning("status query failed: %s", e)
         return S.RecorderStatus(configured=True, host=info.host, friendly_name=info.friendly_name, model=info.model,
                                 product=info.product, epg_capable=info.epg_capable, udn=info.udn, firmware=fw, storage=storage,
-                                power=power, play=play, epg=epg)
+                                power=power, play=play, epg=epg, reachable=True, mac=b.mac)
+
+    @app.post(v1 + "/recorder/wake", dependencies=[Depends(auth)])
+    async def recorder_wake(request: Request):
+        """Wake-on-LAN for a recorder that has dropped off the network."""
+        b = bridge_of(request)
+        return {"awake": await b.wake(), "mac": b.mac}
 
     @app.post(v1 + "/recorder/power", dependencies=[Depends(auth)])
     async def recorder_power(request: Request):
-        rec = bridge_of(request).require_recorder()
+        b = bridge_of(request)
+        rec = b.require_recorder()
+        if b.mac and not await b.reachable() and not await b.wake():
+            raise HTTPException(503, "the recorder does not answer, even after Wake-on-LAN")
         async with rec.lock:
             return {"power": await rec.xsrs.power_on()}
 
@@ -651,7 +682,10 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     @app.post(v1 + "/titles/{title_id}/play", response_model=S.PlaybackStatus, dependencies=[Depends(auth)])
     async def title_play(request: Request, title_id: str, position_sec: int = Query(0, ge=0)):
         """Start playing a recorded title on the TV connected to the recorder."""
-        rec = bridge_of(request).require_recorder()
+        b = bridge_of(request)
+        rec = b.require_recorder()
+        if b.mac and not await b.reachable() and not await b.wake():
+            raise HTTPException(503, "the recorder does not answer, even after Wake-on-LAN")
         try:
             async with rec.lock:
                 await _ensure_on(rec)

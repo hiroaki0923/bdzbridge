@@ -111,6 +111,7 @@ class FakeRecorder:
         self.xsrs = FakeXsrs()
         self.lock = asyncio.Lock()
         self.info = None
+        self.host = "127.0.0.1"
 
     async def discover(self):
         from bdzbridge.recorder.client import RecorderInfo
@@ -129,7 +130,13 @@ class FakeRecorder:
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    from bdzbridge.api import app as appmod
+
+    async def _reachable(host, port, timeout=2.0):  # nothing listens on 64220 in tests: pretend the recorder answers
+        return True
+
+    monkeypatch.setattr(appmod.wol, "port_open", _reachable)
     settings = Settings(recorder_host="127.0.0.1", api_token=TOKEN, db_path=str(tmp_path / "t.sqlite3"),
                        epg_refresh_on_start=False)
     store = Store(settings.db_path)
@@ -204,7 +211,13 @@ def test_status_and_defaults(client):
 
 
 def test_unconfigured_mode(tmp_path, monkeypatch):
+    from bdzbridge.api import app as appmod
     from bdzbridge.recorder import discovery as disc
+
+    async def _reachable(host, port, timeout=2.0):
+        return True
+
+    monkeypatch.setattr(appmod.wol, "port_open", _reachable)
 
     settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "u.sqlite3"), epg_refresh_on_start=False)
     store = Store(settings.db_path)
@@ -422,3 +435,26 @@ def test_title_groups_and_bulk_delete(client):
     assert [(s["id"], s["reason"]) for s in r["skipped"]] == [("0x0000010000034d79", "protected"), ("0x1", "not found")]
     assert [g["count"] for g in client.get("/api/v1/titles/groups", headers=H).json()] == [1, 1]
     assert client.get("/api/v1/titles/delete/nope", headers=H).status_code == 404
+
+
+def test_recorder_wake(client, monkeypatch):
+    from bdzbridge.api import app as appmod
+
+    calls = []
+    monkeypatch.setattr(appmod.wol, "port_open", lambda host, port, timeout=2.0: _false())
+    monkeypatch.setattr(appmod.wol, "wake", lambda host, mac, port=64220, wait=25.0: _true(calls, mac))
+    assert client.post("/api/v1/recorder/wake", headers=H).status_code == 409  # MAC unknown
+    client.bridge.store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
+    st = client.get("/api/v1/recorder", headers=H).json()
+    assert st["reachable"] is False and st["mac"] == "f8:4e:17:00:00:00" and st["configured"] is True
+    r = client.post("/api/v1/recorder/wake", headers=H).json()
+    assert r == {"awake": True, "mac": "f8:4e:17:00:00:00"} and calls == ["f8:4e:17:00:00:00"]
+
+
+async def _false():
+    return False
+
+
+async def _true(calls, mac):
+    calls.append(mac)
+    return True

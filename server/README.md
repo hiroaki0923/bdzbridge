@@ -34,6 +34,7 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | POST | /api/v1/reservations | create (409 on conflict unless `force`) |
 | PATCH | /api/v1/reservations/{id} | change quality / repeat (time-based ones: also title, start, duration) |
 | DELETE | /api/v1/reservations/{id} | delete |
+| POST | /api/v1/recorder/wake | Wake-on-LAN when the recorder has dropped off the network (MAC learned from the ARP table, or `BDZBRIDGE_RECORDER_MAC`) |
 | GET/POST | /api/v1/rules | keyword auto-reservation rules (`?run=true` on POST applies them right away) |
 | PATCH/DELETE | /api/v1/rules/{id} | enable / disable / change quality; delete |
 | GET | /api/v1/rules/{id}/matches | upcoming programs a rule matches |
