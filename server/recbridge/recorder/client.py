@@ -15,6 +15,7 @@ import httpx
 
 from . import codes
 from .epg import Service, decode_epg_file
+from .logo import Logo, decode_logo_file
 from .xsrs import XsrsClient
 
 log = logging.getLogger("recbridge.recorder")
@@ -104,6 +105,18 @@ class RecorderClient:
             return None
         r.raise_for_status()
         return decode_epg_file(r.content)
+
+    async def fetch_logos(self, broadcasting: str) -> list[Logo] | None:
+        """Station logos for one broadcasting type; None when the recorder has none to offer."""
+        if self.info is not None and not self.info.epg_capable:
+            return None
+        url = f"http://{self.host}:{self.stream_port}//{codes.LOGO_FILES[broadcasting]}"
+        async with self.lock:
+            r = await self.http.get(url)
+        if r.status_code in (404, 416):
+            return None
+        r.raise_for_status()
+        return decode_logo_file(r.content)
 
     @staticmethod
     def cds_id(title_id: str) -> str:

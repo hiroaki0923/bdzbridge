@@ -66,6 +66,11 @@ def _ts(v: int) -> datetime:
 ARIB_SYMBOLS = {
     "\ue0fd": "[手]", "\ue0fe": "[字]", "\ue180": "[デ]", "\ue182": "[二]", "\ue183": "[多]", "\ue184": "[解]",
     "\ue185": "[SS]", "\ue18c": "[映]", "\ue192": "[再]", "\ue193": "[新]", "\ue195": "[終]", "\ue196": "[生]",
+    # Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC; most phone fonts have no glyphs for them.
+    "\U0001f19b": "[3D]", "\U0001f19c": "[2nd]", "\U0001f19d": "[2K]", "\U0001f19e": "[4K]", "\U0001f19f": "[8K]",
+    "\U0001f1a0": "[5.1]", "\U0001f1a1": "[7.1]", "\U0001f1a2": "[22.2]", "\U0001f1a3": "[60P]", "\U0001f1a4": "[120P]",
+    "\U0001f1a5": "[d]", "\U0001f1a6": "[HC]", "\U0001f1a7": "[HDR]", "\U0001f1a8": "[Hi-Res]", "\U0001f1a9": "[LOSSLESS]",
+    "\U0001f1aa": "[SHV]", "\U0001f1ab": "[UHD]", "\U0001f1ac": "[VOD]",
 }
 
 

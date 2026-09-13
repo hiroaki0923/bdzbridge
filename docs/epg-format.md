@@ -90,3 +90,20 @@ GET http://<recorder>:60151//EPG_TRDLOGO_FILE.dat     局ロゴ（BS/CS/ADVBSD/A
 ## 検証
 
 2026-09-13 に BDZ-FBT4100 で取得した地デジ 26 局・8 日分（8,388 番組）を復号し、event_id と番組名が同じ放送の他の番組表と一致することを確認した。得られる service_id / event_id は、予約 API（`xsrs-api.md`）の `scheduledChannelID` / `desiredMatchingID` にそのまま使える。実装は `server/recbridge/recorder/epg.py`。
+
+## 局ロゴファイル
+
+`EPG_{TRD,BS,CS,ADVBSD,ADVCSD}LOGO_FILE.dat` も同じ包み方（XOR 0x9D の下に zlib ストリームの連結）です。先頭のストリームは 8 バイトのヘッダ（日時）、以降は 1 ストリーム = 1 サービスで、20 バイトのレコードヘッダにペイロードが続きます。
+
+| オフセット | 長さ | 内容 |
+|---|---|---|
+| 0 | 4 | レコード長（ヘッダ込み、BE） |
+| 4 | 1 | 放送局の先頭サービスなら通し番号、続きのサービスは 0xFF |
+| 5 | 1 | 0xFF |
+| 6 | 4 | チャンネル番号。上位バイトが 0=BS / 1=地上 / 2=CS、下位 24 bit が 3 桁番号（011, 101 …） |
+| 10 | 4 | 0 |
+| 14 | 2 | service_id |
+| 16 | 4 | ペイロード長 |
+| 20 | n | 64×36 のパレット PNG（PLTE なし）。ロゴを受信していないサービスは 1152 バイトのゼロ |
+
+PNG は放送規格の共通固定色表（129 色）を前提にしていて PLTE / tRNS を持ちません。そのままではブラウザで表示できないので、`recorder/logo.py` が IHDR の直後に PLTE と tRNS を挿入しています。

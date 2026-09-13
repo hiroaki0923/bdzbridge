@@ -34,6 +34,6 @@
 {/if}
 <div class="seg">{#each BTS as [id, label]}<button class:on={bt === id} onclick={() => (bt = id)}>{label}</button>{/each}</div>
 <div class="chips">{#each days as d}<button class="chip" class:on={day === d.iso} onclick={() => (day = d.iso)}>{d.today ? '今日 ' : ''}{d.label}</button>{/each}</div>
-<div class="chips">{#each channels as c}<button class="chip" class:on={serviceId === c.service_id} onclick={() => (serviceId = c.service_id)}>{c.name}</button>{/each}</div>
+<div class="chips">{#each channels as c}<button class="chip" class:on={serviceId === c.service_id} onclick={() => (serviceId = c.service_id)}>{#if c.logo}<img class="logo" src={c.logo} alt="" />{/if}{c.name}</button>{/each}</div>
 {#if error}<p class="error">{error}</p>{/if}
 {#if busy && programs.length === 0}<p class="empty"><span class="spinner"></span>読み込み中</p>{:else}<ProgramList {programs} />{/if}

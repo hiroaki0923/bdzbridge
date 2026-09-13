@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from .recorder import codes
 from .recorder.epg import JST, Service
+from .recorder.logo import Logo
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -22,6 +23,9 @@ CREATE TABLE IF NOT EXISTS programs (
   copy_control INTEGER, parental INTEGER, ref_service_id INTEGER, ref_event_id INTEGER,
   search_text TEXT,
   PRIMARY KEY (bt, service_id, event_id, start));
+CREATE TABLE IF NOT EXISTS logos (
+  bt TEXT NOT NULL, service_id INTEGER NOT NULL, channel_no INTEGER NOT NULL, png BLOB NOT NULL,
+  PRIMARY KEY (bt, service_id));
 CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
 CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
 """
@@ -46,7 +50,7 @@ class ProgramRow:
     ref_event_id: int | None
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 def search_norm(text: str) -> str:
@@ -64,7 +68,7 @@ class Store:
             self.db.executescript(_SCHEMA)
             if self.get_meta("schema_version") != SCHEMA_VERSION:
                 # the cache is disposable: rebuild tables on a schema change
-                self.db.executescript("DROP TABLE programs; DROP TABLE channels; DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';")
+                self.db.executescript("DROP TABLE programs; DROP TABLE channels; DROP TABLE IF EXISTS logos; DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';")
                 self.db.executescript(_SCHEMA)
                 self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
 
@@ -98,14 +102,22 @@ class Store:
                             (f"epg_refreshed:{bt}", datetime.now(JST).isoformat(timespec="seconds")))
         return len(rows)
 
+    def replace_logos(self, bt: str, logos: list[Logo]) -> None:
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM logos WHERE bt=?", (bt,))
+            self.db.executemany("INSERT OR REPLACE INTO logos (bt, service_id, channel_no, png) VALUES (?,?,?,?)",
+                                [(bt, lg.service_id, lg.channel_no, lg.png) for lg in logos])
+
     # --- queries ---
     def channels(self, bt: str | None = None) -> list[dict]:
-        q = "SELECT bt, service_id, name, sort FROM channels"
+        """Channels in guide order; `logo` is the station's PNG (bytes) or None."""
+        q = ("SELECT c.bt, c.service_id, c.name, c.sort, l.png AS logo FROM channels c"
+             " LEFT JOIN logos l ON l.bt=c.bt AND l.service_id=c.service_id")
         args: tuple = ()
         if bt:
-            q += " WHERE bt=?"
+            q += " WHERE c.bt=?"
             args = (bt,)
-        q += " ORDER BY bt, sort"
+        q += " ORDER BY c.bt, c.sort"
         return [dict(r) for r in self.db.execute(q, args)]
 
     _SELECT = """

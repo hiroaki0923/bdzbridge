@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -147,6 +148,14 @@ class Bridge:
                     continue
                 n = await asyncio.to_thread(self.store.replace_services, bt, services)
                 result[bt] = {"programs": n, "channels": len(services)}
+                try:
+                    logos = await recorder.fetch_logos(bt)
+                except Exception as e:  # logos are decoration; keep whatever is cached
+                    log.warning("logo %s fetch failed: %s", bt, e)
+                    logos = None
+                if logos is not None:
+                    await asyncio.to_thread(self.store.replace_logos, bt, logos)
+                    result[bt]["logos"] = len(logos)
             self.last_error = None
             return result
 
@@ -165,6 +174,10 @@ class Bridge:
         if self.recorder:
             await self.recorder.close()
         await self.http.aclose()
+
+
+def _data_url(png: bytes | None) -> str | None:
+    return "data:image/png;base64," + base64.b64encode(png).decode() if png else None
 
 
 def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -> FastAPI:
@@ -256,7 +269,8 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
 
     @app.get(v1 + "/channels", response_model=list[S.Channel], dependencies=[Depends(auth)])
     async def channels(request: Request, broadcasting: S.Broadcasting | None = None):
-        return [S.Channel(broadcasting=c["bt"], service_id=c["service_id"], name=c["name"], sort=c["sort"])
+        return [S.Channel(broadcasting=c["bt"], service_id=c["service_id"], name=c["name"], sort=c["sort"],
+                          logo=_data_url(c["logo"]))
                 for c in bridge_of(request).store.channels(broadcasting)]
 
     @app.get(v1 + "/programs", response_model=list[S.Program], dependencies=[Depends(auth)])
