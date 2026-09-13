@@ -117,6 +117,19 @@ def build_create_elements(*, title: str, start: datetime, duration_sec: int, rep
     )
 
 
+def build_title_update_elements(title_id: str, *, title: str | None = None, protected: bool | None = None,
+                                is_new: bool | None = None) -> str:
+    """X_UpdateTitle payload: the title's id plus only the properties to change."""
+    props = ""
+    if title is not None:
+        props += f"<title>{html.escape(title, quote=False)}</title>"
+    if protected is not None:
+        props += f"<titleProtectFlag>{int(protected)}</titleProtectFlag>"
+    if is_new is not None:
+        props += f"<titleNewFlag>{int(is_new)}</titleNewFlag>"
+    return f'<xsrs xmlns="{XSRS_NS}"><item id="{title_id}">{props}</item></xsrs>'
+
+
 def build_update_elements(reservation_id: str, **kwargs) -> str:
     """Same item as for creation, with the id set. Verified on BDZ-FBT4100: changes quality/repeat in place."""
     return build_create_elements(**kwargs).replace('<item id="">', f'<item id="{reservation_id}">', 1)
@@ -241,6 +254,20 @@ class XsrsClient:
                                              ("Filter", "*")])
         return [parse_title(i) for i in items]
 
+    async def list_titles_all(self, page: int = 200) -> list[RecordedTitle]:
+        """Every recorded title, newest first (one call returns at most 200)."""
+        out: list[RecordedTitle] = []
+        start = 0
+        while True:
+            items, root = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
+                                                   [("SearchCriteria", "recordDestinationID=HDD"), ("StartingIndex", start),
+                                                    ("RequestedCount", page), ("SortCriteria", "-scheduledStartDateTime"),
+                                                    ("Filter", "*")])
+            out += [parse_title(i) for i in items]
+            start += len(items)
+            if not items or start >= int(_find_text(root, "TotalMatches") or 0):
+                return out
+
     # --- PvrControl ---
     async def _pvr(self, action: str, args: list[tuple[str, object]]) -> str:
         root = await self._call("/X_PvrControl", PVR_TYPE, action, args)
@@ -288,6 +315,21 @@ class XsrsClient:
                                 [("ObjectID", object_id), ("BrowseFlag", "BrowseDirectChildren"), ("Filter", "*"),
                                  ("StartingIndex", 0), ("RequestedCount", count), ("SortCriteria", "")])
         return _find_text(root, "Result") or ""
+
+    async def update_title(self, elements: str) -> None:
+        """Change a recorded title's name / protect flag / new flag (see build_title_update_elements)."""
+        await self._call("/XSRS", XSRS_TYPE, "X_UpdateTitle", [("Elements", elements)])
+
+    async def delete_title(self, title_id: str) -> None:
+        """Delete a recording (X_DeleteTitle). The recorder refuses protected titles."""
+        await self._call("/XSRS", XSRS_TYPE, "X_DeleteTitle", [("TitleID", title_id)])
+
+    async def record_destination_info(self, destination: str = "HDD") -> dict[str, int]:
+        """Capacity of a record destination in bytes (ContentDirectory X_HDLnkGetRecordDestinationInfo)."""
+        root = await self._call("/DMSContentDirectory", CDS_TYPE, "X_HDLnkGetRecordDestinationInfo",
+                                [("RecordDestinationID", destination)])
+        info = ET.fromstring(_find_text(root, "RecordDestinationInfo") or "<RecordDestinationInfo/>")
+        return {"total_bytes": int(info.get("totalCapacity", 0)), "free_bytes": int(info.get("availableCapacity", 0))}
 
     async def send_key(self, key: str) -> None:
         await self._call("/X_PvrControl", PVR_TYPE, "X_InputRemoteKey", [("RemoteKey", key)])

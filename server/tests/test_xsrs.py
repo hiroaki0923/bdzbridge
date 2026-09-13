@@ -50,3 +50,12 @@ def test_parse_title_reads_genre_code():
                          '<scheduledChannelID broadcastingType="2" channelType="2">0x0418</scheduledChannelID>'
                          '<desiredQualityMode>230</desiredQualityMode><genreID type="2">168</genreID></item>')
     assert parse_title(item).genre_code == 168
+
+
+def test_title_update_elements_carry_only_the_changes():
+    from recbridge.recorder.xsrs import build_title_update_elements
+
+    el = build_title_update_elements("0x0000010000034d78", protected=True)
+    assert el == ('<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><item id="0x0000010000034d78">'
+                  "<titleProtectFlag>1</titleProtectFlag></item></xsrs>")
+    assert "<title>a &amp; b</title><titleNewFlag>0</titleNewFlag>" in build_title_update_elements("0x1", title="a & b", is_new=False)

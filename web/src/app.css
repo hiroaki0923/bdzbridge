@@ -28,6 +28,11 @@ h1 { font-size: 20px; margin: 14px 0 8px; }
 .seg.mini button { padding: 5px 0; font-size: 13px; }
 .list { background: var(--card); border-radius: 12px; overflow: hidden; }
 .group-head { font-size: 13px; font-weight: 600; padding: 12px 4px 4px; }
+.lock { font-size: 13px; margin-right: 4px; vertical-align: -1px; }
+.danger-text { color: var(--danger); }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+.modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, 380px); background: var(--card); border-radius: 14px; padding: 18px 16px; z-index: 41; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+.modal .title { font-weight: 700; font-size: 17px; margin-bottom: 8px; }
 .item { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); width: 100%; text-align: left; }
 .item:first-child { border-top: 0; }
 .item .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; padding-top: 1px; }

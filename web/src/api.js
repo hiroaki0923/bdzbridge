@@ -57,6 +57,7 @@ export function findReservation(idx, p) {
 export const fmtTime = (iso) => new Date(iso).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false })
 export const fmtDate = (iso) => new Date(iso).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
 export const fmtDateTime = (iso) => `${fmtDate(iso)} ${fmtTime(iso)}`
+export const fmtBytes = (b) => (b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB')
 
 // TV days run 04:00-04:00 JST. Returns YYYY-MM-DD for "today" in that sense, plus the next 7 days.
 export function tvDays() {

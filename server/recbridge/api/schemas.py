@@ -111,6 +111,42 @@ class RecordedTitle(BaseModel):
     size_mb: int | None
     dlna_id: str = Field(description="the title's DLNA object id on the recorder")
     genres: list[Genre] = Field(default_factory=list, description="from the recorder's genreID")
+    series: str = Field(default="", description="grouping key derived from the title (episodes of one programme share it)")
+
+
+class TitleGroup(BaseModel):
+    key: str
+    name: str
+    count: int
+    size_mb: int
+    latest: datetime
+    earliest: datetime
+    protected_count: int
+    new_count: int
+
+
+class TitlesDelete(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=300)
+
+
+class TitleSkipped(BaseModel):
+    id: str
+    reason: str
+
+
+class TitlesDeleteResult(BaseModel):
+    deleted: list[str]
+    skipped: list[TitleSkipped]
+
+
+class DeleteJob(BaseModel):
+    id: str
+    total: int
+    done: int
+    deleted: list[str]
+    skipped: list[TitleSkipped]
+    finished: bool
+    error: str | None = None
 
 
 class PlaybackStatus(BaseModel):
@@ -125,10 +161,29 @@ class PlaybackControl(BaseModel):
     operation: Literal["stop", "pause", "resume"] = Field(description="resume is only valid while paused")
 
 
+class TitleUpdate(BaseModel):
+    protected: bool | None = Field(default=None, description="protect from deletion (the recorder's 保護)")
+    is_new: bool | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class TitleFlags(BaseModel):
+    id: str
+    protected: bool | None = None
+    is_new: bool | None = None
+    title: str | None = None
+
+
 class TitleDetail(BaseModel):
     id: str
     summary: str = ""
     details: list[str] = []
+
+
+class Storage(BaseModel):
+    destination: str = "HDD"
+    total_bytes: int
+    free_bytes: int
 
 
 class RecorderStatus(BaseModel):
@@ -142,6 +197,7 @@ class RecorderStatus(BaseModel):
     firmware: str | None = None
     power: str | None = None
     play: str | None = None
+    storage: Storage | None = None
     epg: dict
 
 
