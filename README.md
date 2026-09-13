@@ -35,3 +35,7 @@ uv run python -m bdzbridge  # http://127.0.0.1:8000/ （LAN に出すなら BDZB
 
 - レコーダーの API は無認証です。このサーバーを LAN の外に直接公開しないでください。
 - 予約の作成・変更・削除は実機に反映されます。
+
+## ライセンス
+
+MIT License。`LICENSE` を参照してください。

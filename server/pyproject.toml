@@ -1,6 +1,7 @@
 [project]
 name = "bdzbridge"
 version = "0.1.0"
+license = "MIT"
 description = "LAN bridge for Sony BDZ recorders: EPG + reservations as a JSON API"
 requires-python = ">=3.12"
 dependencies = [
