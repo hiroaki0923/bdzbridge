@@ -55,7 +55,7 @@ class FakeXsrs:
     async def list_titles(self, count=100, start=0):
         from recbridge.recorder.xsrs import RecordedTitle
         return [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
-                              False, True, "HDD", 4376)]
+                              False, True, "HDD", 4376, genre_code=48)]
 
     async def title_detail(self, title_id):
         return {"summary": "あらすじ", "details": ["番組内容 本文"]}
@@ -172,6 +172,7 @@ def test_status_and_defaults(client):
     st = client.get("/api/v1/recorder", headers=H).json()
     assert st["model"] == "BDZ-TEST" and st["firmware"] == "35.003.1" and st["epg"]["td"]["channels"] == 2
     d = client.get("/api/v1/defaults", headers=H).json()
+    assert d["genres"]["3"] == "ドラマ"
     assert d["quality"] == "LSR" and d["repeats"]["title"] == "番組名"
 
 

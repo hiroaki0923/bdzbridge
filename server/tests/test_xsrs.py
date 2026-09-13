@@ -38,3 +38,15 @@ def test_update_elements_carry_the_id():
     el = build_update_elements("0x00000000000d357d", title="x", start=datetime(2026, 9, 15, 4, 0, tzinfo=JST), duration_sec=300,
                                repeat_code="1", broadcasting_type=2, service_id=0x400, quality_code=250)
     assert el.startswith('<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><item id="0x00000000000d357d">')
+
+
+def test_parse_title_reads_genre_code():
+    import xml.etree.ElementTree as ET
+
+    from recbridge.recorder.xsrs import parse_title
+
+    item = ET.fromstring('<item id="0x0000010000034d78"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900'
+                         '</scheduledStartDateTime><scheduledDuration>60</scheduledDuration>'
+                         '<scheduledChannelID broadcastingType="2" channelType="2">0x0418</scheduledChannelID>'
+                         '<desiredQualityMode>230</desiredQualityMode><genreID type="2">168</genreID></item>')
+    assert parse_title(item).genre_code == 168

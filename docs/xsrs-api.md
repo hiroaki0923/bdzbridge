@@ -58,6 +58,7 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 | `scheduledChannelID` | `broadcastingType`（下表）と `channelType="2"`。値は ARIB の service_id を 4 桁の 16 進で（`0x0428`） |
 | `desiredMatchingID` | `,,0x<service_id>,0x<event_id>`（16 進、桁詰めなし）。付けると番組追従（放送時間の変更に追従）になる。省略すると時刻指定 |
 | `desiredQualityMode` | 録画モード（下表） |
+| `genreID` | ジャンル。ARIB コンテント記述子の先頭ペアを level1×16＋level2 の十進で持つ（48 = ドラマ、112 = アニメ／特撮など）。予約にも録画済みタイトルにも付く。`type` 属性は放送種別 |
 | `priorityFlag`, `recordDestinationID`, `portableRecordFile` | 上記の値で固定。省略すると 402 |
 
 振る舞い:

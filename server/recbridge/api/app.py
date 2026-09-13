@@ -30,7 +30,12 @@ def _genres(pairs) -> list[S.Genre]:
     return [S.Genre(level1=a, level2=b, label=codes.GENRE_LABEL.get(a, "不明")) for a, b in pairs]
 
 
-def program_out(p: ProgramRow) -> S.Program:
+def _genres_from_code(code: int | None) -> list[S.Genre]:
+    """The recorder's genreID is the first ARIB content descriptor pair packed as level1 * 16 + level2."""
+    return _genres([(code >> 4, code & 0xF)]) if code is not None else []
+
+
+def program_out(p: ProgramRow, compact: bool = False) -> S.Program:
     return S.Program(broadcasting=p.bt, service_id=p.service_id, service_name=p.service_name, event_id=p.event_id,
                      start=p.start, end=p.end, duration_sec=int((p.end - p.start).total_seconds()), title=p.title,
                      description=p.description, extended=p.extended, genres=_genres(p.genres),
@@ -65,7 +70,7 @@ def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
                            service_id=t.service_id, service_name=name,
                            quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)), protected=t.protected,
                            is_new=t.is_new, destination=t.destination, size_mb=t.size_mb,
-                           dlna_id=RecorderClient.cds_id(t.id))
+                           dlna_id=RecorderClient.cds_id(t.id), genres=_genres_from_code(t.genre_code))
 
 
 class Bridge:
@@ -261,7 +266,7 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     async def defaults(request: Request):
         s = bridge_of(request).settings
         return S.Defaults(quality=s.default_quality, repeat=s.default_repeat, qualities=codes.QUALITY_LABEL,
-                          repeats=codes.REPEAT_LABEL, broadcastings=codes.BROADCASTING_LABEL)
+                          repeats=codes.REPEAT_LABEL, broadcastings=codes.BROADCASTING_LABEL, genres=codes.GENRE_LABEL)
 
     @app.post(v1 + "/epg/refresh", dependencies=[Depends(auth)])
     async def epg_refresh(request: Request):
