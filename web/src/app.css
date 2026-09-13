@@ -40,7 +40,7 @@ h1 { font-size: 20px; margin: 14px 0 8px; }
 .item .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mark { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: var(--mark); border-radius: 5px; padding: 1px 6px; margin-right: 6px; vertical-align: 2px; }
 .mark.now { background: var(--accent); }
-.tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--tabbar); backdrop-filter: blur(16px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--tabbar); backdrop-filter: blur(16px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); max-width: 720px; margin: 0 auto; }
 .tabbar button { flex: 1; padding: 10px 0 8px; font-size: 11px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tabbar button.on { color: var(--accent); }
 .tabbar .ico { font-size: 20px; line-height: 1; }
