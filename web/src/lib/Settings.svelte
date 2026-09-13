@@ -39,7 +39,7 @@
   <div class="muted">
     {#if notify === null}—
     {:else if !notify.configured}未設定です。サーバーの .env に BDZBRIDGE_SMTP_*（メール）か BDZBRIDGE_NOTIFY_WEBHOOK を書くと、自動予約の結果が届きます。
-    {:else}メール: {notify.email ? notify.to : 'なし'} · Webhook: {notify.webhook ? 'あり' : 'なし'}{/if}
+    {:else}メール: {notify.email ? notify.to : 'なし'} · Webhook: {notify.webhook ? 'あり' : 'なし'}{#if notify.free_gb}<br />HDD の残りが {notify.free_gb} GB を切ったら警告、予約の重複も通知します。{/if}{/if}
   </div>
   {#if notify?.configured}<button class="btn ghost" disabled={busy} onclick={() => run('テスト通知を送りました', () => api('/notify/test', { method: 'POST' }))}>テスト通知を送る</button>{/if}
 </div>

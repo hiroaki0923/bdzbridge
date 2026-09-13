@@ -16,11 +16,12 @@ from fastapi.staticfiles import StaticFiles
 
 from ..autorec import run_rules
 from ..config import Settings
+from ..monitor import run_checks
 from ..notify import Notifier
 from ..recorder import codes, discovery, wol
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
-from ..recorder.series import series_key, series_name
+from ..recorder.series import same_title_key, series_key, series_name, summary_key
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import Reservation as XReservation
 from ..recorder.xsrs import (
@@ -86,7 +87,8 @@ def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
                            quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)), protected=t.protected,
                            is_new=t.is_new, destination=t.destination, size_mb=t.size_mb,
                            dlna_id=RecorderClient.cds_id(t.id), genres=_genres_from_code(t.genre_code),
-                           series=series_key(t.title))
+                           series=series_key(t.title), last_played=t.last_played, resume_sec=t.resume_sec,
+                           watch_state="unwatched" if t.is_new else ("partway" if (t.resume_sec or 0) > 0 else "watched"))
 
 
 class Bridge:
@@ -114,6 +116,90 @@ class Bridge:
 
     def forget_titles(self) -> None:
         self._titles = None
+
+    async def run_duplicates_job(self, job: dict) -> None:
+        """Group recordings that look like copies of one broadcast (same title and length, then the same programme
+        text, which the recorder is asked for one title at a time and cached)."""
+        rec = self.recorder
+        try:
+            groups: dict[str, list[XTitle]] = {}
+            for t in await self.all_titles():
+                groups.setdefault(same_title_key(t.title), []).append(t)
+            candidates: list[list[XTitle]] = []
+            for v in groups.values():
+                if len(v) < 2:
+                    continue
+                v = sorted(v, key=lambda t: t.duration_sec)
+                cluster = [v[0]]
+                for t in v[1:]:
+                    if abs(t.duration_sec - cluster[-1].duration_sec) <= 120:
+                        cluster.append(t)
+                    else:
+                        if len(cluster) > 1:
+                            candidates.append(cluster)
+                        cluster = [t]
+                if len(cluster) > 1:
+                    candidates.append(cluster)
+            job["total"] = sum(len(c) for c in candidates)
+            sets: list[dict] = []
+            for members in candidates:
+                keys: dict[str, str] = {}
+                for t in members:
+                    summ = self.store.title_summary(t.id)
+                    if summ is None:
+                        try:
+                            async with rec.lock:
+                                summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
+                        except Exception as e:
+                            log.debug("no detail for %s: %s", t.id, e)
+                            summ = ""
+                        self.store.set_title_summary(t.id, summ)
+                    keys[t.id] = summary_key(summ)
+                    job["done"] += 1
+                by_summary: dict[str, list[XTitle]] = {}
+                for t in members:
+                    by_summary.setdefault(keys[t.id], []).append(t)
+                for k, same in by_summary.items():
+                    if len(same) > 1:
+                        sets.append(self._duplicate_set(same, "high" if k else "low"))
+            job["sets"] = sorted(sets, key=lambda s: s["size_mb"], reverse=True)
+        except Exception as e:
+            job["error"] = str(e)
+            log.warning("duplicate scan failed: %s", e)
+        finally:
+            job["finished"] = True
+
+    def _duplicate_set(self, members: list[XTitle], confidence: str) -> dict:
+        def rank(t: XTitle):  # smaller is better to keep
+            quality = 0 if t.quality_code == 100 else t.quality_code  # DR first, then the AVC modes in order
+            return (not t.protected, (t.resume_sec or 0) == 0, quality, t.start)
+        keep = min(members, key=rank)
+        others = [m for m in members if m.id != keep.id]
+        quality = lambda t: 0 if t.quality_code == 100 else t.quality_code
+        reasons = {}
+        for t in members:
+            if t.id == keep.id:
+                if t.protected:
+                    reasons[t.id] = "保護中"
+                elif (t.resume_sec or 0) > 0:
+                    reasons[t.id] = "視聴途中"
+                elif all(t.start < o.start for o in others):
+                    reasons[t.id] = "先に放送"
+                elif any(quality(t) < quality(o) for o in others):
+                    reasons[t.id] = "高画質"
+                else:
+                    reasons[t.id] = "同じ内容"
+            elif t.protected:
+                reasons[t.id] = "保護中"
+            elif t.start > keep.start:
+                reasons[t.id] = "後の放送"
+            elif quality(t) > quality(keep):
+                reasons[t.id] = "低画質"
+            else:
+                reasons[t.id] = "同じ内容"
+        return {"title": members[0].title, "confidence": confidence,
+                "size_mb": sum(t.size_mb or 0 for t in members), "items": [title_out(t, self.store) for t in members],
+                "keep": keep.id, "suggest_delete": [t.id for t in members if t.id != keep.id and not t.protected], "reasons": reasons}
 
     async def run_delete_job(self, job: dict, ids: list[str]) -> None:
         """Delete recordings one by one (each takes the recorder a few seconds) while `job` reports progress."""
@@ -245,6 +331,10 @@ class Bridge:
                 result["auto"] = self.last_autorec
             except Exception as e:
                 log.warning("auto-reservation failed: %s", e)
+            try:
+                result["monitor"] = await run_checks(self)
+            except Exception as e:
+                log.warning("monitor failed: %s", e)
         return result
 
     async def refresh_loop(self) -> None:
@@ -561,11 +651,18 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         if not bridge_of(request).store.delete_rule(rule_id):
             raise HTTPException(404, "rule not found")
 
+    @app.post(v1 + "/monitor/run", response_model=S.MonitorResult, dependencies=[Depends(auth)])
+    async def monitor_run(request: Request):
+        """Check free space and conflicting reservations now (normally runs after every EPG refresh)."""
+        b = bridge_of(request)
+        b.require_recorder()
+        return await run_checks(b)
+
     @app.get(v1 + "/notify", response_model=S.NotifyStatus, dependencies=[Depends(auth)])
     async def notify_status(request: Request):
         n = bridge_of(request).notifier
         return S.NotifyStatus(configured=n.configured, email=n.email_configured, webhook=n.webhook_configured,
-                              to=n.s.notify_to or None)
+                              to=n.s.notify_to or None, free_gb=n.s.notify_free_gb)
 
     @app.post(v1 + "/notify/test", response_model=S.NotifyStatus, dependencies=[Depends(auth)])
     async def notify_test(request: Request):
@@ -627,6 +724,23 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         for old in [k for k, j in b.jobs.items() if j["finished"] and k != job["id"]][:-20]:
             del b.jobs[old]
         asyncio.create_task(b.run_delete_job(job, req.ids))
+        return job
+
+    @app.post(v1 + "/titles/duplicates", response_model=S.DuplicatesJob, status_code=202, dependencies=[Depends(auth)])
+    async def titles_duplicates(request: Request):
+        """Start looking for recordings that are copies of one broadcast; poll GET /titles/duplicates/{id}."""
+        b = bridge_of(request)
+        b.require_recorder()
+        job = {"id": secrets.token_hex(4), "total": 0, "done": 0, "finished": False, "error": None, "sets": []}
+        b.jobs[job["id"]] = job
+        asyncio.create_task(b.run_duplicates_job(job))
+        return job
+
+    @app.get(v1 + "/titles/duplicates/{job_id}", response_model=S.DuplicatesJob, dependencies=[Depends(auth)])
+    async def titles_duplicates_status(request: Request, job_id: str):
+        job = bridge_of(request).jobs.get(job_id)
+        if job is None or "sets" not in job:
+            raise HTTPException(404, "unknown job")
         return job
 
     @app.get(v1 + "/titles/delete/{job_id}", response_model=S.DeleteJob, dependencies=[Depends(auth)])

@@ -48,8 +48,10 @@ def test_parse_title_reads_genre_code():
     item = ET.fromstring('<item id="0x0000010000034d78"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900'
                          '</scheduledStartDateTime><scheduledDuration>60</scheduledDuration>'
                          '<scheduledChannelID broadcastingType="2" channelType="2">0x0418</scheduledChannelID>'
-                         '<desiredQualityMode>230</desiredQualityMode><genreID type="2">168</genreID></item>')
-    assert parse_title(item).genre_code == 168
+                         '<desiredQualityMode>230</desiredQualityMode><genreID type="2">168</genreID>'
+                         '<lastPlaybackTime resumePoint="13">2026-09-14T01:03:50+0900</lastPlaybackTime></item>')
+    t = parse_title(item)
+    assert t.genre_code == 168 and t.resume_sec == 13 and t.last_played.hour == 1
 
 
 def test_title_update_elements_carry_only_the_changes():
@@ -59,3 +61,14 @@ def test_title_update_elements_carry_only_the_changes():
     assert el == ('<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><item id="0x0000010000034d78">'
                   "<titleProtectFlag>1</titleProtectFlag></item></xsrs>")
     assert "<title>a &amp; b</title><titleNewFlag>0</titleNewFlag>" in build_title_update_elements("0x1", title="a & b", is_new=False)
+
+
+def test_parse_title_never_played():
+    import xml.etree.ElementTree as ET
+
+    from bdzbridge.recorder.xsrs import parse_title
+
+    item = ET.fromstring('<item id="0x1"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>'
+                         '<scheduledDuration>60</scheduledDuration><lastPlaybackTime resumePoint="0">notplayed</lastPlaybackTime></item>')
+    t = parse_title(item)
+    assert t.last_played is None and t.resume_sec == 0

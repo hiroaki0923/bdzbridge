@@ -112,6 +112,9 @@ class RecordedTitle(BaseModel):
     dlna_id: str = Field(description="the title's DLNA object id on the recorder")
     genres: list[Genre] = Field(default_factory=list, description="from the recorder's genreID")
     series: str = Field(default="", description="grouping key derived from the title (episodes of one programme share it)")
+    last_played: datetime | None = None
+    resume_sec: int | None = Field(default=None, description="where playback stopped last time, 0 when it ran to the end")
+    watch_state: Literal["unwatched", "partway", "watched"] = "unwatched"
 
 
 class TitleGroup(BaseModel):
@@ -137,6 +140,25 @@ class TitleSkipped(BaseModel):
 class TitlesDeleteResult(BaseModel):
     deleted: list[str]
     skipped: list[TitleSkipped]
+
+
+class DuplicateSet(BaseModel):
+    title: str
+    confidence: Literal["high", "low"] = Field(description="high: same title, length and programme text; low: same title and length only")
+    size_mb: int
+    items: list[RecordedTitle]
+    keep: str = Field(description="id of the copy worth keeping")
+    suggest_delete: list[str]
+    reasons: dict[str, str] = Field(default_factory=dict, description="per id, why it is kept or suggested for deletion")
+
+
+class DuplicatesJob(BaseModel):
+    id: str
+    total: int
+    done: int
+    finished: bool
+    error: str | None = None
+    sets: list[DuplicateSet] = Field(default_factory=list)
 
 
 class DeleteJob(BaseModel):
@@ -270,11 +292,19 @@ class AutoRunResult(BaseModel):
     at: datetime | None = None
 
 
+class MonitorResult(BaseModel):
+    free_gb: float | None = None
+    low_space: bool
+    new_conflicts: list[str]
+    notified: list[str]
+
+
 class NotifyStatus(BaseModel):
     configured: bool
     email: bool
     webhook: bool
     to: str | None = None
+    free_gb: float | None = Field(default=None, description="low-space warning threshold, 0 = off")
     sent: list[str] = Field(default_factory=list)
 
 

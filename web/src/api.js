@@ -55,7 +55,12 @@ export function findReservation(idx, p) {
 }
 
 export const fmtTime = (iso) => new Date(iso).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false })
-export const fmtDate = (iso) => new Date(iso).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
+export const fmtDate = (iso) => {
+  const d = new Date(iso)
+  const opts = { month: 'numeric', day: 'numeric', weekday: 'short' }
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric'
+  return d.toLocaleDateString('ja-JP', opts)
+}
 export const fmtDateTime = (iso) => `${fmtDate(iso)} ${fmtTime(iso)}`
 export const fmtBytes = (b) => (b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB')
 

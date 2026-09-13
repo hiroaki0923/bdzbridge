@@ -63,6 +63,8 @@ class RecordedTitle:
     destination: str
     size_mb: int | None
     genre_code: int | None = None
+    last_played: datetime | None = None  # lastPlaybackTime
+    resume_sec: int | None = None        # its resumePoint attribute: where playback stopped
 
 
 def _genre_code(item: ET.Element) -> int | None:
@@ -191,6 +193,7 @@ def parse_reservation(item: ET.Element) -> Reservation:
 
 def parse_title(item: ET.Element) -> RecordedTitle:
     ch = _child(item, "scheduledChannelID")
+    lp = _child(item, "lastPlaybackTime")
     return RecordedTitle(
         id=item.get("id", ""),
         title=_text(item, "title"),
@@ -204,6 +207,8 @@ def parse_title(item: ET.Element) -> RecordedTitle:
         destination=_text(item, "recordDestinationID", "HDD"),
         size_mb=int(_text(item, "recordSize")) if _text(item, "recordSize") else None,
         genre_code=_genre_code(item),
+        last_played=_parse_dt(lp.text) if lp is not None and lp.text and lp.text[:1].isdigit() else None,  # "notplayed" otherwise
+        resume_sec=int(lp.get("resumePoint")) if lp is not None and (lp.get("resumePoint") or "").isdigit() else None,
     )
 
 

@@ -73,3 +73,15 @@ def series_key(title: str) -> str:
     """Normalised grouping key: NFKC, case-folded, without spaces."""
     name = unicodedata.normalize("NFKC", series_name(title)).casefold()
     return re.sub(r"\s+", "", name)
+
+
+def same_title_key(title: str) -> str:
+    """Key for 'the same programme title' (marks and spacing ignored): copies of one broadcast share it."""
+    return re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", _clean(title)).casefold())
+
+
+def summary_key(summary: str) -> str:
+    """Programme descriptions compared loosely: marks, spaces and re-broadcast notes ignored."""
+    t = unicodedata.normalize("NFKC", _clean(summary or "")).casefold()
+    t = re.sub(r"[（(]?再放送[)）]?|\[再\]", "", t)
+    return re.sub(r"[\s　]+", "", t)[:200]
