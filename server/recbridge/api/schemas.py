@@ -63,6 +63,7 @@ class Reservation(BaseModel):
     destination: str
     size_mb: int | None
     created_by_app: bool
+    genres: list[Genre] = Field(default_factory=list, description="from the EPG cache when the reservation tracks a program that is still in it")
 
 
 class ReservationCreate(BaseModel):
@@ -109,8 +110,8 @@ class RecordedTitle(BaseModel):
     destination: str
     size_mb: int | None
     dlna_id: str = Field(description="the title's DLNA object id on the recorder")
-
     genres: list[Genre] = Field(default_factory=list, description="from the recorder's genreID")
+
 
 class PlaybackStatus(BaseModel):
     power: str | None = None
