@@ -105,6 +105,11 @@ class RecorderClient:
         r.raise_for_status()
         return decode_epg_file(r.content)
 
+    @staticmethod
+    def cds_id(title_id: str) -> str:
+        """The DLNA item id of a recorded title: the low 32 bits of the XSRS title id."""
+        return f"V_{int(title_id, 16) & 0xFFFFFFFF}"
+
     async def fetch_logo_file(self, broadcasting: str) -> bytes | None:
         url = f"http://{self.host}:{self.stream_port}//{codes.LOGO_FILES[broadcasting]}"
         async with self.lock:

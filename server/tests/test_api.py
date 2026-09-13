@@ -50,10 +50,28 @@ class FakeXsrs:
         self.reservations = [r for r in self.reservations if r.id != rid]
 
     async def list_titles(self, count=100, start=0):
-        return []
+        from recbridge.recorder.xsrs import RecordedTitle
+        return [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
+                              False, True, "HDD", 4376)]
+
+    async def title_detail(self, title_id):
+        return {"summary": "あらすじ", "details": ["番組内容 本文"]}
+
+    def __init_playback__(self):
+        pass
 
     async def play_status(self):
-        return {"powerstatus": "PowerOn", "playstatus": "Stopped"}
+        st = getattr(self, "_play", None)
+        return st or {"powerstatus": "PowerOn", "playstatus": "Stopped"}
+
+    async def play_control(self, title_id, operation, position=0):
+        self.plays = getattr(self, "plays", []) + [(title_id, operation, position)]
+        if operation == "play":
+            self._play = {"powerstatus": "PowerOn", "playstatus": "Playing", "item": title_id, "position": "7", "chapterNumber": "2"}
+        elif operation == "pause":
+            self._play = dict(self._play, playstatus="Paused" if self._play["playstatus"] == "Playing" else "Playing")
+        else:
+            self._play = {"powerstatus": "PowerOn", "playstatus": "Stopped"}
 
     async def firmware_version(self):
         return "35.003.1"
@@ -72,6 +90,7 @@ class FakeRecorder:
 
     async def fetch_epg(self, bt):
         return make_services() if bt == "td" else None
+
 
     async def close(self):
         pass
@@ -209,3 +228,27 @@ def test_epg_refresh_skips_recorders_without_epg(client):
     assert res["epg_capable"] is False
     st = client.get("/api/v1/recorder", headers=H).json()
     assert st["epg_capable"] is False
+
+
+def test_titles_and_detail(client):
+    ts = client.get("/api/v1/titles", headers=H).json()
+    assert ts[0]["dlna_id"] == "V_216440" and ts[0]["is_new"]
+    d = client.get("/api/v1/titles/0x0000010000034d78", headers=H).json()
+    assert d["summary"] == "あらすじ" and d["details"] == ["番組内容 本文"] and d["id"] == "0x0000010000034d78"
+
+
+def test_play_on_tv_and_stop(client):
+    r = client.post("/api/v1/titles/0x0000010000034d78/play", headers=H)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["play"] == "Playing" and body["title_id"] == "0x0000010000034d78" and body["position_sec"] == 7 and body["chapter"] == 2
+    assert client.bridge.recorder.xsrs.plays[-1] == ("0x0000010000034d78", "play", 0)
+    st = client.get("/api/v1/recorder/playback", headers=H).json()
+    assert st["play"] == "Playing"
+    assert client.post("/api/v1/recorder/playback", headers=H, json={"operation": "resume"}).status_code == 409
+    assert client.post("/api/v1/recorder/playback", headers=H, json={"operation": "pause"}).json()["play"] == "Paused"
+    assert client.post("/api/v1/recorder/playback", headers=H, json={"operation": "resume"}).json()["play"] == "Playing"
+    assert client.bridge.recorder.xsrs.plays[-1] == ("0x0000010000034d78", "pause", 0)
+    r = client.post("/api/v1/recorder/playback", headers=H, json={"operation": "stop"})
+    assert r.status_code == 200 and r.json()["play"] == "Stopped"
+    assert client.post("/api/v1/recorder/playback", headers=H, json={"operation": "stop"}).status_code == 409
