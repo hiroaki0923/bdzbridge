@@ -1,0 +1,92 @@
+# レコーダーの番組表ファイル（EPG_*_FILE.dat）
+
+Sony BDZ レコーダーは、自身が放送波から受信した番組表を LAN 内の HTTP で公開している。確認機種は BDZ-FBT4100（ファーム 35.003.1）。ソニー非公式で、相互運用のために観察した形式をまとめたもの。
+
+## 取得
+
+```
+GET http://<recorder>:60151//EPG_TRDEPG_FILE.dat      地上デジタル
+GET http://<recorder>:60151//EPG_BSEPG_FILE.dat       BS
+GET http://<recorder>:60151//EPG_CSEPG_FILE.dat       110度CS
+GET http://<recorder>:60151//EPG_ADVBSDEPG_FILE.dat   BS4K
+GET http://<recorder>:60151//EPG_ADVCSDEPG_FILE.dat   CS4K
+GET http://<recorder>:60151//EPG_TRDLOGO_FILE.dat     局ロゴ（BS/CS/ADVBSD/ADVCSD も同様の名前）
+```
+
+- 認証も特別なヘッダーも不要。パスはホストの直後に `/` が 2 つ。
+- 該当するチャンネルが無い種別は `416` を返す。
+- 応答は chunked。地デジ約 1 MB、BS 1.2 MB、CS 1.9 MB、BS4K 0.4 MB（26〜55 局、8 日分）。
+- ネットワークスタンバイ中でも取得できる。`description.xml` の `s-bras:EPG_CAP` が `01` の機種が対象。
+
+## 復号
+
+1. 全バイトを `0x9D` で XOR する。
+2. 結果は zlib ストリームの連結（1 ストリーム = 1 サービス）。順に伸長し、`unused_data` を次の入力にする。
+
+## 伸長後の形式（"@SRV" コンテナ）
+
+数値はすべて big-endian。文字列は UTF-8（ARIB 文字コードではない）。時刻は「UNIX 時刻 + 32400」（JST 表記の秒）。
+
+```
+@SRV レコード（1 サービス）
+  0    "@SRV"
+  4    u16 version (3)
+  6    u16 (0)
+  8    u16 service_id            ARIB の service_id（例 0x0400 = NHK総合・東京）
+  12   u32 length
+  26   u16 name_len
+  28   局名（UTF-8、NUL 埋め）
+  156  以降 @DAY ブロックの連続（ヘッダ長は 156 固定）
+
+@DAY ブロック（1 日分）
+  0    "@DAY"
+  4    u32 day_start             その日の 00:00 JST
+  8    u32 block_len             ブロック全体の長さ
+  12   u8  event_count
+  16   以降 @EVT の連続
+
+@EVT ブロック（1 番組）
+  0    "@EVT"
+  6    u16 event_id              ARIB の event_id
+  8    u16 event_len             ブロック全体の長さ（次の @EVT は +event_len）
+  10   u8  flags                 bit6=1 かつ bit5=0 なら参照形（下記）
+  16   u32 start
+  20   u32 end
+  24   6 bytes
+  30   3 × 2 bytes               ジャンル。各スロットの 1 バイト目が content_nibble（上位 level1 / 下位 level2）、2 バイト目は使用中なら 0xFF
+  40   u8                        コピー制御 ((b & 0x0C) >> 2)
+  41   u8                        視聴年齢 (b & 0x1F)。4 未満は制限なし、それ以外は値−3 歳
+  44   u16 title_len
+  46   u16 desc_len
+  48   u16 title_field           title の格納長。desc は +56+title_field から
+  50   u16 desc_end              ext は +56+desc_end から
+  52   u16 ext_len
+  56   title / description / extended（UTF-8）
+
+参照形 @EVT（サブチャンネルでの同時放送）
+  16   u32 start / 20 u32 end
+  24   u16 ref_service_id, 26 u16 ref_event_id     親サービスの番組を指す。番組名等は親側を引く
+```
+
+## 記号
+
+番組名に含まれる ARIB 追加記号は私用領域の文字で来る。番組表サイトの表記と突き合わせて確認した対応:
+
+| 文字 | 意味 |
+|---|---|
+| U+E0FD | 手（手話） |
+| U+E0FE | 字（字幕） |
+| U+E180 | デ（データ放送） |
+| U+E182 | 二（二か国語） |
+| U+E183 | 多（多重音声） |
+| U+E184 | 解（解説） |
+| U+E185 | SS（サラウンド） |
+| U+E18C | 映 |
+| U+E192 | 再（再放送） |
+| U+E193 | 新 |
+| U+E195 | 終 |
+| U+E196 | 生（生放送） |
+
+## 検証
+
+2026-09-13 に BDZ-FBT4100 で取得した地デジ 26 局・8 日分（8,388 番組）を復号し、event_id と番組名が同じ放送の他の番組表と一致することを確認した。得られる service_id / event_id は、予約 API（`xsrs-api.md`）の `scheduledChannelID` / `desiredMatchingID` にそのまま使える。実装は `server/recbridge/recorder/epg.py`。
