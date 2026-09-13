@@ -296,3 +296,66 @@ def test_titles_and_reservations_fall_back_to_genre_code(client):
     r = Reservation("0x1", "x", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 1800, "1", 2, 1024, None, 230, False, False, "HDD", None, None,
                     genre_code=112)
     assert [g.label for g in reservation_out(r).genres] == ["アニメ／特撮"]
+
+
+class FakeNotifier:
+    configured = email_configured = True
+    webhook_configured = False
+
+    def __init__(self):
+        self.sent = []
+        self.s = type("S", (), {"notify_to": "me@example.com"})()
+
+    async def send(self, subject, body):
+        self.sent.append((subject, body))
+        return ["email"]
+
+
+def _autorec_client(client):
+    client.bridge.notifier = FakeNotifier()
+    client.bridge.clock = lambda: datetime(2026, 9, 14, 4, 30, tzinfo=JST)
+    return client
+
+
+def test_rules_reserve_matching_programs_once(client):
+    c = _autorec_client(client)
+    r = c.post("/api/v1/rules", headers=H, json={"query": "sample"}, params={"run": "true"})
+    assert r.status_code == 201 and r.json()["quality"] == "LSR" and r.json()["title_only"] is True
+    rid = r.json()["id"]
+    assert [m["event_id"] for m in c.get(f"/api/v1/rules/{rid}/matches", headers=H).json()] == [14794]
+    res = [x for x in c.get("/api/v1/reservations", headers=H).json() if x["event_id"] == 14794]
+    assert len(res) == 1 and res[0]["title"] == "日曜劇場「サンプルドラマ」" and res[0]["quality"] == "LSR"
+    logs = c.get("/api/v1/rules/log", headers=H).json()
+    assert [(x["status"], x["event_id"], x["rule_query"]) for x in logs] == [("reserved", 14794, "sample")]
+    sent = c.bridge.notifier.sent
+    assert len(sent) == 1 and sent[0][0] == "[recbridge] 自動予約 1 件" and "ＳＡＭＰＬＥ" in sent[0][1] and "「sample」" in sent[0][1]
+    # a second pass finds nothing new and stays quiet
+    run = c.post("/api/v1/rules/run", headers=H).json()
+    assert (run["checked"], run["reserved"], run["notified"]) == (1, 0, []) and len(sent) == 1
+    # disabled rules are skipped; deleting removes the rule and its log
+    assert c.patch(f"/api/v1/rules/{rid}", headers=H, json={"enabled": False}).json()["enabled"] is False
+    assert c.post("/api/v1/rules/run", headers=H).json()["rules"] == 0
+    assert c.delete(f"/api/v1/rules/{rid}", headers=H).status_code == 204
+    assert c.get("/api/v1/rules", headers=H).json() == [] and c.get("/api/v1/rules/log", headers=H).json() == []
+    assert c.delete(f"/api/v1/rules/{rid}", headers=H).status_code == 404
+
+
+def test_rules_report_conflicts_without_reserving(client):
+    c = _autorec_client(client)
+    other = Reservation("0x9", "別の予約", datetime(2026, 9, 14, 6, 0, tzinfo=JST), 900, "1", 2, 1040, None, 240, False, False, "HDD", None, "2000")
+    c.bridge.recorder.xsrs.conflict_with = [other]
+    c.post("/api/v1/rules", headers=H, json={"query": "あさのサンプル", "quality": "DR"})
+    run = c.post("/api/v1/rules/run", headers=H).json()
+    assert (run["reserved"], run["conflicts"], run["notified"]) == (0, 1, ["email"])
+    assert not [x for x in c.get("/api/v1/reservations", headers=H).json() if x["event_id"] == 14793]
+    log = c.get("/api/v1/rules/log", headers=H).json()[0]
+    assert log["status"] == "conflict" and log["message"] == "別の予約"
+    assert "重複" in c.bridge.notifier.sent[0][0]
+
+
+def test_rules_run_after_epg_refresh(client):
+    c = _autorec_client(client)
+    c.post("/api/v1/rules", headers=H, json={"query": "ニュース", "title_only": False})
+    res = c.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["auto"]["reserved"] == 1 and c.bridge.last_autorec["reserved"] == 1
+    assert c.get("/api/v1/notify", headers=H).json()["configured"] is True

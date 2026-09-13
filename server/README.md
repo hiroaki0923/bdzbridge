@@ -34,6 +34,12 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | POST | /api/v1/reservations | create (409 on conflict unless `force`) |
 | PATCH | /api/v1/reservations/{id} | change quality / repeat (time-based ones: also title, start, duration) |
 | DELETE | /api/v1/reservations/{id} | delete |
+| GET/POST | /api/v1/rules | keyword auto-reservation rules (`?run=true` on POST applies them right away) |
+| PATCH/DELETE | /api/v1/rules/{id} | enable / disable / change quality; delete |
+| GET | /api/v1/rules/{id}/matches | upcoming programs a rule matches |
+| POST | /api/v1/rules/run | apply all rules now (also runs after every EPG refresh) |
+| GET | /api/v1/rules/log | what the rules reserved, skipped as conflicts, or failed on |
+| GET/POST | /api/v1/notify, /api/v1/notify/test | notification channels (SMTP / webhook) and a test message |
 | GET | /api/v1/titles?limit=&offset= | recorded titles (newest first) |
 | GET | /api/v1/titles/{id} | program text of one title |
 | POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
