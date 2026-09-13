@@ -17,6 +17,7 @@
   <div class="title">{app.status?.friendly_name ?? '—'}</div>
   <div class="muted">{app.status?.product} · {app.status?.host} · ファーム {app.status?.firmware ?? '?'} · 電源 {app.status?.power ?? '?'}</div>
   <div class="muted" style="margin-top:6px">
+    {#if app.status?.epg_capable === false}<span class="error">この機種は番組表を提供していません（EPG_CAP 00）。</span><br />{/if}
     {#each Object.entries(epg) as [k, v]}{#if typeof v === 'object' && v}{names[k] ?? k}: {v.channels}局/{v.programs}番組{v.refreshed ? '（' + v.refreshed.slice(5, 16).replace('T', ' ') + '）' : ''}<br />{/if}{/each}
     {#if epg.last_error}<span class="error">取得エラー: {epg.last_error}</span>{/if}
   </div>

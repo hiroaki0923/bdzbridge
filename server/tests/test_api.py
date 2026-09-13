@@ -200,3 +200,12 @@ def test_reservation_update(client):
     xml = client.bridge.recorder.xsrs.created[-1]
     assert f'<item id="{r["id"]}">' in xml and "<desiredQualityMode>250</desiredQualityMode>" in xml and ",,0x400,0x39c8" in xml
     assert client.patch("/api/v1/reservations/0xnope", headers=H, json={"quality": "LR"}).status_code == 404
+
+
+def test_epg_refresh_skips_recorders_without_epg(client):
+    from recbridge.recorder.client import RecorderInfo
+    client.bridge.recorder.info = RecorderInfo("127.0.0.1", "BDR - OLD", "BDZ-OLD", "BDZ-OLD", False, "uuid:old")
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["epg_capable"] is False
+    st = client.get("/api/v1/recorder", headers=H).json()
+    assert st["epg_capable"] is False

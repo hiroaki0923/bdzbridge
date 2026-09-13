@@ -41,3 +41,11 @@ async def test_discover_falls_back_to_scan(monkeypatch):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         found = await discovery.discover(http, networks="192.0.2.0/24")
     assert [c.host for c in found] == ["192.0.2.10"] and found[0].via == "scan"
+
+
+def test_port_from_didl():
+    from recbridge.recorder.client import port_from_didl
+    didl = ('<DIDL-Lite><item id="TUNTRD_1024"><dc:title>x</dc:title>'
+            '<res protocolInfo="http-get:*:application/x-dtcp1:*">http://192.0.2.10:60151/ObjID=TUNTRD_1024_ResID=/LIVE.mpg</res></item></DIDL-Lite>')
+    assert port_from_didl(didl) == 60151
+    assert port_from_didl('<DIDL-Lite><container id="VideoRoot"><dc:title>ビデオ</dc:title></container></DIDL-Lite>') is None
