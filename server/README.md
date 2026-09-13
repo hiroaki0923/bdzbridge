@@ -42,6 +42,10 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | GET/POST | /api/v1/notify, /api/v1/notify/test | notification channels (SMTP / webhook) and a test message |
 | GET | /api/v1/titles?limit=&offset= | recorded titles (newest first) |
 | GET | /api/v1/titles/{id} | program text of one title |
+| PATCH | /api/v1/titles/{id} | `{"protected": true}` protects a recording from deletion; also `is_new`, `title` |
+| DELETE | /api/v1/titles/{id} | delete a recording (final; refused while protected) |
+| GET | /api/v1/titles/groups?genre=&refresh= | recordings grouped into programmes by their names; `GET /titles?series=<key>` lists one group |
+| POST | /api/v1/titles/delete | `{"ids": [...]}` starts deleting several recordings (202 + job); `GET /titles/delete/{job}` reports done/total; protected ones are skipped |
 | POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
 | GET/POST | /api/v1/recorder/playback | playback status / `{"operation":"pause"|"resume"|"stop"}` |
 

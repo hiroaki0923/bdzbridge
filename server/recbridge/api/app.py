@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,9 +20,15 @@ from ..notify import Notifier
 from ..recorder import codes, discovery
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
+from ..recorder.series import series_key, series_name
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import Reservation as XReservation
-from ..recorder.xsrs import XsrsError, build_create_elements, build_update_elements
+from ..recorder.xsrs import (
+    XsrsError,
+    build_create_elements,
+    build_title_update_elements,
+    build_update_elements,
+)
 from ..store import ProgramRow, Store
 from . import schemas as S
 
@@ -77,7 +85,8 @@ def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
                            service_id=t.service_id, service_name=name,
                            quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)), protected=t.protected,
                            is_new=t.is_new, destination=t.destination, size_mb=t.size_mb,
-                           dlna_id=RecorderClient.cds_id(t.id), genres=_genres_from_code(t.genre_code))
+                           dlna_id=RecorderClient.cds_id(t.id), genres=_genres_from_code(t.genre_code),
+                           series=series_key(t.title))
 
 
 class Bridge:
@@ -91,6 +100,46 @@ class Bridge:
         self.notifier = Notifier(settings, self.http)
         self.clock = lambda: datetime.now(JST)  # tests override this
         self.last_autorec: dict | None = None
+        self._titles: tuple[float, list[XTitle]] | None = None  # cached full title list (grouping, bulk operations)
+        self.jobs: dict[str, dict] = {}  # bulk delete jobs by id
+
+    async def all_titles(self, max_age: float = 300) -> list[XTitle]:
+        rec = self.require_recorder()
+        if self._titles and time.monotonic() - self._titles[0] < max_age:
+            return self._titles[1]
+        async with rec.lock:
+            items = await rec.xsrs.list_titles_all()
+        self._titles = (time.monotonic(), items)
+        return items
+
+    def forget_titles(self) -> None:
+        self._titles = None
+
+    async def run_delete_job(self, job: dict, ids: list[str]) -> None:
+        """Delete recordings one by one (each takes the recorder a few seconds) while `job` reports progress."""
+        rec = self.recorder
+        try:
+            known = {t.id: t for t in await self.all_titles()}
+            for tid in ids:
+                t = known.get(tid)
+                if t is None:
+                    job["skipped"].append({"id": tid, "reason": "not found"})
+                elif t.protected:
+                    job["skipped"].append({"id": tid, "reason": "protected"})
+                else:
+                    try:
+                        async with rec.lock:
+                            await rec.xsrs.delete_title(tid)
+                        job["deleted"].append(tid)
+                    except XsrsError as e:
+                        job["skipped"].append({"id": tid, "reason": str(e)})
+                job["done"] += 1
+        except Exception as e:
+            job["error"] = str(e)
+            log.warning("delete job %s failed: %s", job["id"], e)
+        finally:
+            job["finished"] = True
+            self.forget_titles()
 
     @property
     def configured(self) -> bool:
@@ -260,16 +309,20 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         if b.recorder is None:
             return S.RecorderStatus(configured=False, host=b.store.get_meta("recorder_host"), epg=epg)
         info = b.recorder.info or await b.recorder.discover()
-        fw = power = play = None
+        fw = power = play = storage = None
         try:
             async with b.recorder.lock:
                 st = await b.recorder.xsrs.play_status()
                 fw = await b.recorder.xsrs.firmware_version()
+                try:
+                    storage = S.Storage(**await b.recorder.xsrs.record_destination_info())
+                except Exception as e:  # not every model has the DLNA record-destination extension
+                    log.debug("no capacity info: %s", e)
             power, play = st.get("powerstatus"), st.get("playstatus")
         except Exception as e:
             log.warning("status query failed: %s", e)
         return S.RecorderStatus(configured=True, host=info.host, friendly_name=info.friendly_name, model=info.model,
-                                product=info.product, epg_capable=info.epg_capable, udn=info.udn, firmware=fw,
+                                product=info.product, epg_capable=info.epg_capable, udn=info.udn, firmware=fw, storage=storage,
                                 power=power, play=play, epg=epg)
 
     @app.post(v1 + "/recorder/power", dependencies=[Depends(auth)])
@@ -494,12 +547,63 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         return S.NotifyStatus(configured=True, email=n.email_configured, webhook=n.webhook_configured, to=n.s.notify_to or None, sent=sent)
 
     @app.get(v1 + "/titles", response_model=list[S.RecordedTitle], dependencies=[Depends(auth)])
-    async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0):
+    async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0,
+                     series: str | None = Query(None, description="only titles with this grouping key (see /titles/groups)")):
         b = bridge_of(request)
         rec = b.require_recorder()
-        async with rec.lock:
-            items = await rec.xsrs.list_titles(count=limit, start=offset)
+        if series is not None:
+            items = [t for t in await b.all_titles() if series_key(t.title) == series][offset:offset + limit]
+        else:
+            async with rec.lock:
+                items = await rec.xsrs.list_titles(count=limit, start=offset)
         return [title_out(t, b.store) for t in items]
+
+    @app.get(v1 + "/titles/groups", response_model=list[S.TitleGroup], dependencies=[Depends(auth)])
+    async def title_groups(request: Request, genre: int | None = Query(None, description="ARIB level-1 genre code"),
+                           refresh: bool = Query(False, description="re-read the title list from the recorder")):
+        """Recorded titles grouped into programmes by their names, newest group first."""
+        b = bridge_of(request)
+        if refresh:
+            b.forget_titles()
+        groups: dict[str, dict] = {}
+        for t in await b.all_titles():
+            if genre is not None and (t.genre_code is None or t.genre_code >> 4 != genre):
+                continue
+            key = series_key(t.title)
+            g = groups.get(key)
+            if g is None:
+                g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start, "protected": 0, "new": 0}
+            name = series_name(t.title)
+            g["names"][name] = g["names"].get(name, 0) + 1
+            g["count"] += 1
+            g["size_mb"] += t.size_mb or 0
+            g["latest"], g["earliest"] = max(g["latest"], t.start), min(g["earliest"], t.start)
+            g["protected"] += int(t.protected)
+            g["new"] += int(t.is_new)
+        out = [S.TitleGroup(key=k, name=max(g["names"], key=g["names"].get), count=g["count"], size_mb=g["size_mb"],
+                            latest=g["latest"], earliest=g["earliest"], protected_count=g["protected"], new_count=g["new"])
+               for k, g in groups.items()]
+        return sorted(out, key=lambda g: g.latest, reverse=True)
+
+    @app.post(v1 + "/titles/delete", response_model=S.DeleteJob, status_code=202, dependencies=[Depends(auth)])
+    async def titles_delete(request: Request, req: S.TitlesDelete):
+        """Start deleting several recordings; poll GET /titles/delete/{id} for progress.
+        Protected and unknown ids are skipped, not failed."""
+        b = bridge_of(request)
+        b.require_recorder()
+        job = {"id": secrets.token_hex(4), "total": len(req.ids), "done": 0, "deleted": [], "skipped": [], "finished": False, "error": None}
+        b.jobs[job["id"]] = job
+        for old in [k for k, j in b.jobs.items() if j["finished"] and k != job["id"]][:-20]:
+            del b.jobs[old]
+        asyncio.create_task(b.run_delete_job(job, req.ids))
+        return job
+
+    @app.get(v1 + "/titles/delete/{job_id}", response_model=S.DeleteJob, dependencies=[Depends(auth)])
+    async def titles_delete_status(request: Request, job_id: str):
+        job = bridge_of(request).jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "unknown job")
+        return job
 
     def _playback(st: dict) -> S.PlaybackStatus:
         return S.PlaybackStatus(power=st.get("powerstatus"), play=st.get("playstatus"), title_id=st.get("item"),
@@ -556,6 +660,34 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
                 return _playback(await rec.xsrs.play_status())
         except XsrsError as e:
             raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
+
+    @app.patch(v1 + "/titles/{title_id}", response_model=S.TitleFlags, dependencies=[Depends(auth)])
+    async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
+        """Protect / unprotect a recording, clear its NEW mark, or rename it."""
+        rec = bridge_of(request).require_recorder()
+        if req.protected is None and req.is_new is None and req.title is None:
+            raise HTTPException(422, "nothing to change")
+        el = build_title_update_elements(title_id, title=req.title, protected=req.protected, is_new=req.is_new)
+        try:
+            async with rec.lock:
+                await rec.xsrs.update_title(el)
+        except XsrsError as e:
+            raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
+        bridge_of(request).forget_titles()
+        return S.TitleFlags(id=title_id, protected=req.protected, is_new=req.is_new, title=req.title)
+
+    @app.delete(v1 + "/titles/{title_id}", status_code=204, dependencies=[Depends(auth)])
+    async def title_delete(request: Request, title_id: str):
+        """Delete a recording. This is final; the recorder refuses protected titles."""
+        rec = bridge_of(request).require_recorder()
+        try:
+            async with rec.lock:
+                # the recorder answers success for ids it does not know, so make sure the title exists first
+                await rec.xsrs.title_detail(title_id)
+                await rec.xsrs.delete_title(title_id)
+        except XsrsError as e:
+            raise HTTPException(404 if e.code in ("701", "803", "820") else 502, str(e))
+        bridge_of(request).forget_titles()
 
     @app.get(v1 + "/titles/{title_id}", response_model=S.TitleDetail, dependencies=[Depends(auth)])
     async def title_detail(request: Request, title_id: str):

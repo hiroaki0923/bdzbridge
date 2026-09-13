@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -52,10 +53,22 @@ class FakeXsrs:
     async def delete_reservation(self, rid):
         self.reservations = [r for r in self.reservations if r.id != rid]
 
-    async def list_titles(self, count=100, start=0):
+    def _titles(self):
         from recbridge.recorder.xsrs import RecordedTitle
-        return [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
-                              False, True, "HDD", 4376, genre_code=48)]
+        deleted = getattr(self, "deleted", set())
+        all_ = [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
+                              False, True, "HDD", 4376, genre_code=48),
+                RecordedTitle("0x0000010000034d79", "録画したドラマ　第２話[字]", datetime(2026, 9, 12, 21, 0, tzinfo=JST), 3600, 2, 1048, 230,
+                              True, False, "HDD", 4000, genre_code=48),
+                RecordedTitle("0x0000010000034d7a", "別の番組[字]", datetime(2026, 9, 11, 21, 0, tzinfo=JST), 1800, 2, 1024, 240,
+                              False, False, "HDD", 900, genre_code=0)]
+        return [t for t in all_ if t.id not in deleted]
+
+    async def list_titles(self, count=100, start=0):
+        return self._titles()[start:start + count]
+
+    async def list_titles_all(self, page=200):
+        return self._titles()
 
     async def title_detail(self, title_id):
         return {"summary": "あらすじ", "details": ["番組内容 本文"]}
@@ -78,6 +91,19 @@ class FakeXsrs:
 
     async def firmware_version(self):
         return "35.003.1"
+
+    async def delete_title(self, title_id):
+        from recbridge.recorder.xsrs import XsrsError
+        if title_id not in {t.id for t in self._titles()}:
+            raise XsrsError("X_DeleteTitle", 500, "701")
+        self.deleted = getattr(self, "deleted", set()) | {title_id}
+
+    async def update_title(self, elements):
+        item = ET.fromstring(elements).find("{urn:schemas-xsrs-org:metadata-1-0/x_srs/}item")
+        self.title_updates = getattr(self, "title_updates", []) + [(item.get("id"), {c.tag.split("}")[-1]: c.text for c in item})]
+
+    async def record_destination_info(self, destination="HDD"):
+        return {"total_bytes": 4_294_967_296_000, "free_bytes": 8_556_380_160}
 
 
 class FakeRecorder:
@@ -171,6 +197,7 @@ def test_reservation_time_based_and_conflict(client):
 def test_status_and_defaults(client):
     st = client.get("/api/v1/recorder", headers=H).json()
     assert st["model"] == "BDZ-TEST" and st["firmware"] == "35.003.1" and st["epg"]["td"]["channels"] == 2
+    assert st["storage"] == {"destination": "HDD", "total_bytes": 4_294_967_296_000, "free_bytes": 8_556_380_160}
     d = client.get("/api/v1/defaults", headers=H).json()
     assert d["genres"]["3"] == "ドラマ"
     assert d["quality"] == "LSR" and d["repeats"]["title"] == "番組名"
@@ -359,3 +386,39 @@ def test_rules_run_after_epg_refresh(client):
     res = c.post("/api/v1/epg/refresh", headers=H).json()
     assert res["auto"]["reserved"] == 1 and c.bridge.last_autorec["reserved"] == 1
     assert c.get("/api/v1/notify", headers=H).json()["configured"] is True
+
+
+def test_title_protect_flag(client):
+    r = client.patch("/api/v1/titles/0x0000010000034d78", headers=H, json={"protected": True})
+    assert r.status_code == 200 and r.json() == {"id": "0x0000010000034d78", "protected": True, "is_new": None, "title": None}
+    assert client.bridge.recorder.xsrs.title_updates == [("0x0000010000034d78", {"titleProtectFlag": "1"})]
+    client.patch("/api/v1/titles/0x0000010000034d78", headers=H, json={"protected": False, "is_new": False})
+    assert client.bridge.recorder.xsrs.title_updates[-1][1] == {"titleProtectFlag": "0", "titleNewFlag": "0"}
+    assert client.patch("/api/v1/titles/0x0000010000034d78", headers=H, json={}).status_code == 422
+
+
+def test_title_delete(client):
+    assert client.delete("/api/v1/titles/0x0000010000034d78", headers=H).status_code == 204
+    assert client.bridge.recorder.xsrs.deleted == {"0x0000010000034d78"}
+    assert client.delete("/api/v1/titles/0x0000010000034d78", headers=H).status_code == 404
+
+
+def test_title_groups_and_bulk_delete(client):
+    groups = client.get("/api/v1/titles/groups", headers=H).json()
+    assert [(g["name"], g["count"], g["protected_count"], g["size_mb"]) for g in groups] == [("録画したドラマ", 2, 1, 8376), ("別の番組", 1, 0, 900)]
+    key = groups[0]["key"]
+    members = client.get("/api/v1/titles", headers=H, params={"series": key}).json()
+    assert [m["id"] for m in members] == ["0x0000010000034d78", "0x0000010000034d79"] and members[0]["series"] == key
+    assert [g["name"] for g in client.get("/api/v1/titles/groups", headers=H, params={"genre": 0}).json()] == ["別の番組"]
+    job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"]})
+    assert job.status_code == 202 and job.json()["total"] == 3
+    for _ in range(100):
+        r = client.get(f"/api/v1/titles/delete/{job.json()['id']}", headers=H).json()
+        if r["finished"]:
+            break
+        time.sleep(0.02)
+    assert r["finished"] and r["done"] == 3 and r["error"] is None
+    assert r["deleted"] == ["0x0000010000034d78"]
+    assert [(s["id"], s["reason"]) for s in r["skipped"]] == [("0x0000010000034d79", "protected"), ("0x1", "not found")]
+    assert [g["count"] for g in client.get("/api/v1/titles/groups", headers=H).json()] == [1, 1]
+    assert client.get("/api/v1/titles/delete/nope", headers=H).status_code == 404

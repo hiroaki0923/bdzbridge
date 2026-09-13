@@ -35,6 +35,7 @@ Every API call needs `Authorization: Bearer <RECBRIDGE_API_TOKEN>`.
 - `recbridge/recorder/epg.py` — decodes `EPG_*_FILE.dat` (XOR 0x9D, concatenated zlib, "@SRV/@DAY/@EVT" container; see docs/epg-format.md). Has an encoder used only by tests to build fixtures.
 - `recbridge/recorder/xsrs.py` — SOAP client for `X_ScheduledRecording` / `X_PvrControl`. `build_create_elements` must stay byte-identical to the captured request in `tests/fixtures/create-request.xml`; the recorder answers UPnP error 402 to any deviation (e.g. `+0900` instead of `+09:00`). Updates send the same item with `id` set.
 - `recbridge/recorder/codes.py` — quality / repeat / broadcasting code tables.
+- `recbridge/recorder/series.py` — groups recorded titles into programmes by their names (the recorder exposes no series id); `recbridge/autorec.py` — keyword auto-reservation run after each EPG refresh, reported through `recbridge/notify.py` (SMTP / webhook).
 - `recbridge/recorder/discovery.py` — SSDP M-SEARCH, then a TCP scan of the local /24 for port 64220; candidates are confirmed via `description.xml`.
 - `recbridge/recorder/client.py` — one recorder: discovery, EPG download from port 60151, and an `asyncio.Lock` serializing every request (the recorder returns 503 to concurrent requests).
 - `recbridge/store.py` — SQLite cache of channels/programs with NFKC/case-folded search text. Sub-channel "reference" events resolve to the parent program in SQL. A TV day is 04:00–04:00 JST. `SCHEMA_VERSION` rebuilds the cache on change.
