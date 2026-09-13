@@ -5,14 +5,29 @@ The recorder answers 503 when it gets concurrent requests, so every call goes th
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
 from . import codes
 from .epg import Service, decode_epg_file
 from .xsrs import XsrsClient
+
+log = logging.getLogger("recbridge.recorder")
+DEFAULT_STREAM_PORT = 60151
+
+
+def port_from_didl(didl: str) -> int | None:
+    """The media server's HTTP port, taken from the first <res> URL in a DIDL-Lite fragment."""
+    for m in re.finditer(r"<res[^>]*>\s*(http://[^<\s]+)", didl):
+        port = urlparse(m.group(1)).port
+        if port:
+            return port
+    return None
 
 
 @dataclass
@@ -26,10 +41,11 @@ class RecorderInfo:
 
 
 class RecorderClient:
-    def __init__(self, host: str, upnp_port: int = 64220, stream_port: int = 60151):
+    def __init__(self, host: str, upnp_port: int = 64220, stream_port: int | None = None):
         self.host = host
         self.upnp_port = upnp_port
-        self.stream_port = stream_port
+        self.stream_port = stream_port or DEFAULT_STREAM_PORT
+        self._stream_port_detected = stream_port is not None
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0))
         self.xsrs = XsrsClient(host, self.http, upnp_port)
         self.lock = asyncio.Lock()
@@ -51,10 +67,36 @@ class RecorderClient:
         self.info = RecorderInfo(host=self.host, friendly_name=t("friendlyName"), model=t("modelDescription"),
                                  product=t("productName") or t("modelName"), epg_capable=t("EPG_CAP") not in ("", "00"),
                                  udn=t("UDN"))
+        if not self._stream_port_detected:
+            await self.detect_stream_port()
         return self.info
 
+    async def detect_stream_port(self, max_requests: int = 8) -> int:
+        """Walk the DLNA tree until an item with a <res> URL appears; its port is where EPG files are served.
+        Falls back to the default port when nothing is found."""
+        queue, seen = ["0"], 0
+        try:
+            while queue and seen < max_requests:
+                oid = queue.pop(0)
+                seen += 1
+                async with self.lock:
+                    didl = await self.xsrs.browse_children(oid)
+                port = port_from_didl(didl)
+                if port:
+                    self.stream_port = port
+                    self._stream_port_detected = True
+                    log.info("media server port %s (from %s)", port, oid)
+                    return port
+                queue += re.findall(r'<container id="([^"]+)"', didl)
+        except Exception as e:
+            log.warning("stream port detection failed, keeping %s: %s", self.stream_port, e)
+        return self.stream_port
+
     async def fetch_epg(self, broadcasting: str) -> list[Service] | None:
-        """Download and decode one broadcasting type's EPG. Returns None when the recorder has no such channels (HTTP 416)."""
+        """Download and decode one broadcasting type's EPG. Returns None when the recorder has no such channels (HTTP 416)
+        or does not provide an EPG at all (EPG_CAP 00)."""
+        if self.info is not None and not self.info.epg_capable:
+            return None
         url = f"http://{self.host}:{self.stream_port}//{codes.EPG_FILES[broadcasting]}"
         async with self.lock:
             r = await self.http.get(url)

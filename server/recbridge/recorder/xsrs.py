@@ -252,6 +252,14 @@ class XsrsClient:
         text = _find_text(res, "channelList") or ""
         return [int(x) for x in text.split("_") if x]
 
+    # --- ContentDirectory ---
+    async def browse_children(self, object_id: str, count: int = 5, control_url: str = "/DMSContentDirectory") -> str:
+        """Raw DIDL-Lite of a container's children (used to learn the media server's streaming port)."""
+        root = await self._call(control_url, CDS_TYPE, "Browse",
+                                [("ObjectID", object_id), ("BrowseFlag", "BrowseDirectChildren"), ("Filter", "*"),
+                                 ("StartingIndex", 0), ("RequestedCount", count), ("SortCriteria", "")])
+        return _find_text(root, "Result") or ""
+
     async def send_key(self, key: str) -> None:
         await self._call("/X_PvrControl", PVR_TYPE, "X_InputRemoteKey", [("RemoteKey", key)])
 

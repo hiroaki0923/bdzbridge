@@ -29,6 +29,9 @@
 </script>
 
 <h1>番組表</h1>
+{#if app.status && app.status.epg_capable === false}
+  <div class="card"><div class="title">この機種は番組表を提供していません</div><div class="muted">レコーダーの機器記述で EPG_CAP が 00 でした。予約は「予約」タブから時刻指定で作れます。</div></div>
+{/if}
 <div class="seg">{#each BTS as [id, label]}<button class:on={bt === id} onclick={() => (bt = id)}>{label}</button>{/each}</div>
 <div class="chips">{#each days as d}<button class="chip" class:on={day === d.iso} onclick={() => (day = d.iso)}>{d.today ? '今日 ' : ''}{d.label}</button>{/each}</div>
 <div class="chips">{#each channels as c}<button class="chip" class:on={serviceId === c.service_id} onclick={() => (serviceId = c.service_id)}>{c.name}</button>{/each}</div>

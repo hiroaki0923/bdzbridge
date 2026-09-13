@@ -123,6 +123,9 @@ class Bridge:
 
     async def refresh_epg(self) -> dict:
         recorder = self.require_recorder()
+        if recorder.info is not None and not recorder.info.epg_capable:
+            self.last_error = None
+            return {"note": "this recorder does not provide an EPG (EPG_CAP is 00)", "epg_capable": False}
         async with self.refresh_lock:
             result = {}
             for bt in codes.EPG_FILES:
