@@ -5,6 +5,11 @@ import SwiftUI
 struct RecorderApp: App {
     @State private var model = AppModel()
 
+    init() {
+        BackgroundWork.register()
+        BackgroundWork.schedule()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

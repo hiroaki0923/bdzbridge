@@ -47,3 +47,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: 自宅のレコーダーを見つけて、番組表と録画予約をやりとりします。
+        # the overnight guide refresh; the identifier has to be listed for BGTaskScheduler to accept it
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - io.github.hiroaki0923.recorderapp.guideRefresh

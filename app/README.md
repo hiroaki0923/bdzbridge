@@ -29,7 +29,8 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
 `-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at launch, `-startTab` opens
 `guide`, `reservations`, `recordings` or `settings`, `-guideMode` picks `list` or `grid`, `-recordingsMode`
 picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, `-scanOnStart 1` starts the
-duplicate scan, which only reads, and `-searchFor <word>` fills in the search box.
+duplicate scan, which only reads, and `-searchFor <word>` fills in the search box, and `-runBackgroundWork 1` does what the overnight guide
+refresh does, which is the only way to watch that path without waiting for iOS to schedule it.
 
 **A launch argument pins the value for that run.** Anything passed this way lands in `UserDefaults`'
 argument domain, which outranks what the app saves, so picking another mode in a run started with
@@ -59,6 +60,11 @@ list, from the reservation sheet the list opens, or from the guide's own sheet.
 
 Creating and deleting have both been done against a real BDZ-FBT4100 from the app and the recorder followed
 along, 42 reservations before and 42 after.
+
+The guide is fetched again overnight on its own, a little after the recorder rebuilds its own guide files, so
+the morning's eight days are current without opening the app or being at home. iOS decides whether to run it:
+never while the app is force-quit, Background App Refresh is off, or the battery is in Low Power Mode, and
+nothing breaks when a night is missed. The settings screen shows when it last succeeded.
 
 Searching: programmes still to come whose title or description contains the words, across every broadcasting
 type and all eight days, read from the cache so it works away from home. A result opens the same sheet the

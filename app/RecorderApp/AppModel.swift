@@ -78,12 +78,20 @@ final class AppModel {
     private func begin() async {
         guard store == nil else { return }
         do {
-            store = try GuideStore(path: Self.databasePath())
+            store = try GuideStore(path: try Storage.guidePath())
             await reloadFromCache()
             if !host.isEmpty { await connect() }
             // a hook for driving the app from a simulator or a device without tapping through it:
             //   xcrun simctl launch <device> <bundle id> -recorderHost 192.0.2.63 -refreshOnStart 1
             if UserDefaults.standard.bool(forKey: "refreshOnStart"), connected { await refreshGuide() }
+            // `-runBackgroundWork 1` does what the overnight run does, which is the only way to see that
+            // path work without waiting for iOS to decide to run it.
+            if UserDefaults.standard.bool(forKey: "runBackgroundWork") {
+                busy = "バックグラウンドの処理を試しています"
+                _ = await BackgroundWork.refreshNow()
+                busy = nil
+                await reloadFromCache()
+            }
             if UserDefaults.standard.bool(forKey: "scanOnStart"), connected {
                 await loadTitlesNow(force: false)
                 startDuplicateScan()
@@ -124,6 +132,9 @@ final class AppModel {
         await run("接続中") {
             let info = try await client.describe()
             self.info = info
+            // the overnight run reads the address from here and has no screen to ask, so make sure an
+            // address that works is written down however it arrived
+            UserDefaults.standard.set(self.host, forKey: Self.hostKey)
             self.firmware = try await client.firmwareVersion()
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
@@ -134,13 +145,8 @@ final class AppModel {
     func refreshGuide() async {
         guard let client, let store else { return }
         await run("番組表を取得中") {
-            for broadcasting in ["td", "bs", "cs", "bs4k"] {
-                guard let services = try await client.guide(broadcasting) else { continue }
+            try await GuideRefresh.run(client: client, store: store) { broadcasting in
                 self.busy = "番組表を取得中 (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
-                try await store.replace(services, broadcasting: broadcasting)
-                if let logos = try? await client.logos(broadcasting) {
-                    try await store.replaceLogos(logos, broadcasting: broadcasting)
-                }
             }
             await self.reloadFromCache()
         }
@@ -681,9 +687,4 @@ final class AppModel {
         return !failed
     }
 
-    private static func databasePath() throws -> String {
-        let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                    appropriateFor: nil, create: true)
-        return directory.appendingPathComponent("guide.sqlite3").path
-    }
 }
