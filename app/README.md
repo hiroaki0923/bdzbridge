@@ -37,7 +37,8 @@ logos and genres, opening a programme, and listing the reservations the recorder
 BDZ-FBT4100 from the simulator.
 
 The grid mirrors the web app's: an hour ruler down the left and the channel names across the top, genre
-colours, a ring around what is on air, a red line at the current time, and a time axis that pinches. Today
+colours, the elapsed part of what is on air shaded up to a red line at the current time, and a time axis
+that pinches. Today
 opens at the current time.
 
 ## What is missing
