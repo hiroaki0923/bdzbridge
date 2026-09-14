@@ -220,6 +220,19 @@ public actor RecorderClient {
         return try await guideFile(named: name)
     }
 
+    /// The guide for one broadcasting type, decoded. Nil when the recorder has no such channels.
+    public func guide(_ broadcasting: String) async throws -> [GuideService]? {
+        guard let file = try await epgFile(broadcasting) else { return nil }
+        return try Epg.decode(file)
+    }
+
+    /// The station logos for one broadcasting type, decoded. The recorder rebuilds this file overnight, so a
+    /// station whose logo has not been received yet is simply missing from the result.
+    public func logos(_ broadcasting: String) async throws -> [StationLogo]? {
+        guard let file = try await logoFile(broadcasting) else { return nil }
+        return try LogoFile.decode(file)
+    }
+
     public func logoFile(_ broadcasting: String) async throws -> Data? {
         guard let name = Codes.logoFiles[broadcasting] else { return nil }
         return try await guideFile(named: name)

@@ -34,9 +34,11 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
 | `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
+| `Logo.swift` | The station-logo file, and the broadcast colour table the PNGs rely on |
+| `Series.swift` | Programme names and grouping keys from recording titles |
 
-Covered by vectors so far: `codes.json`, `xsrs.json`, `description.json`, `epg-sample`. The logo decoder and
-the programme-grouping heuristic are not ported yet, so `logo-sample` and `series.json` are still unused here.
+Every file in `docs/port/` is now checked from here: `codes.json`, `xsrs.json`, `description.json`,
+`epg-sample`, `logo-sample` and `series.json`.
 
 A read-only check against a real recorder is included and skipped by default:
 
@@ -49,6 +51,9 @@ same ones from the Python server to see that both agree.
 
 ## What is next
 
-The logo decoder and the programme-grouping heuristic, which are the last two vectors not yet used here. Then
-the app target, which is not in this repository yet; when it arrives it will live beside this package in `app/`
+The app target, which is not in this repository yet; when it arrives it will live beside this package in `app/`
 and depend on it as a local package.
+
+Still on the server side only: finding a recorder by scanning the subnet, duplicate detection among
+recordings, keyword auto-reservation, and Wake-on-LAN. None of them is needed to put a guide and a
+reservation list on screen.

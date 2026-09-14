@@ -9,6 +9,46 @@ import XCTest
 /// change what the box is going to record. Compare the printed numbers with the same figures from the Python
 /// server to see that both implementations agree.
 final class LiveRecorderTests: XCTestCase {
+    /// Station logos and the grouping of real recorded titles, which is where the heuristic earns its keep.
+    /// Writes both out when RECORDER_EPG_DUMP is set, so the Python side can be run over the same input.
+    func testDecodesTheLogosAndGroupsTheRecordings() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+        let dump = ProcessInfo.processInfo.environment["RECORDER_EPG_DUMP"].flatMap {
+            $0.isEmpty ? nil : URL(fileURLWithPath: $0)
+        }
+
+        for broadcasting in ["td", "bs"] {
+            guard let file = try await client.logoFile(broadcasting) else {
+                print("\(broadcasting): no logo file")
+                continue
+            }
+            let logos = try LogoFile.decode(file)
+            print("\(broadcasting): \(file.count) bytes, \(logos.count) logos,"
+                  + " channels \(logos.prefix(5).map(\.channelNo))")
+            try dump.map { try file.write(to: $0.appendingPathComponent("logo-\(broadcasting).dat")) }
+            XCTAssertFalse(logos.isEmpty)
+            XCTAssertTrue(logos.allSatisfy { $0.serviceID > 0 && $0.channelNo > 0 && $0.png.count > 100 })
+        }
+
+        let titles = try await client.allTitles()
+        let groups = Dictionary(grouping: titles, by: { Series.key($0.title) })
+        let largest = groups.max { $0.value.count < $1.value.count }
+        print("recordings: \(titles.count) in \(groups.count) groups;"
+              + " largest \(largest?.value.count ?? 0) x \(largest.map { Series.name($0.value[0].title) } ?? "-")")
+        XCTAssertFalse(titles.isEmpty)
+        XCTAssertTrue(groups.keys.allSatisfy { !$0.isEmpty }, "every recording should land in a named group")
+
+        if let dump {
+            let rows = titles.map { title in
+                ["title": title.title, "series_name": Series.name(title.title),
+                 "series_key": Series.key(title.title), "same_title_key": Series.sameTitleKey(title.title)]
+            }
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+            try data.write(to: dump.appendingPathComponent("titles-swift.json"))
+        }
+    }
+
     /// The same shape `bdzbridge/tools/portkit.py` writes, so the two decoders can be compared row by row.
     private func decoded(_ services: [GuideService]) -> [[String: Any]] {
         services.flatMap { service in
