@@ -91,8 +91,8 @@ struct TitleSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task { detail = await model.detail(of: title) }
-            .confirmationDialog("この録画を削除しますか？", isPresented: $confirmingDelete,
-                                titleVisibility: .visible, presenting: current) { title in
+            .alert("この録画を削除しますか？", isPresented: $confirmingDelete,
+                   presenting: current) { title in
                 Button("削除する", role: .destructive) {
                     Task { deleted = await model.delete(title) }
                 }

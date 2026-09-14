@@ -68,7 +68,7 @@ struct ReservationSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task { program = await model.program(for: reservation) }
-            .confirmationDialog("この予約を取り消しますか？", isPresented: $confirming, titleVisibility: .visible) {
+            .alert("この予約を取り消しますか？", isPresented: $confirming) {
                 Button("取り消す", role: .destructive) {
                     Task { done = await model.cancel(reservation) }
                 }

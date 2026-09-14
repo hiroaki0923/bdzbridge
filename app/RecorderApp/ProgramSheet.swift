@@ -12,8 +12,13 @@ struct ProgramSheet: View {
     @State private var repeating = "none"
     @State private var conflicts: [Reservation]?
     @State private var checking = false
-    @State private var confirming = false
-    @State private var cancelling = false
+    /// The one question the sheet can ask. Two alerts on the same view is not something SwiftUI promises
+    /// to honour, and this sheet never needs both: a programme is either reserved or it is not.
+    private enum Ask {
+        case reserve
+        case cancel(Reservation)
+    }
+    @State private var ask: Ask?
     @State private var done = false
 
     private var reservation: Reservation? { model.reservation(for: program) }
@@ -43,7 +48,7 @@ struct ProgramSheet: View {
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
                         if reservation.recording { Text("いま録画中です").foregroundStyle(.red) }
-                        Button("予約を取り消す", role: .destructive) { cancelling = true }
+                        Button("予約を取り消す", role: .destructive) { ask = .cancel(reservation) }
                             .disabled(model.busy != nil)
                     }
                 } else if !past {
@@ -59,7 +64,7 @@ struct ProgramSheet: View {
                             }
                         }
                         conflictRow
-                        Button("録画予約する") { confirming = true }
+                        Button("録画予約する") { ask = .reserve }
                             .disabled(model.busy != nil)
                     }
                 }
@@ -78,25 +83,39 @@ struct ProgramSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task(id: taskKey) { await check() }
-            .confirmationDialog("この番組を録画予約しますか？", isPresented: $confirming, titleVisibility: .visible) {
-                Button("予約する") { Task { done = await model.reserve(program, quality: quality, repeating: repeating) } }
-                Button("やめる", role: .cancel) {}
-            } message: {
-                Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
-                     + "\(Codes.qualityLabel[quality] ?? quality) · "
-                     + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに反映されます。")
-            }
-            .confirmationDialog("この予約を取り消しますか？", isPresented: $cancelling, titleVisibility: .visible,
-                                presenting: reservation) { reservation in
-                Button("取り消す", role: .destructive) {
-                    Task { done = await model.cancel(reservation) }
+            .alert(askTitle, isPresented: Binding(get: { ask != nil },
+                                                  set: { if !$0 { ask = nil } }),
+                   presenting: ask) { ask in
+                switch ask {
+                case .reserve:
+                    Button("予約する") {
+                        Task { done = await model.reserve(program, quality: quality, repeating: repeating) }
+                    }
+                case .cancel(let reservation):
+                    Button("取り消す", role: .destructive) {
+                        Task { done = await model.cancel(reservation) }
+                    }
                 }
                 Button("やめる", role: .cancel) {}
-            } message: { reservation in
-                Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                     + "レコーダーから消えます。")
+            } message: { ask in
+                switch ask {
+                case .reserve:
+                    Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
+                         + "\(Codes.qualityLabel[quality] ?? quality) · "
+                         + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに反映されます。")
+                case .cancel(let reservation):
+                    Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
+                         + "レコーダーから消えます。")
+                }
             }
             .onChange(of: done) { if $1 { dismiss() } }
+        }
+    }
+
+    private var askTitle: String {
+        switch ask {
+        case .cancel: "この予約を取り消しますか？"
+        case .reserve, nil: "この番組を録画予約しますか？"
         }
     }
 

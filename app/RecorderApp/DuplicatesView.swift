@@ -29,8 +29,7 @@ struct DuplicatesView: View {
                 list
             }
         }
-        .confirmationDialog("重複した \(chosen.count) 件を削除しますか？", isPresented: $confirming,
-                            titleVisibility: .visible) {
+        .alert("重複した \(chosen.count) 件を削除しますか？", isPresented: $confirming) {
             Button("\(chosen.count) 件を削除する", role: .destructive) {
                 model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
             }

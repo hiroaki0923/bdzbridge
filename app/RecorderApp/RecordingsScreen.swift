@@ -241,8 +241,7 @@ struct GroupSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
-            .confirmationDialog("選択した \(chosen.count) 件を削除しますか？", isPresented: $confirmingDelete,
-                                titleVisibility: .visible) {
+            .alert("選択した \(chosen.count) 件を削除しますか？", isPresented: $confirmingDelete) {
                 Button("\(chosen.count) 件を削除する", role: .destructive) {
                     model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
                     selecting = false
