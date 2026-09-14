@@ -5,3 +5,12 @@ __pycache__/
 notes/
 CLAUDE.local.md
 server/tests/fixtures/*.dat
+
+# signing material and store credentials: never in a public repository (see docs/porting.md)
+*.p12
+*.cer
+*.mobileprovision
+AuthKey_*.p8
+*.jks
+*.keystore
+key.properties
