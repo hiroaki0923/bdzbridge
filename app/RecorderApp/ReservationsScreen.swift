@@ -69,11 +69,10 @@ struct ReservationsScreen: View {
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
-            .confirmationDialog("この予約を削除しますか？",
-                                isPresented: Binding(get: { pending != nil },
-                                                     set: { if !$0 { removing = nil } }),
-                                titleVisibility: .visible,
-                                presenting: pending) { reservation in
+            .alert("この予約を削除しますか？",
+                   isPresented: Binding(get: { pending != nil },
+                                        set: { if !$0 { removing = nil } }),
+                   presenting: pending) { reservation in
                 Button("削除する", role: .destructive) {
                     Task { await model.cancel(reservation) }
                 }
