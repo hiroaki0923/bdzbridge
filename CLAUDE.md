@@ -24,7 +24,7 @@ uv run ruff check bdzbridge tests
 cp .env.example .env                   # set BDZBRIDGE_API_TOKEN; recorder host optional
 uv run python -m bdzbridge discover    # list recorders on the LAN
 uv run python -m bdzbridge             # serve; OpenAPI at /docs
-uv run python -m bdzbridge.tools.apidoc  # regenerate docs/api.md + docs/openapi.json (a test fails while they are stale)
+uv run python -m bdzbridge.tools.apidoc  # regenerate docs/api.md + docs/openapi.json (a test fails while they are stale; `git config core.hooksPath .githooks` makes a pre-commit hook do it)
 ```
 
 Web (inside `web/`): `npm install`, `npm run build` (writes `web/dist`; restart the server to pick it up), `npm run dev`.
