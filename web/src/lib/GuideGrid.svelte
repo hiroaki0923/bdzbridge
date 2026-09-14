@@ -36,6 +36,7 @@
   const nowMin = $derived((Date.now() - dayStart) / 60000)
   const showNow = $derived(nowMin >= 0 && nowMin < DAY_MIN)
   const onAir = (p) => showNow && new Date(p.start).getTime() <= Date.now() && Date.now() < new Date(p.end).getTime()
+  const ended = (p) => new Date(p.end).getTime() <= Date.now()
 
   function top(p) {
     return Math.max(0, (new Date(p.start).getTime() - dayStart) / 60000) * pxMin
@@ -132,7 +133,7 @@
           <div class="gcol" style="width: {COL}px; background-size: 100% {60 * pxMin}px">
             {#each byService.get(c.service_id) as p (p.event_id + p.start)}
               {@const r = findReservation(app.resIdx, p)}
-              <button class="prog" class:onair={onAir(p)} class:reserved={r} style="top: {top(p)}px; height: {height(p)}px; border-left-color: {color(p)}" onclick={() => (app.sheet = p)}>
+              <button class="prog" class:onair={onAir(p)} class:past={ended(p)} class:reserved={r} style="top: {top(p)}px; height: {height(p)}px; border-left-color: {color(p)}" onclick={() => (app.sheet = p)}>
                 <span class="ptext"><span class="pt">{fmtTime(p.start)}</span>{#if r}<span class="mark">{r.recording ? '録画中' : '予約'}</span>{/if}{p.title}</span>
               </button>
             {/each}
@@ -164,6 +165,7 @@
   /* a button centres its content vertically; a column flex box keeps the label at the top so sticky can take over */
   .prog { position: absolute; left: 1px; right: 1px; display: flex; flex-direction: column; justify-content: flex-start; overflow: clip; padding: 2px 4px 2px 5px; border-radius: 4px; border-left: 3px solid var(--line); background: var(--card); text-align: left; font-size: 12px; line-height: 1.3; }
   .prog.onair { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .prog.past { opacity: .5; }
   .prog.reserved { background: color-mix(in srgb, var(--mark) 10%, var(--card)); }
   .ptext { position: sticky; top: 56px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; word-break: break-all; }
   .pt { color: var(--muted); font-size: 11px; margin-right: 4px; }
