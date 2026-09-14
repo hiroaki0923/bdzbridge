@@ -13,6 +13,7 @@ struct ProgramSheet: View {
     @State private var conflicts: [Reservation]?
     @State private var checking = false
     @State private var confirming = false
+    @State private var cancelling = false
     @State private var done = false
 
     private var reservation: Reservation? { model.reservation(for: program) }
@@ -42,6 +43,8 @@ struct ProgramSheet: View {
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
                         if reservation.recording { Text("いま録画中です").foregroundStyle(.red) }
+                        Button("予約を取り消す", role: .destructive) { cancelling = true }
+                            .disabled(model.busy != nil)
                     }
                 } else if !past {
                     Section("録画予約") {
@@ -82,6 +85,16 @@ struct ProgramSheet: View {
                 Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                      + "\(Codes.qualityLabel[quality] ?? quality) · "
                      + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに反映されます。")
+            }
+            .confirmationDialog("この予約を取り消しますか？", isPresented: $cancelling, titleVisibility: .visible,
+                                presenting: reservation) { reservation in
+                Button("取り消す", role: .destructive) {
+                    Task { done = await model.cancel(reservation) }
+                }
+                Button("やめる", role: .cancel) {}
+            } message: { reservation in
+                Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
+                     + "レコーダーから消えます。")
             }
             .onChange(of: done) { if $1 { dismiss() } }
         }
