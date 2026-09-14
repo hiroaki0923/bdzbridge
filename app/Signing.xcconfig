@@ -1,0 +1,12 @@
+// Code signing for a device build. The team identifier is not committed: it goes in
+// Signing.local.xcconfig, which is gitignored, and this file picks it up if it is there.
+//
+//   echo 'DEVELOPMENT_TEAM = ABCDE12345' > app/Signing.local.xcconfig
+//
+// The team identifier of a free Apple ID is in Xcode > Settings > Accounts, or in
+// ~/Library/MobileDevice/Provisioning Profiles once Xcode has signed once.
+//
+// Choosing the team in Xcode's Signing & Capabilities tab instead writes it into the project file,
+// which the next `xcodegen generate` throws away; this survives that.
+// With no such file the build is unsigned, which is all a simulator needs.
+#include? "Signing.local.xcconfig"

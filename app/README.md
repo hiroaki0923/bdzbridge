@@ -16,6 +16,41 @@ open RecorderApp.xcodeproj
 The product name and bundle identifier in `project.yml` are working values; the store name has not been
 decided yet.
 
+## On a real iPhone
+
+A free Apple ID is enough. Nothing here needs a capability a personal team cannot have: the background
+refresh is an Info.plist key, not an entitlement, and the local network is a user grant rather than
+something Apple hands out. The build expires after seven days and has to be installed again, which is
+the only cost of not paying.
+
+1. Put the team identifier in `app/Signing.local.xcconfig`, which is gitignored:
+   `echo 'DEVELOPMENT_TEAM = ABCDE12345' > Signing.local.xcconfig`. Xcode > Settings > Accounts shows
+   it once an Apple ID is added there.
+2. On the phone, Settings > Privacy & Security > Developer Mode, then let it restart.
+3. `xcodegen generate`, open the project, pick the phone, and run it once from Xcode. That first run is
+   what registers the device and asks for the certificate; after it, the command line below works.
+4. The phone has to be on the same Wi-Fi as the recorder. iOS asks for the local network the first time
+   the app looks for it, and refusing leaves the app with nothing to talk to (Settings > the app > Local
+   Network puts it back).
+
+Once installed, a device takes the same launch arguments a simulator does:
+
+```
+xcrun devicectl list devices
+xcrun devicectl device install app --device <udid> <path to RecorderApp.app>
+xcrun devicectl device process launch --device <udid> io.github.hiroaki0923.recorderapp \
+  -recorderHost 192.0.2.63 -startTab guide
+```
+
+The overnight refresh can be made to happen instead of waited for: pause the app in Xcode and, in the
+console,
+
+```
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"io.github.hiroaki0923.recorderapp.guideRefresh"]
+```
+
+which runs the real task the real way, whereas `-runBackgroundWork 1` only runs its body.
+
 ## Driving it without tapping through it
 
 Two launch arguments exist for testing on a simulator or a device. They do nothing unless passed, and nobody
