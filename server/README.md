@@ -17,6 +17,6 @@ through `GET /api/v1/recorders/discover` + `PUT /api/v1/recorder` (host and UPnP
 On later starts it reconnects to the saved host, and if the DHCP address changed it re-discovers the same UDN.
 Discovery tries SSDP first and falls back to scanning the local /24 for port 64220 (`BDZBRIDGE_SCAN_NETWORKS` overrides the CIDRs).
 
-The full reference, generated from the app's OpenAPI description, is in [`docs/api.md`](../docs/api.md) (`docs/openapi.json` alongside). A running server serves the same thing interactively at `/docs`. Regenerate after changing routes or models with `uv run python -m bdzbridge.tools.apidoc`; a test fails while the files are stale.
+The full reference, generated from the app's OpenAPI description, is in [`docs/api.md`](../docs/api.md) (`docs/openapi.json` alongside). A running server serves the same thing interactively at `/docs`. Regenerate after changing routes or models with `uv run python -m bdzbridge.tools.apidoc`; a test fails while the files are stale. `git config core.hooksPath .githooks` (once, in the repository root) installs a pre-commit hook that does this for you.
 
 Reservation body: `{"broadcasting":"td","service_id":1024,"event_id":14792,"quality":"LSR","repeat":"none"}` or, without an event id, `start` + `duration_sec` + `title`.
