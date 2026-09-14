@@ -9,6 +9,7 @@ struct RecordingsScreen: View {
     @State private var openedGroup: TitleGroup?
 
     private var grouped: Bool { mode == "groups" }
+    private var duplicating: Bool { mode == "dups" }
 
     var body: some View {
         NavigationStack {
@@ -19,12 +20,17 @@ struct RecordingsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        mode = grouped ? "list" : "groups"
+                    Menu {
+                        Picker("表示", selection: $mode) {
+                            Label("一覧", systemImage: "list.bullet").tag("list")
+                            Label("まとめ", systemImage: "rectangle.stack").tag("groups")
+                            Label("重複", systemImage: "square.on.square").tag("dups")
+                        }
                     } label: {
-                        Image(systemName: grouped ? "rectangle.stack" : "list.bullet")
+                        Image(systemName: duplicating ? "square.on.square"
+                                                      : grouped ? "rectangle.stack" : "list.bullet")
                     }
-                    .accessibilityLabel(grouped ? "一覧にする" : "まとめにする")
+                    .accessibilityLabel("表示を変える")
                 }
                 // the free space is worth a permanent place; the sort and the watch state are worth a menu
                 ToolbarItem(placement: .principal) {
@@ -88,6 +94,7 @@ struct RecordingsScreen: View {
     /// What is being shown, since the filters now live behind a menu.
     private var subtitle: String {
         if let busy = model.busy { return busy }
+        if duplicating { return "\(model.duplicates.count) 組の重複" }
         let what = grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件"
         guard let genre = model.titleGenre, let label = Codes.genreLabel[genre] else { return what }
         return "\(label) · \(what)"
@@ -104,6 +111,8 @@ struct RecordingsScreen: View {
             } description: {
                 Text("レコーダーから録画一覧を取得しています")
             }
+        } else if duplicating {
+            DuplicatesView { opened = $0 }
         } else if grouped {
             List(model.titleGroups) { group in
                 Button { openedGroup = group } label: { GroupRowView(group: group) }

@@ -35,12 +35,11 @@ def forget_titles(bridge) -> None:
     bridge.titles_cache = None
 
 
-async def scan_duplicates(bridge, job: Job) -> None:
-    """Group recordings that look like copies of one broadcast (same title and length, then the same programme
-    text, which the recorder is asked for one title at a time and cached). Result: {"sets": [...]}."""
-    rec = bridge.recorder
+def duplicate_candidates(titles: list[XTitle]) -> list[list[XTitle]]:
+    """Recordings that could be copies of one broadcast: the same title, then lengths within two minutes of
+    each other. Pure, so it can be checked without a recorder (docs/port/titles.json)."""
     groups: dict[str, list[XTitle]] = {}
-    for t in await all_titles(bridge):
+    for t in titles:
         groups.setdefault(same_title_key(t.title), []).append(t)
     candidates: list[list[XTitle]] = []
     for v in groups.values():
@@ -57,10 +56,32 @@ async def scan_duplicates(bridge, job: Job) -> None:
                 cluster = [t]
         if len(cluster) > 1:
             candidates.append(cluster)
-    job.total = sum(len(c) for c in candidates)
+    return candidates
+
+
+def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], store: Store | None = None) -> list[dict]:
+    """The sets themselves, once each candidate's programme text is known. Recordings whose text matches are
+    the same broadcast for certain ("high"); with no text at all only the title and the length agree ("low")."""
     sets: list[dict] = []
     for members in candidates:
-        keys: dict[str, str] = {}
+        keys = {t.id: summary_key(summaries.get(t.id, "")) for t in members}
+        by_summary: dict[str, list[XTitle]] = {}
+        for t in members:
+            by_summary.setdefault(keys[t.id], []).append(t)
+        for k, same in by_summary.items():
+            if len(same) > 1:
+                sets.append(duplicate_set(store, same, "high" if k else "low"))
+    return sorted(sets, key=lambda s: s["size_mb"], reverse=True)
+
+
+async def scan_duplicates(bridge, job: Job) -> None:
+    """Group recordings that look like copies of one broadcast (same title and length, then the same programme
+    text, which the recorder is asked for one title at a time and cached). Result: {"sets": [...]}."""
+    rec = bridge.recorder
+    candidates = duplicate_candidates(await all_titles(bridge))
+    job.total = sum(len(c) for c in candidates)
+    summaries: dict[str, str] = {}
+    for members in candidates:
         for t in members:
             summ = bridge.store.title_summary(t.id)
             if summ is None:
@@ -71,15 +92,9 @@ async def scan_duplicates(bridge, job: Job) -> None:
                     log.debug("no detail for %s: %s", t.id, e)
                     summ = ""
                 bridge.store.set_title_summary(t.id, summ)
-            keys[t.id] = summary_key(summ)
+            summaries[t.id] = summ
             job.step()
-        by_summary: dict[str, list[XTitle]] = {}
-        for t in members:
-            by_summary.setdefault(keys[t.id], []).append(t)
-        for k, same in by_summary.items():
-            if len(same) > 1:
-                sets.append(duplicate_set(bridge.store, same, "high" if k else "low"))
-    job.result["sets"] = sorted(sets, key=lambda s: s["size_mb"], reverse=True)
+    job.result["sets"] = duplicate_sets(candidates, summaries, bridge.store)
 
 
 async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> None:
@@ -130,7 +145,7 @@ async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
         forget_titles(bridge)
 
 
-def duplicate_set(store: Store, members: list[XTitle], confidence: str) -> dict:
+def duplicate_set(store: Store | None, members: list[XTitle], confidence: str) -> dict:
     members = sorted(members, key=lambda t: t.start)  # broadcast order, so the copy to keep is normally the first row
 
     def rank(t: XTitle):  # smaller is better to keep

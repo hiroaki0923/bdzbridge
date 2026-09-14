@@ -72,6 +72,7 @@ public actor GuideStore {
     CREATE TABLE IF NOT EXISTS channel_prefs (
       bt TEXT NOT NULL, service_id INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0, position INTEGER,
       PRIMARY KEY (bt, service_id));
+    CREATE TABLE IF NOT EXISTS title_summaries (id TEXT PRIMARY KEY, summary TEXT NOT NULL, at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
     CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
     """
@@ -282,6 +283,28 @@ public actor GuideStore {
             out[broadcasting] = GuideCounts(channels: channels, programs: programs, refreshed: refreshed)
         }
         return out
+    }
+
+    // MARK: - what a recording is about
+
+    /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.
+    /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale.
+    public func titleSummary(_ id: String) throws -> String? {
+        try db.query("SELECT summary FROM title_summaries WHERE id=?", [.text(id)]) { $0.string("summary") }
+            .first
+    }
+
+    public func titleSummaries(_ ids: [String]) throws -> [String: String] {
+        guard !ids.isEmpty else { return [:] }
+        let places = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try db.query("SELECT id, summary FROM title_summaries WHERE id IN (\(places))",
+                                ids.map { SqlValue.text($0) }) { ($0.string("id"), $0.string("summary")) }
+        return Dictionary(rows, uniquingKeysWith: { first, _ in first })
+    }
+
+    public func setTitleSummary(_ id: String, _ summary: String) throws {
+        try db.run("INSERT OR REPLACE INTO title_summaries (id, summary, at) VALUES (?,?,?)",
+                   [.text(id), .text(summary), .text(RecorderTime.format(Date()))])
     }
 
     // MARK: - time

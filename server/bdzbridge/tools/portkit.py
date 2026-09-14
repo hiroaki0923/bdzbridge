@@ -34,7 +34,7 @@ from ..recorder.xsrs import (
     parse_reservation,
     parse_title,
 )
-from ..services.titles import group_titles
+from ..services.titles import duplicate_candidates, duplicate_sets, group_titles
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "docs" / "port"
@@ -129,6 +129,64 @@ def _sample_titles() -> list[XTitle]:
     ]
 
 
+def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
+    """Copies of one broadcast, and what the recorder says each of them is about.
+
+    0xd1/0xd2/0xd3 are the same episode three times: the first two share their programme text, the third has
+    a different one and so is a set of its own. 0xd4 has the same title but runs half an hour longer, so it is
+    not a copy at all. 0xe1/0xe2 have no text, which leaves only the title and the length to go on.
+    """
+    base = datetime(2026, 9, 1, 21, 0, tzinfo=JST)
+
+    def title(tid: str, name: str, offset: timedelta, duration: int = 3600, **kw) -> XTitle:
+        args = {"id": tid, "title": name, "start": base + offset, "duration_sec": duration,
+                "broadcasting_type": 2, "service_id": 1024, "quality_code": 230, "protected": False,
+                "is_new": True, "destination": "HDD", "size_mb": 2000, "genre_code": 0x30}
+        args.update(kw)
+        return XTitle(**args)
+
+    titles = [
+        title("0xd1", "刑事サンプル（４８）「幻の宝石」", timedelta()),
+        # the same episode, re-run a week later, one minute shorter and in a worse mode
+        title("0xd2", "刑事サンプル（48）「幻の宝石」[再]", timedelta(days=7), duration=3540,
+              quality_code=240, is_new=False, resume_sec=300),
+        title("0xd3", "刑事サンプル（４８）「幻の宝石」", timedelta(days=14), duration=3600, protected=True),
+        title("0xd4", "刑事サンプル（４８）「幻の宝石」", timedelta(days=21), duration=5400),
+        title("0xe1", "名もなき番組", timedelta(days=1), duration=1800, size_mb=500),
+        title("0xe2", "名もなき番組", timedelta(days=2), duration=1800, size_mb=500),
+    ]
+    summaries = {
+        "0xd1": "架空市警のサンプル警部が挑む。",
+        "0xd2": "（再放送）架空市警のサンプル警部が挑む。",
+        "0xd3": "まったく別のあらすじ。",
+        "0xd4": "拡大版のあらすじ。",
+        "0xe1": "",
+        "0xe2": "",
+    }
+    return titles, summaries
+
+
+def duplicates_vectors() -> dict:
+    titles, summaries = _duplicate_titles()
+    candidates = duplicate_candidates(titles)
+
+    def set_dict(s: dict) -> dict:
+        return {"title": s["title"], "confidence": s["confidence"], "size_mb": s["size_mb"],
+                "keep": s["keep"], "suggest_delete": s["suggest_delete"], "reasons": s["reasons"],
+                "items": [i["id"] for i in s["items"]]}
+
+    return {
+        "note": "candidates are grouped by title and then by length within 120 seconds of each other; the "
+                "programme text splits them further. reasons say why each recording is kept or offered up.",
+        "titles": [{"id": t.id, "title": t.title, "start": t.start.isoformat(),
+                    "duration_sec": t.duration_sec, "quality_code": t.quality_code, "protected": t.protected,
+                    "is_new": t.is_new, "resume_sec": t.resume_sec, "size_mb": t.size_mb,
+                    "summary": summaries[t.id]} for t in titles],
+        "candidates": [[t.id for t in group] for group in candidates],
+        "sets": [set_dict(s) for s in duplicate_sets(candidates, summaries)],
+    }
+
+
 def titles_vectors() -> dict:
     titles = _sample_titles()
 
@@ -148,6 +206,7 @@ def titles_vectors() -> dict:
                    for t in titles],
         "groups": [group_dict(g) for g in group_titles(titles)],
         "groups_drama_only": {"genre": 3, "groups": [group_dict(g) for g in group_titles(titles, genre=3)]},
+        "duplicates": duplicates_vectors(),
     }
 
 

@@ -170,5 +170,129 @@
     "new_count": 1
    }
   ]
+ },
+ "duplicates": {
+  "note": "candidates are grouped by title and then by length within 120 seconds of each other; the programme text splits them further. reasons say why each recording is kept or offered up.",
+  "titles": [
+   {
+    "id": "0xd1",
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "start": "2026-09-01T21:00:00+09:00",
+    "duration_sec": 3600,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "resume_sec": null,
+    "size_mb": 2000,
+    "summary": "架空市警のサンプル警部が挑む。"
+   },
+   {
+    "id": "0xd2",
+    "title": "刑事サンプル（48）「幻の宝石」[再]",
+    "start": "2026-09-08T21:00:00+09:00",
+    "duration_sec": 3540,
+    "quality_code": 240,
+    "protected": false,
+    "is_new": false,
+    "resume_sec": 300,
+    "size_mb": 2000,
+    "summary": "（再放送）架空市警のサンプル警部が挑む。"
+   },
+   {
+    "id": "0xd3",
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "start": "2026-09-15T21:00:00+09:00",
+    "duration_sec": 3600,
+    "quality_code": 230,
+    "protected": true,
+    "is_new": true,
+    "resume_sec": null,
+    "size_mb": 2000,
+    "summary": "まったく別のあらすじ。"
+   },
+   {
+    "id": "0xd4",
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "start": "2026-09-22T21:00:00+09:00",
+    "duration_sec": 5400,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "resume_sec": null,
+    "size_mb": 2000,
+    "summary": "拡大版のあらすじ。"
+   },
+   {
+    "id": "0xe1",
+    "title": "名もなき番組",
+    "start": "2026-09-02T21:00:00+09:00",
+    "duration_sec": 1800,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "resume_sec": null,
+    "size_mb": 500,
+    "summary": ""
+   },
+   {
+    "id": "0xe2",
+    "title": "名もなき番組",
+    "start": "2026-09-03T21:00:00+09:00",
+    "duration_sec": 1800,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "resume_sec": null,
+    "size_mb": 500,
+    "summary": ""
+   }
+  ],
+  "candidates": [
+   [
+    "0xd2",
+    "0xd1",
+    "0xd3"
+   ],
+   [
+    "0xe1",
+    "0xe2"
+   ]
+  ],
+  "sets": [
+   {
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "confidence": "high",
+    "size_mb": 4000,
+    "keep": "0xd2",
+    "suggest_delete": [
+     "0xd1"
+    ],
+    "reasons": {
+     "0xd1": "同じ内容",
+     "0xd2": "視聴途中"
+    },
+    "items": [
+     "0xd1",
+     "0xd2"
+    ]
+   },
+   {
+    "title": "名もなき番組",
+    "confidence": "low",
+    "size_mb": 1000,
+    "keep": "0xe1",
+    "suggest_delete": [
+     "0xe2"
+    ],
+    "reasons": {
+     "0xe1": "先に放送",
+     "0xe2": "後の放送"
+    },
+    "items": [
+     "0xe1",
+     "0xe2"
+    ]
+   }
+  ]
  }
 }
