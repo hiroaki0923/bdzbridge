@@ -59,6 +59,7 @@ struct GuideGridView: View {
                     zoomButtons
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .clipped()
                 .onAppear { viewport = proxy.size }
                 .onChange(of: proxy.size) { viewport = $1 }
             }
@@ -169,7 +170,7 @@ struct GuideGridView: View {
         }
         .offset(y: offset.y)
         .frame(width: gutter, height: height, alignment: .topLeading)
-        .background(Color(.systemBackground).opacity(0.94))
+        .background(Color(.systemBackground))
         .overlay(alignment: .trailing) { Rectangle().fill(Color(.separator)).frame(width: 0.5) }
         .clipped()
     }
