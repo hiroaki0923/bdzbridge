@@ -4,7 +4,7 @@ import asyncio
 import base64
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -56,7 +56,8 @@ class FakeXsrs:
     def _titles(self):
         from bdzbridge.recorder.xsrs import RecordedTitle
         deleted = getattr(self, "deleted", set())
-        all_ = [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
+        extra = getattr(self, "extra_titles", [])
+        all_ = extra + [RecordedTitle("0x0000010000034d78", "録画したドラマ", datetime(2026, 9, 13, 21, 0, tzinfo=JST), 4148, 2, 1048, 230,
                               False, True, "HDD", 4376, genre_code=48),
                 RecordedTitle("0x0000010000034d79", "録画したドラマ　第２話[字]", datetime(2026, 9, 12, 21, 0, tzinfo=JST), 3600, 2, 1048, 230,
                               True, False, "HDD", 4000, genre_code=48, last_played=datetime(2026, 9, 13, 1, 0, tzinfo=JST), resume_sec=754),
@@ -73,7 +74,12 @@ class FakeXsrs:
         return self._titles()
 
     async def title_detail(self, title_id):
-        return {"summary": "あらすじ", "details": ["番組内容 本文"]}
+        summaries = getattr(self, "summaries", {})
+        return {"summary": summaries.get(title_id, "あらすじ"), "details": ["番組内容 本文"]}
+
+    async def power_on(self):
+        self.powered = getattr(self, "powered", 0) + 1
+        return "PowerOn"
 
     def __init_playback__(self):
         pass
@@ -495,3 +501,165 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
     assert client.bridge.store.title_summary("0x0000010000034d78") == "あらすじ"
+
+
+def test_channel_prefs_hide_and_reorder(client):
+    ids = lambda r: [c["service_id"] for c in r]
+    assert ids(client.get("/api/v1/channels?broadcasting=td", headers=H).json()) == [1024, 1025]
+    r = client.put("/api/v1/channels/td/prefs", headers=H, json={"order": [1025, 1024]}).json()
+    assert ids(r) == [1025, 1024] and all(c["hidden"] is False for c in r)
+    r = client.put("/api/v1/channels/td/prefs", headers=H, json={"hidden": [1024]}).json()
+    assert [(c["service_id"], c["hidden"]) for c in r] == [(1025, False), (1024, True)]
+    assert ids(client.get("/api/v1/channels?broadcasting=td", headers=H).json()) == [1025]
+    assert ids(client.get("/api/v1/channels?broadcasting=td&include_hidden=true", headers=H).json()) == [1025, 1024]
+    # hidden channels disappear from the guide and search unless asked for
+    assert client.get("/api/v1/programs?broadcasting=td&q=ニュース", headers=H).json() == []
+    assert len(client.get("/api/v1/programs?broadcasting=td&q=ニュース&include_hidden=true", headers=H).json()) == 1
+    r = client.put("/api/v1/channels/td/prefs", headers=H, json={"order": [], "hidden": []}).json()
+    assert ids(r) == [1024, 1025] and not any(c["hidden"] for c in r)
+
+
+def test_bulk_protect_job(client):
+    job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"], "protected": True})
+    assert job.status_code == 202
+    for _ in range(100):
+        r = client.get(f"/api/v1/titles/protect/{job.json()['id']}", headers=H).json()
+        if r["finished"]:
+            break
+        time.sleep(0.02)
+    assert r["changed"] == ["0x0000010000034d78"] and r["done"] == 3 and r["error"] is None
+    assert [(x["id"], x["reason"]) for x in r["skipped"]] == [("0x0000010000034d79", "unchanged"), ("0x1", "not found")]
+    assert client.bridge.recorder.xsrs.title_updates[-1] == ("0x0000010000034d78", {"titleProtectFlag": "1"})
+
+
+def _wait_job(client, kind, job_id):
+    for _ in range(200):
+        r = client.get(f"/api/v1/titles/{kind}/{job_id}", headers=H).json()
+        if r["finished"]:
+            return r
+        time.sleep(0.02)
+    raise AssertionError("job did not finish")
+
+
+def _title(tid, title, start, duration=1800, **kw):
+    from bdzbridge.recorder.xsrs import RecordedTitle
+
+    args = {"id": tid, "title": title, "start": start, "duration_sec": duration, "broadcasting_type": 2, "service_id": 1024,
+            "quality_code": 230, "protected": False, "is_new": True, "destination": "HDD", "size_mb": 1000, "genre_code": 48}
+    args.update(kw)
+    return RecordedTitle(**args)
+
+
+def test_duplicates_keep_protected_partway_and_better_quality(client):
+    x = client.bridge.recorder.xsrs
+    t0 = datetime(2026, 9, 1, 21, 0, tzinfo=JST)
+    x.extra_titles = [
+        # same programme three times: the protected copy must be kept even though it aired last
+        _title("0xa1", "ドラマＡ　第３話", t0), _title("0xa2", "ドラマＡ　第３話[再]", t0 + timedelta(days=3)),
+        _title("0xa3", "ドラマＡ　第３話", t0 + timedelta(days=7), protected=True),
+        # partly watched copy wins over the earlier untouched one
+        _title("0xb1", "ドラマＢ　第１話", t0), _title("0xb2", "ドラマＢ　第１話", t0 + timedelta(days=1), is_new=False, resume_sec=600),
+        # same start, different quality: DR is kept, LSR suggested
+        _title("0xc1", "ドラマＣ", t0, quality_code=240, size_mb=500), _title("0xc2", "ドラマＣ", t0, quality_code=100, size_mb=5000),
+        # same title but a daily show whose descriptions differ: not duplicates
+        _title("0xd1", "朝の番組", t0), _title("0xd2", "朝の番組", t0 + timedelta(days=1)),
+        # same title, clearly different length: not duplicates
+        _title("0xe1", "スペシャル", t0, duration=3600), _title("0xe2", "スペシャル", t0 + timedelta(days=1), duration=7200),
+    ]
+    x.summaries = {"0xd1": "月曜のあらすじ", "0xd2": "火曜のあらすじ", "0xc1": "", "0xc2": ""}
+    job = client.post("/api/v1/titles/duplicates", headers=H).json()
+    r = _wait_job(client, "duplicates", job["id"])
+    sets = {s["title"][:4]: s for s in r["sets"]}
+    assert set(sets) == {"ドラマＡ", "ドラマＢ", "ドラマＣ", "録画した"}
+    a = sets["ドラマＡ"]
+    assert a["keep"] == "0xa3" and a["reasons"]["0xa3"] == "保護中" and sorted(a["suggest_delete"]) == ["0xa1", "0xa2"]
+    b = sets["ドラマＢ"]
+    assert b["keep"] == "0xb2" and b["reasons"]["0xb2"] == "視聴途中" and b["suggest_delete"] == ["0xb1"]
+    c = sets["ドラマＣ"]
+    assert c["keep"] == "0xc2" and c["reasons"]["0xc2"] == "高画質" and c["reasons"]["0xc1"] == "低画質" and c["confidence"] == "low"
+    from bdzbridge.recorder.xsrs import RecordedTitle  # noqa: F401
+
+
+def test_bulk_unprotect_job(client):
+    job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d79", "0x0000010000034d78"], "protected": False}).json()
+    r = _wait_job(client, "protect", job["id"])
+    assert r["changed"] == ["0x0000010000034d79"] and [x["reason"] for x in r["skipped"]] == ["unchanged"]
+    assert client.bridge.recorder.xsrs.title_updates[-1] == ("0x0000010000034d79", {"titleProtectFlag": "0"})
+
+
+def test_monitor_warns_again_only_after_space_recovers(client):
+    c = _autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is True
+    x.record_destination_info = lambda destination="HDD": _free(55e9)  # above 50 but below the 60 GB re-arm line
+    assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is False
+    x.record_destination_info = lambda destination="HDD": _free(200e9)
+    assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is False  # recovered: warning re-armed
+    x.record_destination_info = lambda destination="HDD": _free(10e9)
+    assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is True
+    assert len(c.bridge.notifier.sent) == 2
+
+
+async def _free(free_bytes):
+    return {"total_bytes": 4_000_000_000_000, "free_bytes": int(free_bytes)}
+
+
+def test_monitor_free_space_check_can_be_disabled(tmp_path, monkeypatch):
+    from bdzbridge.api import app as appmod
+
+    async def _reachable(host, port, timeout=2.0):
+        return True
+
+    monkeypatch.setattr(appmod.wol, "port_open", _reachable)
+    settings = Settings(recorder_host="127.0.0.1", api_token=TOKEN, db_path=str(tmp_path / "m.sqlite3"), epg_refresh_on_start=False,
+                        notify_free_gb=0)
+    store = Store(settings.db_path)
+    bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.notifier = FakeNotifier()
+    with TestClient(create_app(settings, bridge)) as c:
+        r = c.post("/api/v1/monitor/run", headers=H).json()
+    assert r["free_gb"] is None and r["low_space"] is False and bridge.notifier.sent == []
+
+
+def test_hidden_channels_are_skipped_by_rules(client):
+    c = _autorec_client(client)
+    c.put("/api/v1/channels/td/prefs", headers=H, json={"hidden": [1024]})
+    rid = c.post("/api/v1/rules", headers=H, json={"query": "sample"}).json()["id"]
+    assert c.get(f"/api/v1/rules/{rid}/matches", headers=H).json() == []
+    assert c.post("/api/v1/rules/run", headers=H).json()["reserved"] == 0
+    c.put("/api/v1/channels/td/prefs", headers=H, json={"hidden": []})
+    assert [m["event_id"] for m in c.get(f"/api/v1/rules/{rid}/matches", headers=H).json()] == [14794]
+
+
+def test_rules_match_description_when_not_title_only(client):
+    c = _autorec_client(client)
+    only = c.post("/api/v1/rules", headers=H, json={"query": "朝のニュース", "title_only": True}).json()
+    wide = c.post("/api/v1/rules", headers=H, json={"query": "朝のニュース", "title_only": False}).json()
+    assert c.get(f"/api/v1/rules/{only['id']}/matches", headers=H).json() == []
+    assert [m["event_id"] for m in c.get(f"/api/v1/rules/{wide['id']}/matches", headers=H).json()] == [14792]
+
+
+def test_power_on_wakes_an_unreachable_recorder(client, monkeypatch):
+    from bdzbridge.api import app as appmod
+
+    async def _down(host, port, timeout=2.0):
+        return False
+
+    woke = []
+
+    async def _wake(host, mac, port=64220, wait=25.0):
+        woke.append(mac)
+        return True
+
+    monkeypatch.setattr(appmod.wol, "port_open", _down)
+    monkeypatch.setattr(appmod.wol, "wake", _wake)
+    client.bridge.store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
+    assert client.post("/api/v1/recorder/power", headers=H).json() == {"power": "PowerOn"}
+    assert woke == ["f8:4e:17:00:00:00"] and client.bridge.recorder.xsrs.powered == 1
+
+
+def test_channel_prefs_partial_order_keeps_the_rest_behind(client):
+    r = client.put("/api/v1/channels/td/prefs", headers=H, json={"order": [1025]}).json()
+    assert [c["service_id"] for c in r] == [1025, 1024]
+    # a broadcasting type without channels accepts preferences without complaint
+    assert client.put("/api/v1/channels/cs/prefs", headers=H, json={"hidden": [1]}).json() == []

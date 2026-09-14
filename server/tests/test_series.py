@@ -1,4 +1,6 @@
-from bdzbridge.recorder.series import series_key, series_name
+import pytest
+
+from bdzbridge.recorder.series import same_title_key, series_key, series_name, summary_key
 
 
 def test_series_name_cuts_at_episode_markers():
@@ -19,3 +21,31 @@ def test_series_key_normalises_width_and_case():
     assert series_key("日曜劇場「サンプルドラマ」 第1話") == series_key("日曜劇場「サンプルドラマ」第１８話")
     assert series_key("サンプルニュース　あさの放送[字]") == series_key("サンプルニュース　あさの放送")
     assert series_key("") == ""
+
+
+@pytest.mark.parametrize("title,name", [
+    ("サンプルえもん　【夢ホール】【ねこっかぶり】", "サンプルえもん"),
+    ("サンプルしんちゃん　【ホットケーキはホッとするゾ】", "サンプルしんちゃん"),
+    ("サンプルスイッチ▽フレーミーとたね　▽たこたこピー", "サンプルスイッチ"),
+    ("サンプルスイッチ「この装置　こんな名前がついてましたＳＰ」", "サンプルスイッチ"),
+    ("それいけ！サンプルマン「カップケーキちゃんとふでじいさん・他」", "それいけ！サンプルマン"),
+    ("刑事サンプル（４８）「幻の宝（たから）石」", "刑事サンプル"),
+    ("ＳａｍｐｌｅＢｕｓーサンプルバスー　★大人気の知育アニメがテレビで登場！", "ＳａｍｐｌｅＢｕｓーサンプルバスー"),
+    ("司会者・研究者の！？ＰＲ　人類史３．０　人間とは何か", "司会者・研究者の！？ＰＲ"),
+    ("土曜ドラマ「サンプル三ツ星」２分ＰＲ　今後の見どころ紹介！", "土曜ドラマ「サンプル三ツ星」"),  # PR spots join the drama's group
+    ("【土曜ドラマ】峠越え　後編", "【土曜ドラマ】峠越え"),
+    ("サンプルで会いましょう！（２５）自律神経　最新研究", "サンプルで会いましょう！"),
+    ("新プロジェクトＸ「世紀の難工事　架空国際空港」", "新プロジェクトＸ"),
+    ("サンプル高校講座　数学Ⅰ　２次不等式[字]", "サンプル高校講座"),
+    ("サンプルぷしゅ", "サンプルぷしゅ"),
+    ("＃１２　いきなり話数で始まる", "＃１２　いきなり話数で始まる"),
+])
+def test_series_name_on_real_titles(title, name):
+    assert series_name(title) == name
+
+
+def test_same_title_and_summary_keys():
+    assert same_title_key("ドラマＡ　第３話[再]") == same_title_key("ドラマA 第3話") == "ドラマa第3話"
+    assert same_title_key("ドラマＡ　第３話") != same_title_key("ドラマＡ　第４話")
+    assert summary_key("（再放送）あらすじ　本文") == summary_key("あらすじ本文[再]") == "あらすじ本文"
+    assert summary_key("") == "" and summary_key(None) == ""

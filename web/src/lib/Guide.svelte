@@ -3,6 +3,8 @@
   import { app } from '../store.svelte.js'
   import ProgramList from './ProgramList.svelte'
   import GuideGrid from './GuideGrid.svelte'
+  import ChannelPrefs from './ChannelPrefs.svelte'
+  let prefsOpen = $state(false)
 
   const BTS = [['td', '地デジ'], ['bs', 'BS'], ['cs', 'CS'], ['bs4k', 'BS4K']]
   const days = tvDays()
@@ -39,9 +41,10 @@
   <div class="card"><div class="title">この機種は番組表を提供していません</div><div class="muted">レコーダーの機器記述で EPG_CAP が 00 でした。予約は「予約」タブから時刻指定で作れます。</div></div>
 {/if}
 <div class="seg">{#each BTS as [id, label]}<button class:on={bt === id} onclick={() => (bt = id)}>{label}</button>{/each}</div>
-<div class="chips">{#each days as d}<button class="chip" class:on={day === d.iso} onclick={() => (day = d.iso)}>{d.today ? '今日 ' : ''}{d.label}</button>{/each}</div>
+<div class="chips">{#each days as d}<button class="chip" class:on={day === d.iso} onclick={() => (day = d.iso)}>{d.today ? '今日 ' : ''}{d.label}</button>{/each}<button class="chip" onclick={() => (prefsOpen = true)} title="局の表示と並び順">局の表示…</button></div>
 {#if view !== 'grid'}<div class="chips">{#each channels as c}<button class="chip" class:on={serviceId === c.service_id} onclick={() => (serviceId = c.service_id)}>{#if c.logo}<img class="logo" src={c.logo} alt="" />{/if}{c.name}</button>{/each}</div>{/if}
 {#if error}<p class="error">{error}</p>{/if}
 {#if busy && programs.length === 0}<p class="empty"><span class="spinner"></span>読み込み中</p>
 {:else if view === 'grid'}<GuideGrid {channels} {programs} {day} />
 {:else}<ProgramList {programs} />{/if}
+{#if prefsOpen}<ChannelPrefs {bt} label={BTS.find(([id]) => id === bt)?.[1] ?? bt} onclose={() => (prefsOpen = false)} onchange={() => loadChannels().then(loadPrograms)} />{/if}
