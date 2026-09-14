@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from ..config import Settings
 from ..state import Bridge
 from ..store import Store
-from .routers import guide, recorder, reservations, rules, titles
+from .routers import guide, jobs, recorder, reservations, rules, titles
 
 log = logging.getLogger("bdzbridge")
 
@@ -39,7 +39,7 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
                 await b.close()
 
     app = FastAPI(title="bdzbridge", version="0.1.0", lifespan=lifespan)
-    for r in (recorder, guide, reservations, rules, titles):
+    for r in (recorder, guide, reservations, rules, titles, jobs):
         app.include_router(r.router)
 
     static_dir = Path(settings.static_dir) if settings.static_dir else Path(__file__).resolve().parents[3] / "web" / "dist"

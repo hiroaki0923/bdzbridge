@@ -1,6 +1,7 @@
 <script>
   import { api, fmtDateTime, fmtDate, fmtTime, fmtBytes } from '../api.js'
   import { app, loadStatus, toast } from '../store.svelte.js'
+  import { runJob, cancelJob } from '../jobs.js'
   const PAGE = 30
   let mode = $state(localStorage.getItem('bdzbridge.titleMode') || 'list') // list | groups
   $effect(() => { localStorage.setItem('bdzbridge.titleMode', mode) })
@@ -87,7 +88,10 @@
   let picked = $state({}) // id → true
   let confirmBulk = $state(false)
   let bulkBusy = $state(false)
-  let progress = $state(null) // { done, total } while a bulk operation runs
+  let progress = $state(null) // { id, done, total, cancelled } while a bulk job runs
+  const track = (j) => (progress = { id: j.id, done: j.done, total: j.total, cancelled: j.cancelled })
+  async function cancelCurrent() { if (progress?.id) { try { await cancelJob(progress.id); progress = { ...progress, cancelled: true } } catch (e) { error = e.message } } }
+  const outcome = (verb, n, job) => (job.cancelled ? `${n} 件を${verb}したところで中止しました` : `${n} 件を${verb}しました`)
   async function loadGroups(refreshList = false) {
     groupsBusy = true; error = ''
     try { groups = await api('/titles/groups', { query: { genre: genre || undefined, refresh: refreshList || undefined } }) }
@@ -101,17 +105,10 @@
   const pickedIds = $derived(Object.keys(picked).filter((id) => picked[id]))
   const pickedSize = $derived(members.filter((m) => picked[m.id]).reduce((s, m) => s + (m.size_mb ?? 0), 0))
   function pickAll(on) { const p = {}; for (const m of members) if (!m.protected) p[m.id] = on; picked = p }
-  // the recorder needs a few seconds per title, so the server runs the job in the background and we poll it
+  // the recorder needs a few seconds per title, so the server runs the job in the background and we follow it
   async function deleteIds(ids) {
-    let res = await api('/titles/delete', { method: 'POST', body: { ids } })
-    progress = { done: res.done, total: res.total }
-    while (!res.finished) {
-      await new Promise((r) => setTimeout(r, 800))
-      res = await api(`/titles/delete/${res.id}`)
-      progress = { done: res.done, total: res.total }
-    }
-    if (res.error) throw new Error(res.error)
-    return res
+    const job = await runJob('/titles/delete', { ids }, track)
+    return { ...job.result, cancelled: job.cancelled }
   }
   async function bulkDelete() {
     bulkBusy = true; error = ''
@@ -121,7 +118,7 @@
       const gone = new Set([...res.deleted, ...res.skipped.filter((x) => x.reason === 'not found').map((x) => x.id)])
       const other = res.skipped.filter((x) => x.reason !== 'not found')
       const missing = gone.size - res.deleted.length
-      toast(`${res.deleted.length} 件を削除しました${missing ? '（' + missing + ' 件は既に消えていました）' : ''}${other.length ? '（' + other.length + ' 件はスキップ）' : ''}`)
+      toast(`${outcome('削除', res.deleted.length, res)}${missing ? '（' + missing + ' 件は既に消えていました）' : ''}${other.length ? '（' + other.length + ' 件はスキップ）' : ''}`)
       confirmBulk = false; picked = {}
       members = members.filter((m) => !gone.has(m.id))
       titles = titles.filter((t) => !gone.has(t.id))
@@ -132,15 +129,8 @@
   }
   // protect / unprotect many titles through a server-side job (one X_UpdateTitle each), polling for progress
   async function protectIds(ids, on) {
-    let res = await api('/titles/protect', { method: 'POST', body: { ids, protected: on } })
-    progress = { done: res.done, total: res.total }
-    while (!res.finished) {
-      await new Promise((r) => setTimeout(r, 600))
-      res = await api(`/titles/protect/${res.id}`)
-      progress = { done: res.done, total: res.total }
-    }
-    if (res.error) throw new Error(res.error)
-    return res
+    const job = await runJob('/titles/protect', { ids, protected: on }, track, 600)
+    return { ...job.result, cancelled: job.cancelled }
   }
   async function bulkProtect(on, ids = pickedIds) {
     bulkBusy = true; error = ''
@@ -148,7 +138,7 @@
       const res = await protectIds(ids, on)
       const changed = new Set(res.changed)
       for (const list of [members, titles, all ?? []]) for (const m of list) if (changed.has(m.id)) m.protected = on
-      toast(on ? `${res.changed.length} 件を保護しました` : `${res.changed.length} 件の保護を解除しました`)
+      toast(outcome(on ? '保護' : '保護解除', res.changed.length, res))
       picked = {}
       await loadGroups(true)
     } catch (e) { error = e.message } finally { bulkBusy = false; progress = null }
@@ -161,27 +151,20 @@
   async function scanDuplicates() {
     error = ''
     try {
-      let job = await api('/titles/duplicates', { method: 'POST' })
-      dupJob = job
-      while (!job.finished) {
-        await new Promise((r) => setTimeout(r, 1000))
-        job = await api(`/titles/duplicates/${job.id}`)
-        dupJob = job
-      }
-      if (job.error) throw new Error(job.error)
+      const job = await runJob('/titles/duplicates', undefined, (j) => (dupJob = j), 1000)
       const p = {}
-      for (const s of job.sets) for (const id of s.suggest_delete) p[id] = true
+      for (const s of job.result.sets ?? []) for (const id of s.suggest_delete) p[id] = true
       dupPicked = p
-    } catch (e) { error = e.message; dupJob = { finished: true, sets: [], total: 0, done: 0 } }
+    } catch (e) { error = e.message; dupJob = { finished: true, cancelled: false, result: { sets: [] }, total: 0, done: 0 } }
   }
   $effect(() => { if (mode === 'dups' && dupJob === null) scanDuplicates() })
   const dupIds = $derived(Object.keys(dupPicked).filter((id) => dupPicked[id]))
-  const dupSize = $derived((dupJob?.sets ?? []).flatMap((s) => s.items).filter((t) => dupPicked[t.id]).reduce((a, t) => a + (t.size_mb ?? 0), 0))
+  const dupSize = $derived((dupJob?.result?.sets ?? []).flatMap((s) => s.items).filter((t) => dupPicked[t.id]).reduce((a, t) => a + (t.size_mb ?? 0), 0))
   async function deleteDuplicates() {
     bulkBusy = true; error = ''
     try {
       const res = await deleteIds(dupIds)
-      toast(`${res.deleted.length} 件を削除しました${res.skipped.length ? '（' + res.skipped.length + ' 件はスキップ）' : ''}`)
+      toast(`${outcome('削除', res.deleted.length, res)}${res.skipped.length ? '（' + res.skipped.length + ' 件はスキップ）' : ''}`)
       confirmDups = false; dupPicked = {}; dupJob = null
       titles = titles.filter((t) => !res.deleted.includes(t.id))
       if (all) all = all.filter((t) => !res.deleted.includes(t.id))
@@ -274,10 +257,11 @@
       <p class="muted" style="margin:0 0 6px"><span class="spinner"></span>重複を調べています{#if dupJob?.total} {dupJob.done} / {dupJob.total}（番組内容を照合中）{/if}</p>
       {#if dupJob?.total}<div class="bar"><div class="fill accent" style="width: {(100 * dupJob.done) / dupJob.total}%"></div></div>{/if}
       <p class="muted">同じタイトルで同じ長さの録画について、レコーダーに番組内容を問い合わせて突き合わせます。初回は時間がかかります。</p>
+      {#if dupJob?.id && !dupJob.cancelled}<button class="btn ghost" onclick={() => cancelJob(dupJob.id)}>中止</button>{/if}
     </div>
   {:else}
-    <p class="muted">{dupJob.sets.length} 組の重複{dupJob.sets.length ? '。チェックが付いているのが削除候補で、先に放送された方（保護中や視聴途中のものがあればそちら）を残します。' : 'はありません。'}</p>
-    {#each dupJob.sets as s, i (i)}
+    <p class="muted">{#if dupJob.cancelled}中止しました。「更新」でやり直せます。{:else}{dupJob.result.sets.length} 組の重複{dupJob.result.sets.length ? '。チェックが付いているのが削除候補で、先に放送された方（保護中や視聴途中のものがあればそちら）を残します。' : 'はありません。'}{/if}</p>
+    {#each dupJob.result.sets as s, i (i)}
       <div class="card">
         <div class="title">{s.title}</div>
         <div class="muted">{s.items.length} 本 · 合計 {(s.size_mb / 1024).toFixed(1)}GB · {s.confidence === 'high' ? '番組内容も同じ' : 'タイトルと長さが同じ（内容は未確認）'}</div>
@@ -337,7 +321,7 @@
       <button class="chip" disabled={bulkBusy || !members.length} onclick={() => bulkProtect(true, members.map((m) => m.id))}>🔒 全部を保護</button>
       <button class="chip" disabled={bulkBusy || !members.length} onclick={() => bulkProtect(false, members.map((m) => m.id))}>全部の保護を解除</button>
     </div>
-    {#if bulkBusy && progress && !confirmBulk}<p class="muted"><span class="spinner"></span>処理中 {progress.done} / {progress.total}</p>{/if}
+    {#if bulkBusy && progress && !confirmBulk}<p class="muted"><span class="spinner"></span>処理中 {progress.done} / {progress.total} <button class="chip" disabled={progress.cancelled} onclick={cancelCurrent}>{progress.cancelled ? '中止します…' : '中止'}</button></p>{/if}
     <div class="list">
       {#if members.length === 0}<p class="empty"><span class="spinner"></span>読み込み中</p>{/if}
       {#each members as m (m.id)}
@@ -397,6 +381,7 @@
     {#if bulkBusy && progress}
       <div class="bar"><div class="fill" style="width: {(100 * progress.done) / Math.max(1, progress.total)}%"></div></div>
       <p class="muted" style="text-align:center">削除中 {progress.done} / {progress.total}</p>
+      <button class="btn ghost" disabled={progress.cancelled} onclick={cancelCurrent}>{progress.cancelled ? '中止します…' : '中止（以降は削除しない）'}</button>
     {:else}
       <button class="btn danger" onclick={deleteDuplicates}>{dupIds.length + ' 件を削除する'}</button>
       <button class="btn ghost" onclick={() => (confirmDups = false)}>やめる</button>
@@ -412,7 +397,8 @@
     <p class="muted">合計 {(pickedSize / 1024).toFixed(1)}GB。保護中のものは選べません。レコーダーから消えます。元に戻せません。</p>
     {#if bulkBusy && progress}
       <div class="bar"><div class="fill" style="width: {(100 * progress.done) / Math.max(1, progress.total)}%"></div></div>
-      <p class="muted" style="text-align:center">削除中 {progress.done} / {progress.total}（1 件に数秒かかります。この画面を閉じても続きます）</p>
+      <p class="muted" style="text-align:center">削除中 {progress.done} / {progress.total}（1 件に数秒かかります）</p>
+      <button class="btn ghost" disabled={progress.cancelled} onclick={cancelCurrent}>{progress.cancelled ? '中止します…' : '中止（以降は削除しない）'}</button>
     {:else}
       <button class="btn danger" onclick={bulkDelete}>{pickedIds.length + ' 件を削除する'}</button>
       <button class="btn ghost" onclick={() => (confirmBulk = false)}>やめる</button>

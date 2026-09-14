@@ -123,6 +123,7 @@ class FakeXsrs:
         return "35.003.1"
 
     async def delete_title(self, title_id):
+        await asyncio.sleep(getattr(self, "delay", 0))
         if title_id not in {t.id for t in self._titles()}:
             raise XsrsError("X_DeleteTitle", 500, "701")
         self.deleted = getattr(self, "deleted", set()) | {title_id}
@@ -195,9 +196,9 @@ def autorec_client(client):
     return client
 
 
-def wait_job(client, kind, job_id):
+def wait_job(client, job_id):
     for _ in range(200):
-        r = client.get(f"/api/v1/titles/{kind}/{job_id}", headers=H).json()
+        r = client.get(f"/api/v1/jobs/{job_id}", headers=H).json()
         if r["finished"]:
             return r
         time.sleep(0.02)

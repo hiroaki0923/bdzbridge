@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from .api.serializers import title_out
 from .autorec import run_rules
 from .config import Settings
+from .jobs import Job, Jobs
 from .monitor import run_checks
 from .notify import Notifier
 from .recorder import codes, discovery, wol
@@ -37,7 +38,7 @@ class Bridge:
         self.clock = lambda: datetime.now(JST)  # tests override this
         self.last_autorec: dict | None = None
         self._titles: tuple[float, list[XTitle]] | None = None  # cached full title list (grouping, bulk operations)
-        self.jobs: dict[str, dict] = {}  # bulk delete jobs by id
+        self.jobs = Jobs()  # bulk delete / protect / duplicate-scan jobs
 
     async def all_titles(self, max_age: float = 300) -> list[XTitle]:
         rec = self.require_recorder()
@@ -51,57 +52,51 @@ class Bridge:
     def forget_titles(self) -> None:
         self._titles = None
 
-    async def run_duplicates_job(self, job: dict) -> None:
+    async def scan_duplicates(self, job: Job) -> None:
         """Group recordings that look like copies of one broadcast (same title and length, then the same programme
-        text, which the recorder is asked for one title at a time and cached)."""
+        text, which the recorder is asked for one title at a time and cached). Result: {"sets": [...]}."""
         rec = self.recorder
-        try:
-            groups: dict[str, list[XTitle]] = {}
-            for t in await self.all_titles():
-                groups.setdefault(same_title_key(t.title), []).append(t)
-            candidates: list[list[XTitle]] = []
-            for v in groups.values():
-                if len(v) < 2:
-                    continue
-                v = sorted(v, key=lambda t: t.duration_sec)
-                cluster = [v[0]]
-                for t in v[1:]:
-                    if abs(t.duration_sec - cluster[-1].duration_sec) <= 120:
-                        cluster.append(t)
-                    else:
-                        if len(cluster) > 1:
-                            candidates.append(cluster)
-                        cluster = [t]
-                if len(cluster) > 1:
-                    candidates.append(cluster)
-            job["total"] = sum(len(c) for c in candidates)
-            sets: list[dict] = []
-            for members in candidates:
-                keys: dict[str, str] = {}
-                for t in members:
-                    summ = self.store.title_summary(t.id)
-                    if summ is None:
-                        try:
-                            async with rec.lock:
-                                summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
-                        except Exception as e:
-                            log.debug("no detail for %s: %s", t.id, e)
-                            summ = ""
-                        self.store.set_title_summary(t.id, summ)
-                    keys[t.id] = summary_key(summ)
-                    job["done"] += 1
-                by_summary: dict[str, list[XTitle]] = {}
-                for t in members:
-                    by_summary.setdefault(keys[t.id], []).append(t)
-                for k, same in by_summary.items():
-                    if len(same) > 1:
-                        sets.append(self._duplicate_set(same, "high" if k else "low"))
-            job["sets"] = sorted(sets, key=lambda s: s["size_mb"], reverse=True)
-        except Exception as e:
-            job["error"] = str(e)
-            log.warning("duplicate scan failed: %s", e)
-        finally:
-            job["finished"] = True
+        groups: dict[str, list[XTitle]] = {}
+        for t in await self.all_titles():
+            groups.setdefault(same_title_key(t.title), []).append(t)
+        candidates: list[list[XTitle]] = []
+        for v in groups.values():
+            if len(v) < 2:
+                continue
+            v = sorted(v, key=lambda t: t.duration_sec)
+            cluster = [v[0]]
+            for t in v[1:]:
+                if abs(t.duration_sec - cluster[-1].duration_sec) <= 120:
+                    cluster.append(t)
+                else:
+                    if len(cluster) > 1:
+                        candidates.append(cluster)
+                    cluster = [t]
+            if len(cluster) > 1:
+                candidates.append(cluster)
+        job.total = sum(len(c) for c in candidates)
+        sets: list[dict] = []
+        for members in candidates:
+            keys: dict[str, str] = {}
+            for t in members:
+                summ = self.store.title_summary(t.id)
+                if summ is None:
+                    try:
+                        async with rec.lock:
+                            summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
+                    except Exception as e:
+                        log.debug("no detail for %s: %s", t.id, e)
+                        summ = ""
+                    self.store.set_title_summary(t.id, summ)
+                keys[t.id] = summary_key(summ)
+                job.step()
+            by_summary: dict[str, list[XTitle]] = {}
+            for t in members:
+                by_summary.setdefault(keys[t.id], []).append(t)
+            for k, same in by_summary.items():
+                if len(same) > 1:
+                    sets.append(self._duplicate_set(same, "high" if k else "low"))
+        job.result["sets"] = sorted(sets, key=lambda s: s["size_mb"], reverse=True)
 
     def _duplicate_set(self, members: list[XTitle], confidence: str) -> dict:
         def rank(t: XTitle):  # smaller is better to keep
@@ -132,59 +127,54 @@ class Bridge:
             else:
                 reasons[t.id] = "同じ内容"
         return {"title": members[0].title, "confidence": confidence,
-                "size_mb": sum(t.size_mb or 0 for t in members), "items": [title_out(t, self.store) for t in members],
+                "size_mb": sum(t.size_mb or 0 for t in members),
+                "items": [title_out(t, self.store).model_dump(mode="json") for t in members],
                 "keep": keep.id, "suggest_delete": [t.id for t in members if t.id != keep.id and not t.protected], "reasons": reasons}
 
-    async def run_protect_job(self, job: dict, ids: list[str], protected: bool) -> None:
-        """Set or clear the protect flag on many recordings, one X_UpdateTitle at a time."""
+    async def protect_titles(self, job: Job, ids: list[str], protected: bool) -> None:
+        """Set or clear the protect flag on many recordings, one X_UpdateTitle at a time.
+        Result: {"changed": [ids], "skipped": [{"id", "reason"}]}."""
         rec = self.recorder
         try:
             known = {t.id: t for t in await self.all_titles()}
             for tid in ids:
                 t = known.get(tid)
                 if t is None:
-                    job["skipped"].append({"id": tid, "reason": "not found"})
+                    job.result["skipped"].append({"id": tid, "reason": "not found"})
                 elif t.protected == protected:
-                    job["skipped"].append({"id": tid, "reason": "unchanged"})
+                    job.result["skipped"].append({"id": tid, "reason": "unchanged"})
                 else:
                     try:
                         async with rec.lock:
                             await rec.xsrs.update_title(build_title_update_elements(tid, protected=protected))
-                        job["changed"].append(tid)
+                        job.result["changed"].append(tid)
                     except XsrsError as e:
-                        job["skipped"].append({"id": tid, "reason": str(e)})
-                job["done"] += 1
-        except Exception as e:
-            job["error"] = str(e)
-            log.warning("protect job %s failed: %s", job["id"], e)
+                        job.result["skipped"].append({"id": tid, "reason": str(e)})
+                job.step()
         finally:
-            job["finished"] = True
             self.forget_titles()
 
-    async def run_delete_job(self, job: dict, ids: list[str]) -> None:
-        """Delete recordings one by one (each takes the recorder a few seconds) while `job` reports progress."""
+    async def delete_titles(self, job: Job, ids: list[str]) -> None:
+        """Delete recordings one by one (each takes the recorder a few seconds).
+        Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected and unknown ids are skipped."""
         rec = self.recorder
         try:
             known = {t.id: t for t in await self.all_titles()}
             for tid in ids:
                 t = known.get(tid)
                 if t is None:
-                    job["skipped"].append({"id": tid, "reason": "not found"})
+                    job.result["skipped"].append({"id": tid, "reason": "not found"})
                 elif t.protected:
-                    job["skipped"].append({"id": tid, "reason": "protected"})
+                    job.result["skipped"].append({"id": tid, "reason": "protected"})
                 else:
                     try:
                         async with rec.lock:
                             await rec.xsrs.delete_title(tid)
-                        job["deleted"].append(tid)
+                        job.result["deleted"].append(tid)
                     except XsrsError as e:
-                        job["skipped"].append({"id": tid, "reason": str(e)})
-                job["done"] += 1
-        except Exception as e:
-            job["error"] = str(e)
-            log.warning("delete job %s failed: %s", job["id"], e)
+                        job.result["skipped"].append({"id": tid, "reason": str(e)})
+                job.step()
         finally:
-            job["finished"] = True
             self.forget_titles()
 
     @property

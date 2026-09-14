@@ -48,9 +48,10 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | PATCH | /api/v1/titles/{id} | `{"protected": true}` protects a recording from deletion; also `is_new`, `title` |
 | DELETE | /api/v1/titles/{id} | delete a recording (final; refused while protected) |
 | GET | /api/v1/titles/groups?genre=&refresh= | recordings grouped into programmes by their names; `GET /titles?series=<key>` lists one group |
-| POST | /api/v1/titles/duplicates | find recordings that are copies of one broadcast (same title, length and programme text); `GET /titles/duplicates/{job}` for progress and the sets with a suggested copy to keep |
-| POST | /api/v1/titles/protect | `{"ids": [...], "protected": true}` protects / unprotects many recordings (202 + job; `GET /titles/protect/{job}`) |
-| POST | /api/v1/titles/delete | `{"ids": [...]}` starts deleting several recordings (202 + job); `GET /titles/delete/{job}` reports done/total; protected ones are skipped |
+| POST | /api/v1/titles/duplicates | find recordings that are copies of one broadcast (same title, length and programme text); the job's result lists the sets with a suggested copy to keep |
+| POST | /api/v1/titles/protect | `{"ids": [...], "protected": true}` protects / unprotects many recordings (202 + job) |
+| POST | /api/v1/titles/delete | `{"ids": [...]}` starts deleting several recordings (202 + job); protected ones are skipped |
+| GET/POST | /api/v1/jobs/{id}, /api/v1/jobs/{id}/cancel | progress of a bulk job (done/total, result); cancel stops it after the current item |
 | POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
 | GET/POST | /api/v1/recorder/playback | playback status / `{"operation":"pause"|"resume"|"stop"}` |
 

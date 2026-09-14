@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -58,59 +57,32 @@ async def title_groups(request: Request, genre: int | None = Query(None, descrip
            for k, g in groups.items()]
     return sorted(out, key=lambda g: g.latest, reverse=True)
 
-@router.post("/titles/delete", response_model=S.DeleteJob, status_code=202)
+@router.post("/titles/delete", response_model=S.Job, status_code=202)
 async def titles_delete(request: Request, req: S.TitlesDelete):
-    """Start deleting several recordings; poll GET /titles/delete/{id} for progress.
+    """Start deleting several recordings (a few seconds each); poll GET /jobs/{id}, cancel with POST /jobs/{id}/cancel.
     Protected and unknown ids are skipped, not failed."""
     b = bridge_of(request)
     b.require_recorder()
-    job = {"id": secrets.token_hex(4), "total": len(req.ids), "done": 0, "deleted": [], "skipped": [], "finished": False, "error": None}
-    b.jobs[job["id"]] = job
-    for old in [k for k, j in b.jobs.items() if j["finished"] and k != job["id"]][:-20]:
-        del b.jobs[old]
-    asyncio.create_task(b.run_delete_job(job, req.ids))
-    return job
+    return b.jobs.start("delete", lambda job: b.delete_titles(job, req.ids), total=len(req.ids),
+                        result={"deleted": [], "skipped": []}).to_dict()
 
-@router.post("/titles/duplicates", response_model=S.DuplicatesJob, status_code=202)
-async def titles_duplicates(request: Request):
-    """Start looking for recordings that are copies of one broadcast; poll GET /titles/duplicates/{id}."""
-    b = bridge_of(request)
-    b.require_recorder()
-    job = {"id": secrets.token_hex(4), "total": 0, "done": 0, "finished": False, "error": None, "sets": []}
-    b.jobs[job["id"]] = job
-    asyncio.create_task(b.run_duplicates_job(job))
-    return job
 
-@router.get("/titles/duplicates/{job_id}", response_model=S.DuplicatesJob)
-async def titles_duplicates_status(request: Request, job_id: str):
-    job = bridge_of(request).jobs.get(job_id)
-    if job is None or "sets" not in job:
-        raise HTTPException(404, "unknown job")
-    return job
-
-@router.post("/titles/protect", response_model=S.ProtectJob, status_code=202)
+@router.post("/titles/protect", response_model=S.Job, status_code=202)
 async def titles_protect(request: Request, req: S.TitlesProtect):
-    """Protect or unprotect several recordings; poll GET /titles/protect/{id} for progress."""
+    """Start protecting or unprotecting several recordings; poll GET /jobs/{id}."""
     b = bridge_of(request)
     b.require_recorder()
-    job = {"id": secrets.token_hex(4), "total": len(req.ids), "done": 0, "changed": [], "skipped": [], "finished": False, "error": None}
-    b.jobs[job["id"]] = job
-    asyncio.create_task(b.run_protect_job(job, req.ids, req.protected))
-    return job
+    return b.jobs.start("protect", lambda job: b.protect_titles(job, req.ids, req.protected), total=len(req.ids),
+                        result={"changed": [], "skipped": []}).to_dict()
 
-@router.get("/titles/protect/{job_id}", response_model=S.ProtectJob)
-async def titles_protect_status(request: Request, job_id: str):
-    job = bridge_of(request).jobs.get(job_id)
-    if job is None or "changed" not in job:
-        raise HTTPException(404, "unknown job")
-    return job
 
-@router.get("/titles/delete/{job_id}", response_model=S.DeleteJob)
-async def titles_delete_status(request: Request, job_id: str):
-    job = bridge_of(request).jobs.get(job_id)
-    if job is None:
-        raise HTTPException(404, "unknown job")
-    return job
+@router.post("/titles/duplicates", response_model=S.Job, status_code=202)
+async def titles_duplicates(request: Request):
+    """Start looking for recordings that are copies of one broadcast; poll GET /jobs/{id} for the sets."""
+    b = bridge_of(request)
+    b.require_recorder()
+    return b.jobs.start("duplicates", b.scan_duplicates, result={"sets": []}).to_dict()
+
 
 def _playback(st: dict) -> S.PlaybackStatus:
     return S.PlaybackStatus(power=st.get("powerstatus"), play=st.get("playstatus"), title_id=st.get("item"),
