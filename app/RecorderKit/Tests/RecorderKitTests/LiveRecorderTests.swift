@@ -222,3 +222,49 @@ extension LiveRecorderTests {
         XCTAssertGreaterThan(matched.count, 0, "reserved programmes are marked by this match")
     }
 }
+
+extension LiveRecorderTests {
+    /// The clustering that finds duplicate candidates, over every recording the recorder holds. Read-only:
+    /// it needs the title list and nothing else. With RECORDER_EPG_DUMP set it writes the recordings and its
+    /// own answer out, so the Python implementation can be run over exactly the same input.
+    func testDuplicateCandidatesOverEveryRecording() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+        let titles = try await client.allTitles()
+        let candidates = Duplicates.candidates(titles)
+
+        print("recordings \(titles.count), candidate sets \(candidates.count),"
+              + " recordings in them \(candidates.reduce(0) { $0 + $1.count })")
+        for group in candidates.prefix(3) {
+            print("  \(group.count) x \(group[0].title) (\(group.map(\.durationSec)) sec)")
+        }
+        XCTAssertTrue(candidates.allSatisfy { $0.count > 1 })
+
+        guard let dump = ProcessInfo.processInfo.environment["RECORDER_EPG_DUMP"], !dump.isEmpty else { return }
+        let directory = URL(fileURLWithPath: dump)
+        let rows = titles.map { title in
+            ["id": title.id, "title": title.title, "start": RecorderTime.format(title.start),
+             "duration_sec": title.durationSec, "quality_code": title.qualityCode,
+             "protected": title.protected, "is_new": title.isNew, "size_mb": title.sizeMB ?? 0,
+             "resume_sec": title.resumeSec ?? 0] as [String: Any]
+        }
+        try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+            .write(to: directory.appendingPathComponent("titles-real.json"))
+        try JSONSerialization.data(withJSONObject: candidates.map { $0.map(\.id) }, options: [])
+            .write(to: directory.appendingPathComponent("candidates-swift.json"))
+
+        // if the programme text is there from an earlier run, the sets can be compared at full scale too
+        let summariesFile = directory.appendingPathComponent("summaries.json")
+        guard let data = try? Data(contentsOf: summariesFile),
+              let summaries = try JSONSerialization.jsonObject(with: data) as? [String: String] else { return }
+        let sets = Duplicates.sets(candidates: candidates, summaries: summaries)
+        print("sets \(sets.count), total \(String(format: "%.1f", sets.reduce(0) { $0 + $1.sizeGB })) GB")
+        let setRows: [[String: Any]] = sets.map { set in
+            ["title": set.title, "confidence": set.confidence.rawValue, "size_mb": set.sizeMB,
+             "keep": set.keep, "suggest_delete": set.suggestDelete, "reasons": set.reasons,
+             "items": set.items.map(\.id)]
+        }
+        try JSONSerialization.data(withJSONObject: setRows, options: [.sortedKeys])
+            .write(to: directory.appendingPathComponent("sets-swift.json"))
+    }
+}

@@ -135,6 +135,8 @@ final class AppModel {
         enum Kind: Equatable {
             case delete
             case protecting(Bool)
+            /// Asking the recorder what each candidate is about. It changes nothing.
+            case scanning
         }
 
         struct Skip: Equatable, Identifiable {
@@ -155,6 +157,7 @@ final class AppModel {
             case .delete: "削除"
             case .protecting(true): "保護"
             case .protecting(false): "保護解除"
+            case .scanning: "重複の検出"
             }
         }
 
@@ -162,6 +165,9 @@ final class AppModel {
 
         /// What to tell the reader once it has stopped, in the shape the web app settled on.
         var outcome: String {
+            if case .scanning = kind {
+                return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件を調べ終わりました"
+            }
             let count = changed.count
             let head = cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
             return skipped.isEmpty ? head : head + "（\(skipped.count) 件はスキップ）"
@@ -169,6 +175,9 @@ final class AppModel {
     }
 
     private(set) var job: BulkJob?
+    private(set) var duplicates: [DuplicateSet] = []
+    /// What the recorder said each recording is about, cached on disk as well.
+    private var summaries: [String: String] = [:]
     private var jobTask: Task<Void, Never>?
 
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
@@ -197,14 +206,58 @@ final class AppModel {
             switch kind {
             case .delete: await deleteOne(id, client)
             case .protecting(let on): await protectOne(id, on, client)
+            case .scanning: break
             }
             job?.done += 1
         }
         if case .delete = kind, let capacity = try? await client.recordDestinationInfo() {
             storage = (capacity.freeBytes, capacity.totalBytes)
         }
+        // the sets were built from recordings that may no longer all be there
+        if !duplicates.isEmpty { recomputeDuplicates() }
         job?.finished = true
         jobTask = nil
+    }
+
+    // MARK: - duplicates
+
+    /// Candidates cost nothing to find; confirming them means asking the recorder about each one, which is
+    /// why this is a job with a progress bar and a stop button.
+    func startDuplicateScan() {
+        guard jobTask == nil, let client, let store else { return }
+        let candidates = Duplicates.candidates(titles)
+        duplicates = []
+        job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
+        jobTask = Task { [weak self] in
+            await self?.runScan(candidates, client: client, store: store)
+        }
+    }
+
+    private func runScan(_ candidates: [[RecordedTitle]], client: RecorderClient, store: GuideStore) async {
+        let ids = candidates.flatMap { $0.map(\.id) }
+        if let known = try? await store.titleSummaries(ids) {
+            summaries.merge(known) { _, new in new }
+        }
+
+        scan: for group in candidates {
+            for title in group {
+                if job?.cancelled == true { break scan }
+                if summaries[title.id] == nil {
+                    let summary = (try? await client.titleDetail(id: title.id))?.summary ?? ""
+                    summaries[title.id] = summary
+                    try? await store.setTitleSummary(title.id, summary)
+                }
+                job?.done += 1
+            }
+        }
+        duplicates = Duplicates.sets(candidates: candidates, summaries: summaries)
+        job?.finished = true
+        jobTask = nil
+    }
+
+    /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
+    func recomputeDuplicates() {
+        duplicates = Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries)
     }
 
     private func deleteOne(_ id: String, _ client: RecorderClient) async {

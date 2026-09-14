@@ -38,6 +38,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Series.swift` | Programme names and grouping keys from recording titles |
 | `Titles.swift` | Watch states, and recordings gathered into programmes |
 | `BulkWork.swift` | What to do about one recording in a run of many, including the recorder's two traps |
+| `Duplicates.swift` | Copies of one broadcast, and which copy to keep |
 
 Every file in `docs/port/` is checked from here: `codes.json`, `xsrs.json`, `description.json`,
 `epg-sample`, `logo-sample`, `series.json` and `titles.json`.
