@@ -51,11 +51,13 @@ public struct GuideService: Sendable, Equatable {
 
 public enum GuideError: Error, Equatable, Sendable {
     case notAServiceRecord
+    case notAPng
     case zlib(status: Int32)
 
     public var localizedDescription: String {
         switch self {
         case .notAServiceRecord: "not an @SRV record"
+        case .notAPng: "the logo payload was not a PNG"
         case .zlib(let status): "the guide file did not inflate (zlib status \(status))"
         }
     }

@@ -135,6 +135,11 @@ public actor GuideStore {
         }
     }
 
+    public func replaceLogos(_ logos: [StationLogo], broadcasting: String) throws {
+        try replaceLogos(logos.map { (serviceID: $0.serviceID, channelNo: $0.channelNo, png: $0.png) },
+                         broadcasting: broadcasting)
+    }
+
     public func replaceLogos(_ logos: [(serviceID: Int, channelNo: Int, png: Data)], broadcasting: String) throws {
         try db.transaction {
             try db.run("DELETE FROM logos WHERE bt=?", [.text(broadcasting)])
