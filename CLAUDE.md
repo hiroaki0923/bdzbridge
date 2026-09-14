@@ -8,7 +8,7 @@ bdzbridge: a small LAN bridge for Sony BDZ Blu-ray recorders. It reads the recor
 
 - `server/` — Python 3.12+ / FastAPI package `bdzbridge` (uv-managed). Serves `web/dist` at `/` when it exists.
 - `web/` — Vite + Svelte 5 PWA (plain JS, runes). Uses `/api/v1` on the same origin; the Vite dev server proxies `/api` to port 8000.
-- `app/` — the iOS app (Swift/SwiftUI). `app/RecorderKit` is the recorder-facing Swift package: no UI, no networking, tested headlessly against `docs/port/` with `swift test`. The app target itself does not exist yet.
+- `app/` — the iOS app (Swift/SwiftUI). `app/RecorderKit` is the recorder-facing Swift package: the protocol layer and the HTTP client, no UI. Tested headlessly against `docs/port/` with a stubbed transport; `RECORDER_HOST=<ip> swift test --filter LiveRecorderTests` reads a real recorder. The app target itself does not exist yet.
 - `docs/` — protocol references: `xsrs-api.md` (reservations), `epg-format.md` (EPG files), `upnp/` (the recorder's UPnP descriptions). Read them before touching recorder code. `porting.md` is the guide for the planned iOS app (Swift/SwiftUI, decided 2026-09-14) and for third-party ports to other platforms, and `port/` holds generated conformance vectors (`bdzbridge/tools/portkit.py`; a test fails while they are stale, the pre-commit hook regenerates them).
 
 Personal/environment notes belong in `CLAUDE.local.md` (gitignored), not here.
