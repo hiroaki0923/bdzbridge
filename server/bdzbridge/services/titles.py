@@ -167,8 +167,13 @@ def duplicate_set(store: Store, members: list[XTitle], confidence: str) -> dict:
 
 async def groups(bridge: Bridge, genre: int | None = None) -> list[S.TitleGroup]:
     """Recorded titles grouped into programmes by their names, newest group first."""
+    return group_titles(await all_titles(bridge), genre)
+
+
+def group_titles(titles: list[XTitle], genre: int | None = None) -> list[S.TitleGroup]:
+    """The grouping itself, over a plain list, so it can be checked without a recorder (docs/port/titles.json)."""
     groups: dict[str, dict] = {}
-    for t in await all_titles(bridge):
+    for t in titles:
         if genre is not None and (t.genre_code is None or t.genre_code >> 4 != genre):
             continue
         key = series_key(t.title)

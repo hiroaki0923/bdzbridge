@@ -50,7 +50,13 @@ list, from the reservation sheet the list opens, or from the guide's own sheet.
 Creating and deleting have both been done against a real BDZ-FBT4100 from the app and the recorder followed
 along, 42 reservations before and 42 after.
 
+The recordings screen lists what the recorder holds, as a flat list or gathered into programmes, with the free
+space, the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the
+television, protects it against the recorder's own tidying, and deletes it behind a confirmation.
+
 ## What is missing
 
-Finding the recorder by scanning instead of typing its address, the recordings screen, and the queue that
-holds reservations made while away from home.
+Finding the recorder by scanning instead of typing its address, and the queue that holds reservations made
+while away from home. On the recordings screen: selecting several at once to delete or protect, and finding
+the duplicates among them. Those need a job with progress and a way to stop it, which the server has and the
+app does not yet.

@@ -27,6 +27,9 @@ struct RootView: View {
             ReservationsScreen()
                 .tabItem { Label("予約", systemImage: "clock") }
                 .tag("reservations")
+            RecordingsScreen()
+                .tabItem { Label("録画", systemImage: "play.rectangle") }
+                .tag("recordings")
             SettingsScreen()
                 .tabItem { Label("設定", systemImage: "slider.horizontal.3") }
                 .tag("settings")

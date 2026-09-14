@@ -16,6 +16,9 @@ final class AppModel {
 
     var broadcasting = "td"
     var day: Date
+    var titleGenre: Int?
+    var titleState: WatchState?
+    var titleSort = TitleSort.newest
     var serviceFilter: Int?
 
     private(set) var info: RecorderDescription?
@@ -27,9 +30,14 @@ final class AppModel {
     private(set) var channelNames: [String: String] = [:]
     private(set) var programs: [GuideProgramRow] = []
     private(set) var reservations: [Reservation] = []
+    private(set) var titles: [RecordedTitle] = []
+    /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
+    private(set) var titlesLoaded = false
     /// Reservations by the programme they follow, so the guide can mark what is already set to record.
     private(set) var reservationsByProgram: [String: Reservation] = [:]
     private(set) var busy: String?
+    /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
+    private(set) var needsPower = false
     private(set) var problem: String?
 
     private var store: GuideStore?
@@ -111,6 +119,125 @@ final class AppModel {
                                                reservation) }
                 },
                 uniquingKeysWith: { first, _ in first })
+        }
+    }
+
+    // MARK: - recordings
+
+    enum TitleSort: String, CaseIterable {
+        case newest, oldest, largest
+
+        var label: String {
+            switch self {
+            case .newest: "新しい順"
+            case .oldest: "古い順"
+            case .largest: "大きい順"
+            }
+        }
+    }
+
+    func loadTitles(force: Bool = false) async {
+        await start()
+        guard let client, force || !titlesLoaded else { return }
+        await run("録画一覧を取得中") {
+            self.titles = try await client.allTitles()
+            self.titlesLoaded = true
+            let capacity = try await client.recordDestinationInfo()
+            self.storage = (capacity.freeBytes, capacity.totalBytes)
+        }
+    }
+
+    /// The recordings the screen is showing: filtered, then sorted.
+    var shownTitles: [RecordedTitle] {
+        var shown = titles
+        if let titleGenre { shown = shown.filter { $0.genre?.level1 == titleGenre } }
+        if let titleState { shown = shown.filter { $0.watchState == titleState } }
+        switch titleSort {
+        case .newest: shown.sort { $0.start > $1.start }
+        case .oldest: shown.sort { $0.start < $1.start }
+        case .largest: shown.sort { ($0.sizeMB ?? 0) > ($1.sizeMB ?? 0) }
+        }
+        return shown
+    }
+
+    var titleGroups: [TitleGroup] { TitleGroup.group(shownTitles) }
+
+    /// How many recordings each genre holds, for the filter row.
+    var titleGenreCounts: [Int: Int] {
+        Dictionary(titles.compactMap { $0.genre?.level1 }.map { ($0, 1) }, uniquingKeysWith: +)
+    }
+
+    func members(of group: TitleGroup) -> [RecordedTitle] {
+        shownTitles.filter { $0.seriesKey == group.key }
+    }
+
+    func channelName(for title: RecordedTitle) -> String {
+        channelNames["\(title.broadcastingType)-\(title.serviceID)"]
+            ?? Codes.broadcastingLabel[Codes.broadcasting(code: title.broadcastingType) ?? ""]
+            ?? ""
+    }
+
+    func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
+        await start()
+        guard let client else { return nil }
+        return try? await client.titleDetail(id: title.id)
+    }
+
+    /// A write: the recorder stops deleting this one to make room.
+    @discardableResult
+    func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
+        await start()
+        guard let client else { return false }
+        var changed = false
+        await run(on ? "保護中" : "保護を解除中") {
+            try await client.updateTitle(id: title.id, protected: on)
+            if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
+                self.titles[index].protected = on
+            }
+            changed = true
+        }
+        return changed
+    }
+
+    /// A write, and not one that can be undone: the recording is gone from the recorder.
+    @discardableResult
+    func delete(_ title: RecordedTitle) async -> Bool {
+        await start()
+        guard let client else { return false }
+        var deleted = false
+        await run("削除中") {
+            try await client.deleteTitle(id: title.id)
+            self.titles.removeAll { $0.id == title.id }
+            deleted = true
+            let capacity = try await client.recordDestinationInfo()
+            self.storage = (capacity.freeBytes, capacity.totalBytes)
+        }
+        return deleted
+    }
+
+    /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
+    /// call resumes. A recorder in network standby answers 880, which is what `needsPower` reports.
+    func play(_ title: RecordedTitle, _ operation: String) async {
+        await start()
+        guard let client else { return }
+        needsPower = false
+        await run(operation == "stop" ? "停止中" : "再生を指示中") {
+            do {
+                try await client.playControl(titleID: title.id, operation: operation)
+            } catch let error as RecorderError where error.needsPowerOn {
+                self.needsPower = true
+                throw error
+            }
+        }
+    }
+
+    /// Turns the recorder on, which also turns on the television attached to it.
+    func powerOn() async {
+        await start()
+        guard let client else { return }
+        await run("電源を入れています") {
+            _ = try await client.powerOn()
+            self.needsPower = false
         }
     }
 
