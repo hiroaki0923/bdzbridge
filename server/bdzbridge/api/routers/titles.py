@@ -17,7 +17,7 @@ from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import title_out
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(auth)])
+router = APIRouter(prefix="/api/v1", tags=["titles"], dependencies=[Depends(auth)])
 
 
 @router.get("/titles", response_model=list[S.RecordedTitle])
@@ -88,12 +88,14 @@ async def _ensure_on(rec: RecorderClient) -> dict:
 
 @router.get("/recorder/playback", response_model=S.PlaybackStatus)
 async def playback_status(request: Request):
+    """What the recorder is playing on the TV connected to it."""
     rec = bridge_of(request).require_recorder()
     async with rec.lock:
         return _playback(await rec.xsrs.play_status())
 
 @router.post("/recorder/playback", response_model=S.PlaybackStatus)
 async def playback_control(request: Request, req: S.PlaybackControl):
+    """Pause, resume or stop the recorder's own playback (`resume` only while paused)."""
     rec = bridge_of(request).require_recorder()
     try:
         async with rec.lock:
@@ -157,6 +159,7 @@ async def title_delete(request: Request, title_id: str):
 
 @router.get("/titles/{title_id}", response_model=S.TitleDetail)
 async def title_detail(request: Request, title_id: str):
+    """The programme text of one recording (summary and detail paragraphs)."""
     rec = bridge_of(request).require_recorder()
     try:
         async with rec.lock:

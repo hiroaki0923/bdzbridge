@@ -11,11 +11,12 @@ from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import log_out, program_out, rule_out
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(auth)])
+router = APIRouter(prefix="/api/v1", tags=["rules"], dependencies=[Depends(auth)])
 
 
 @router.get("/rules", response_model=list[S.Rule])
 async def rules(request: Request):
+    """The keyword auto-reservation rules."""
     b = bridge_of(request)
     return [rule_out(b, r) for r in b.store.rules()]
 
@@ -34,6 +35,7 @@ async def rules_log(request: Request, limit: int = Query(50, le=500)):
 
 @router.post("/rules/run", response_model=S.AutoRunResult)
 async def rules_run(request: Request):
+    """Apply every enabled rule now (they also run after each guide refresh); reports what was reserved."""
     b = bridge_of(request)
     b.require_recorder()
     b.last_autorec = await run_rules(b, b.clock())
@@ -50,6 +52,7 @@ async def rule_matches(request: Request, rule_id: int):
 
 @router.patch("/rules/{rule_id}", response_model=S.Rule)
 async def rule_update(request: Request, rule_id: int, req: S.RuleUpdate):
+    """Enable or disable a rule, or change its quality or title-only matching."""
     b = bridge_of(request)
     r = b.store.update_rule(rule_id, enabled=req.enabled, quality=req.quality, title_only=req.title_only)
     if r is None:
@@ -58,6 +61,7 @@ async def rule_update(request: Request, rule_id: int, req: S.RuleUpdate):
 
 @router.delete("/rules/{rule_id}", status_code=204)
 async def rule_delete(request: Request, rule_id: int):
+    """Delete a rule and its log."""
     if not bridge_of(request).store.delete_rule(rule_id):
         raise HTTPException(404, "rule not found")
 
@@ -70,12 +74,14 @@ async def monitor_run(request: Request):
 
 @router.get("/notify", response_model=S.NotifyStatus)
 async def notify_status(request: Request):
+    """Which notification channels are configured (SMTP, webhook) and the free-space warning threshold."""
     n = bridge_of(request).notifier
     return S.NotifyStatus(configured=n.configured, email=n.email_configured, webhook=n.webhook_configured,
                           to=n.s.notify_to or None, free_gb=n.s.notify_free_gb)
 
 @router.post("/notify/test", response_model=S.NotifyStatus)
 async def notify_test(request: Request):
+    """Send a test message through every configured channel."""
     n = bridge_of(request).notifier
     if not n.configured:
         raise HTTPException(400, "no notification channel configured (BDZBRIDGE_SMTP_* / BDZBRIDGE_NOTIFY_*)")

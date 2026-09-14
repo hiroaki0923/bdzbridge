@@ -303,6 +303,15 @@ class MonitorResult(BaseModel):
     notified: list[str]
 
 
+class WakeResult(BaseModel):
+    awake: bool = Field(description="the reservation service answers after the magic packets")
+    mac: str | None
+
+
+class PowerResult(BaseModel):
+    power: str = Field(description="the recorder's reply to X_PowerControl, normally PowerOn")
+
+
 class NotifyStatus(BaseModel):
     configured: bool
     email: bool

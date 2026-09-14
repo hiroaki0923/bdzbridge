@@ -15,11 +15,12 @@ from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import reservation_out
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(auth)])
+router = APIRouter(prefix="/api/v1", tags=["reservations"], dependencies=[Depends(auth)])
 
 
 @router.get("/reservations", response_model=list[S.Reservation])
 async def reservations(request: Request):
+    """Every reservation on the recorder, with the programme's genres when the guide still has it."""
     b = bridge_of(request)
     rec = b.require_recorder()
     async with rec.lock:
@@ -49,6 +50,7 @@ def _elements(b: Bridge, req: S.ReservationCreate) -> tuple[str, str]:
 
 @router.post("/reservations/check", response_model=S.ConflictReport)
 async def reservation_check(request: Request, req: S.ReservationCreate):
+    """Ask the recorder which existing reservations a new one would conflict with, without creating it."""
     b = bridge_of(request)
     rec = b.require_recorder()
     el, _ = _elements(b, req)
@@ -61,6 +63,7 @@ async def reservation_check(request: Request, req: S.ReservationCreate):
 
 @router.post("/reservations", response_model=S.ReservationCreated, status_code=201)
 async def reservation_create(request: Request, req: S.ReservationCreate):
+    """Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set."""
     b = bridge_of(request)
     rec = b.require_recorder()
     el, _ = _elements(b, req)
@@ -82,6 +85,7 @@ async def reservation_create(request: Request, req: S.ReservationCreate):
 
 @router.patch("/reservations/{reservation_id}", response_model=S.Reservation)
 async def reservation_update(request: Request, reservation_id: str, req: S.ReservationUpdate):
+    """Change quality or repeat (and, for time-based reservations, title, start and duration)."""
     b = bridge_of(request)
     rec = b.require_recorder()
     try:
@@ -109,6 +113,7 @@ async def reservation_update(request: Request, reservation_id: str, req: S.Reser
 
 @router.delete("/reservations/{reservation_id}", status_code=204)
 async def reservation_delete(request: Request, reservation_id: str):
+    """Delete a reservation."""
     rec = bridge_of(request).require_recorder()
     try:
         async with rec.lock:
