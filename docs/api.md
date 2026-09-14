@@ -134,7 +134,7 @@ Every reservation on the recorder, with the programme's genres when the guide st
 
 ### POST /reservations
 
-Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set.
+Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set, and 422 when a weekly repeat names a weekday other than the programme's.
 
 リクエスト本文: `ReservationCreate`
 

@@ -1,6 +1,8 @@
 """Reservations on the recorder."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...recorder import codes
@@ -27,6 +29,13 @@ async def reservations(request: Request):
         items = await rec.xsrs.list_reservations()
     return [reservation_out(r, b.store) for r in sorted(items, key=lambda r: r.start)]
 
+def _check_weekday(repeat: str, start: datetime) -> None:
+    """A weekly repeat (毎週(月) …) only makes sense on the programme's own weekday."""
+    if repeat in codes.WEEKDAY_REPEAT and codes.WEEKDAY_REPEAT[start.astimezone(JST).weekday()] != repeat:
+        raise HTTPException(422, f"repeat {repeat!r} does not match the programme's weekday "
+                                 f"({codes.WEEKDAY_REPEAT[start.astimezone(JST).weekday()]})")
+
+
 def _elements(b: Bridge, req: S.ReservationCreate) -> tuple[str, str]:
     start, duration, title = req.start, req.duration_sec, req.title
     if req.event_id is not None:
@@ -43,6 +52,7 @@ def _elements(b: Bridge, req: S.ReservationCreate) -> tuple[str, str]:
         start = start.replace(tzinfo=JST)
     quality = req.quality or b.settings.default_quality
     repeat = req.repeat or b.settings.default_repeat
+    _check_weekday(repeat, start)
     el = build_create_elements(title=title or "録画", start=start, duration_sec=duration,
                                repeat_code=codes.REPEAT[repeat], broadcasting_type=codes.BROADCASTING[req.broadcasting],
                                service_id=req.service_id, quality_code=codes.QUALITY[quality], event_id=req.event_id)
@@ -63,7 +73,7 @@ async def reservation_check(request: Request, req: S.ReservationCreate):
 
 @router.post("/reservations", response_model=S.ReservationCreated, status_code=201)
 async def reservation_create(request: Request, req: S.ReservationCreate):
-    """Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set."""
+    """Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set, and 422 when a weekly repeat names a weekday other than the programme's."""
     b = bridge_of(request)
     rec = b.require_recorder()
     el, _ = _elements(b, req)
@@ -98,6 +108,7 @@ async def reservation_update(request: Request, reservation_id: str, req: S.Reser
             start = req.start or current.start
             if start.tzinfo is None:
                 start = start.replace(tzinfo=JST)
+            _check_weekday(repeat, start)
             el = build_update_elements(reservation_id, title=req.title or current.title, start=start,
                                        duration_sec=req.duration_sec or current.duration_sec,
                                        repeat_code=codes.REPEAT[repeat], broadcasting_type=current.broadcasting_type,
