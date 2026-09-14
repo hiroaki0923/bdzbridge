@@ -82,6 +82,9 @@ struct SettingsScreen: View {
                     if let refreshed = model.counts["td"]?.refreshed {
                         LabeledContent("最後の取得", value: refreshed)
                     }
+                    if let overnight = UserDefaults.standard.string(forKey: BackgroundWork.lastRefreshKey) {
+                        LabeledContent("最後の自動取得", value: overnight)
+                    }
                     Button("番組表を取得する") {
                         Task { await model.refreshGuide() }
                     }
