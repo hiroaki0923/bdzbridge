@@ -23,7 +23,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `RecorderTime.swift` | JST formatting and parsing. The recorder rejects `+0900` and wants `+09:00` |
 | `XsrsElements.swift` | The reservation and title payloads, byte-identical to what the official app sends |
 | `XsrsParse.swift` | `<item>` elements into `Reservation` and `RecordedTitle` |
-| `Discovery.swift` | `description.xml` into `RecorderDescription`, rejecting anything that is not a recorder |
+| `Discovery.swift` | `description.xml` into `RecorderDescription`, and looking through a subnet for one |
+| `LocalNetwork.swift` | This device's own interfaces, and the addresses worth trying around them |
 | `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |

@@ -18,6 +18,44 @@ struct SettingsScreen: View {
                         Task { await model.connect() }
                     }
                     .disabled(typedHost.isEmpty || model.busy != nil)
+
+                    Button("LAN から探す") {
+                        Task { await model.scanForRecorders() }
+                    }
+                    .disabled(model.scanning != nil || model.busy != nil)
+
+                    if let scanning = model.scanning {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("探しています \(scanning.done) / \(scanning.total)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: Double(scanning.done),
+                                         total: Double(max(1, scanning.total)))
+                        }
+                    }
+                }
+
+                if !model.found.isEmpty {
+                    Section("見つかったレコーダー") {
+                        ForEach(model.found, id: \.host) { recorder in
+                            Button {
+                                typedHost = recorder.host
+                                Task { await model.use(recorder) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(recorder.product).font(.subheadline)
+                                    Text("\(recorder.host) · \(recorder.friendlyName)"
+                                         + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
 
                 if let info = model.info {

@@ -268,3 +268,24 @@ extension LiveRecorderTests {
             .write(to: directory.appendingPathComponent("sets-swift.json"))
     }
 }
+
+extension LiveRecorderTests {
+    /// Looks through the subnet this machine is on, which is the same one the recorder is on. Read-only: one
+    /// request for a description per address. Skipped unless RECORDER_HOST names the recorder to expect.
+    func testScanningTheSubnetFindsTheRecorder() async throws {
+        guard let expected = ProcessInfo.processInfo.environment["RECORDER_HOST"], !expected.isEmpty else {
+            throw XCTSkip("set RECORDER_HOST to the recorder to expect")
+        }
+        let interfaces = LocalNetwork.interfaces()
+        print("interfaces: \(interfaces.map { "\($0.name) \($0.address)/\($0.netmask)" })")
+        let hosts = LocalNetwork.hostsToScan()
+        print("addresses to try: \(hosts.count)")
+        XCTAssertTrue(hosts.contains(expected), "the recorder's address should be in the subnet to scan")
+
+        let started = Date()
+        let found = await Discovery.scan(hosts: hosts, timeout: 1.5)
+        print("found \(found.count) in \(Int(Date().timeIntervalSince(started))) s:"
+              + " \(found.map { "\($0.host) \($0.product)" })")
+        XCTAssertTrue(found.contains { $0.host == expected }, "the recorder should be among them")
+    }
+}

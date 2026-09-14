@@ -37,6 +37,8 @@ final class AppModel {
     private(set) var titlesLoaded = false
     /// Reservations by the programme they follow, so the guide can mark what is already set to record.
     private(set) var reservationsByProgram: [String: Reservation] = [:]
+    private(set) var found: [RecorderDescription] = []
+    private(set) var scanning: (done: Int, total: Int)?
     private(set) var busy: String?
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     private(set) var needsPower = false
@@ -87,6 +89,30 @@ final class AppModel {
         } catch {
             problem = "番組表の保存先を開けませんでした: \(error)"
         }
+    }
+
+    /// Looks through the subnet this device is on for a recorder. One short request per address, so the
+    /// first run also asks the reader for permission to reach the local network.
+    func scanForRecorders() async {
+        found = []
+        let hosts = LocalNetwork.hostsToScan()
+        guard !hosts.isEmpty else {
+            problem = "この端末の LAN の情報が読めませんでした"
+            return
+        }
+        scanning = (0, hosts.count)
+        found = await Discovery.scan(hosts: hosts, progress: { done, total in
+            Task { @MainActor in self.scanning = (done, total) }
+        })
+        scanning = nil
+        if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークにあるか確かめてください。" }
+    }
+
+    /// Takes one of the recorders the scan turned up.
+    func use(_ recorder: RecorderDescription) async {
+        host = recorder.host
+        found = []
+        await connect()
     }
 
     func connect() async {

@@ -39,6 +39,9 @@ without the flag to use the app normally. The same goes for the address typed in
 
 ## What works
 
+Finding the recorder: a button looks through the subnet the device is on and offers whatever answers as a
+recorder, so the address does not have to be typed. On a home network 253 addresses take about seven seconds.
+
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
 into the on-device cache, browsing a day's programmes as a list or as a time-by-channel grid with the station
 logos and genres, opening a programme, and listing the reservations the recorder holds. Verified against a
@@ -76,5 +79,5 @@ and it lives outside the sheet that started it: closing the sheet neither stops 
 
 ## What is missing
 
-Finding the recorder by scanning instead of typing its address, and the queue that holds reservations made
-while away from home.
+The queue that holds reservations made while away from home. Finding the recorder over SSDP, which would be
+quicker than looking through the subnet but needs an entitlement from Apple.
