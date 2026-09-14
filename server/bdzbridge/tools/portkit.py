@@ -20,10 +20,12 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from ..api.serializers import title_out
 from ..recorder import codes, discovery
 from ..recorder.epg import ARIB_SYMBOLS, JST, Program, Service, decode_epg_file, encode_epg_file
 from ..recorder.logo import LOGO_CLUT, decode_logo_file, encode_logo_file
 from ..recorder.series import same_title_key, series_key, series_name, summary_key
+from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import (
     _soap_body,
     build_create_elements,
@@ -32,6 +34,7 @@ from ..recorder.xsrs import (
     parse_reservation,
     parse_title,
 )
+from ..services.titles import group_titles
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "docs" / "port"
@@ -94,6 +97,58 @@ def _logo_png(index: int, width: int = 64, height: int = 36) -> bytes:
     rows = b"".join(b"\x00" + bytes([index]) * width for _ in range(height))
     return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 3, 0, 0, 0))
             + _png_chunk(b"IDAT", zlib.compress(rows)) + _png_chunk(b"IEND", b""))
+
+
+def _sample_titles() -> list[XTitle]:
+    """Recordings that exercise the derived bits: the watch states, and the name a group ends up showing.
+
+    Full-width and half-width spellings of one programme share a grouping key but not a display name, so the
+    group has to pick between them: the commonest wins, and the first one seen wins a tie.
+    """
+    base = datetime(2026, 9, 1, 21, 0, tzinfo=JST)
+
+    def title(tid: str, name: str, offset: timedelta, **kw) -> XTitle:
+        args = {"id": tid, "title": name, "start": base + offset, "duration_sec": 1800, "broadcasting_type": 2,
+                "service_id": 1024, "quality_code": 230, "protected": False, "is_new": True,
+                "destination": "HDD", "size_mb": 1000, "genre_code": 0x30}
+        args.update(kw)
+        return XTitle(**args)
+
+    return [
+        # one programme, three episodes, two spellings: ＡＢＣ twice and ABC once
+        title("0x1", "ドラマＡＢＣ　第１話", timedelta()),
+        title("0x2", "ドラマABC 第2話", timedelta(days=1), is_new=False, resume_sec=600, size_mb=1200),
+        title("0x3", "ドラマＡＢＣ　第３話", timedelta(days=2), is_new=False, protected=True, size_mb=900),
+        # a tie between two spellings: the first one seen is the one shown
+        title("0x4", "ニュース７[字]", timedelta(days=3), genre_code=0x00),
+        title("0x5", "ニュース7", timedelta(days=4), is_new=False, genre_code=0x00),
+        # its own group, never played, and one that was played to the end
+        title("0x6", "アニメ　おさるのジョージ「こんがら交換」", timedelta(days=5), genre_code=0x71, size_mb=500),
+        title("0x7", "映画「男はつらいよ」", timedelta(days=6), is_new=False, resume_sec=0, genre_code=0x60,
+              size_mb=4000),
+    ]
+
+
+def titles_vectors() -> dict:
+    titles = _sample_titles()
+
+    def group_dict(g) -> dict:
+        return {"key": g.key, "name": g.name, "count": g.count, "size_mb": g.size_mb,
+                "latest": g.latest.isoformat(), "earliest": g.earliest.isoformat(),
+                "protected_count": g.protected_count, "new_count": g.new_count}
+
+    return {
+        "note": "watch_state, the grouping key and the group a recording lands in, all derived from the "
+                "recorder's own fields. genre_code is the ARIB nibbles as level1 * 16 + level2.",
+        "titles": [{"id": t.id, "title": t.title, "start": t.start.isoformat(), "duration_sec": t.duration_sec,
+                    "protected": t.protected, "is_new": t.is_new, "size_mb": t.size_mb,
+                    "genre_code": t.genre_code, "resume_sec": t.resume_sec,
+                    "expected": {"watch_state": title_out(t).watch_state, "series_key": series_key(t.title),
+                                 "series_name": series_name(t.title)}}
+                   for t in titles],
+        "groups": [group_dict(g) for g in group_titles(titles)],
+        "groups_drama_only": {"genre": 3, "groups": [group_dict(g) for g in group_titles(titles, genre=3)]},
+    }
 
 
 def codes_vectors() -> dict:
@@ -211,6 +266,7 @@ def files() -> dict[Path, bytes]:
     return {
         OUT / "codes.json": js(codes_vectors()),
         OUT / "series.json": js(series_vectors()),
+        OUT / "titles.json": js(titles_vectors()),
         OUT / "xsrs.json": js(xsrs_vectors()),
         OUT / "description.json": js(description_vectors()),
         OUT / "epg-sample.dat": epg_raw, OUT / "epg-sample.json": js(epg_json),

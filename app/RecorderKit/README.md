@@ -36,9 +36,10 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
 | `Logo.swift` | The station-logo file, and the broadcast colour table the PNGs rely on |
 | `Series.swift` | Programme names and grouping keys from recording titles |
+| `Titles.swift` | Watch states, and recordings gathered into programmes |
 
-Every file in `docs/port/` is now checked from here: `codes.json`, `xsrs.json`, `description.json`,
-`epg-sample`, `logo-sample` and `series.json`.
+Every file in `docs/port/` is checked from here: `codes.json`, `xsrs.json`, `description.json`,
+`epg-sample`, `logo-sample`, `series.json` and `titles.json`.
 
 A read-only check against a real recorder is included and skipped by default:
 

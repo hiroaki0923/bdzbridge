@@ -1,0 +1,174 @@
+{
+ "note": "watch_state, the grouping key and the group a recording lands in, all derived from the recorder's own fields. genre_code is the ARIB nibbles as level1 * 16 + level2.",
+ "titles": [
+  {
+   "id": "0x1",
+   "title": "ドラマＡＢＣ　第１話",
+   "start": "2026-09-01T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": true,
+   "size_mb": 1000,
+   "genre_code": 48,
+   "resume_sec": null,
+   "expected": {
+    "watch_state": "unwatched",
+    "series_key": "ドラマabc",
+    "series_name": "ドラマＡＢＣ"
+   }
+  },
+  {
+   "id": "0x2",
+   "title": "ドラマABC 第2話",
+   "start": "2026-09-02T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": false,
+   "size_mb": 1200,
+   "genre_code": 48,
+   "resume_sec": 600,
+   "expected": {
+    "watch_state": "partway",
+    "series_key": "ドラマabc",
+    "series_name": "ドラマABC"
+   }
+  },
+  {
+   "id": "0x3",
+   "title": "ドラマＡＢＣ　第３話",
+   "start": "2026-09-03T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": true,
+   "is_new": false,
+   "size_mb": 900,
+   "genre_code": 48,
+   "resume_sec": null,
+   "expected": {
+    "watch_state": "watched",
+    "series_key": "ドラマabc",
+    "series_name": "ドラマＡＢＣ"
+   }
+  },
+  {
+   "id": "0x4",
+   "title": "ニュース７[字]",
+   "start": "2026-09-04T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": true,
+   "size_mb": 1000,
+   "genre_code": 0,
+   "resume_sec": null,
+   "expected": {
+    "watch_state": "unwatched",
+    "series_key": "ニュース7",
+    "series_name": "ニュース７"
+   }
+  },
+  {
+   "id": "0x5",
+   "title": "ニュース7",
+   "start": "2026-09-05T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": false,
+   "size_mb": 1000,
+   "genre_code": 0,
+   "resume_sec": null,
+   "expected": {
+    "watch_state": "watched",
+    "series_key": "ニュース7",
+    "series_name": "ニュース7"
+   }
+  },
+  {
+   "id": "0x6",
+   "title": "アニメ　おさるのジョージ「こんがら交換」",
+   "start": "2026-09-06T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": true,
+   "size_mb": 500,
+   "genre_code": 113,
+   "resume_sec": null,
+   "expected": {
+    "watch_state": "unwatched",
+    "series_key": "アニメおさるのジョージ",
+    "series_name": "アニメ　おさるのジョージ"
+   }
+  },
+  {
+   "id": "0x7",
+   "title": "映画「男はつらいよ」",
+   "start": "2026-09-07T21:00:00+09:00",
+   "duration_sec": 1800,
+   "protected": false,
+   "is_new": false,
+   "size_mb": 4000,
+   "genre_code": 96,
+   "resume_sec": 0,
+   "expected": {
+    "watch_state": "watched",
+    "series_key": "映画「男はつらいよ」",
+    "series_name": "映画「男はつらいよ」"
+   }
+  }
+ ],
+ "groups": [
+  {
+   "key": "映画「男はつらいよ」",
+   "name": "映画「男はつらいよ」",
+   "count": 1,
+   "size_mb": 4000,
+   "latest": "2026-09-07T21:00:00+09:00",
+   "earliest": "2026-09-07T21:00:00+09:00",
+   "protected_count": 0,
+   "new_count": 0
+  },
+  {
+   "key": "アニメおさるのジョージ",
+   "name": "アニメ　おさるのジョージ",
+   "count": 1,
+   "size_mb": 500,
+   "latest": "2026-09-06T21:00:00+09:00",
+   "earliest": "2026-09-06T21:00:00+09:00",
+   "protected_count": 0,
+   "new_count": 1
+  },
+  {
+   "key": "ニュース7",
+   "name": "ニュース７",
+   "count": 2,
+   "size_mb": 2000,
+   "latest": "2026-09-05T21:00:00+09:00",
+   "earliest": "2026-09-04T21:00:00+09:00",
+   "protected_count": 0,
+   "new_count": 1
+  },
+  {
+   "key": "ドラマabc",
+   "name": "ドラマＡＢＣ",
+   "count": 3,
+   "size_mb": 3100,
+   "latest": "2026-09-03T21:00:00+09:00",
+   "earliest": "2026-09-01T21:00:00+09:00",
+   "protected_count": 1,
+   "new_count": 1
+  }
+ ],
+ "groups_drama_only": {
+  "genre": 3,
+  "groups": [
+   {
+    "key": "ドラマabc",
+    "name": "ドラマＡＢＣ",
+    "count": 3,
+    "size_mb": 3100,
+    "latest": "2026-09-03T21:00:00+09:00",
+    "earliest": "2026-09-01T21:00:00+09:00",
+    "protected_count": 1,
+    "new_count": 1
+   }
+  ]
+ }
+}
