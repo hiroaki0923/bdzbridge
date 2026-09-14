@@ -289,3 +289,24 @@ extension LiveRecorderTests {
         XCTAssertTrue(found.contains { $0.host == expected }, "the recorder should be among them")
     }
 }
+
+extension LiveRecorderTests {
+    /// Searching a real day's guide, which is what the search screen does. Read-only.
+    func testSearchingTheRealGuide() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+        guard let services = try await client.guide("td") else { throw XCTSkip("no terrestrial channels") }
+
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace(services, broadcasting: "td")
+
+        for word in ["ニュース", "news", "ドラマ"] {
+            let found = try await store.programs(since: Date(), query: word, limit: 300)
+            print("\(word): \(found.count) programmes still to come, first \(found.first?.title ?? "-")")
+            XCTAssertTrue(found.allSatisfy { $0.end > Date() }, "only what has not finished")
+        }
+        let mixedWidth = try await store.programs(since: Date(), query: "ｎｅｗｓ", limit: 300)
+        let plain = try await store.programs(since: Date(), query: "news", limit: 300)
+        XCTAssertEqual(mixedWidth.map(\.id), plain.map(\.id), "full width and half width should agree")
+    }
+}

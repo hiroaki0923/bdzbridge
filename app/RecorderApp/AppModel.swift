@@ -28,8 +28,10 @@ final class AppModel {
     private(set) var storage: (free: Int, total: Int)?
     private(set) var counts: [String: GuideCounts] = [:]
     private(set) var channels: [Channel] = []
-    /// Every channel's name, of every broadcasting type, so a reservation can say where it records from.
+    /// Every channel's name and logo, of every broadcasting type, so a reservation or a search result can
+    /// say where it comes from.
     private(set) var channelNames: [String: String] = [:]
+    private(set) var channelLogos: [String: Data] = [:]
     private(set) var programs: [GuideProgramRow] = []
     private(set) var reservations: [Reservation] = []
     private(set) var titles: [RecordedTitle] = []
@@ -615,15 +617,33 @@ final class AppModel {
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
+            let everyChannel = try await store.channels(includeHidden: true)
             channelNames = Dictionary(
-                try await store.channels(includeHidden: true).compactMap { channel in
+                everyChannel.compactMap { channel in
                     Codes.broadcasting[channel.broadcasting].map { ("\($0)-\(channel.serviceID)", channel.name) }
+                },
+                uniquingKeysWith: { first, _ in first })
+            channelLogos = Dictionary(
+                everyChannel.compactMap { channel in
+                    channel.logo.map { ("\(channel.broadcasting)-\(channel.serviceID)", $0) }
                 },
                 uniquingKeysWith: { first, _ in first })
             programs = try await store.day(day, broadcasting: broadcasting)
         } catch {
             problem = "番組表を読み出せませんでした: \(error)"
         }
+    }
+
+    func logo(for program: GuideProgramRow) -> Data? {
+        channelLogos["\(program.broadcasting)-\(program.serviceID)"]
+    }
+
+    /// Programmes still to come whose title or description contains this, across every broadcasting type.
+    /// The search runs against the cache, so it works away from home too.
+    func search(_ query: String) async -> [GuideProgramRow] {
+        await start()
+        guard let store, query.trimmingCharacters(in: .whitespaces).count >= 1 else { return [] }
+        return (try? await store.programs(since: Date(), query: query, limit: 300)) ?? []
     }
 
     /// The eight days the recorder's guide covers, starting today. Fixed when the app opened: building them
