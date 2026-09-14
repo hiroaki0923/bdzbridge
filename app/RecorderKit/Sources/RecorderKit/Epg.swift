@@ -81,7 +81,7 @@ public enum Epg {
             let content = bytes.byte(event + 30 + 2 * slot)
             let user = bytes.byte(event + 31 + 2 * slot)
             guard content != 0 || user != 0 else { return nil }
-            return (level1: content >> 4, level2: content & 0xF)
+            return Genre(level1: content >> 4, level2: content & 0xF)
         }
         program.copyControl = (bytes.byte(event + 40) & 0x0C) >> 2
         let rating = bytes.byte(event + 41) & 0x1F

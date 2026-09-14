@@ -1,5 +1,23 @@
 import Foundation
 
+/// ARIB content nibbles. `code` is the same number the recorder puts in `genreID` on reservations.
+public struct Genre: Sendable, Equatable, Hashable {
+    public var level1: Int
+    public var level2: Int
+
+    public init(level1: Int, level2: Int) {
+        self.level1 = level1
+        self.level2 = level2
+    }
+
+    public init(code: Int) {
+        self.init(level1: code / 16, level2: code % 16)
+    }
+
+    public var code: Int { level1 * 16 + level2 }
+    public var label: String? { Codes.genreLabel[level1] }
+}
+
 /// One programme in the recorder's guide.
 public struct GuideProgram: Sendable, Equatable, Identifiable {
     public var serviceID: Int
@@ -11,8 +29,7 @@ public struct GuideProgram: Sendable, Equatable, Identifiable {
     public var summary: String
     /// The long description, when the broadcaster sends one.
     public var extended: String
-    /// ARIB content nibbles, as (level1, level2) pairs.
-    public var genres: [(level1: Int, level2: Int)]
+    public var genres: [Genre]
     public var copyControl: Int
     /// 0 when unrestricted, otherwise the minimum age.
     public var parentalRating: Int
@@ -23,15 +40,6 @@ public struct GuideProgram: Sendable, Equatable, Identifiable {
     public var id: String { "\(serviceID)-\(eventID)-\(Int(start.timeIntervalSince1970))" }
     public var isReference: Bool { referenceEventID != nil }
     public var durationSec: Int { Int(end.timeIntervalSince(start)) }
-
-    public static func == (lhs: GuideProgram, rhs: GuideProgram) -> Bool {
-        lhs.serviceID == rhs.serviceID && lhs.eventID == rhs.eventID && lhs.start == rhs.start
-            && lhs.end == rhs.end && lhs.title == rhs.title && lhs.summary == rhs.summary
-            && lhs.extended == rhs.extended && lhs.copyControl == rhs.copyControl
-            && lhs.parentalRating == rhs.parentalRating && lhs.referenceServiceID == rhs.referenceServiceID
-            && lhs.referenceEventID == rhs.referenceEventID
-            && lhs.genres.map { [$0.level1, $0.level2] } == rhs.genres.map { [$0.level1, $0.level2] }
-    }
 }
 
 /// One channel and its programmes, as one `@SRV` record of the guide file.

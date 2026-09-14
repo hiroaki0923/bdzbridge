@@ -37,3 +37,12 @@ public enum Arib {
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+public enum Search {
+    /// The form search text is stored and compared in: NFKC, then lower-cased, so that ＳＡＭＰＬＥ, SAMPLE and
+    /// sample all match each other. The server case-folds instead, which differs only for a few Latin letters
+    /// that do not appear in a Japanese guide.
+    public static func normalise(_ text: String) -> String {
+        text.precomposedStringWithCompatibilityMapping.lowercased()
+    }
+}

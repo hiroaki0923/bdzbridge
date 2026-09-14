@@ -31,7 +31,9 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
-| `Guide.swift` | `GuideService` and `GuideProgram` |
+| `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
+| `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
+| `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
 
 Covered by vectors so far: `codes.json`, `xsrs.json`, `description.json`, `epg-sample`. The logo decoder and
 the programme-grouping heuristic are not ported yet, so `logo-sample` and `series.json` are still unused here.
@@ -47,7 +49,6 @@ same ones from the Python server to see that both agree.
 
 ## What is next
 
-The guide cache on the device: the decoded services and programmes in SQLite, with the search text normalised
-and sub-channel references resolved, a broadcast day running 04:00 to 04:00. Then the logo decoder and the
-programme-grouping heuristic. The app target itself is not in this repository yet; when it arrives it will live
-beside this package in `app/` and depend on it as a local package.
+The logo decoder and the programme-grouping heuristic, which are the last two vectors not yet used here. Then
+the app target, which is not in this repository yet; when it arrives it will live beside this package in `app/`
+and depend on it as a local package.

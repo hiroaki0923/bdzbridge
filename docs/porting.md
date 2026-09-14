@@ -173,9 +173,10 @@ Android を配布する人向けの注意も一つ書いておきます。Play �
    通し、実機では予約一覧と残容量が Python サーバーと一致することを確認しました
    （`RECORDER_HOST=<ip> swift test --filter LiveRecorderTests`、読み取りのみ）。
 2. EPG: ファイル取得と復号、端末内 DB、日別・チャンネル別の表示。`epg-sample` を通し、実機ファイルで Python と
-   突き合わせる。**復号まで完了**: `epg-sample` を通し、実機の地デジ 8266 件と BS 8709 件で Python 実装と
-   全フィールドが一致しました（`RECORDER_EPG_DUMP=<dir> swift test --filter LiveRecorderTests` が書き出した
-   行を突き合わせ）。残りは端末内 DB と表示。
+   突き合わせる。**復号と端末内 DB まで完了**: `epg-sample` を通し、実機の地デジ 8266 件と BS 8709 件で
+   Python 実装と全フィールドが一致しました（`RECORDER_EPG_DUMP=<dir> swift test --filter LiveRecorderTests` が
+   書き出した行を突き合わせ）。`GuideStore` は同じ SQL で参照解決・検索正規化・04:00 区切りを行い、実機データで
+   チャンネル数と番組数がサーバー側と一致します。8000 件の取り込みは Mac で約 60 ms。残りは表示（UI）。
 3. 予約: 作成・更新・削除と番組追従。テスト用の予約名を決めて作成→削除で確認する。
 4. 録画: 一覧、詳細、保護、削除、テレビ再生、まとめ、重複。`series.json` を通す。
 5. 宅外: 予約待ちキューと LAN 復帰時の反映。
