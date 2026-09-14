@@ -83,6 +83,7 @@ final class AppModel {
             if !host.isEmpty { await connect() }
             // a hook for driving the app from a simulator or a device without tapping through it:
             //   xcrun simctl launch <device> <bundle id> -recorderHost 192.168.0.63 -refreshOnStart 1
+            // Connecting already fetches a guide that needs it; this one fetches a guide that does not.
             if UserDefaults.standard.bool(forKey: "refreshOnStart"), connected { await refreshGuide() }
             // `-runBackgroundWork 1` does what the overnight run does, which is the only way to see that
             // path work without waiting for iOS to decide to run it.
@@ -139,6 +140,34 @@ final class AppModel {
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
         }
+        await refreshGuideIfStale()
+    }
+
+    /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
+    /// rebuild is behind what the recorder would hand over now.
+    static func lastRebuild(before now: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let previous = calendar.nextDate(after: now, matching: DateComponents(hour: 1, minute: 0),
+                                         matchingPolicy: .nextTime, direction: .backward)
+        return previous ?? now.addingTimeInterval(-24 * 3600)
+    }
+
+    /// Whether the cache holds nothing, or nothing newer than that rebuild.
+    var guideIsStale: Bool {
+        guard counts.values.contains(where: { $0.programs > 0 }),
+              let newest = counts.values.compactMap(\.refreshed).compactMap(RecorderTime.parse).max()
+        else { return true }
+        return newest < Self.lastRebuild()
+    }
+
+    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run
+    /// otherwise lands on an empty guide with nothing to say that anything has to be fetched, and a cache
+    /// the overnight run never got to would quietly stay a day behind. A cache that is already current
+    /// costs nothing, which is what makes this safe on every launch.
+    func refreshGuideIfStale() async {
+        guard connected, guideIsStale else { return }
+        await refreshGuide()
     }
 
     /// Downloads every broadcasting type the recorder has and replaces the cache.
@@ -590,14 +619,29 @@ final class AppModel {
     /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
     /// is left on screen rather than being reloaded away.
     @discardableResult
+    /// Deletes one reservation. 804 is handled apart from the rest: the recorder saying it has no such
+    /// reservation means the list the app is holding has moved on — the recorder replaces the ones its own
+    /// automatic recording made — and reporting a code for that reads like a broken delete rather than a
+    /// stale row. Fetch the list again and say that instead.
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
         guard let client else { return false }
-        let removed = await run("予約を削除中") {
+        busy = "予約を削除中"
+        do {
             try await client.deleteReservation(id: reservation.id)
-            self.reservations.removeAll { $0.id == reservation.id }
+        } catch let error as RecorderError where error.unknownReservation {
+            busy = nil
+            await loadReservations()
+            problem = "この予約はレコーダーにもうありませんでした。一覧を取り直しました。"
+            return false
+        } catch {
+            busy = nil
+            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            return false
         }
-        guard removed else { return false }
+        busy = nil
+        problem = nil
+        reservations.removeAll { $0.id == reservation.id }
         await loadReservations()
         // the reload asks the recorder again, and if it is a moment behind itself the row would come back
         reservations.removeAll { $0.id == reservation.id }
