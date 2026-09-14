@@ -122,6 +122,118 @@ final class AppModel {
         }
     }
 
+    // MARK: - bulk work
+
+    /// Deleting or protecting many recordings, one request at a time because that is all the recorder will
+    /// take. It lives here rather than in a screen so that closing the sheet that started it neither stops it
+    /// nor takes away the way to stop it.
+    struct BulkJob: Equatable {
+        enum Kind: Equatable {
+            case delete
+            case protecting(Bool)
+        }
+
+        struct Skip: Equatable, Identifiable {
+            var id: String
+            var reason: String
+        }
+
+        var kind: Kind
+        var total: Int
+        var done = 0
+        var changed: [String] = []
+        var skipped: [Skip] = []
+        var cancelled = false
+        var finished = false
+
+        var verb: String {
+            switch kind {
+            case .delete: "削除"
+            case .protecting(true): "保護"
+            case .protecting(false): "保護解除"
+            }
+        }
+
+        var progress: Double { total == 0 ? 0 : Double(done) / Double(total) }
+
+        /// What to tell the reader once it has stopped, in the shape the web app settled on.
+        var outcome: String {
+            let count = changed.count
+            let head = cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
+            return skipped.isEmpty ? head : head + "（\(skipped.count) 件はスキップ）"
+        }
+    }
+
+    private(set) var job: BulkJob?
+    private var jobTask: Task<Void, Never>?
+
+    var jobRunning: Bool { job.map { !$0.finished } ?? false }
+
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) {
+        guard jobTask == nil, !ids.isEmpty, let client else { return }
+        job = BulkJob(kind: kind, total: ids.count)
+        jobTask = Task { [weak self] in
+            await self?.runBulk(kind, ids: ids, client: client)
+        }
+    }
+
+    /// Stops before the next recording. What has been done stays done; the recorder has no undo.
+    func cancelBulk() {
+        job?.cancelled = true
+    }
+
+    func clearJob() {
+        guard job?.finished == true else { return }
+        job = nil
+    }
+
+    private func runBulk(_ kind: BulkJob.Kind, ids: [String], client: RecorderClient) async {
+        for id in ids {
+            if job?.cancelled == true { break }
+            switch kind {
+            case .delete: await deleteOne(id, client)
+            case .protecting(let on): await protectOne(id, on, client)
+            }
+            job?.done += 1
+        }
+        if case .delete = kind, let capacity = try? await client.recordDestinationInfo() {
+            storage = (capacity.freeBytes, capacity.totalBytes)
+        }
+        job?.finished = true
+        jobTask = nil
+    }
+
+    private func deleteOne(_ id: String, _ client: RecorderClient) async {
+        guard let title = titles.first(where: { $0.id == id }) else {
+            job?.skipped.append(.init(id: id, reason: "一覧にありません"))
+            return
+        }
+        let outcome = await client.deleteIfPresent(title)
+        switch outcome {
+        case .changed:
+            titles.removeAll { $0.id == id }
+            job?.changed.append(id)
+        case .skipped(let reason):
+            // the recorder had already lost it, so the list should not keep showing it either
+            if reason == "すでにありません" { titles.removeAll { $0.id == id } }
+            job?.skipped.append(.init(id: id, reason: reason))
+        }
+    }
+
+    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async {
+        guard let index = titles.firstIndex(where: { $0.id == id }) else {
+            job?.skipped.append(.init(id: id, reason: "一覧にありません"))
+            return
+        }
+        switch await client.setProtected(titles[index], on) {
+        case .changed:
+            titles[index].protected = on
+            job?.changed.append(id)
+        case .skipped(let reason):
+            job?.skipped.append(.init(id: id, reason: reason))
+        }
+    }
+
     // MARK: - recordings
 
     enum TitleSort: String, CaseIterable {

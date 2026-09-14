@@ -200,3 +200,85 @@ extension RecorderClientTests {
         XCTAssertTrue(body.contains("<RecordScheduleID>0x00000000000d37f7</RecordScheduleID>"), body)
     }
 }
+
+/// The decisions a bulk run makes about each recording. The recorder's two traps are the point: it refuses a
+/// protected recording, and it answers success for one it no longer has.
+final class BulkWorkTests: XCTestCase {
+    private func title(id: String = "0x1", protected: Bool = false) -> RecordedTitle {
+        RecordedTitle(id: id, title: "t", start: Date(), durationSec: 1800, broadcastingType: 2,
+                      serviceID: 1024, qualityCode: 230, protected: protected, isNew: true,
+                      destination: "HDD", sizeMB: 1000, genreCode: 48, lastPlayed: nil, resumeSec: nil)
+    }
+
+    func testAProtectedRecordingIsSkippedWithoutAskingTheRecorder() async throws {
+        let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let outcome = await client.deleteIfPresent(title(protected: true))
+
+        let sent = await transport.requests.count
+        XCTAssertEqual(outcome, .skipped(reason: "保護されています"))
+        XCTAssertEqual(sent, 0, "nothing should have been sent")
+    }
+
+    func testARecordingTheRecorderNoLongerHasIsNotAnError() async throws {
+        let transport = StubTransport(always: Stub.fault("820"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let outcome = await client.deleteIfPresent(title())
+
+        XCTAssertEqual(outcome, .skipped(reason: "すでにありません"))
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 1, "it asked, and then knew better than to delete")
+        XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])
+    }
+
+    func testDeletingAsksFirstAndThenDeletes() async throws {
+        let transport = StubTransport { request, _ in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            return body.contains("X_GetTitleDetail")
+                ? Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+                : Stub.soap("X_DeleteTitle")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let outcome = await client.deleteIfPresent(title(id: "0x0000010000034d78"))
+
+        XCTAssertEqual(outcome, .changed)
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 2)
+        XCTAssertTrue(bodies[1].contains("<TitleID>0x0000010000034d78</TitleID>"), bodies[1])
+    }
+
+    func testARefusedDeleteReportsWhyRatherThanThrowing() async throws {
+        let transport = StubTransport { request, _ in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            return body.contains("X_GetTitleDetail") ? Stub.soap("X_GetTitleDetail", result: "<detail/>")
+                                                     : Stub.fault("402")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let outcome = await client.deleteIfPresent(title())
+
+        XCTAssertEqual(outcome.reason?.contains("402"), true, outcome.reason ?? "-")
+    }
+
+    func testProtectingSendsOnlyWhenItWouldChangeSomething() async throws {
+        let transport = StubTransport(always: Stub.soap("X_UpdateTitle"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let already = await client.setProtected(title(protected: true), true)
+        XCTAssertEqual(already, .skipped(reason: "すでに保護されています"))
+        let notProtected = await client.setProtected(title(protected: false), false)
+        XCTAssertEqual(notProtected, .skipped(reason: "保護されていません"))
+        let untouched = await transport.requests.count
+        XCTAssertEqual(untouched, 0)
+
+        let changed = await client.setProtected(title(id: "0x2", protected: false), true)
+        XCTAssertEqual(changed, .changed)
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 1)
+        // the payload travels as a SOAP argument, so it arrives escaped
+        XCTAssertTrue(bodies[0].contains("&lt;item id=&quot;0x2&quot;&gt;&lt;titleProtectFlag&gt;1&lt;"), bodies[0])
+    }
+}
