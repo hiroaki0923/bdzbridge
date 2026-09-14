@@ -27,8 +27,9 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
 ```
 
 `-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at launch, `-startTab` opens
-`guide`, `reservations` or `settings`, `-guideMode` picks `list` or `grid`, and `-startDay 6` opens the guide
-six days out.
+`guide`, `reservations`, `recordings` or `settings`, `-guideMode` picks `list` or `grid`, `-recordingsMode`
+picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, and `-scanOnStart 1` starts the
+duplicate scan, which only reads.
 
 ## What works
 

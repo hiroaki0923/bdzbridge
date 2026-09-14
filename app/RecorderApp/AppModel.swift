@@ -78,6 +78,10 @@ final class AppModel {
             // a hook for driving the app from a simulator or a device without tapping through it:
             //   xcrun simctl launch <device> <bundle id> -recorderHost 192.168.0.63 -refreshOnStart 1
             if UserDefaults.standard.bool(forKey: "refreshOnStart"), connected { await refreshGuide() }
+            if UserDefaults.standard.bool(forKey: "scanOnStart"), connected {
+                await loadTitlesNow(force: false)
+                startDuplicateScan()
+            }
         } catch {
             problem = "番組表の保存先を開けませんでした: \(error)"
         }
@@ -307,6 +311,12 @@ final class AppModel {
 
     func loadTitles(force: Bool = false) async {
         await start()
+        await loadTitlesNow(force: force)
+    }
+
+    /// The load itself. Anything called from `begin()` has to use this: going through `loadTitles` would wait
+    /// on the very start-up task it is already running inside.
+    private func loadTitlesNow(force: Bool) async {
         guard let client, force || !titlesLoaded else { return }
         await run("録画一覧を取得中") {
             self.titles = try await client.allTitles()
