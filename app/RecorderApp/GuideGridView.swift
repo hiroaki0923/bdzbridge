@@ -274,13 +274,21 @@ private struct ProgramBlock: View {
     private var ended: Bool { program.end <= Date() }
     private var onAir: Bool { program.start <= Date() && Date() < program.end }
 
+    /// How much of the programme has gone. Shading that part is what marks the one on air: it meets the red
+    /// line at the current time exactly, and says how far in you are.
+    private var elapsed: Double {
+        guard onAir, program.durationSec > 0 else { return 0 }
+        return min(1, max(0, Date().timeIntervalSince(program.start) / Double(program.durationSec)))
+    }
+
     var body: some View {
         Button { onSelect(program) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 Text(Format.time.string(from: program.start))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    + Text(" ") + Text(program.title).font(.system(size: 11))
+                    + Text(" ")
+                    + Text(program.title).font(.system(size: 11, weight: onAir ? .semibold : .regular))
             }
             .multilineTextAlignment(.leading)
             .lineLimit(Int(max(1, (height - labelOffset - 4) / 14)))
@@ -290,14 +298,14 @@ private struct ProgramBlock: View {
             .frame(width: width, height: height, alignment: .topLeading)
         }
         .buttonStyle(.plain)
-        .background(Color(.secondarySystemGroupedBackground))
-        .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: 3) }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay {
+        .background(alignment: .top) {
             if onAir {
-                RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5)
+                genreColor.opacity(0.16).frame(height: height * elapsed)
             }
         }
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: onAir ? 4 : 3) }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(ended ? 0.5 : 1)
     }
 
