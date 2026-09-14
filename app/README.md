@@ -26,8 +26,9 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
   -recorderHost 192.0.2.63 -refreshOnStart 1 -startTab reservations
 ```
 
-`-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at launch, and `-startTab` opens
-`guide`, `reservations` or `settings`.
+`-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at launch, `-startTab` opens
+`guide`, `reservations` or `settings`, `-guideMode` picks `list` or `grid`, and `-startDay 6` opens the guide
+six days out.
 
 ## What works
 
@@ -41,7 +42,14 @@ colours, the elapsed part of what is on air shaded up to a red line at the curre
 that pinches. Today
 opens at the current time.
 
+A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder what the
+new reservation would clash with, and creates it behind a confirmation. Reserved programmes are tinted and
+labelled in both views, and a reservation can be deleted from the reservations screen.
+
+Nothing has been written to the real recorder from here yet. The payload was checked against it through
+`X_GetConflictList`, which takes the very same bytes a creation would send and only reports what would clash.
+
 ## What is missing
 
-Finding the recorder by scanning instead of typing its address, creating a reservation from a programme, the
-recordings screen, the time-by-channel grid, and the queue that holds reservations made while away from home.
+Finding the recorder by scanning instead of typing its address, the recordings screen, and the queue that
+holds reservations made while away from home.

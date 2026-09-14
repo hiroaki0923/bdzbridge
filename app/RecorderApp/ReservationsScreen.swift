@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
+    @State private var removing: Reservation?
 
     var body: some View {
         NavigationStack {
@@ -15,6 +16,9 @@ struct ReservationsScreen: View {
                 } else {
                     List(model.reservations) { reservation in
                         ReservationRowView(reservation: reservation)
+                            .swipeActions {
+                                Button("削除", role: .destructive) { removing = reservation }
+                            }
                     }
                     .listStyle(.plain)
                 }
@@ -22,6 +26,18 @@ struct ReservationsScreen: View {
             .navigationTitle("予約 \(model.reservations.isEmpty ? "" : "\(model.reservations.count) 件")")
             .refreshable { await model.loadReservations() }
             .task(id: model.connected) { if model.reservations.isEmpty { await model.loadReservations() } }
+            .confirmationDialog("この予約を削除しますか？", isPresented: .init(get: { removing != nil },
+                                                                     set: { if !$0 { removing = nil } }),
+                                titleVisibility: .visible) {
+                Button("削除する", role: .destructive) {
+                    if let removing { Task { await model.cancel(removing) } }
+                }
+                Button("やめる", role: .cancel) {}
+            } message: {
+                if let removing {
+                    Text("\(Format.dateTime.string(from: removing.start)) \(removing.title)\nレコーダーから消えます。")
+                }
+            }
         }
     }
 }

@@ -164,3 +164,61 @@ final class LiveRecorderTests: XCTestCase {
         }
     }
 }
+
+extension LiveRecorderTests {
+    /// Proves the payload a reservation would be created with is one the recorder accepts, without recording
+    /// anything: X_GetConflictList takes the very same payload and only reports what would clash. A payload
+    /// the recorder disliked would come back as UPnP error 402.
+    func testTheReservationPayloadIsOneTheRecorderAccepts() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+        guard let services = try await client.guide("td") else { throw XCTSkip("no terrestrial channels") }
+
+        let soon = Date().addingTimeInterval(3 * 3600)
+        let candidates = services
+            .flatMap { service in service.programs.filter { !$0.isReference && $0.start > soon && !$0.title.isEmpty } }
+            .sorted { $0.start < $1.start }
+        let program = try XCTUnwrap(candidates.first, "the guide should reach a few hours ahead")
+
+        let request = ReservationRequest(
+            title: program.title, start: program.start, durationSec: program.durationSec,
+            repeatCode: Codes.repeatCodes["none"]!, broadcastingType: Codes.broadcasting["td"]!,
+            serviceID: program.serviceID, qualityCode: Codes.quality["LSR"]!, eventID: program.eventID)
+
+        let conflicts = try await client.conflicts(elements: XsrsElements.create(request))
+        print("would record \(RecorderTime.format(program.start)) \(program.title):"
+              + " \(conflicts.count) clash(es)\(conflicts.isEmpty ? "" : " with \(conflicts.map(\.title))")")
+        XCTAssertTrue(conflicts.allSatisfy { !$0.id.isEmpty })
+    }
+}
+
+extension LiveRecorderTests {
+    /// The app marks a programme as reserved by matching broadcasting type, service and programme id, so this
+    /// checks that the recorder really does describe both sides the same way. Read-only.
+    func testReservationsMatchProgrammesInTheGuide() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+        let reservations = try await client.reservations()
+
+        var programmes: Set<String> = []
+        for broadcasting in ["td", "bs", "cs", "bs4k"] {
+            guard let type = Codes.broadcasting[broadcasting],
+                  let services = try await client.guide(broadcasting) else { continue }
+            for service in services {
+                for programme in service.programs where !programme.isReference {
+                    programmes.insert("\(type)-\(service.serviceID)-\(programme.eventID)")
+                }
+            }
+        }
+
+        let following = reservations.filter { $0.eventID != nil }
+        let matched = following.filter { programmes.contains("\($0.broadcastingType)-\($0.serviceID)-\($0.eventID!)") }
+        print("reservations \(reservations.count), following a programme \(following.count),"
+              + " found in the guide \(matched.count) of \(programmes.count) programmes")
+        for reservation in following where !matched.contains(where: { $0.id == reservation.id }) {
+            print("  no programme for \(RecorderTime.format(reservation.start)) \(reservation.title)"
+                  + " (\(Codes.broadcasting(code: reservation.broadcastingType) ?? "?"))")
+        }
+        XCTAssertGreaterThan(matched.count, 0, "reserved programmes are marked by this match")
+    }
+}
