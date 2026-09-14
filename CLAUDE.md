@@ -8,7 +8,7 @@ bdzbridge: a small LAN bridge for Sony BDZ Blu-ray recorders. It reads the recor
 
 - `server/` — Python 3.12+ / FastAPI package `bdzbridge` (uv-managed). Serves `web/dist` at `/` when it exists.
 - `web/` — Vite + Svelte 5 PWA (plain JS, runes). Uses `/api/v1` on the same origin; the Vite dev server proxies `/api` to port 8000.
-- `docs/` — protocol references: `xsrs-api.md` (reservations), `epg-format.md` (EPG files), `upnp/` (the recorder's UPnP descriptions). Read them before touching recorder code.
+- `docs/` — protocol references: `xsrs-api.md` (reservations), `epg-format.md` (EPG files), `upnp/` (the recorder's UPnP descriptions). Read them before touching recorder code. `porting.md` is the guide for the planned iOS app (Swift/SwiftUI, decided 2026-09-14) and for third-party ports to other platforms, and `port/` holds generated conformance vectors (`bdzbridge/tools/portkit.py`; a test fails while they are stale, the pre-commit hook regenerates them).
 
 Personal/environment notes belong in `CLAUDE.local.md` (gitignored), not here.
 
@@ -25,6 +25,7 @@ cp .env.example .env                   # set BDZBRIDGE_API_TOKEN; recorder host 
 uv run python -m bdzbridge discover    # list recorders on the LAN
 uv run python -m bdzbridge             # serve; OpenAPI at /docs
 uv run python -m bdzbridge.tools.apidoc  # regenerate docs/api.md + docs/openapi.json (a test fails while they are stale; `git config core.hooksPath .githooks` makes a pre-commit hook do it)
+uv run python -m bdzbridge.tools.portkit # regenerate docs/port/ (conformance vectors for a native port; same freshness test and hook)
 ```
 
 Web (inside `web/`): `npm install`, `npm run build` (writes `web/dist`; restart the server to pick it up), `npm run dev`.

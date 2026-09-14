@@ -1,0 +1,17 @@
+{
+ "file": "logo-sample.dat",
+ "sha256": "e6d09faa08c52a7fc42a7ddf140f15a03b652994bd1802e3e8807b2ba5996338",
+ "note": "service 1025 has no logo (1152 zero bytes) and is skipped; png is the payload with PLTE+tRNS inserted",
+ "logos": [
+  {
+   "channel_no": 11,
+   "service_id": 1024,
+   "png_base64": "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAkCAMAAAAO0sygAAABg1BMVEUAAAD/AAAA/wD//wAAAP//AP8A//////8AAACqAAAAqgCqqgAAAKqqAKoAqqqqqqoAAFUAVQAAVVUAVaoAVf8AqlUAqv8A/1UA/6pVAABVAFVVAKpVAP9VVQBVVVVVVapVVf9VqgBVqlVVqqpVqv9V/wBV/1VV/6pV//+qAFWqAP+qVQCqVVWqVaqqVf+qqlWqqv+q/wCq/1Wq/6qq////AFX/AP//VQD/VVX/Var/Vf//qgD/qlX/qqr/qv///1X///8AAAD/AAAA/wD//wAAAP//AP8A//////+qAAAAqgCqqgAAAKqqAKoAqqqqqqoAAFUAVQAAVVUAVaoAVf8AqlUAqv8A/1UA/6pVAABVAFVVAKpVAP9VVQBVVVVVVapVVf9VqgBVqlVVqqpVqv9V/wBV/1VV/6pV//+qAFWqAP+qVQCqVVWqVaqqVf+qqlWqqv+q/wCq/1Wq/6qq////AFX/AP//VQD/VVX/Var/Vf//qgD/qlX/qqr/qv///1X///8G3Sd7AAAAgXRSTlP//////////wD//////////////////////////////////////////////////////////////////////////4CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIB7cPdvAAAAIUlEQVR4nGNgpxAwjBowasCoAaMGjBowasCoAaMGDD8DAAgEPwEcyzU1AAAAAElFTkSuQmCC"
+  },
+  {
+   "channel_no": 21,
+   "service_id": 1032,
+   "png_base64": "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAkCAMAAAAO0sygAAABg1BMVEUAAAD/AAAA/wD//wAAAP//AP8A//////8AAACqAAAAqgCqqgAAAKqqAKoAqqqqqqoAAFUAVQAAVVUAVaoAVf8AqlUAqv8A/1UA/6pVAABVAFVVAKpVAP9VVQBVVVVVVapVVf9VqgBVqlVVqqpVqv9V/wBV/1VV/6pV//+qAFWqAP+qVQCqVVWqVaqqVf+qqlWqqv+q/wCq/1Wq/6qq////AFX/AP//VQD/VVX/Var/Vf//qgD/qlX/qqr/qv///1X///8AAAD/AAAA/wD//wAAAP//AP8A//////+qAAAAqgCqqgAAAKqqAKoAqqqqqqoAAFUAVQAAVVUAVaoAVf8AqlUAqv8A/1UA/6pVAABVAFVVAKpVAP9VVQBVVVVVVapVVf9VqgBVqlVVqqpVqv9V/wBV/1VV/6pV//+qAFWqAP+qVQCqVVWqVaqqVf+qqlWqqv+q/wCq/1Wq/6qq////AFX/AP//VQD/VVX/Var/Vf//qgD/qlX/qqr/qv///1X///8G3Sd7AAAAgXRSTlP//////////wD//////////////////////////////////////////////////////////////////////////4CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIB7cPdvAAAAIUlEQVR4nGNgpBAwjBowasCoAaMGjBowasCoAaMGDD8DAC2LCQFNWsydAAAAAElFTkSuQmCC"
+  }
+ ]
+}

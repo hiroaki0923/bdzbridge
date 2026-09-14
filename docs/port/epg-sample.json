@@ -1,0 +1,99 @@
+{
+ "file": "epg-sample.dat",
+ "sha256": "d52d23ba83680182d40f4133b0c56999316f6b0fea8edb758119f095dd78de36",
+ "services": [
+  {
+   "service_id": 1024,
+   "name": "ＮＨＫ総合１・東京",
+   "programs": [
+    {
+     "service_id": 1024,
+     "event_id": 14792,
+     "start": "2026-09-14T05:00:00+09:00",
+     "end": "2026-09-14T06:00:00+09:00",
+     "duration_sec": 3600,
+     "title": "ＮＨＫニュース　おはよう日本[字]",
+     "description": "朝のニュース",
+     "extended": "詳細テキスト",
+     "genres": [
+      [
+       0,
+       0
+      ],
+      [
+       0,
+       1
+      ]
+     ],
+     "copy_control": 2,
+     "parental_rating": 0
+    },
+    {
+     "service_id": 1024,
+     "event_id": 14793,
+     "start": "2026-09-14T06:00:00+09:00",
+     "end": "2026-09-14T06:15:00+09:00",
+     "duration_sec": 900,
+     "title": "あさイチ",
+     "description": "生活情報",
+     "extended": "",
+     "genres": [
+      [
+       2,
+       4
+      ]
+     ],
+     "copy_control": 0,
+     "parental_rating": 0
+    },
+    {
+     "service_id": 1024,
+     "event_id": 14794,
+     "start": "2026-09-14T21:00:00+09:00",
+     "end": "2026-09-14T22:00:00+09:00",
+     "duration_sec": 3600,
+     "title": "日曜劇場「ＶＩＶＡＮＴ」",
+     "description": "",
+     "extended": "",
+     "genres": [],
+     "copy_control": 0,
+     "parental_rating": 0
+    },
+    {
+     "service_id": 1024,
+     "event_id": 14800,
+     "start": "2026-09-15T20:00:00+09:00",
+     "end": "2026-09-15T21:00:00+09:00",
+     "duration_sec": 3600,
+     "title": "翌日の番組",
+     "description": "",
+     "extended": "x",
+     "genres": [
+      [
+       3,
+       0
+      ]
+     ],
+     "copy_control": 1,
+     "parental_rating": 2
+    }
+   ]
+  },
+  {
+   "service_id": 1025,
+   "name": "ＮＨＫ総合２・東京",
+   "programs": [
+    {
+     "service_id": 1025,
+     "event_id": 14792,
+     "start": "2026-09-14T05:00:00+09:00",
+     "end": "2026-09-14T06:00:00+09:00",
+     "duration_sec": 3600,
+     "reference": true,
+     "ref_service_id": 1024,
+     "ref_event_id": 14792
+    }
+   ]
+  }
+ ]
+}

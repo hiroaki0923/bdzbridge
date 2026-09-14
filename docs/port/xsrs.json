@@ -1,0 +1,137 @@
+{
+ "soap": {
+  "note": "POST to control_url; headers Content-Type: text/xml; charset=\"utf-8\", Accept-Language: ja, SOAPACTION: \"<service>#<action>\". Body exactly as below (no whitespace between elements).",
+  "example": {
+   "service": "urn:schemas-xsrs-org:service:X_ScheduledRecording:2",
+   "action": "X_DeleteRecordSchedule",
+   "args": [
+    [
+     "RecordScheduleID",
+     "0x00000000000a9432"
+    ]
+   ],
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\" xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:X_DeleteRecordSchedule xmlns:u=\"urn:schemas-xsrs-org:service:X_ScheduledRecording:2\"><RecordScheduleID>0x00000000000a9432</RecordScheduleID></u:X_DeleteRecordSchedule></s:Body></s:Envelope>"
+  }
+ },
+ "create_elements": [
+  {
+   "name": "captured from the official app (tests/fixtures/create-request.xml)",
+   "input": {
+    "title": "テスト番組　第１回[字]",
+    "start": "2026-09-17T21:00:00+09:00",
+    "duration_sec": 3600,
+    "repeat_code": "1",
+    "broadcasting_type": 2,
+    "service_id": 1064,
+    "quality_code": 240,
+    "event_id": 12575
+   },
+   "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><item id=\"\"><title>テスト番組　第１回[字]</title><scheduledStartDateTime>2026-09-17T21:00:00+09:00</scheduledStartDateTime><scheduledDuration>3600</scheduledDuration><scheduledConditionID>1</scheduledConditionID><scheduledChannelID broadcastingType=\"2\" channelType=\"2\">0x0428</scheduledChannelID><desiredMatchingID type=\"SI_PROGRAMID\">,,0x428,0x311f</desiredMatchingID><desiredQualityMode>240</desiredQualityMode><priorityFlag>0</priorityFlag><recordDestinationID>HDD</recordDestinationID><portableRecordFile target=\"preselect\" transferPath=\"none\"></portableRecordFile></item></xsrs>"
+  },
+  {
+   "name": "time-only reservation, weekday repeat, BS",
+   "input": {
+    "title": "x & y <z>",
+    "start": "2026-09-14T04:00:00+09:00",
+    "duration_sec": 300,
+    "repeat_code": "w15",
+    "broadcasting_type": 3,
+    "service_id": 101,
+    "quality_code": 230,
+    "event_id": null
+   },
+   "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><item id=\"\"><title>x &amp; y &lt;z&gt;</title><scheduledStartDateTime>2026-09-14T04:00:00+09:00</scheduledStartDateTime><scheduledDuration>300</scheduledDuration><scheduledConditionID>w15</scheduledConditionID><scheduledChannelID broadcastingType=\"3\" channelType=\"2\">0x0065</scheduledChannelID><desiredQualityMode>230</desiredQualityMode><priorityFlag>0</priorityFlag><recordDestinationID>HDD</recordDestinationID><portableRecordFile target=\"preselect\" transferPath=\"none\"></portableRecordFile></item></xsrs>"
+  }
+ ],
+ "update_elements": {
+  "reservation_id": "0x00000000000d357d",
+  "input": {
+   "title": "x & y <z>",
+   "start": "2026-09-14T04:00:00+09:00",
+   "duration_sec": 300,
+   "repeat_code": "w15",
+   "broadcasting_type": 3,
+   "service_id": 101,
+   "quality_code": 230,
+   "event_id": null
+  },
+  "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><item id=\"0x00000000000d357d\"><title>x &amp; y &lt;z&gt;</title><scheduledStartDateTime>2026-09-14T04:00:00+09:00</scheduledStartDateTime><scheduledDuration>300</scheduledDuration><scheduledConditionID>w15</scheduledConditionID><scheduledChannelID broadcastingType=\"3\" channelType=\"2\">0x0065</scheduledChannelID><desiredQualityMode>230</desiredQualityMode><priorityFlag>0</priorityFlag><recordDestinationID>HDD</recordDestinationID><portableRecordFile target=\"preselect\" transferPath=\"none\"></portableRecordFile></item></xsrs>"
+ },
+ "title_update_elements": [
+  {
+   "input": {
+    "title_id": "0x0000010000034d78",
+    "protected": true
+   },
+   "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><item id=\"0x0000010000034d78\"><titleProtectFlag>1</titleProtectFlag></item></xsrs>"
+  },
+  {
+   "input": {
+    "title_id": "0x1",
+    "title": "a & b",
+    "is_new": false
+   },
+   "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><item id=\"0x1\"><title>a &amp; b</title><titleNewFlag>0</titleNewFlag></item></xsrs>"
+  }
+ ],
+ "parse_reservation": {
+  "item": "<item id=\"0x00000000000a9432\"><title>サンプル番組（３５）</title><scheduledStartDateTime>2026-09-13T20:00:00+0900</scheduledStartDateTime><scheduledDuration>2700</scheduledDuration><scheduledConditionID>w7</scheduledConditionID><scheduledChannelID broadcastingType=\"2\" channelType=\"2\">0x0400</scheduledChannelID><desiredMatchingID type=\"SI_PROGRAMID\">,,0x0,0x3798</desiredMatchingID><desiredQualityMode>230</desiredQualityMode><genreID type=\"2\">48</genreID><conflictID>0</conflictID><mediaRemainAlertID>0</mediaRemainAlertID><reservationCreatorID>2200</reservationCreatorID><recordingFlag>0</recordingFlag><recordDestinationID>HDD</recordDestinationID><recordSize>5859</recordSize><portableRecordFile target=\"MOB\" transferPath=\"none\">394</portableRecordFile><markingID>NONE</markingID><targetQualityMode>0</targetQualityMode><titleHevcFlag>0</titleHevcFlag></item>",
+  "expected": {
+   "id": "0x00000000000a9432",
+   "title": "サンプル番組（３５）",
+   "start": "2026-09-13T20:00:00+09:00",
+   "duration_sec": 2700,
+   "repeat_code": "w7",
+   "broadcasting_type": 2,
+   "service_id": 1024,
+   "event_id": 14232,
+   "quality_code": 230,
+   "recording": false,
+   "conflict": false,
+   "destination": "HDD",
+   "size_mb": 5859,
+   "creator": "2200",
+   "genre_code": 48
+  }
+ },
+ "parse_title": [
+  {
+   "item": "<item id=\"0x0000010000034d78\"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime><scheduledDuration>60</scheduledDuration><scheduledChannelID broadcastingType=\"2\" channelType=\"2\">0x0418</scheduledChannelID><desiredQualityMode>230</desiredQualityMode><genreID type=\"2\">168</genreID><titleProtectFlag>1</titleProtectFlag><titleNewFlag>0</titleNewFlag><recordSize>2048</recordSize><lastPlaybackTime resumePoint=\"13\">2026-09-14T01:03:50+0900</lastPlaybackTime></item>",
+   "expected": {
+    "id": "0x0000010000034d78",
+    "title": "t",
+    "start": "2026-09-13T21:00:00+09:00",
+    "duration_sec": 60,
+    "broadcasting_type": 2,
+    "service_id": 1048,
+    "quality_code": 230,
+    "protected": true,
+    "is_new": false,
+    "destination": "HDD",
+    "size_mb": 2048,
+    "genre_code": 168,
+    "last_played": "2026-09-14T01:03:50+09:00",
+    "resume_sec": 13
+   }
+  },
+  {
+   "item": "<item id=\"0x1\"><title>never played</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime><scheduledDuration>60</scheduledDuration><lastPlaybackTime resumePoint=\"0\">notplayed</lastPlaybackTime></item>",
+   "expected": {
+    "id": "0x1",
+    "title": "never played",
+    "start": "2026-09-13T21:00:00+09:00",
+    "duration_sec": 60,
+    "broadcasting_type": 0,
+    "service_id": 0,
+    "quality_code": 0,
+    "protected": false,
+    "is_new": false,
+    "destination": "HDD",
+    "size_mb": null,
+    "genre_code": null,
+    "last_played": null,
+    "resume_sec": 0
+   }
+  }
+ ]
+}
