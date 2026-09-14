@@ -1,8 +1,9 @@
 #!/bin/sh
-# Keep docs/api.md and docs/openapi.json in step with the server (they are generated). Enable once with:
+# Keep the generated docs (docs/api.md, docs/openapi.json, docs/port/*) in step with the server. Enable once with:
 #   git config core.hooksPath .githooks
 set -e
+
 if git diff --cached --name-only | grep -q '^server/bdzbridge/'; then
-  (cd server && uv run -q python -m bdzbridge.tools.apidoc >/dev/null)
-  git add docs/api.md docs/openapi.json
+  (cd server && uv run -q python -m bdzbridge.tools.apidoc >/dev/null && uv run -q python -m bdzbridge.tools.portkit >/dev/null)
+  git add docs/api.md docs/openapi.json docs/port
 fi
