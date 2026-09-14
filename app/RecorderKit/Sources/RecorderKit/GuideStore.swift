@@ -289,6 +289,10 @@ public actor GuideStore {
     /// A broadcast day runs 04:00 to 04:00 in Japan, which is how the printed guides are laid out. The hour is
     /// taken on the calendar day of `date`, so a moment just after midnight belongs to the day that is ending.
     public nonisolated func dayRange(containing date: Date) -> (start: Date, end: Date) {
+        Self.dayRange(containing: date)
+    }
+
+    public static func dayRange(containing date: Date) -> (start: Date, end: Date) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         var components = calendar.dateComponents([.year, .month, .day], from: date)

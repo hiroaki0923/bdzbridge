@@ -32,8 +32,13 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
 ## What works
 
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
-into the on-device cache, browsing a day's programmes with the station logos and genres, opening a programme,
-and listing the reservations the recorder holds. Verified against a BDZ-FBT4100 from the simulator.
+into the on-device cache, browsing a day's programmes as a list or as a time-by-channel grid with the station
+logos and genres, opening a programme, and listing the reservations the recorder holds. Verified against a
+BDZ-FBT4100 from the simulator.
+
+The grid mirrors the web app's: an hour ruler down the left and the channel names across the top, genre
+colours, a ring around what is on air, a red line at the current time, and a time axis that pinches. Today
+opens at the current time.
 
 ## What is missing
 

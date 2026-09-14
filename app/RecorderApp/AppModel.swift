@@ -105,7 +105,7 @@ final class AppModel {
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
-            programs = try await store.day(day, broadcasting: broadcasting, serviceID: serviceFilter)
+            programs = try await store.day(day, broadcasting: broadcasting)
         } catch {
             problem = "番組表を読み出せませんでした: \(error)"
         }
@@ -114,6 +114,12 @@ final class AppModel {
     /// The eight days the recorder's guide covers, starting today.
     var days: [Date] {
         (0..<8).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: Date()) }
+    }
+
+    /// What the list shows: the day, narrowed to one channel when the reader picked one.
+    var filteredPrograms: [GuideProgramRow] {
+        guard let serviceFilter else { return programs }
+        return programs.filter { $0.serviceID == serviceFilter }
     }
 
     var channelName: String {
