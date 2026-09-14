@@ -4,6 +4,52 @@ public enum Discovery {
     /// The service that tells a Sony recorder apart from its televisions and players.
     public static let xsrsServicePrefix = "urn:schemas-xsrs-org:service:X_ScheduledRecording"
 
+    /// Looks through the addresses for a recorder, by asking each one for its `description.xml`. A host that
+    /// is not there, or is something else, drops out on the timeout or on the parse; what comes back is only
+    /// recorders. `progress` is called with how many addresses have been tried.
+    ///
+    /// There is no separate port scan: the description is what confirms a recorder anyway, so one short
+    /// request per address does both jobs. A recorder that is there answers in milliseconds; the timeout is
+    /// only ever paid on the addresses where nothing lives, which is why the two numbers below matter more
+    /// than they look: 253 addresses take about six seconds on a home network.
+    public static func scan(hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
+                            port: Int = Upnp.port, timeout: TimeInterval = 1.2, atOnce: Int = 48,
+                            progress: (@Sendable (Int, Int) -> Void)? = nil) async -> [RecorderDescription] {
+        guard !hosts.isEmpty else { return [] }
+        var found: [RecorderDescription] = []
+        var done = 0
+
+        await withTaskGroup(of: RecorderDescription?.self) { group in
+            var next = 0
+            func add() {
+                guard next < hosts.count else { return }
+                let host = hosts[next]
+                next += 1
+                group.addTask {
+                    await probe(host, transport: transport, port: port, timeout: timeout)
+                }
+            }
+            for _ in 0..<min(atOnce, hosts.count) { add() }
+            for await candidate in group {
+                done += 1
+                progress?(done, hosts.count)
+                if let candidate { found.append(candidate) }
+                add()
+            }
+        }
+        return found.sorted { $0.host < $1.host }
+    }
+
+    /// One address: a recorder, or nothing.
+    public static func probe(_ host: String, transport: any HTTPTransport = URLSessionTransport(),
+                             port: Int = Upnp.port, timeout: TimeInterval = 1.5) async -> RecorderDescription? {
+        let location = "http://\(host):\(port)/description.xml"
+        guard let url = URL(string: location),
+              let response = try? await transport.send(HTTPRequest(url: url, timeout: timeout)),
+              response.statusCode == 200 else { return nil }
+        return parseDescription(response.text, host: host, port: port, location: location, via: "scan")
+    }
+
     /// Reads a candidate's `description.xml`. Returns nil for anything that is not a Sony recorder with the
     /// reservation service, which is how televisions and other DLNA servers on the LAN are filtered out.
     public static func parseDescription(_ xml: String, host: String, port: Int = Upnp.port,
