@@ -16,3 +16,12 @@ if git diff --cached --name-only | grep -q '^server/bdzbridge/'; then
   (cd server && uv run -q python -m bdzbridge.tools.apidoc >/dev/null && uv run -q python -m bdzbridge.tools.portkit >/dev/null)
   git add docs/api.md docs/openapi.json docs/port
 fi
+
+# RecorderKit is checked against docs/port, so run it whenever either side moves. Drop this block if it makes
+# commits too slow; `cd app/RecorderKit && swift test` is the same check by hand.
+if git diff --cached --name-only | grep -qE '^(app/|docs/port/)' && command -v swift >/dev/null 2>&1; then
+  if ! (cd app/RecorderKit && swift test) >/dev/null 2>&1; then
+    echo "pre-commit: RecorderKit no longer matches docs/port - run 'cd app/RecorderKit && swift test'" >&2
+    exit 1
+  fi
+fi

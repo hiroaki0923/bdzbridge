@@ -14,3 +14,9 @@ AuthKey_*.p8
 *.jks
 *.keystore
 key.properties
+
+# Swift / Xcode build products
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserdatad
