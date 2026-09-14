@@ -3,23 +3,46 @@ import SwiftUI
 
 struct GuideScreen: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("guideMode") private var mode = "list"
+    @State private var tapped: GuideProgramRow?
+
+    private var grid: Bool { mode == "grid" }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 controls
                 Divider()
-                list
+                if grid {
+                    GuideGridView(channels: model.channels, programs: model.programs, day: model.day) {
+                        tapped = $0
+                    }
+                    .frame(maxHeight: .infinity)
+                } else {
+                    list
+                }
             }
             .navigationTitle("番組表")
+            .navigationBarTitleDisplayMode(grid ? .inline : .large)
             .toolbar {
-                Button {
-                    Task { await model.refreshGuide() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                ToolbarItem(placement: .topBarLeading) {
+                    Picker("表示", selection: $mode) {
+                        Text("リスト").tag("list")
+                        Text("表").tag("grid")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 120)
                 }
-                .disabled(!model.connected || model.busy != nil)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await model.refreshGuide() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(!model.connected || model.busy != nil)
+                }
             }
+            .sheet(item: $tapped) { ProgramDetailView(program: $0) }
         }
     }
 
@@ -52,14 +75,16 @@ struct GuideScreen: View {
             }
 
             HStack {
-                Menu {
-                    Button("すべての局") { model.serviceFilter = nil; reload() }
-                    ForEach(model.channels) { channel in
-                        Button(channel.name) { model.serviceFilter = channel.serviceID; reload() }
+                if !grid {
+                    Menu {
+                        Button("すべての局") { model.serviceFilter = nil }
+                        ForEach(model.channels) { channel in
+                            Button(channel.name) { model.serviceFilter = channel.serviceID }
+                        }
+                    } label: {
+                        Label(model.channelName, systemImage: "line.3.horizontal.decrease")
+                            .font(.subheadline)
                     }
-                } label: {
-                    Label(model.channelName, systemImage: "line.3.horizontal.decrease")
-                        .font(.subheadline)
                 }
                 Spacer()
                 if let busy = model.busy {
@@ -68,7 +93,7 @@ struct GuideScreen: View {
                         Text(busy).font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("\(model.programs.count) 件").font(.caption).foregroundStyle(.secondary)
+                    Text("\(shown.count) 件").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -81,13 +106,13 @@ struct GuideScreen: View {
         if let problem = model.problem {
             ContentUnavailableView("うまくいきませんでした", systemImage: "exclamationmark.triangle",
                                    description: Text(problem))
-        } else if model.programs.isEmpty {
+        } else if shown.isEmpty {
             ContentUnavailableView(model.connected ? "この日の番組表がありません" : "レコーダーが未設定です",
                                    systemImage: "calendar",
                                    description: Text(model.connected ? "右上の更新でレコーダーから取得します"
                                                                      : "設定でレコーダーのアドレスを入れてください"))
         } else {
-            List(model.programs) { program in
+            List(shown) { program in
                 NavigationLink(value: program) {
                     ProgramRowView(program: program, logo: logo(for: program.serviceID))
                 }
@@ -96,6 +121,8 @@ struct GuideScreen: View {
             .navigationDestination(for: GuideProgramRow.self) { ProgramDetailView(program: $0) }
         }
     }
+
+    private var shown: [GuideProgramRow] { model.filteredPrograms }
 
     private func logo(for serviceID: Int) -> Data? {
         model.channels.first { $0.serviceID == serviceID }?.logo
