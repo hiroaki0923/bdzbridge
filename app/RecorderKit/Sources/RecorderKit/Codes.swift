@@ -53,6 +53,19 @@ public enum Codes {
         0xE: "拡張", 0xF: "その他",
     ]
 
+    /// The order to offer these in. The vectors pin the codes; this is only how they are listed.
+    public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
+    public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
+
+    /// The weekly repeat that matches a date. The recorder takes a weekday code, and the server refuses one
+    /// that is not the programme's own weekday, so this is the only weekly option worth offering.
+    public static func weekdayRepeat(for date: Date, timeZone: TimeZone = RecorderTime.timeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let weekday = calendar.component(.weekday, from: date)   // 1 = Sunday
+        return weekdayRepeat[(weekday + 5) % 7]
+    }
+
     public static func broadcasting(code: Int) -> String? {
         broadcasting.first { $0.value == code }?.key
     }

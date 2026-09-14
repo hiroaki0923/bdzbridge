@@ -15,7 +15,7 @@ final class AppModel {
     }
 
     var broadcasting = "td"
-    var day = Date()
+    var day: Date
     var serviceFilter: Int?
 
     private(set) var info: RecorderDescription?
@@ -25,6 +25,8 @@ final class AppModel {
     private(set) var channels: [Channel] = []
     private(set) var programs: [GuideProgramRow] = []
     private(set) var reservations: [Reservation] = []
+    /// Reservations by the programme they follow, so the guide can mark what is already set to record.
+    private(set) var reservationsByProgram: [String: Reservation] = [:]
     private(set) var busy: String?
     private(set) var problem: String?
 
@@ -36,6 +38,10 @@ final class AppModel {
 
     init() {
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
+        // `-startDay 6` opens the guide six days out, which is how a day with reservations on it is reached
+        // without tapping through the app.
+        let offset = UserDefaults.standard.integer(forKey: "startDay")
+        day = Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date()
     }
 
     var connected: Bool { info != nil }
@@ -97,7 +103,79 @@ final class AppModel {
         guard let client else { return }
         await run("予約を取得中") {
             self.reservations = try await client.reservations()
+            self.reservationsByProgram = Dictionary(
+                self.reservations.compactMap { reservation in
+                    reservation.eventID.map { (Self.key(reservation.broadcastingType, reservation.serviceID, $0),
+                                               reservation) }
+                },
+                uniquingKeysWith: { first, _ in first })
         }
+    }
+
+    /// The reservation that follows this programme, if there is one. Time-only reservations carry no
+    /// programme id and so cannot be matched to one.
+    func reservation(for program: GuideProgramRow) -> Reservation? {
+        guard let broadcastingType = Codes.broadcasting[program.broadcasting] else { return nil }
+        return reservationsByProgram[Self.key(broadcastingType, program.serviceID, program.eventID)]
+    }
+
+    private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
+        "\(broadcastingType)-\(serviceID)-\(eventID)"
+    }
+
+    /// What would be sent to the recorder to record this programme.
+    func request(for program: GuideProgramRow, quality: String, repeating: String) -> ReservationRequest? {
+        guard let broadcastingType = Codes.broadcasting[program.broadcasting],
+              let qualityCode = Codes.quality[quality],
+              let repeatCode = Codes.repeatCodes[repeating] else { return nil }
+        return ReservationRequest(title: program.title, start: program.start, durationSec: program.durationSec,
+                                  repeatCode: repeatCode, broadcastingType: broadcastingType,
+                                  serviceID: program.serviceID, qualityCode: qualityCode,
+                                  eventID: program.eventID)
+    }
+
+    /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
+    /// it also proves the payload is one the recorder accepts, without recording anything.
+    func conflicts(for program: GuideProgramRow, quality: String, repeating: String) async -> [Reservation]? {
+        await start()
+        guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
+            return nil
+        }
+        do {
+            return try await client.conflicts(elements: XsrsElements.create(request))
+        } catch let error as RecorderError {
+            problem = error.explanation
+            return nil
+        } catch {
+            problem = String(describing: error)
+            return nil
+        }
+    }
+
+    /// Writes to the recorder: after this the box really will record the programme.
+    func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
+        await start()
+        guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
+            return false
+        }
+        var created = false
+        await run("予約中") {
+            _ = try await client.createReservation(request)
+            created = true
+        }
+        if created { await loadReservations() }
+        return created
+    }
+
+    /// Also a write: the recorder forgets the reservation.
+    func cancel(_ reservation: Reservation) async {
+        await start()
+        guard let client else { return }
+        await run("予約を削除中") {
+            try await client.deleteReservation(id: reservation.id)
+            self.reservations.removeAll { $0.id == reservation.id }
+        }
+        await loadReservations()
     }
 
     func reloadFromCache() async {

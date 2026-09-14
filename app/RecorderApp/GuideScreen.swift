@@ -14,9 +14,8 @@ struct GuideScreen: View {
                 controls
                 Divider()
                 if grid {
-                    GuideGridView(channels: model.channels, programs: model.programs, day: model.day) {
-                        tapped = $0
-                    }
+                    GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
+                                  reservationFor: { model.reservation(for: $0) }) { tapped = $0 }
                     .frame(maxHeight: .infinity)
                 } else {
                     list
@@ -42,7 +41,7 @@ struct GuideScreen: View {
                     .disabled(!model.connected || model.busy != nil)
                 }
             }
-            .sheet(item: $tapped) { ProgramDetailView(program: $0) }
+            .sheet(item: $tapped) { ProgramSheet(program: $0) }
         }
     }
 
@@ -113,12 +112,13 @@ struct GuideScreen: View {
                                                                      : "設定でレコーダーのアドレスを入れてください"))
         } else {
             List(shown) { program in
-                NavigationLink(value: program) {
-                    ProgramRowView(program: program, logo: logo(for: program.serviceID))
+                Button { tapped = program } label: {
+                    ProgramRowView(program: program, logo: logo(for: program.serviceID),
+                                   reservation: model.reservation(for: program))
                 }
+                .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .navigationDestination(for: GuideProgramRow.self) { ProgramDetailView(program: $0) }
         }
     }
 
@@ -136,6 +136,7 @@ struct GuideScreen: View {
 struct ProgramRowView: View {
     let program: GuideProgramRow
     let logo: Data?
+    let reservation: Reservation?
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -152,6 +153,11 @@ struct ProgramRowView: View {
                         Image(uiImage: image).resizable().scaledToFit().frame(height: 12)
                     }
                     Text(program.serviceName).font(.caption2).foregroundStyle(.secondary)
+                    if let reservation {
+                        Text(reservation.recording ? "録画中" : "予約")
+                            .font(.caption2)
+                            .foregroundStyle(reservation.recording ? .red : .orange)
+                    }
                     if let genre = program.genre?.label {
                         Text(genre).font(.caption2).foregroundStyle(.tertiary)
                     }
@@ -162,31 +168,5 @@ struct ProgramRowView: View {
             }
         }
         .padding(.vertical, 2)
-    }
-}
-
-struct ProgramDetailView: View {
-    let program: GuideProgramRow
-
-    var body: some View {
-        List {
-            Section {
-                Text(program.title).font(.headline)
-                LabeledContent("放送", value: program.serviceName)
-                LabeledContent("開始", value: Format.dateTime.string(from: program.start))
-                LabeledContent("長さ", value: Format.duration(program.durationSec))
-                if let genre = program.genre?.label {
-                    LabeledContent("ジャンル", value: genre)
-                }
-            }
-            if !program.summary.isEmpty {
-                Section("番組内容") { Text(program.summary) }
-            }
-            if !program.extended.isEmpty {
-                Section("詳細") { Text(program.extended) }
-            }
-        }
-        .navigationTitle("番組")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }

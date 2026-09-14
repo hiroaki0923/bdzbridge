@@ -10,6 +10,7 @@ struct GuideGridView: View {
     let channels: [Channel]
     let programs: [GuideProgramRow]
     let day: Date
+    let reservationFor: (GuideProgramRow) -> Reservation?
     let onSelect: (GuideProgramRow) -> Void
 
     @AppStorage("gridPointsPerMinute") private var pointsPerMinute = 3.0
@@ -148,7 +149,8 @@ struct GuideGridView: View {
     private func blocks(_ programs: [GuideProgramRow], atColumn index: Int) -> some View {
         ForEach(programs.filter { visibleMinutes.overlaps(minutes(of: $0)) }) { program in
             ProgramBlock(program: program, height: height(of: program), width: column - 2,
-                         labelOffset: labelOffset(for: program), onSelect: onSelect)
+                         labelOffset: labelOffset(for: program), reservation: reservationFor(program),
+                         onSelect: onSelect)
                 .offset(x: gutter + Double(index) * column + 1, y: header + top(of: program))
         }
     }
@@ -269,6 +271,7 @@ private struct ProgramBlock: View {
     let height: Double
     let width: Double
     let labelOffset: Double
+    let reservation: Reservation?
     let onSelect: (GuideProgramRow) -> Void
 
     private var ended: Bool { program.end <= Date() }
@@ -287,6 +290,7 @@ private struct ProgramBlock: View {
                 Text(Format.time.string(from: program.start))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    + reservationMark
                     + Text(" ")
                     + Text(program.title).font(.system(size: 11, weight: onAir ? .semibold : .regular))
             }
@@ -303,10 +307,19 @@ private struct ProgramBlock: View {
                 genreColor.opacity(0.16).frame(height: height * elapsed)
             }
         }
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(reservation == nil ? Color(.secondarySystemGroupedBackground)
+                                       : Color.orange.opacity(0.14))
         .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: onAir ? 4 : 3) }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(ended ? 0.5 : 1)
+    }
+
+    /// Reservations are marked in the text, because the block is too small for anything else.
+    private var reservationMark: Text {
+        guard let reservation else { return Text("") }
+        return Text(" ") + Text(reservation.recording ? "録画中" : "予約")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(reservation.recording ? .red : .orange)
     }
 
     /// ARIB level-1 genre to an accent colour, the same mapping the web app uses.
