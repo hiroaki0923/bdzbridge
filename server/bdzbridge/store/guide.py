@@ -1,97 +1,16 @@
-"""SQLite cache of the recorder's EPG plus a little metadata. Reads are cheap; refresh replaces per broadcasting type."""
+"""Channels, programmes, logos, and the user's channel preferences: the guide cache."""
 from __future__ import annotations
 
 import sqlite3
-import threading
-import unicodedata
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from .recorder import codes
-from .recorder.epg import JST, Service
-from .recorder.logo import Logo
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS channels (
-  bt TEXT NOT NULL, service_id INTEGER NOT NULL, name TEXT NOT NULL, sort INTEGER NOT NULL,
-  PRIMARY KEY (bt, service_id));
-CREATE TABLE IF NOT EXISTS programs (
-  bt TEXT NOT NULL, service_id INTEGER NOT NULL, event_id INTEGER NOT NULL,
-  start INTEGER NOT NULL, end INTEGER NOT NULL,
-  title TEXT, description TEXT, extended TEXT, genre1 INTEGER, genre2 INTEGER, genres TEXT,
-  copy_control INTEGER, parental INTEGER, ref_service_id INTEGER, ref_event_id INTEGER,
-  search_text TEXT,
-  PRIMARY KEY (bt, service_id, event_id, start));
-CREATE TABLE IF NOT EXISTS logos (
-  bt TEXT NOT NULL, service_id INTEGER NOT NULL, channel_no INTEGER NOT NULL, png BLOB NOT NULL,
-  PRIMARY KEY (bt, service_id));
-CREATE TABLE IF NOT EXISTS rules (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, bt TEXT, service_id INTEGER,
-  title_only INTEGER NOT NULL DEFAULT 1, quality TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS auto_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id INTEGER NOT NULL, bt TEXT NOT NULL, service_id INTEGER NOT NULL,
-  event_id INTEGER NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL, status TEXT NOT NULL, message TEXT,
-  at TEXT NOT NULL, UNIQUE (rule_id, bt, service_id, event_id));
-CREATE TABLE IF NOT EXISTS channel_prefs (
-  bt TEXT NOT NULL, service_id INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0, position INTEGER,
-  PRIMARY KEY (bt, service_id));
-CREATE TABLE IF NOT EXISTS title_summaries (id TEXT PRIMARY KEY, summary TEXT NOT NULL, at TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
-CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
-"""
+from ..recorder import codes
+from ..recorder.epg import JST, Service
+from ..recorder.logo import Logo
+from .base import ProgramRow, search_norm
 
 
-@dataclass
-class ProgramRow:
-    bt: str
-    service_id: int
-    service_name: str
-    event_id: int
-    start: datetime
-    end: datetime
-    title: str
-    description: str
-    extended: str
-    genres: list[tuple[int, int]]
-    copy_control: int
-    parental: int
-    is_reference: bool
-    ref_service_id: int | None
-    ref_event_id: int | None
-
-
-SCHEMA_VERSION = "3"
-
-
-def search_norm(text: str) -> str:
-    """Case-folded NFKC form, so that ＶＩＶＡＮＴ, VIVANT and vivant all match."""
-    return unicodedata.normalize("NFKC", text).casefold()
-
-
-class Store:
-    def __init__(self, path: str):
-        self.path = path
-        self._lock = threading.Lock()
-        self.db = sqlite3.connect(path, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
-        with self.db:
-            self.db.executescript(_SCHEMA)
-            if self.get_meta("schema_version") != SCHEMA_VERSION:
-                # the cache is disposable: rebuild tables on a schema change
-                self.db.executescript("DROP TABLE programs; DROP TABLE channels; DROP TABLE IF EXISTS logos; DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';")
-                self.db.executescript(_SCHEMA)
-                self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
-
-    # --- meta ---
-    def get_meta(self, key: str) -> str | None:
-        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-        return row["value"] if row else None
-
-    def set_meta(self, key: str, value: str) -> None:
-        with self._lock, self.db:
-            self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
-
+class GuideMixin:
     # --- refresh ---
     def replace_services(self, bt: str, services: list[Service]) -> int:
         rows = []
@@ -112,68 +31,6 @@ class Store:
             self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                             (f"epg_refreshed:{bt}", datetime.now(JST).isoformat(timespec="seconds")))
         return len(rows)
-
-    # --- recorded-title summaries (for duplicate detection; the recorder is slow to ask) ---
-    def title_summary(self, title_id: str) -> str | None:
-        r = self.db.execute("SELECT summary FROM title_summaries WHERE id=?", (title_id,)).fetchone()
-        return r[0] if r else None
-
-    def set_title_summary(self, title_id: str, summary: str) -> None:
-        with self._lock, self.db:
-            self.db.execute("INSERT OR REPLACE INTO title_summaries (id, summary, at) VALUES (?,?,?)",
-                            (title_id, summary, datetime.now(JST).isoformat(timespec="seconds")))
-
-    # --- auto-reservation rules ---
-    def rules(self) -> list[dict]:
-        return [dict(r) for r in self.db.execute("SELECT * FROM rules ORDER BY id")]
-
-    def rule(self, rule_id: int) -> dict | None:
-        r = self.db.execute("SELECT * FROM rules WHERE id=?", (rule_id,)).fetchone()
-        return dict(r) if r else None
-
-    def add_rule(self, query: str, bt: str | None, service_id: int | None, title_only: bool, quality: str) -> dict:
-        with self._lock, self.db:
-            cur = self.db.execute("INSERT INTO rules (query, bt, service_id, title_only, quality, enabled, created) VALUES (?,?,?,?,?,1,?)",
-                                  (query.strip(), bt, service_id, int(title_only), quality,
-                                   datetime.now(JST).isoformat(timespec="seconds")))
-        return self.rule(cur.lastrowid)  # type: ignore[return-value]
-
-    def update_rule(self, rule_id: int, **fields) -> dict | None:
-        cols = {k: (int(v) if isinstance(v, bool) else v) for k, v in fields.items()
-                if v is not None and k in ("enabled", "quality", "title_only", "query")}
-        if cols:
-            with self._lock, self.db:
-                self.db.execute(f"UPDATE rules SET {', '.join(f'{k}=?' for k in cols)} WHERE id=?", (*cols.values(), rule_id))
-        return self.rule(rule_id)
-
-    def delete_rule(self, rule_id: int) -> bool:
-        with self._lock, self.db:
-            n = self.db.execute("DELETE FROM rules WHERE id=?", (rule_id,)).rowcount
-            self.db.execute("DELETE FROM auto_log WHERE rule_id=?", (rule_id,))
-        return n > 0
-
-    def rule_matches(self, rule: dict, since: datetime, limit: int = 300) -> list[ProgramRow]:
-        """Programs starting at or after `since` that the rule matches (title only, or title + description)."""
-        rows = self.programs(bt=rule["bt"], service_id=rule["service_id"], since=since, query=rule["query"], limit=limit)
-        if rule["title_only"]:
-            q = search_norm(rule["query"])
-            rows = [p for p in rows if q in search_norm(p.title)]
-        return [p for p in rows if p.start >= since]
-
-    def auto_logged(self, rule_id: int, bt: str, service_id: int, event_id: int) -> bool:
-        return self.db.execute("SELECT 1 FROM auto_log WHERE rule_id=? AND bt=? AND service_id=? AND event_id=?",
-                               (rule_id, bt, service_id, event_id)).fetchone() is not None
-
-    def auto_log_add(self, rule_id: int, p: ProgramRow, status: str, message: str = "") -> None:
-        with self._lock, self.db:
-            self.db.execute("INSERT OR REPLACE INTO auto_log (rule_id, bt, service_id, event_id, title, start, status, message, at)"
-                            " VALUES (?,?,?,?,?,?,?,?,?)",
-                            (rule_id, p.bt, p.service_id, p.event_id, p.title, int(p.start.timestamp()), status, message or None,
-                             datetime.now(JST).isoformat(timespec="seconds")))
-
-    def auto_log(self, limit: int = 50) -> list[dict]:
-        return [dict(r) for r in self.db.execute(
-            "SELECT l.*, r.query AS rule_query FROM auto_log l LEFT JOIN rules r ON r.id=l.rule_id ORDER BY l.id DESC LIMIT ?", (limit,))]
 
     def replace_logos(self, bt: str, logos: list[Logo]) -> None:
         with self._lock, self.db:
