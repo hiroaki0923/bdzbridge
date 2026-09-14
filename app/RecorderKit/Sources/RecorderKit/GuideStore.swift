@@ -17,7 +17,7 @@ public struct Channel: Sendable, Equatable, Identifiable {
 
 /// A programme from the cache: the channel's name filled in, and a sub-channel reference resolved to the text
 /// of the programme it points at.
-public struct GuideProgramRow: Sendable, Equatable, Identifiable {
+public struct GuideProgramRow: Sendable, Hashable, Identifiable {
     public var broadcasting: String
     public var serviceID: Int
     public var serviceName: String
