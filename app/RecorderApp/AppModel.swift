@@ -180,6 +180,9 @@ final class AppModel {
 
     private(set) var job: BulkJob?
     private(set) var duplicates: [DuplicateSet] = []
+    /// Which copies are ticked for deletion. It lives here because the view holding it is thrown away every
+    /// time the reader looks at the list or the programmes instead.
+    var duplicatePicks: Set<String> = []
     /// What the recorder said each recording is about, cached on disk as well.
     private var summaries: [String: String] = [:]
     private var jobTask: Task<Void, Never>?
@@ -230,7 +233,7 @@ final class AppModel {
     func startDuplicateScan() {
         guard jobTask == nil, let client, let store else { return }
         let candidates = Duplicates.candidates(titles)
-        duplicates = []
+        setDuplicates([])
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         jobTask = Task { [weak self] in
             await self?.runScan(candidates, client: client, store: store)
@@ -254,14 +257,20 @@ final class AppModel {
                 job?.done += 1
             }
         }
-        duplicates = Duplicates.sets(candidates: candidates, summaries: summaries)
+        setDuplicates(Duplicates.sets(candidates: candidates, summaries: summaries))
         job?.finished = true
         jobTask = nil
     }
 
     /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
     func recomputeDuplicates() {
-        duplicates = Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries)
+        setDuplicates(Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries))
+    }
+
+    /// The copies to delete are ticked for the reader; a set that changes gets a fresh set of ticks.
+    private func setDuplicates(_ sets: [DuplicateSet]) {
+        duplicates = sets
+        duplicatePicks = Set(sets.flatMap(\.suggestDelete))
     }
 
     private func deleteOne(_ id: String, _ client: RecorderClient) async {

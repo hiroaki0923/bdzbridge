@@ -6,7 +6,6 @@ struct DuplicatesView: View {
     let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
 
-    @State private var picked: Set<String> = []
     @State private var confirming = false
 
     private var scanned: Bool {
@@ -15,7 +14,7 @@ struct DuplicatesView: View {
     }
 
     private var chosen: [RecordedTitle] {
-        model.duplicates.flatMap(\.items).filter { picked.contains($0.id) }
+        model.duplicates.flatMap(\.items).filter { model.duplicatePicks.contains($0.id) }
     }
 
     private var chosenGB: Double {
@@ -29,9 +28,6 @@ struct DuplicatesView: View {
             } else {
                 list
             }
-        }
-        .onChange(of: model.duplicates.map(\.id)) { _, _ in
-            picked = Set(model.duplicates.flatMap(\.suggestDelete))
         }
         .confirmationDialog("重複した \(chosen.count) 件を削除しますか？", isPresented: $confirming,
                             titleVisibility: .visible) {
@@ -104,9 +100,13 @@ struct DuplicatesView: View {
         let keeping = title.id == set.keep
         return HStack(alignment: .top, spacing: 10) {
             Button {
-                if picked.contains(title.id) { picked.remove(title.id) } else { picked.insert(title.id) }
+                if model.duplicatePicks.contains(title.id) {
+                    model.duplicatePicks.remove(title.id)
+                } else {
+                    model.duplicatePicks.insert(title.id)
+                }
             } label: {
-                Image(systemName: picked.contains(title.id) ? "checkmark.circle.fill" : "circle")
+                Image(systemName: model.duplicatePicks.contains(title.id) ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(title.protected ? .secondary : Color.accentColor)
             }
             .buttonStyle(.plain)
