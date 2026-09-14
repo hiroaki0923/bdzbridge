@@ -4,8 +4,14 @@ import SwiftUI
 /// What the recorder is going to record, under the day it records on, or the genre, or the channel.
 struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var removing: Reservation?
+    /// The row swiped, by id rather than by value: the reservation itself is read back out of the model
+    /// when the dialog asks, so a delete can only ever be sent for a row the list still holds.
+    @State private var removing: String?
     @State private var opened: Reservation?
+
+    private var pending: Reservation? {
+        removing.flatMap { id in model.reservations.first { $0.id == id } }
+    }
 
     var body: some View {
         NavigationStack {
@@ -64,10 +70,10 @@ struct ReservationsScreen: View {
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .confirmationDialog("この予約を削除しますか？",
-                                isPresented: Binding(get: { removing != nil },
+                                isPresented: Binding(get: { pending != nil },
                                                      set: { if !$0 { removing = nil } }),
                                 titleVisibility: .visible,
-                                presenting: removing) { reservation in
+                                presenting: pending) { reservation in
                 Button("削除する", role: .destructive) {
                     Task { await model.cancel(reservation) }
                 }
@@ -121,8 +127,11 @@ struct ReservationsScreen: View {
                                                channel: model.channelName(for: reservation))
                         }
                         .buttonStyle(.plain)
+                        // the row is given its own identity so that a reused row cannot carry another
+                        // row's swipe action with it
+                        .id(reservation.id)
                         .swipeActions {
-                            Button("削除", role: .destructive) { removing = reservation }
+                            Button("削除", role: .destructive) { removing = reservation.id }
                         }
                     }
                 }
