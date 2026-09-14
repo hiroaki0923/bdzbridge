@@ -62,6 +62,13 @@ export const fmtDate = (iso) => {
   return d.toLocaleDateString('ja-JP', opts)
 }
 export const fmtDateTime = (iso) => `${fmtDate(iso)} ${fmtTime(iso)}`
+
+// Repeat options for a programme starting at `startIso`: the weekly ones are narrowed to its own weekday.
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] // index = Date#getDay()
+export function repeatOptions(repeats, startIso) {
+  const own = startIso ? WEEKDAY_KEYS[new Date(startIso).getDay()] : null
+  return Object.entries(repeats ?? {}).filter(([k]) => !WEEKDAY_KEYS.includes(k) || k === own)
+}
 export const fmtBytes = (b) => (b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB')
 
 // TV days run 04:00-04:00 JST. Returns YYYY-MM-DD for "today" in that sense, plus the next 7 days.

@@ -1,5 +1,5 @@
 <script>
-  import { api, fmtDateTime, fmtTime, findReservation } from '../api.js'
+  import { api, repeatOptions, fmtDateTime, fmtTime, findReservation } from '../api.js'
   import { app, loadReservations, toast } from '../store.svelte.js'
   let { program, onclose } = $props()
   let existing = $derived(findReservation(app.resIdx, program))
@@ -53,7 +53,7 @@
       <label class="field"><span>録画モード</span>
         <select bind:value={quality}>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
       <label class="field"><span>毎回録画</span>
-        <select bind:value={repeat}>{#each Object.entries(app.defaults?.repeats ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
+        <select bind:value={repeat}>{#each repeatOptions(app.defaults?.repeats, program.start) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>
       <button class="btn" disabled={busy} onclick={saveEdit}>{busy ? '送信中…' : '変更を保存'}</button>
       <button class="btn ghost" onclick={() => (editing = false)}>変更をやめる</button>
     {:else}
@@ -65,7 +65,7 @@
       <label class="field"><span>録画モード</span>
         <select bind:value={quality}>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
       <label class="field"><span>毎回録画</span>
-        <select bind:value={repeat}>{#each Object.entries(app.defaults?.repeats ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
+        <select bind:value={repeat}>{#each repeatOptions(app.defaults?.repeats, program.start) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>
     </div>
     {#if conflicts.length}
       <div class="card"><div class="muted">重なる予約</div>{#each conflicts as c}<div>{fmtDateTime(c.start)} {c.title}</div>{/each}</div>

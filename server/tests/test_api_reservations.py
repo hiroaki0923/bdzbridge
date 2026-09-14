@@ -64,3 +64,14 @@ def test_titles_and_reservations_fall_back_to_genre_code(client):
     r = Reservation("0x1", "x", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 1800, "1", 2, 1024, None, 230, False, False, "HDD", None, None,
                     genre_code=112)
     assert [g.label for g in reservation_out(r).genres] == ["アニメ／特撮"]
+
+
+def test_weekly_repeat_must_match_the_programmes_weekday(client):
+    # the fixture programme airs on Monday 2026-09-14
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792, "repeat": "tue"})
+    assert r.status_code == 422 and "weekday" in r.json()["detail"]
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792, "repeat": "mon"})
+    assert r.status_code == 201 and r.json()["reservation"]["repeat"] == "mon"
+    rid = r.json()["reservation"]["id"]
+    assert client.patch(f"/api/v1/reservations/{rid}", headers=H, json={"repeat": "sun"}).status_code == 422
+    assert client.patch(f"/api/v1/reservations/{rid}", headers=H, json={"repeat": "daily"}).status_code == 200

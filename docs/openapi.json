@@ -726,7 +726,7 @@
      "reservations"
     ],
     "summary": "Reservation Create",
-    "description": "Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set.",
+    "description": "Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set, and 422 when a weekly repeat names a weekday other than the programme's.",
     "operationId": "reservation_create_api_v1_reservations_post",
     "requestBody": {
      "content": {
