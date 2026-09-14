@@ -31,6 +31,12 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
 picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, and `-scanOnStart 1` starts the
 duplicate scan, which only reads.
 
+**A launch argument pins the value for that run.** Anything passed this way lands in `UserDefaults`'
+argument domain, which outranks what the app saves, so picking another mode in a run started with
+`-recordingsMode` appears to do nothing: the pick is written but the argument keeps being read back. Launch
+without the flag to use the app normally. The same goes for the address typed into Settings while
+`-recorderHost` is in force.
+
 ## What works
 
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
