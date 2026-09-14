@@ -168,9 +168,10 @@ Android を配布する人向けの注意も一つ書いておきます。Play �
 ## 進め方の案
 
 1. プロトコル層: `description.xml` の解析 → SOAP 呼び出し → 予約一覧の取得（読み取りだけ）。`xsrs.json` と
-   `description.json` を通す。**着手済み**: `app/RecorderKit` に XML ツリー、コード表、SOAP と Elements の生成、
-   item の解析、`description.xml` の解析があり、`codes.json` / `xsrs.json` / `description.json` を通しています。
-   残りは HTTP クライアントで、レコーダーが並行リクエストに 503 を返すため actor で直列化します。
+   `description.json` を通す。**完了**: `app/RecorderKit` に XML ツリー、コード表、SOAP と Elements の生成、item の解析、
+   `description.xml` の解析、そして HTTP クライアントがあります。`codes.json` / `xsrs.json` / `description.json` を
+   通し、実機では予約一覧と残容量が Python サーバーと一致することを確認しました
+   （`RECORDER_HOST=<ip> swift test --filter LiveRecorderTests`、読み取りのみ）。
 2. EPG: ファイル取得と復号、端末内 DB、日別・チャンネル別の表示。`epg-sample` を通し、実機ファイルで Python と
    突き合わせる。
 3. 予約: 作成・更新・削除と番組追従。テスト用の予約名を決めて作成→削除で確認する。
