@@ -103,6 +103,19 @@ final class LiveRecorderTests: XCTestCase {
                 }
             }
 
+            // the cache has to swallow a real day's guide without complaint, and quickly enough to do it on a phone
+            let store = try GuideStore(path: ":memory:")
+            let started = Date()
+            let stored = try await store.replace(services, broadcasting: broadcasting)
+            let elapsed = Int(Date().timeIntervalSince(started) * 1000)
+            let counts = try await store.counts()[broadcasting]
+            print("  cached \(stored) rows in \(elapsed) ms:"
+                  + " \(counts?.channels ?? 0) channels, \(counts?.programs ?? 0) programmes")
+            XCTAssertEqual(stored, programs)
+            XCTAssertEqual(counts?.programs, programs - references)
+            let firstDay = try await store.day(Date(), broadcasting: broadcasting)
+            print("  today: \(firstDay.count) programmes, first \(firstDay.first?.title ?? "-")")
+
             XCTAssertFalse(services.isEmpty)
             XCTAssertGreaterThan(programs, services.count)
             XCTAssertTrue(services.allSatisfy { !$0.name.isEmpty }, "every service should name itself")
