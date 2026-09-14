@@ -13,20 +13,56 @@ struct RecordingsScreen: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                filters
-                Divider()
                 JobBarView()
                 content
             }
-            .navigationTitle("録画")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Picker("表示", selection: $mode) {
-                        Text("一覧").tag("list")
-                        Text("まとめ").tag("groups")
+                    Button {
+                        mode = grouped ? "list" : "groups"
+                    } label: {
+                        Image(systemName: grouped ? "rectangle.stack" : "list.bullet")
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 130)
+                    .accessibilityLabel(grouped ? "一覧にする" : "まとめにする")
+                }
+                // the free space is worth a permanent place; the sort and the watch state are worth a menu
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 0) {
+                        Text(model.storage.map { "残り \(Format.gigabytes($0.free))" } ?? "録画")
+                            .font(.subheadline.weight(.semibold))
+                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("ジャンル", selection: Binding(get: { model.titleGenre },
+                                                            set: { model.titleGenre = $0 })) {
+                            Text("すべて \(model.titles.count)").tag(Int?.none)
+                            ForEach(Array(Codes.genreLabel.keys).sorted(), id: \.self) { level in
+                                if let count = model.titleGenreCounts[level], count > 0 {
+                                    Text("\(Codes.genreLabel[level] ?? "") \(count)").tag(Int?.some(level))
+                                }
+                            }
+                        }
+                        Picker("並び", selection: Binding(get: { model.titleSort },
+                                                         set: { model.titleSort = $0 })) {
+                            ForEach(AppModel.TitleSort.allCases, id: \.self) { sort in
+                                Text(sort.label).tag(sort)
+                            }
+                        }
+                        Picker("視聴", selection: Binding(get: { model.titleState },
+                                                         set: { model.titleState = $0 })) {
+                            Text("すべて").tag(WatchState?.none)
+                            ForEach(WatchState.allCases, id: \.self) { state in
+                                Text(state.label).tag(WatchState?.some(state))
+                            }
+                        }
+                    } label: {
+                        Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill"
+                                                    : "line.3.horizontal.decrease.circle")
+                    }
+                    .accessibilityLabel("ジャンルと並びと視聴で絞る")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -45,65 +81,16 @@ struct RecordingsScreen: View {
         }
     }
 
-    private var filters: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                if let storage = model.storage {
-                    Text("残り \(Format.gigabytes(storage.free))")
-                        .font(.subheadline.weight(.medium))
-                }
-                Spacer()
-                if let busy = model.busy {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(busy).font(.caption).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text(grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    chip("すべて", on: model.titleGenre == nil) { model.titleGenre = nil }
-                    ForEach(Array(Codes.genreLabel.keys).sorted(), id: \.self) { level in
-                        if let count = model.titleGenreCounts[level], count > 0 {
-                            chip("\(Codes.genreLabel[level] ?? "") \(count)", on: model.titleGenre == level) {
-                                model.titleGenre = model.titleGenre == level ? nil : level
-                            }
-                        }
-                    }
-                }
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(AppModel.TitleSort.allCases, id: \.self) { sort in
-                        chip(sort.label, on: model.titleSort == sort) { model.titleSort = sort }
-                    }
-                    Divider().frame(height: 18)
-                    ForEach(WatchState.allCases, id: \.self) { state in
-                        chip(state.label, on: model.titleState == state) {
-                            model.titleState = model.titleState == state ? nil : state
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.horizontal)
-        .padding(.bottom, 8)
+    private var filtering: Bool {
+        model.titleGenre != nil || model.titleState != nil || model.titleSort != .newest
     }
 
-    private func chip(_ text: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(text, action: action)
-            .font(.footnote)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(on ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
-            .foregroundStyle(on ? Color.accentColor : Color.primary)
-            .clipShape(Capsule())
+    /// What is being shown, since the filters now live behind a menu.
+    private var subtitle: String {
+        if let busy = model.busy { return busy }
+        let what = grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件"
+        guard let genre = model.titleGenre, let label = Codes.genreLabel[genre] else { return what }
+        return "\(label) · \(what)"
     }
 
     @ViewBuilder
