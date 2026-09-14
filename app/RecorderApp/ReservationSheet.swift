@@ -28,15 +28,23 @@ struct ReservationSheet: View {
                     if reservation.eventID != nil {
                         LabeledContent("番組追従", value: "時間が変わっても追いかけます")
                     }
+                    LabeledContent("入れた人", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
+                                   : reservation.createdByApp ? "アプリから" : "不明")
                     if let size = reservation.sizeMB {
                         LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
                     }
                 }
 
-                if reservation.recording || reservation.conflict {
+                if reservation.recording || reservation.conflict || reservation.createdByRecorder {
                     Section {
                         if reservation.recording { Text("いま録画中です").foregroundStyle(.red) }
                         if reservation.conflict { Text("他の予約と重なっています").foregroundStyle(.orange) }
+                        if reservation.createdByRecorder {
+                            Text("レコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
+                                 + "続けて入るのを止めるには、レコーダー本体でおまかせ録画の設定を変えてください。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -67,7 +75,10 @@ struct ReservationSheet: View {
                 Button("やめる", role: .cancel) {}
             } message: {
                 Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                     + "レコーダーから消えます。")
+                     + "レコーダーから消えます。"
+                     + (reservation.createdByRecorder
+                        ? "\nおまかせ録画が入れた予約なので、レコーダーが入れ直すことがあります。"
+                        : ""))
             }
             .onChange(of: done) { if $1 { dismiss() } }
         }

@@ -3162,6 +3162,12 @@
       "type": "boolean",
       "title": "Created By App"
      },
+     "created_by_recorder": {
+      "type": "boolean",
+      "title": "Created By Recorder",
+      "description": "レコーダー自身が入れた予約（おまかせ録画）。消してもレコーダーが入れ直す",
+      "default": false
+     },
      "genres": {
       "items": {
        "$ref": "#/components/schemas/Genre"
