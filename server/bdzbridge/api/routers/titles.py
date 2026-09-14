@@ -6,11 +6,13 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ...recorder.client import RecorderClient
-from ...recorder.series import series_key, series_name
+from ...recorder.series import series_key
 from ...recorder.xsrs import (
     XsrsError,
     build_title_update_elements,
 )
+from ...services import session
+from ...services import titles as svc
 from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import title_out
@@ -24,7 +26,7 @@ async def titles(request: Request, limit: int = Query(100, le=500), offset: int 
     b = bridge_of(request)
     rec = b.require_recorder()
     if series is not None:
-        items = [t for t in await b.all_titles() if series_key(t.title) == series][offset:offset + limit]
+        items = [t for t in await svc.all_titles(b) if series_key(t.title) == series][offset:offset + limit]
     else:
         async with rec.lock:
             items = await rec.xsrs.list_titles(count=limit, start=offset)
@@ -36,26 +38,8 @@ async def title_groups(request: Request, genre: int | None = Query(None, descrip
     """Recorded titles grouped into programmes by their names, newest group first."""
     b = bridge_of(request)
     if refresh:
-        b.forget_titles()
-    groups: dict[str, dict] = {}
-    for t in await b.all_titles():
-        if genre is not None and (t.genre_code is None or t.genre_code >> 4 != genre):
-            continue
-        key = series_key(t.title)
-        g = groups.get(key)
-        if g is None:
-            g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start, "protected": 0, "new": 0}
-        name = series_name(t.title)
-        g["names"][name] = g["names"].get(name, 0) + 1
-        g["count"] += 1
-        g["size_mb"] += t.size_mb or 0
-        g["latest"], g["earliest"] = max(g["latest"], t.start), min(g["earliest"], t.start)
-        g["protected"] += int(t.protected)
-        g["new"] += int(t.is_new)
-    out = [S.TitleGroup(key=k, name=max(g["names"], key=g["names"].get), count=g["count"], size_mb=g["size_mb"],
-                        latest=g["latest"], earliest=g["earliest"], protected_count=g["protected"], new_count=g["new"])
-           for k, g in groups.items()]
-    return sorted(out, key=lambda g: g.latest, reverse=True)
+        svc.forget_titles(b)
+    return await svc.groups(b, genre)
 
 @router.post("/titles/delete", response_model=S.Job, status_code=202)
 async def titles_delete(request: Request, req: S.TitlesDelete):
@@ -63,7 +47,7 @@ async def titles_delete(request: Request, req: S.TitlesDelete):
     Protected and unknown ids are skipped, not failed."""
     b = bridge_of(request)
     b.require_recorder()
-    return b.jobs.start("delete", lambda job: b.delete_titles(job, req.ids), total=len(req.ids),
+    return b.jobs.start("delete", lambda job: svc.delete_titles(b, job, req.ids), total=len(req.ids),
                         result={"deleted": [], "skipped": []}).to_dict()
 
 
@@ -72,7 +56,7 @@ async def titles_protect(request: Request, req: S.TitlesProtect):
     """Start protecting or unprotecting several recordings; poll GET /jobs/{id}."""
     b = bridge_of(request)
     b.require_recorder()
-    return b.jobs.start("protect", lambda job: b.protect_titles(job, req.ids, req.protected), total=len(req.ids),
+    return b.jobs.start("protect", lambda job: svc.protect_titles(b, job, req.ids, req.protected), total=len(req.ids),
                         result={"changed": [], "skipped": []}).to_dict()
 
 
@@ -81,7 +65,7 @@ async def titles_duplicates(request: Request):
     """Start looking for recordings that are copies of one broadcast; poll GET /jobs/{id} for the sets."""
     b = bridge_of(request)
     b.require_recorder()
-    return b.jobs.start("duplicates", b.scan_duplicates, result={"sets": []}).to_dict()
+    return b.jobs.start("duplicates", lambda job: svc.scan_duplicates(b, job), result={"sets": []}).to_dict()
 
 
 def _playback(st: dict) -> S.PlaybackStatus:
@@ -132,7 +116,7 @@ async def title_play(request: Request, title_id: str, position_sec: int = Query(
     """Start playing a recorded title on the TV connected to the recorder."""
     b = bridge_of(request)
     rec = b.require_recorder()
-    if b.mac and not await b.reachable() and not await b.wake():
+    if session.mac(b) and not await session.reachable(b) and not await session.wake(b):
         raise HTTPException(503, "the recorder does not answer, even after Wake-on-LAN")
     try:
         async with rec.lock:
@@ -155,7 +139,7 @@ async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
             await rec.xsrs.update_title(el)
     except XsrsError as e:
         raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
-    bridge_of(request).forget_titles()
+    svc.forget_titles(bridge_of(request))
     return S.TitleFlags(id=title_id, protected=req.protected, is_new=req.is_new, title=req.title)
 
 @router.delete("/titles/{title_id}", status_code=204)
@@ -169,7 +153,7 @@ async def title_delete(request: Request, title_id: str):
             await rec.xsrs.delete_title(title_id)
     except XsrsError as e:
         raise HTTPException(404 if e.code in ("701", "803", "820") else 502, str(e))
-    bridge_of(request).forget_titles()
+    svc.forget_titles(bridge_of(request))
 
 @router.get("/titles/{title_id}", response_model=S.TitleDetail)
 async def title_detail(request: Request, title_id: str):

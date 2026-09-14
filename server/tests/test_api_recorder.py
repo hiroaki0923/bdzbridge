@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from bdzbridge.api.app import create_app
 from bdzbridge.config import Settings
 from bdzbridge.recorder import wol
+from bdzbridge.services import session
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.conftest import (
@@ -51,8 +52,8 @@ def test_unconfigured_mode(tmp_path, monkeypatch):
             store.set_meta("recorder_host", host)
             store.set_meta("recorder_udn", "uuid:abc")
         return self.recorder
-    monkeypatch.setattr(Bridge, "discover", fake_discover)
-    monkeypatch.setattr(Bridge, "set_recorder", fake_set)
+    monkeypatch.setattr(session, "discover", fake_discover)
+    monkeypatch.setattr(session, "set_recorder", fake_set)
     with TestClient(app) as c:
         st = c.get("/api/v1/recorder", headers=H).json()
         assert st["configured"] is False and st["host"] is None
