@@ -1,4 +1,5 @@
 <script>
+  import { loadPref, savePref } from '../prefs.js'
   import { api, tvDays } from '../api.js'
   import { app } from '../store.svelte.js'
   import ProgramList from './ProgramList.svelte'
@@ -8,11 +9,11 @@
 
   const BTS = [['td', '地デジ'], ['bs', 'BS'], ['cs', 'CS'], ['bs4k', 'BS4K']]
   const days = tvDays()
-  let bt = $state(localStorage.getItem('bdzbridge.bt') || 'td')
-  let view = $state(localStorage.getItem('bdzbridge.guideView') || 'list')
+  let bt = $state(loadPref('bt', null) || 'td')
+  let view = $state(loadPref('guideView', null) || 'list')
   let day = $state(days[0].iso)
   let channels = $state([])
-  let serviceId = $state(Number(localStorage.getItem('bdzbridge.ch')) || null)
+  let serviceId = $state(Number(loadPref('ch', null)) || null)
   let programs = $state([])
   let busy = $state(false)
   let error = $state('')
@@ -30,10 +31,10 @@
         : await api('/programs', { query: { broadcasting: bt, service_id: serviceId, date: day } })
     } catch (e) { error = e.message } finally { busy = false }
   }
-  $effect(() => { localStorage.setItem('bdzbridge.bt', bt); loadChannels().then(loadPrograms) })
-  $effect(() => { if (serviceId != null) localStorage.setItem('bdzbridge.ch', String(serviceId)) })
+  $effect(() => { savePref('bt', bt); loadChannels().then(loadPrograms) })
+  $effect(() => { if (serviceId != null) savePref('ch', String(serviceId)) })
   $effect(() => { day; serviceId; view; loadPrograms() })
-  $effect(() => { localStorage.setItem('bdzbridge.guideView', view) })
+  $effect(() => { savePref('guideView', view) })
 </script>
 
 <div class="row" style="justify-content: space-between"><h1>番組表</h1><div class="seg mini"><button class:on={view === 'list'} onclick={() => (view = 'list')}>リスト</button><button class:on={view === 'grid'} onclick={() => (view = 'grid')}>表</button></div></div>

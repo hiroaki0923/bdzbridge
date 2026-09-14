@@ -16,3 +16,12 @@ export async function runJob(path, body, onProgress, intervalMs = 800) {
 
 // Ask the server to stop after the item it is working on; what is done stays done.
 export const cancelJob = (id) => api(`/jobs/${id}/cancel`, { method: 'POST' })
+
+// Wording for a finished bulk job: "n 件を削除しました" or, after 中止, how far it got.
+export const outcome = (verb, n, job) => (job.cancelled ? `${n} 件を${verb}したところで中止しました` : `${n} 件を${verb}しました`)
+
+// Run a bulk job, mirroring its progress into `setProgress({ id, done, total, cancelled })`; resolves to { ...result, cancelled }.
+export async function runBulk(path, body, setProgress, intervalMs = 800) {
+  const job = await runJob(path, body, (j) => setProgress({ id: j.id, done: j.done, total: j.total, cancelled: j.cancelled }), intervalMs)
+  return { ...job.result, cancelled: job.cancelled }
+}
