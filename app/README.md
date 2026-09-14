@@ -54,9 +54,12 @@ The recordings screen lists what the recorder holds, as a flat list or gathered 
 space, the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the
 television, protects it against the recorder's own tidying, and deletes it behind a confirmation.
 
+A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
+or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,
+and it lives outside the sheet that started it: closing the sheet neither stops it nor hides the stop button.
+
 ## What is missing
 
 Finding the recorder by scanning instead of typing its address, and the queue that holds reservations made
-while away from home. On the recordings screen: selecting several at once to delete or protect, and finding
-the duplicates among them. Those need a job with progress and a way to stop it, which the server has and the
-app does not yet.
+while away from home, and finding the duplicate recordings of one broadcast, which needs the recorder to be
+asked for a description of each candidate.

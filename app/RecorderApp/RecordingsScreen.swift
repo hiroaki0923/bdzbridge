@@ -15,6 +15,7 @@ struct RecordingsScreen: View {
             VStack(spacing: 0) {
                 filters
                 Divider()
+                JobBarView()
                 content
             }
             .navigationTitle("録画")
@@ -33,7 +34,7 @@ struct RecordingsScreen: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .disabled(!model.connected || model.busy != nil)
+                    .disabled(!model.connected || model.busy != nil || model.jobRunning)
                 }
             }
             .task(id: model.connected) { await model.loadTitles() }
@@ -194,28 +195,140 @@ struct GroupRowView: View {
     }
 }
 
-/// One programme's recordings.
+/// One programme's recordings, with the selection that bulk work needs.
 struct GroupSheet: View {
     let group: TitleGroup
     let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var confirmingDelete = false
+
+    private var members: [RecordedTitle] { model.members(of: group) }
+    private var chosen: [RecordedTitle] { members.filter { selected.contains($0.id) } }
+    private var chosenGB: Double { chosen.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024 }
+
     var body: some View {
         NavigationStack {
-            List(model.members(of: group)) { title in
-                Button {
-                    dismiss()
-                    onOpen(title)
-                } label: {
-                    TitleRowView(title: title, channel: model.channelName(for: title))
-                }
-                .buttonStyle(.plain)
+            VStack(spacing: 0) {
+                JobBarView()
+                if selecting { selectionBar }
+                list
             }
-            .listStyle(.plain)
             .navigationTitle(group.name)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("閉じる") { dismiss() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selecting ? "完了" : "選択") {
+                        selecting.toggle()
+                        selected = []
+                    }
+                    .disabled(members.isEmpty)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("この番組を全部保護") {
+                            model.startBulk(.protecting(true), ids: members.map(\.id))
+                        }
+                        Button("この番組の保護を全部解除") {
+                            model.startBulk(.protecting(false), ids: members.map(\.id))
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .disabled(model.jobRunning || members.isEmpty)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
+            .confirmationDialog("選択した \(chosen.count) 件を削除しますか？", isPresented: $confirmingDelete,
+                                titleVisibility: .visible) {
+                Button("\(chosen.count) 件を削除する", role: .destructive) {
+                    model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
+                    selecting = false
+                    selected = []
+                }
+                Button("やめる", role: .cancel) {}
+            } message: {
+                Text(String(format: "合計 %.1fGB。保護されているものは削除されません。\n"
+                            + "レコーダーから消えます。元に戻せません。", chosenGB))
+            }
         }
+    }
+
+    private var list: some View {
+        List(members) { title in
+            Button {
+                if selecting {
+                    toggle(title)
+                } else {
+                    dismiss()
+                    onOpen(title)
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    if selecting {
+                        Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(title.protected ? .secondary : Color.accentColor)
+                    }
+                    TitleRowView(title: title, channel: model.channelName(for: title))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .listStyle(.plain)
+    }
+
+    private var selectionBar: some View {
+        HStack {
+            Button("保護以外をすべて選択") {
+                selected = Set(members.filter { !$0.protected }.map(\.id))
+            }
+            Button("選択解除") { selected = [] }
+            Spacer()
+            Text("\(chosen.count) 件").foregroundStyle(.secondary)
+        }
+        .font(.footnote)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+    }
+
+    private var actions: some View {
+        VStack(spacing: 8) {
+            Button(role: .destructive) {
+                confirmingDelete = true
+            } label: {
+                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, chosenGB))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            HStack {
+                Button("保護する") { bulkProtect(true) }
+                Button("保護を解除") { bulkProtect(false) }
+            }
+            .buttonStyle(.bordered)
+        }
+        .disabled(model.jobRunning)
+        .padding(12)
+        .background(.regularMaterial)
+    }
+
+    private func toggle(_ title: RecordedTitle) {
+        if selected.contains(title.id) {
+            selected.remove(title.id)
+        } else {
+            selected.insert(title.id)
+        }
+    }
+
+    private func bulkProtect(_ on: Bool) {
+        model.startBulk(.protecting(on), ids: chosen.map(\.id))
+        selecting = false
+        selected = []
     }
 }
