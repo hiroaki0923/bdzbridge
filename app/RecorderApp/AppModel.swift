@@ -16,6 +16,7 @@ final class AppModel {
 
     var broadcasting = "td"
     var day: Date
+    var reservationSort = ReservationSort.time
     var titleGenre: Int?
     var titleState: WatchState?
     var titleSort = TitleSort.newest
@@ -427,6 +428,59 @@ final class AppModel {
             _ = try await client.powerOn()
             self.needsPower = false
         }
+    }
+
+    enum ReservationSort: String, CaseIterable {
+        case time, genre, channel
+
+        var label: String {
+            switch self {
+            case .time: "日時"
+            case .genre: "ジャンル"
+            case .channel: "局"
+            }
+        }
+    }
+
+    struct ReservationSection: Identifiable {
+        var title: String
+        var items: [Reservation]
+        var id: String { title }
+    }
+
+    /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
+    /// within each, since a reservation is something that has not happened yet.
+    var reservationSections: [ReservationSection] {
+        let byStart = reservations.sorted { $0.start < $1.start }
+        switch reservationSort {
+        case .time:
+            return sections(byStart) { Format.day.string(from: $0.start) }
+        case .genre:
+            return sections(byStart.sorted { key($0) < key($1) }) {
+                $0.genreCode.flatMap { Codes.genreLabel[$0 / 16] } ?? "ジャンルなし"
+            }
+        case .channel:
+            return sections(byStart.sorted { ($0.serviceID, $0.start) < ($1.serviceID, $1.start) }) {
+                self.channelName(for: $0)
+            }
+        }
+    }
+
+    private func key(_ reservation: Reservation) -> (Int, Date) {
+        (reservation.genreCode ?? 0xFF * 16, reservation.start)
+    }
+
+    /// Keeps the headings in the order they first appear, so the sort decides the order of the sections too.
+    private func sections(_ reservations: [Reservation],
+                          by heading: (Reservation) -> String) -> [ReservationSection] {
+        var order: [String] = []
+        var grouped: [String: [Reservation]] = [:]
+        for reservation in reservations {
+            let title = heading(reservation)
+            if grouped[title] == nil { order.append(title) }
+            grouped[title, default: []].append(reservation)
+        }
+        return order.map { ReservationSection(title: $0, items: grouped[$0] ?? []) }
     }
 
     /// The reservation that follows this programme, if there is one. Time-only reservations carry no
