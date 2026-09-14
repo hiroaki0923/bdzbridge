@@ -3,6 +3,15 @@
 #   git config core.hooksPath .githooks
 set -e
 
+# Refuse signing keys, certificates and store API keys; this repository is public.
+staged=$(git diff --cached --name-only --diff-filter=AM |
+  grep -Ei '(\.(jks|keystore|p12|cer|mobileprovision)$|(^|/)key\.properties$|AuthKey_.*\.p8$)' || true)
+if [ -n "$staged" ]; then
+  echo "pre-commit: refusing to commit signing material:" >&2
+  echo "$staged" | sed 's/^/  /' >&2
+  echo "keep these outside the repository (see docs/porting.md)" >&2
+  exit 1
+fi
 if git diff --cached --name-only | grep -q '^server/bdzbridge/'; then
   (cd server && uv run -q python -m bdzbridge.tools.apidoc >/dev/null && uv run -q python -m bdzbridge.tools.portkit >/dev/null)
   git add docs/api.md docs/openapi.json docs/port
