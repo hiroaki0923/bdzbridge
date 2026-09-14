@@ -11,8 +11,6 @@ struct GuideScreen: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                controls
-                Divider()
                 if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   reservationFor: { model.reservation(for: $0) }) { tapped = $0 }
@@ -21,16 +19,60 @@ struct GuideScreen: View {
                     list
                 }
             }
-            .navigationTitle("番組表")
-            .navigationBarTitleDisplayMode(grid ? .inline : .large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // what the screen is showing: the broadcasting type and the channel on the left, the day in
+                // the middle with a step either side. Nothing needs a row of its own.
                 ToolbarItem(placement: .topBarLeading) {
-                    Picker("表示", selection: $mode) {
-                        Text("リスト").tag("list")
-                        Text("表").tag("grid")
+                    Menu {
+                        Picker("放送", selection: broadcastingChoice) {
+                            ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
+                                Text(Codes.broadcastingLabel[broadcasting] ?? broadcasting).tag(broadcasting)
+                            }
+                        }
+                        if !grid {
+                            Picker("局", selection: channelChoice) {
+                                Text("すべての局").tag(-1)
+                                ForEach(model.channels) { channel in
+                                    Text(channel.name).tag(channel.serviceID)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(heading).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.primary)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 120)
+                }
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 0) {
+                        Button { step(-1) } label: { Image(systemName: "chevron.left") }
+                            .disabled(dayIndex <= 0)
+                        Menu {
+                            Picker("日付", selection: dayChoice) {
+                                ForEach(model.days, id: \.self) { day in
+                                    Text(Format.day.string(from: day)).tag(day)
+                                }
+                            }
+                        } label: {
+                            Text(Format.day.string(from: model.day))
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                                .frame(minWidth: 92)
+                        }
+                        Button { step(1) } label: { Image(systemName: "chevron.right") }
+                            .disabled(dayIndex >= model.days.count - 1)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        mode = grid ? "list" : "grid"
+                    } label: {
+                        Image(systemName: grid ? "tablecells" : "list.bullet")
+                    }
+                    .accessibilityLabel(grid ? "リスト表示にする" : "表形式にする")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -45,59 +87,40 @@ struct GuideScreen: View {
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 8) {
-            Picker("放送", selection: Binding(get: { model.broadcasting },
-                                              set: { model.broadcasting = $0; reload() })) {
-                ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
-                    Text(Codes.broadcastingLabel[broadcasting] ?? broadcasting).tag(broadcasting)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(model.days, id: \.timeIntervalSince1970) { day in
-                        let selected = Calendar.current.isDate(day, inSameDayAs: model.day)
-                        Button(Format.day.string(from: day)) {
-                            model.day = day
-                            reload()
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(selected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
-                        .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                        .clipShape(Capsule())
-                    }
-                }
-            }
-
-            HStack {
-                if !grid {
-                    Menu {
-                        Button("すべての局") { model.serviceFilter = nil }
-                        ForEach(model.channels) { channel in
-                            Button(channel.name) { model.serviceFilter = channel.serviceID }
-                        }
-                    } label: {
-                        Label(model.channelName, systemImage: "line.3.horizontal.decrease")
-                            .font(.subheadline)
-                    }
-                }
-                Spacer()
-                if let busy = model.busy {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(busy).font(.caption).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("\(shown.count) 件").font(.caption).foregroundStyle(.secondary)
-                }
-            }
+    /// What the title says: the channel when one is picked, otherwise the broadcasting type.
+    private var heading: String {
+        if !grid, let serviceID = model.serviceFilter,
+           let channel = model.channels.first(where: { $0.serviceID == serviceID }) {
+            return channel.name
         }
-        .padding(.horizontal)
-        .padding(.bottom, 8)
+        return Self.shortLabel[model.broadcasting] ?? Codes.broadcastingLabel[model.broadcasting] ?? "番組表"
+    }
+
+    /// The navigation bar has room for a word, not for 地上デジタル.
+    private static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
+
+    private var dayIndex: Int {
+        model.days.firstIndex { Calendar.current.isDate($0, inSameDayAs: model.day) } ?? 0
+    }
+
+    private func step(_ by: Int) {
+        let next = dayIndex + by
+        guard model.days.indices.contains(next) else { return }
+        model.day = model.days[next]
+        reload()
+    }
+
+    private var dayChoice: Binding<Date> {
+        Binding(get: { model.day }, set: { model.day = $0; reload() })
+    }
+
+    private var broadcastingChoice: Binding<String> {
+        Binding(get: { model.broadcasting }, set: { model.broadcasting = $0; reload() })
+    }
+
+    private var channelChoice: Binding<Int> {
+        Binding(get: { model.serviceFilter ?? -1 },
+                set: { model.serviceFilter = $0 < 0 ? nil : $0 })
     }
 
     @ViewBuilder

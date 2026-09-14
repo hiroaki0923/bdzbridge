@@ -47,11 +47,15 @@ final class AppModel {
     private static let hostKey = "recorderHost"
 
     init() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let midnight = calendar.startOfDay(for: Date())
+        days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         // `-startDay 6` opens the guide six days out, which is how a day with reservations on it is reached
         // without tapping through the app.
         let offset = UserDefaults.standard.integer(forKey: "startDay")
-        day = Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date()
+        day = days.indices.contains(offset) ? days[offset] : (days.first ?? Date())
     }
 
     var connected: Bool { info != nil }
@@ -453,10 +457,9 @@ final class AppModel {
         }
     }
 
-    /// The eight days the recorder's guide covers, starting today.
-    var days: [Date] {
-        (0..<8).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: Date()) }
-    }
+    /// The eight days the recorder's guide covers, starting today. Fixed when the app opened: building them
+    /// from the current moment each time gives every chip a new identity and the day strip loses its place.
+    let days: [Date]
 
     /// What the list shows: the day, narrowed to one channel when the reader picked one.
     var filteredPrograms: [GuideProgramRow] {
