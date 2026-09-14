@@ -8,7 +8,7 @@ bdzbridge: a small LAN bridge for Sony BDZ Blu-ray recorders. It reads the recor
 
 - `server/` — Python 3.12+ / FastAPI package `bdzbridge` (uv-managed). Serves `web/dist` at `/` when it exists.
 - `web/` — Vite + Svelte 5 PWA (plain JS, runes). Uses `/api/v1` on the same origin; the Vite dev server proxies `/api` to port 8000.
-- `app/` — the iOS app (Swift/SwiftUI). `app/RecorderKit` is the recorder-facing Swift package: the protocol layer and the HTTP client, no UI. Tested headlessly against `docs/port/` with a stubbed transport; `RECORDER_HOST=<ip> swift test --filter LiveRecorderTests` reads a real recorder. The app target itself does not exist yet.
+- `app/` — the iOS app (Swift/SwiftUI). `app/RecorderKit` is the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide cache, no UI. Tested headlessly against `docs/port/` with a stubbed transport; `RECORDER_HOST=<ip> swift test --filter LiveRecorderTests` reads a real recorder. `app/RecorderApp` is the app; its Xcode project is generated from `app/project.yml` by XcodeGen and is not committed. See `app/README.md`.
 - `docs/` — protocol references: `xsrs-api.md` (reservations), `epg-format.md` (EPG files), `upnp/` (the recorder's UPnP descriptions). Read them before touching recorder code. `porting.md` is the guide for the planned iOS app (Swift/SwiftUI, decided 2026-09-14) and for third-party ports to other platforms, and `port/` holds generated conformance vectors (`bdzbridge/tools/portkit.py`; a test fails while they are stale, the pre-commit hook regenerates them).
 
 Personal/environment notes belong in `CLAUDE.local.md` (gitignored), not here.
@@ -31,7 +31,12 @@ uv run python -m bdzbridge.tools.portkit # regenerate docs/port/ (conformance ve
 
 Web (inside `web/`): `npm install`, `npm run build` (writes `web/dist`; restart the server to pick it up), `npm run dev`.
 
-iOS (inside `app/RecorderKit`): `swift build`, `swift test` (reads the vectors in `docs/port`; the pre-commit hook runs it when `app/` or `docs/port/` is staged).
+iOS: inside `app/RecorderKit`, `swift build` and `swift test` (reads the vectors in `docs/port`; the pre-commit hook runs it when `app/` or `docs/port/` is staged). For the app, `brew install xcodegen` once, then inside `app/`:
+
+```
+xcodegen generate                      # writes RecorderApp.xcodeproj, which is gitignored
+xcodebuild -project RecorderApp.xcodeproj -scheme RecorderApp -destination 'id=<simulator udid>' build
+```
 
 Every API call needs `Authorization: Bearer <BDZBRIDGE_API_TOKEN>`.
 

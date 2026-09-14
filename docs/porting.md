@@ -167,6 +167,9 @@ Android を配布する人向けの注意も一つ書いておきます。Play �
 
 ## 進め方の案
 
+0. **アプリの現状**: `app/RecorderApp` に SwiftUI の 3 画面（番組表・予約・設定）があり、実機のレコーダーに
+   シミュレーターから接続して、番組表の取得と表示、予約一覧の表示までできています。`app/README.md` に起動方法と
+   未実装の一覧があります。
 1. プロトコル層: `description.xml` の解析 → SOAP 呼び出し → 予約一覧の取得（読み取りだけ）。`xsrs.json` と
    `description.json` を通す。**完了**: `app/RecorderKit` に XML ツリー、コード表、SOAP と Elements の生成、item の解析、
    `description.xml` の解析、そして HTTP クライアントがあります。`codes.json` / `xsrs.json` / `description.json` を

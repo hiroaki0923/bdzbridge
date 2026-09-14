@@ -19,7 +19,7 @@ public struct Genre: Sendable, Equatable, Hashable {
 }
 
 /// One programme in the recorder's guide.
-public struct GuideProgram: Sendable, Equatable, Identifiable {
+public struct GuideProgram: Sendable, Hashable, Identifiable {
     public var serviceID: Int
     public var eventID: Int
     public var start: Date
