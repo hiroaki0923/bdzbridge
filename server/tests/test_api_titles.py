@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 
+import httpx
+
 from bdzbridge.recorder.epg import JST
 from tests.conftest import (
     H,
@@ -69,7 +71,7 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert r["error"] is None and r["total"] == 2 and r["done"] == 2
     assert len(r["result"]["sets"]) == 1
     s = r["result"]["sets"][0]
-    assert s["confidence"] == "high" and {i["id"] for i in s["items"]} == {"0x0000010000034d78", "0x0000010000034d7b"}
+    assert s["confidence"] == "high" and [i["id"] for i in s["items"]] == ["0x0000010000034d7b", "0x0000010000034d78"]  # broadcast order
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
     assert client.bridge.store.title_summary("0x0000010000034d78") == "あらすじ"
@@ -132,3 +134,40 @@ def test_cancelling_a_job_stops_after_the_current_item(client):
     assert r["cancelled"] and r["finished"] and 0 < r["done"] < len(ids) and r["error"] is None
     assert r["result"]["deleted"] == ids[:r["done"]] and x.deleted == set(ids[:r["done"]])
     assert client.post(f"/api/v1/jobs/{job['id']}/cancel", headers=H).json()["done"] == r["done"]  # cancelling twice is harmless
+
+
+def test_job_list_shows_running_then_finished(client):
+    x = client.bridge.recorder.xsrs
+    x.delay = 0.05
+    running = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d7a"]}).json()
+    listed = client.get("/api/v1/jobs", headers=H).json()
+    assert listed[0]["id"] == running["id"] and listed[0]["finished"] is False
+    wait_job(client, running["id"])
+    listed = client.get("/api/v1/jobs", headers=H).json()
+    assert listed[0]["id"] == running["id"] and listed[0]["finished"] is True
+
+
+def test_bulk_delete_skips_a_title_the_recorder_did_not_answer_for(client, monkeypatch):
+    x = client.bridge.recorder.xsrs
+    real = x.delete_title
+
+    async def flaky(title_id):
+        if title_id == "0x0000010000034d78":
+            raise httpx.ReadTimeout("")
+        await real(title_id)
+
+    monkeypatch.setattr(x, "delete_title", flaky)
+    job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d7b"]}).json()
+    r = wait_job(client, job["id"])
+    assert r["error"] is None and r["result"]["deleted"] == ["0x0000010000034d7b"]
+    assert r["result"]["skipped"] == [{"id": "0x0000010000034d78", "reason": "ReadTimeout"}]
+
+
+def test_job_failure_names_a_silent_exception(client, monkeypatch):
+    async def gone():
+        raise TimeoutError  # str() of this is empty
+
+    monkeypatch.setattr(client.bridge.recorder.xsrs, "list_titles_all", gone)
+    client.bridge.titles_cache = None
+    job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78"]}).json()
+    assert wait_job(client, job["id"])["error"] == "TimeoutError"

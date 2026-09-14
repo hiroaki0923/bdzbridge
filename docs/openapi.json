@@ -1859,6 +1859,37 @@
     }
    }
   },
+  "/api/v1/jobs": {
+   "get": {
+    "tags": [
+     "jobs"
+    ],
+    "summary": "Jobs List",
+    "description": "Running jobs first, then the recently finished ones; lets a reopened page pick up what is still going on.",
+    "operationId": "jobs_list_api_v1_jobs_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Job"
+         },
+         "type": "array",
+         "title": "Response Jobs List Api V1 Jobs Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
   "/api/v1/jobs/{job_id}": {
    "get": {
     "tags": [

@@ -1,13 +1,15 @@
 <script>
   // Recordings: a paged list with filters, programme groups, and duplicate sets; one detail sheet; the playback bar.
   import { api, fmtBytes, fmtDate } from '../api.js'
-  import { app, loadStatus } from '../store.svelte.js'
+  import { app, loadStatus, toast } from '../store.svelte.js'
   import { loadPref, savePref } from '../prefs.js'
   import TitleRow from './titles/TitleRow.svelte'
   import TitleSheet from './titles/TitleSheet.svelte'
   import GroupSheet from './titles/GroupSheet.svelte'
   import DuplicatesView from './titles/DuplicatesView.svelte'
   import PlaybackBar from './titles/PlaybackBar.svelte'
+  import JobBar from './titles/JobBar.svelte'
+  import { attachRunningJobs, kindLabel, outcome } from '../jobs.svelte.js'
 
   const PAGE = 30
   const SORTS = [['newest', '新しい順'], ['oldest', '古い順'], ['size', '大きい順']]
@@ -51,6 +53,10 @@
     } catch (e) { error = e.message } finally { busy = false }
   }
   $effect(() => { loadPage(true); refreshPlayback() })
+  // jobs started before this screen was (re)opened: follow them here so they can be cancelled and their outcome shows up
+  $effect(() => { attachRunningJobs((j) => { if (j.kind !== 'duplicates') toast(finishedText(j)); refresh() }) })
+  const finishedText = (j) => j.error ? `${kindLabel(j.kind)}に失敗しました: ${j.error}`
+    : j.kind === 'delete' ? outcome('削除', j.result.deleted?.length ?? 0, j) : outcome(j.result.protected ? '保護' : '保護解除', j.result.changed?.length ?? 0, j)
   $effect(() => { genre; state; sort; shown = PAGE; if (needAll && all === null) loadAll() })
   const genres = $derived(Object.entries(app.defaults?.genres ?? {}))
   const counts = $derived.by(() => {
@@ -144,6 +150,7 @@
 {/if}
 {#if error}<p class="error">{error}</p>{/if}
 <PlaybackBar {playback} {titleOf} onchange={(p) => (playback = p)} />
+<JobBar except={mode === 'dups' ? 'duplicates' : null} />
 
 {#if mode === 'dups'}
   <DuplicatesView bind:this={dupView} refreshKey={dupKey} onopen={(t) => (selected = t)} onchanged={applyChange} />

@@ -2,7 +2,7 @@
   // One programme group: its episodes with selection, bulk delete, and protection for the selection or the whole group.
   import { api } from '../../api.js'
   import { toast } from '../../store.svelte.js'
-  import { cancelJob, outcome, runBulk } from '../../jobs.js'
+  import { cancelJob, outcome, runBulk } from '../../jobs.svelte.js'
   import PickRow from './PickRow.svelte'
   import JobModal from './JobModal.svelte'
   let { group, onopen, onclose, onchanged } = $props()

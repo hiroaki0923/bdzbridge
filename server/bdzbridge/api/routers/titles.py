@@ -57,7 +57,7 @@ async def titles_protect(request: Request, req: S.TitlesProtect):
     b = bridge_of(request)
     b.require_recorder()
     return b.jobs.start("protect", lambda job: svc.protect_titles(b, job, req.ids, req.protected), total=len(req.ids),
-                        result={"changed": [], "skipped": []}).to_dict()
+                        result={"changed": [], "skipped": [], "protected": req.protected}).to_dict()
 
 
 @router.post("/titles/duplicates", response_model=S.Job, status_code=202)

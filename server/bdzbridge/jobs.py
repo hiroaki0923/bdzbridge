@@ -55,6 +55,11 @@ class Jobs:
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
+    def all(self) -> list[Job]:
+        """Unfinished jobs first (oldest first), then the recently finished ones, newest first."""
+        jobs = list(self._jobs.values())
+        return [j for j in jobs if not j.finished] + [j for j in reversed(jobs) if j.finished]
+
     def start(self, kind: str, body: Callable[[Job], Awaitable[None]], total: int = 0, result: dict | None = None) -> Job:
         job = Job(id=secrets.token_hex(4), kind=kind, total=total, result=result or {})
         self._jobs[job.id] = job
@@ -70,7 +75,7 @@ class Jobs:
         except JobCancelled:
             log.info("job %s (%s) cancelled after %d of %d", job.id, job.kind, job.done, job.total)
         except Exception as e:
-            job.error = str(e)
+            job.error = str(e) or type(e).__name__  # httpx timeouts carry no message
             log.warning("job %s (%s) failed: %s", job.id, job.kind, e)
         finally:
             job.finished = True

@@ -5,6 +5,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+import httpx
+
 from ..api import schemas as S
 from ..api.serializers import title_out
 from ..jobs import Job
@@ -82,7 +84,7 @@ async def scan_duplicates(bridge, job: Job) -> None:
 
 async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> None:
     """Set or clear the protect flag on many recordings, one X_UpdateTitle at a time.
-    Result: {"changed": [ids], "skipped": [{"id", "reason"}]}."""
+    Result: {"changed": [ids], "skipped": [{"id", "reason"}], "protected": bool} (the direction, for a client that picks the job up later)."""
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
@@ -97,8 +99,8 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
                     async with rec.lock:
                         await rec.xsrs.update_title(build_title_update_elements(tid, protected=protected))
                     job.result["changed"].append(tid)
-                except XsrsError as e:
-                    job.result["skipped"].append({"id": tid, "reason": str(e)})
+                except (XsrsError, httpx.HTTPError) as e:  # a slow or dropped request costs one title, not the job
+                    job.result["skipped"].append({"id": tid, "reason": str(e) or type(e).__name__})
             job.step()
     finally:
         forget_titles(bridge)
@@ -121,14 +123,16 @@ async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
                     async with rec.lock:
                         await rec.xsrs.delete_title(tid)
                     job.result["deleted"].append(tid)
-                except XsrsError as e:
-                    job.result["skipped"].append({"id": tid, "reason": str(e)})
+                except (XsrsError, httpx.HTTPError) as e:  # a slow or dropped request costs one title, not the job
+                    job.result["skipped"].append({"id": tid, "reason": str(e) or type(e).__name__})
             job.step()
     finally:
         forget_titles(bridge)
 
 
 def duplicate_set(store: Store, members: list[XTitle], confidence: str) -> dict:
+    members = sorted(members, key=lambda t: t.start)  # broadcast order, so the copy to keep is normally the first row
+
     def rank(t: XTitle):  # smaller is better to keep
         quality = 0 if t.quality_code == 100 else t.quality_code  # DR first, then the AVC modes in order
         return (not t.protected, (t.resume_sec or 0) == 0, quality, t.start)
