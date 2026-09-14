@@ -76,7 +76,7 @@ struct ProgramSheet: View {
             }
             .navigationTitle("番組")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("閉じる") { dismiss() } }
+            .toolbar { SheetCloseButton() }
             .task(id: taskKey) { await check() }
             .confirmationDialog("この番組を録画予約しますか？", isPresented: $confirming, titleVisibility: .visible) {
                 Button("予約する") { Task { done = await model.reserve(program, quality: quality, repeating: repeating) } }

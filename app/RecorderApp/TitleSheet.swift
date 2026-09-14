@@ -89,7 +89,7 @@ struct TitleSheet: View {
             }
             .navigationTitle("録画")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("閉じる") { dismiss() } }
+            .toolbar { SheetCloseButton() }
             .task { detail = await model.detail(of: title) }
             .confirmationDialog("この録画を削除しますか？", isPresented: $confirmingDelete,
                                 titleVisibility: .visible, presenting: current) { title in
