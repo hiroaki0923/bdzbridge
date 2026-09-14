@@ -23,6 +23,8 @@ final class AppModel {
     private(set) var storage: (free: Int, total: Int)?
     private(set) var counts: [String: GuideCounts] = [:]
     private(set) var channels: [Channel] = []
+    /// Every channel's name, of every broadcasting type, so a reservation can say where it records from.
+    private(set) var channelNames: [String: String] = [:]
     private(set) var programs: [GuideProgramRow] = []
     private(set) var reservations: [Reservation] = []
     /// Reservations by the programme they follow, so the guide can mark what is already set to record.
@@ -168,14 +170,32 @@ final class AppModel {
     }
 
     /// Also a write: the recorder forgets the reservation.
-    func cancel(_ reservation: Reservation) async {
+    @discardableResult
+    func cancel(_ reservation: Reservation) async -> Bool {
         await start()
-        guard let client else { return }
+        guard let client else { return false }
+        var removed = false
         await run("予約を削除中") {
             try await client.deleteReservation(id: reservation.id)
             self.reservations.removeAll { $0.id == reservation.id }
+            removed = true
         }
         await loadReservations()
+        return removed
+    }
+
+    func channelName(for reservation: Reservation) -> String {
+        channelNames["\(reservation.broadcastingType)-\(reservation.serviceID)"]
+            ?? Codes.broadcastingLabel[Codes.broadcasting(code: reservation.broadcastingType) ?? ""]
+            ?? "不明な局"
+    }
+
+    /// The programme a reservation follows, when it is still in the cached guide.
+    func program(for reservation: Reservation) async -> GuideProgramRow? {
+        guard let store, let eventID = reservation.eventID,
+              let broadcasting = Codes.broadcasting(code: reservation.broadcastingType) else { return nil }
+        return try? await store.program(broadcasting: broadcasting, serviceID: reservation.serviceID,
+                                        eventID: eventID)
     }
 
     func reloadFromCache() async {
@@ -183,6 +203,11 @@ final class AppModel {
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
+            channelNames = Dictionary(
+                try await store.channels(includeHidden: true).compactMap { channel in
+                    Codes.broadcasting[channel.broadcasting].map { ("\($0)-\(channel.serviceID)", channel.name) }
+                },
+                uniquingKeysWith: { first, _ in first })
             programs = try await store.day(day, broadcasting: broadcasting)
         } catch {
             problem = "番組表を読み出せませんでした: \(error)"

@@ -4,6 +4,7 @@ import SwiftUI
 struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
     @State private var removing: Reservation?
+    @State private var opened: Reservation?
 
     var body: some View {
         NavigationStack {
@@ -15,27 +16,51 @@ struct ReservationsScreen: View {
                     ContentUnavailableView("予約はありません", systemImage: "clock")
                 } else {
                     List(model.reservations) { reservation in
-                        ReservationRowView(reservation: reservation)
-                            .swipeActions {
-                                Button("削除", role: .destructive) { removing = reservation }
-                            }
+                        Button { opened = reservation } label: {
+                            ReservationRowView(reservation: reservation)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions {
+                            Button("削除", role: .destructive) { removing = reservation }
+                        }
                     }
                     .listStyle(.plain)
                 }
             }
             .navigationTitle("予約 \(model.reservations.isEmpty ? "" : "\(model.reservations.count) 件")")
             .refreshable { await model.loadReservations() }
+            .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             .task(id: model.connected) { if model.reservations.isEmpty { await model.loadReservations() } }
-            .confirmationDialog("この予約を削除しますか？", isPresented: .init(get: { removing != nil },
-                                                                     set: { if !$0 { removing = nil } }),
-                                titleVisibility: .visible) {
+            // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
+            // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
+            .confirmationDialog("この予約を削除しますか？",
+                                isPresented: Binding(get: { removing != nil },
+                                                     set: { if !$0 { removing = nil } }),
+                                titleVisibility: .visible,
+                                presenting: removing) { reservation in
                 Button("削除する", role: .destructive) {
-                    if let removing { Task { await model.cancel(removing) } }
+                    Task { await model.cancel(reservation) }
                 }
                 Button("やめる", role: .cancel) {}
-            } message: {
-                if let removing {
-                    Text("\(Format.dateTime.string(from: removing.start)) \(removing.title)\nレコーダーから消えます。")
+            } message: { reservation in
+                Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
+                     + "レコーダーから消えます。")
+            }
+            // whatever goes wrong here has to be visible on this screen, not only on the others
+            .safeAreaInset(edge: .bottom) {
+                if let busy = model.busy {
+                    Label(busy, systemImage: "arrow.triangle.2.circlepath")
+                        .font(.callout)
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(.regularMaterial)
+                } else if let problem = model.problem {
+                    Text(problem)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(.regularMaterial)
                 }
             }
         }

@@ -184,3 +184,19 @@ final class RecorderClientTests: XCTestCase {
             + "<scheduledDuration>60</scheduledDuration></item>"
     }
 }
+
+extension RecorderClientTests {
+    func testDeletingAReservationSendsItsIDAndNothingElse() async throws {
+        let transport = StubTransport(always: Stub.soap("X_DeleteRecordSchedule"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        try await client.deleteReservation(id: "0x00000000000d37f7")
+
+        let requests = await transport.requests
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.url.absoluteString, "http://192.0.2.10:64220/XSRS")
+        XCTAssertEqual(request.headers["SOAPACTION"], "\"\(Upnp.xsrsService)#X_DeleteRecordSchedule\"")
+        let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+        XCTAssertTrue(body.contains("<RecordScheduleID>0x00000000000d37f7</RecordScheduleID>"), body)
+    }
+}

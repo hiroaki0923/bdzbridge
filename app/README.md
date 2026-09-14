@@ -44,10 +44,11 @@ opens at the current time.
 
 A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder what the
 new reservation would clash with, and creates it behind a confirmation. Reserved programmes are tinted and
-labelled in both views, and a reservation can be deleted from the reservations screen.
+labelled in both views. A reservation can be undone from any of the three places it shows up: swiped in the
+list, from the reservation sheet the list opens, or from the guide's own sheet.
 
-Nothing has been written to the real recorder from here yet. The payload was checked against it through
-`X_GetConflictList`, which takes the very same bytes a creation would send and only reports what would clash.
+Creating and deleting have both been done against a real BDZ-FBT4100 from the app and the recorder followed
+along, 42 reservations before and 42 after.
 
 ## What is missing
 
