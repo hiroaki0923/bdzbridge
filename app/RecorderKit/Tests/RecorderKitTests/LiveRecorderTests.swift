@@ -9,6 +9,32 @@ import XCTest
 /// change what the box is going to record. Compare the printed numbers with the same figures from the Python
 /// server to see that both implementations agree.
 final class LiveRecorderTests: XCTestCase {
+    /// The same shape `bdzbridge/tools/portkit.py` writes, so the two decoders can be compared row by row.
+    private func decoded(_ services: [GuideService]) -> [[String: Any]] {
+        services.flatMap { service in
+            service.programs.map { program -> [String: Any] in
+                var row: [String: Any] = [
+                    "service_id": program.serviceID, "event_id": program.eventID,
+                    "start": RecorderTime.format(program.start), "end": RecorderTime.format(program.end),
+                    "duration_sec": program.durationSec,
+                ]
+                if program.isReference {
+                    row["reference"] = true
+                    row["ref_service_id"] = program.referenceServiceID ?? 0
+                    row["ref_event_id"] = program.referenceEventID ?? 0
+                } else {
+                    row["title"] = program.title
+                    row["description"] = program.summary
+                    row["extended"] = program.extended
+                    row["genres"] = program.genres.map { [$0.level1, $0.level2] }
+                    row["copy_control"] = program.copyControl
+                    row["parental_rating"] = program.parentalRating
+                }
+                return row
+            }
+        }
+    }
+
     private func liveClient() throws -> RecorderClient {
         guard let host = ProcessInfo.processInfo.environment["RECORDER_HOST"], !host.isEmpty else {
             throw XCTSkip("set RECORDER_HOST to a recorder on the LAN")
@@ -44,5 +70,44 @@ final class LiveRecorderTests: XCTestCase {
         let guide = try await client.epgFile("td")
         print("terrestrial EPG file: \(guide?.count ?? 0) bytes")
         XCTAssertGreaterThan(guide?.count ?? 0, 1000)
+    }
+
+    /// Decodes the guide the recorder is serving right now. Set RECORDER_EPG_DUMP to also write the raw file,
+    /// so the Python decoder can be run over the very same bytes: the file is rebuilt daily, so downloading it
+    /// twice is not a fair comparison.
+    func testDecodesTheGuideTheRecorderIsServing() async throws {
+        let client = try liveClient()
+        _ = try await client.describe()
+
+        for broadcasting in ["td", "bs"] {
+            guard let file = try await client.epgFile(broadcasting) else {
+                print("\(broadcasting): no channels")
+                continue
+            }
+            let services = try Epg.decode(file)
+            if let dump = ProcessInfo.processInfo.environment["RECORDER_EPG_DUMP"], !dump.isEmpty {
+                let directory = URL(fileURLWithPath: dump)
+                try file.write(to: directory.appendingPathComponent("epg-\(broadcasting).dat"))
+                let rows = try JSONSerialization.data(withJSONObject: decoded(services), options: [.sortedKeys])
+                try rows.write(to: directory.appendingPathComponent("epg-\(broadcasting)-swift.json"))
+            }
+
+            let programs = services.reduce(0) { $0 + $1.programs.count }
+            let references = services.reduce(0) { $0 + $1.programs.filter(\.isReference).count }
+            print("\(broadcasting): \(file.count) bytes, \(services.count) services, \(programs) programmes,"
+                  + " \(references) references")
+            for service in services.prefix(3) {
+                print("  \(service.serviceID) \(service.name): \(service.programs.count)")
+                if let first = service.programs.first(where: { !$0.isReference }) {
+                    print("    \(RecorderTime.format(first.start)) \(first.title)")
+                }
+            }
+
+            XCTAssertFalse(services.isEmpty)
+            XCTAssertGreaterThan(programs, services.count)
+            XCTAssertTrue(services.allSatisfy { !$0.name.isEmpty }, "every service should name itself")
+            let dated = services.flatMap(\.programs)
+            XCTAssertTrue(dated.allSatisfy { $0.end >= $0.start }, "no programme should end before it starts")
+        }
     }
 }

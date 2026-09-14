@@ -29,10 +29,12 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
+| `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
+| `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
+| `Guide.swift` | `GuideService` and `GuideProgram` |
 
-Covered by vectors so far: `codes.json`, `xsrs.json`, `description.json`. The EPG and logo decoders and the
-programme-grouping heuristic are not ported yet, so `epg-sample`, `logo-sample` and `series.json` are still
-unused here.
+Covered by vectors so far: `codes.json`, `xsrs.json`, `description.json`, `epg-sample`. The logo decoder and
+the programme-grouping heuristic are not ported yet, so `logo-sample` and `series.json` are still unused here.
 
 A read-only check against a real recorder is included and skipped by default:
 
@@ -45,6 +47,7 @@ same ones from the Python server to see that both agree.
 
 ## What is next
 
-The EPG decoder: XOR 0x9D, the concatenated zlib streams and the "@SRV/@DAY/@EVT" container, checked against
-`epg-sample`. Then the guide cache on the device. The app target itself is not in this repository yet; when it
-arrives it will live beside this package in `app/` and depend on it as a local package.
+The guide cache on the device: the decoded services and programmes in SQLite, with the search text normalised
+and sub-channel references resolved, a broadcast day running 04:00 to 04:00. Then the logo decoder and the
+programme-grouping heuristic. The app target itself is not in this repository yet; when it arrives it will live
+beside this package in `app/` and depend on it as a local package.
