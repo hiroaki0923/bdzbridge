@@ -1,4 +1,5 @@
 <script>
+  import { loadPref, savePref } from '../prefs.js'
   // Time × channel grid for one TV day (04:00–04:00). Programs are absolutely positioned inside their channel column.
   // The time axis zooms (pinch, ctrl+wheel, or the +/- buttons); the labels stick to the visible part of long programs.
   import { tick, untrack } from 'svelte'
@@ -17,8 +18,8 @@
   // ARIB level-1 genre → accent colour
   const GENRE = { 0: '#8e8e93', 1: '#34c759', 2: '#ff9500', 3: '#ff2d55', 4: '#af52de', 5: '#ffcc00', 6: '#007aff', 7: '#5ac8fa', 8: '#30b0c7', 9: '#a2845e', 10: '#5856d6', 11: '#00c7be' }
 
-  let pxMin = $state(Number(localStorage.getItem('bdzbridge.gridPxMin')) || 3) // pixels per minute
-  $effect(() => { localStorage.setItem('bdzbridge.gridPxMin', String(pxMin)) })
+  let pxMin = $state(Number(loadPref('gridPxMin', null)) || 3) // pixels per minute
+  $effect(() => { savePref('gridPxMin', String(pxMin)) })
 
   const dayStart = $derived(new Date(`${day}T04:00:00+09:00`).getTime())
   const byService = $derived.by(() => {

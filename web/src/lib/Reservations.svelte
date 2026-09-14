@@ -1,4 +1,5 @@
 <script>
+  import { loadPref, savePref } from '../prefs.js'
   import { api, fmtDateTime } from '../api.js'
   import { app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
@@ -24,8 +25,8 @@
   }
   const statusLabel = { reserved: '予約', conflict: '重複', error: '失敗' }
   const SORTS = [['time', '日時'], ['genre', 'ジャンル'], ['channel', '局']]
-  let sort = $state(localStorage.getItem('bdzbridge.resSort') || 'time')
-  $effect(() => { localStorage.setItem('bdzbridge.resSort', sort) })
+  let sort = $state(loadPref('resSort', null) || 'time')
+  $effect(() => { savePref('resSort', sort) })
   const byStart = (a, b) => new Date(a.start) - new Date(b.start)
   // [{ key, label, items }] in display order; a single unlabeled group for the plain time order
   const groups = $derived.by(() => {

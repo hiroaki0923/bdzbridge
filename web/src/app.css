@@ -58,3 +58,14 @@ h1 { font-size: 20px; margin: 14px 0 8px; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -3px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 input.search { width: 100%; padding: 10px 12px; border-radius: 10px; border: 0; background: var(--card); margin: 10px 0; }
+/* selectable rows, progress bars (recordings screen) */
+.chip-gap { flex: 0 0 1px; background: var(--line); margin: 4px 2px; }
+.pick { grid-template-columns: 28px 1fr; align-items: start; }
+.pick.on { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.check { display: flex; align-items: center; height: 100%; padding-top: 2px; }
+.check input { width: 18px; height: 18px; }
+.pickbody { display: block; width: 100%; text-align: left; }
+.bar { height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; margin-top: 10px; }
+.fill { height: 100%; background: var(--danger); transition: width .3s; }
+.fill.accent { background: var(--accent); }
+.mark.dim { background: var(--muted); }
