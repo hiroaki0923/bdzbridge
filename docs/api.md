@@ -375,6 +375,13 @@ The programme text of one recording (summary and detail paragraphs).
 
 ## バックグラウンドジョブ
 
+### GET /jobs
+
+Running jobs first, then the recently finished ones; lets a reopened page pick up what is still going on.
+
+レスポンス:
+- 200: `list[Job]`
+
 ### GET /jobs/{job_id}
 
 Progress and, once finished, the result of a bulk job.

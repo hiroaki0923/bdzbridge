@@ -2,7 +2,8 @@
   // Recordings that are copies of one broadcast, with the copy to keep marked and the rest pre-selected for deletion.
   import { untrack } from 'svelte'
   import { toast } from '../../store.svelte.js'
-  import { cancelJob, outcome, runBulk, runJob } from '../../jobs.js'
+  import { api } from '../../api.js'
+  import { cancelJob, followJob, outcome, runBulk, runJob } from '../../jobs.svelte.js'
   import PickRow from './PickRow.svelte'
   import JobModal from './JobModal.svelte'
   let { onopen, onchanged, refreshKey = 0 } = $props()
@@ -16,7 +17,10 @@
     if (job && !job.finished) return
     error = ''; picked = {}
     try {
-      const j = await runJob('/titles/duplicates', undefined, (x) => (job = x), 1000)
+      // a scan someone else (another tab, or this page before a reload) already started is followed, not repeated
+      const running = (await api('/jobs')).find((x) => x.kind === 'duplicates' && !x.finished)
+      const onp = (x) => (job = x)
+      const j = running ? await followJob(running, onp, 1000) : await runJob('/titles/duplicates', undefined, onp, 1000)
       const p = {}
       for (const s of j.result.sets ?? []) for (const id of s.suggest_delete) p[id] = true
       picked = p

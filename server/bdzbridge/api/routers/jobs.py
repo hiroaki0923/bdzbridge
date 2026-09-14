@@ -9,6 +9,12 @@ from ..deps import auth, bridge_of
 router = APIRouter(prefix="/api/v1", tags=["jobs"], dependencies=[Depends(auth)])
 
 
+@router.get("/jobs", response_model=list[S.Job])
+async def jobs_list(request: Request):
+    """Running jobs first, then the recently finished ones; lets a reopened page pick up what is still going on."""
+    return [j.to_dict() for j in bridge_of(request).jobs.all()]
+
+
 @router.get("/jobs/{job_id}", response_model=S.Job)
 async def job_status(request: Request, job_id: str):
     """Progress and, once finished, the result of a bulk job."""
