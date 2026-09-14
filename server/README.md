@@ -17,42 +17,6 @@ through `GET /api/v1/recorders/discover` + `PUT /api/v1/recorder` (host and UPnP
 On later starts it reconnects to the saved host, and if the DHCP address changed it re-discovers the same UDN.
 Discovery tries SSDP first and falls back to scanning the local /24 for port 64220 (`BDZBRIDGE_SCAN_NETWORKS` overrides the CIDRs).
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | /api/v1/recorders/discover | Sony recorders found on the LAN |
-| PUT | /api/v1/recorder | select a recorder by host (persisted) |
-| GET | /api/v1/recorder | configured?, model, power, EPG cache summary |
-| POST | /api/v1/recorder/power | wake the recorder |
-| GET | /api/v1/defaults | default quality/repeat and label tables |
-| POST | /api/v1/epg/refresh | re-download the EPG now |
-| PUT | /api/v1/channels/{bt}/prefs | `{"hidden": [service ids], "order": [service ids]}` hides / reorders channels (guide, grid, search, and auto-reservation follow) |
-| GET | /api/v1/channels?broadcasting=td\|bs\|cs\|bs4k | channel list; `logo` is a data: URL of the station logo when the recorder has one |
-| GET | /api/v1/programs?broadcasting=&service_id=&date=YYYY-MM-DD&q=&compact= | programs (TV day 04:00–04:00 JST); `compact=true` drops the text fields |
-| GET | /api/v1/programs/now?broadcasting=td | now on air |
-| GET | /api/v1/programs/{bt}/{service_id}/{event_id} | one program |
-| GET | /api/v1/reservations | reservations on the recorder |
-| POST | /api/v1/reservations/check | conflict check only |
-| POST | /api/v1/reservations | create (409 on conflict unless `force`) |
-| PATCH | /api/v1/reservations/{id} | change quality / repeat (time-based ones: also title, start, duration) |
-| DELETE | /api/v1/reservations/{id} | delete |
-| POST | /api/v1/recorder/wake | Wake-on-LAN when the recorder has dropped off the network (MAC learned from the ARP table, or `BDZBRIDGE_RECORDER_MAC`) |
-| GET/POST | /api/v1/rules | keyword auto-reservation rules (`?run=true` on POST applies them right away) |
-| PATCH/DELETE | /api/v1/rules/{id} | enable / disable / change quality; delete |
-| GET | /api/v1/rules/{id}/matches | upcoming programs a rule matches |
-| POST | /api/v1/rules/run | apply all rules now (also runs after every EPG refresh) |
-| GET | /api/v1/rules/log | what the rules reserved, skipped as conflicts, or failed on |
-| GET/POST | /api/v1/notify, /api/v1/notify/test | notification channels (SMTP / webhook) and a test message |
-| POST | /api/v1/monitor/run | check free space (`BDZBRIDGE_NOTIFY_FREE_GB`, default 50) and conflicting reservations now; also runs after every EPG refresh |
-| GET | /api/v1/titles?limit=&offset= | recorded titles (newest first) |
-| GET | /api/v1/titles/{id} | program text of one title |
-| PATCH | /api/v1/titles/{id} | `{"protected": true}` protects a recording from deletion; also `is_new`, `title` |
-| DELETE | /api/v1/titles/{id} | delete a recording (final; refused while protected) |
-| GET | /api/v1/titles/groups?genre=&refresh= | recordings grouped into programmes by their names; `GET /titles?series=<key>` lists one group |
-| POST | /api/v1/titles/duplicates | find recordings that are copies of one broadcast (same title, length and programme text); the job's result lists the sets with a suggested copy to keep |
-| POST | /api/v1/titles/protect | `{"ids": [...], "protected": true}` protects / unprotects many recordings (202 + job) |
-| POST | /api/v1/titles/delete | `{"ids": [...]}` starts deleting several recordings (202 + job); protected ones are skipped |
-| GET/POST | /api/v1/jobs/{id}, /api/v1/jobs/{id}/cancel | progress of a bulk job (done/total, result); cancel stops it after the current item |
-| POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
-| GET/POST | /api/v1/recorder/playback | playback status / `{"operation":"pause"|"resume"|"stop"}` |
+The full reference, generated from the app's OpenAPI description, is in [`docs/api.md`](../docs/api.md) (`docs/openapi.json` alongside). A running server serves the same thing interactively at `/docs`. Regenerate after changing routes or models with `uv run python -m bdzbridge.tools.apidoc`; a test fails while the files are stale.
 
 Reservation body: `{"broadcasting":"td","service_id":1024,"event_id":14792,"quality":"LSR","repeat":"none"}` or, without an event id, `start` + `duration_sec` + `title`.

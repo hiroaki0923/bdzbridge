@@ -1,0 +1,3914 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "bdzbridge",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/api/v1/recorders/discover": {
+   "get": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Recorders Discover",
+    "description": "Sony recorders answering on the LAN (SSDP, then a port scan of the local /24).",
+    "operationId": "recorders_discover_api_v1_recorders_discover_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RecorderCandidate"
+         },
+         "type": "array",
+         "title": "Response Recorders Discover Api V1 Recorders Discover Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recorder": {
+   "get": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Recorder Status",
+    "description": "The selected recorder: model, power and playback state, HDD space, guide cache summary. `reachable` is false while it is off the network.",
+    "operationId": "recorder_status_api_v1_recorder_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecorderStatus"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Recorder Select",
+    "description": "Use this recorder from now on; the choice is saved and the guide is refreshed in the background.",
+    "operationId": "recorder_select_api_v1_recorder_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecorderSelect"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecorderStatus"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recorder/wake": {
+   "post": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Recorder Wake",
+    "description": "Wake-on-LAN for a recorder that has dropped off the network.",
+    "operationId": "recorder_wake_api_v1_recorder_wake_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WakeResult"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recorder/power": {
+   "post": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Recorder Power",
+    "description": "Switch the recorder fully on (Wake-on-LAN first when it does not answer).",
+    "operationId": "recorder_power_api_v1_recorder_power_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PowerResult"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/defaults": {
+   "get": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Defaults",
+    "description": "Default quality and repeat plus the label tables the web app uses (qualities, repeats, broadcasting types, genres).",
+    "operationId": "defaults_api_v1_defaults_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Defaults"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/epg/refresh": {
+   "post": {
+    "tags": [
+     "recorder"
+    ],
+    "summary": "Epg Refresh",
+    "description": "Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards.",
+    "operationId": "epg_refresh_api_v1_epg_refresh_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Epg Refresh Api V1 Epg Refresh Post"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/channels": {
+   "get": {
+    "tags": [
+     "guide"
+    ],
+    "summary": "Channels",
+    "operationId": "channels_api_v1_channels_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "broadcasting",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "td",
+          "bs",
+          "cs",
+          "bs4k",
+          "cs4k"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Broadcasting"
+      }
+     },
+     {
+      "name": "include_hidden",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "also the channels the user has hidden",
+       "default": false,
+       "title": "Include Hidden"
+      },
+      "description": "also the channels the user has hidden"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Channel"
+         },
+         "title": "Response Channels Api V1 Channels Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/channels/{broadcasting}/prefs": {
+   "put": {
+    "tags": [
+     "guide"
+    ],
+    "summary": "Channel Prefs",
+    "description": "Hide channels and/or reorder them; returns every channel of that type, hidden ones included.",
+    "operationId": "channel_prefs_api_v1_channels__broadcasting__prefs_put",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "broadcasting",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "td",
+        "bs",
+        "cs",
+        "bs4k",
+        "cs4k"
+       ],
+       "type": "string",
+       "title": "Broadcasting"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChannelPrefs"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Channel"
+         },
+         "title": "Response Channel Prefs Api V1 Channels  Broadcasting  Prefs Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/programs": {
+   "get": {
+    "tags": [
+     "guide"
+    ],
+    "summary": "Programs",
+    "operationId": "programs_api_v1_programs_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "broadcasting",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "td",
+          "bs",
+          "cs",
+          "bs4k",
+          "cs4k"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Broadcasting"
+      }
+     },
+     {
+      "name": "service_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Service Id"
+      }
+     },
+     {
+      "name": "date",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "YYYY-MM-DD; TV day 04:00-04:00 JST",
+       "title": "Date"
+      },
+      "description": "YYYY-MM-DD; TV day 04:00-04:00 JST"
+     },
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Since"
+      }
+     },
+     {
+      "name": "until",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Until"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "compact",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "omit description/extended (for the grid view)",
+       "default": false,
+       "title": "Compact"
+      },
+      "description": "omit description/extended (for the grid view)"
+     },
+     {
+      "name": "include_hidden",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "include programs of channels the user has hidden",
+       "default": false,
+       "title": "Include Hidden"
+      },
+      "description": "include programs of channels the user has hidden"
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 5000,
+       "default": 500,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Program"
+         },
+         "title": "Response Programs Api V1 Programs Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/programs/now": {
+   "get": {
+    "tags": [
+     "guide"
+    ],
+    "summary": "Programs Now",
+    "description": "What is on air right now on every channel of one broadcasting type.",
+    "operationId": "programs_now_api_v1_programs_now_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "broadcasting",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "td",
+        "bs",
+        "cs",
+        "bs4k",
+        "cs4k"
+       ],
+       "type": "string",
+       "default": "td",
+       "title": "Broadcasting"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Program"
+         },
+         "title": "Response Programs Now Api V1 Programs Now Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/programs/{broadcasting}/{service_id}/{event_id}": {
+   "get": {
+    "tags": [
+     "guide"
+    ],
+    "summary": "Program",
+    "description": "One programme of the cached guide by its ARIB event id.",
+    "operationId": "program_api_v1_programs__broadcasting___service_id___event_id__get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "broadcasting",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "td",
+        "bs",
+        "cs",
+        "bs4k",
+        "cs4k"
+       ],
+       "type": "string",
+       "title": "Broadcasting"
+      }
+     },
+     {
+      "name": "service_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Service Id"
+      }
+     },
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Event Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Program"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/reservations": {
+   "get": {
+    "tags": [
+     "reservations"
+    ],
+    "summary": "Reservations",
+    "description": "Every reservation on the recorder, with the programme's genres when the guide still has it.",
+    "operationId": "reservations_api_v1_reservations_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Reservation"
+         },
+         "type": "array",
+         "title": "Response Reservations Api V1 Reservations Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "reservations"
+    ],
+    "summary": "Reservation Create",
+    "description": "Create a reservation. With `event_id` the recorder follows schedule changes and uses its own title; without it give `start`, `duration_sec` and `title`. Answers 409 with the conflicts unless `force` is set.",
+    "operationId": "reservation_create_api_v1_reservations_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReservationCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReservationCreated"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/reservations/check": {
+   "post": {
+    "tags": [
+     "reservations"
+    ],
+    "summary": "Reservation Check",
+    "description": "Ask the recorder which existing reservations a new one would conflict with, without creating it.",
+    "operationId": "reservation_check_api_v1_reservations_check_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReservationCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConflictReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/reservations/{reservation_id}": {
+   "patch": {
+    "tags": [
+     "reservations"
+    ],
+    "summary": "Reservation Update",
+    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration).",
+    "operationId": "reservation_update_api_v1_reservations__reservation_id__patch",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "reservation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Reservation Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReservationUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Reservation"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "reservations"
+    ],
+    "summary": "Reservation Delete",
+    "description": "Delete a reservation.",
+    "operationId": "reservation_delete_api_v1_reservations__reservation_id__delete",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "reservation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Reservation Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/rules": {
+   "get": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rules",
+    "description": "The keyword auto-reservation rules.",
+    "operationId": "rules_api_v1_rules_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Rule"
+         },
+         "title": "Response Rules Api V1 Rules Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rule Create",
+    "operationId": "rule_create_api_v1_rules_post",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "apply every rule right away (reserves on the recorder)",
+       "default": false,
+       "title": "Run"
+      },
+      "description": "apply every rule right away (reserves on the recorder)"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RuleCreate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Rule"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/rules/log": {
+   "get": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rules Log",
+    "operationId": "rules_log_api_v1_rules_log_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "default": 50,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AutoLogEntry"
+         },
+         "title": "Response Rules Log Api V1 Rules Log Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/rules/run": {
+   "post": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rules Run",
+    "description": "Apply every enabled rule now (they also run after each guide refresh); reports what was reserved.",
+    "operationId": "rules_run_api_v1_rules_run_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AutoRunResult"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/rules/{rule_id}/matches": {
+   "get": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rule Matches",
+    "description": "Upcoming programs the rule matches (reserved or not).",
+    "operationId": "rule_matches_api_v1_rules__rule_id__matches_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "rule_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Rule Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Program"
+         },
+         "title": "Response Rule Matches Api V1 Rules  Rule Id  Matches Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/rules/{rule_id}": {
+   "patch": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rule Update",
+    "description": "Enable or disable a rule, or change its quality or title-only matching.",
+    "operationId": "rule_update_api_v1_rules__rule_id__patch",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "rule_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Rule Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RuleUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Rule"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Rule Delete",
+    "description": "Delete a rule and its log.",
+    "operationId": "rule_delete_api_v1_rules__rule_id__delete",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "rule_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Rule Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/monitor/run": {
+   "post": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Monitor Run",
+    "description": "Check free space and conflicting reservations now (normally runs after every EPG refresh).",
+    "operationId": "monitor_run_api_v1_monitor_run_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MonitorResult"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/notify": {
+   "get": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Notify Status",
+    "description": "Which notification channels are configured (SMTP, webhook) and the free-space warning threshold.",
+    "operationId": "notify_status_api_v1_notify_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NotifyStatus"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/notify/test": {
+   "post": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Notify Test",
+    "description": "Send a test message through every configured channel.",
+    "operationId": "notify_test_api_v1_notify_test_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NotifyStatus"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/titles": {
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Titles",
+    "operationId": "titles_api_v1_titles_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "default": 100,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 0,
+       "title": "Offset"
+      }
+     },
+     {
+      "name": "series",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "only titles with this grouping key (see /titles/groups)",
+       "title": "Series"
+      },
+      "description": "only titles with this grouping key (see /titles/groups)"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/RecordedTitle"
+         },
+         "title": "Response Titles Api V1 Titles Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/titles/groups": {
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Groups",
+    "description": "Recorded titles grouped into programmes by their names, newest group first.",
+    "operationId": "title_groups_api_v1_titles_groups_get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "genre",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "ARIB level-1 genre code",
+       "title": "Genre"
+      },
+      "description": "ARIB level-1 genre code"
+     },
+     {
+      "name": "refresh",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "re-read the title list from the recorder",
+       "default": false,
+       "title": "Refresh"
+      },
+      "description": "re-read the title list from the recorder"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TitleGroup"
+         },
+         "title": "Response Title Groups Api V1 Titles Groups Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/titles/delete": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Titles Delete",
+    "description": "Start deleting several recordings (a few seconds each); poll GET /jobs/{id}, cancel with POST /jobs/{id}/cancel.\nProtected and unknown ids are skipped, not failed.",
+    "operationId": "titles_delete_api_v1_titles_delete_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TitlesDelete"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/titles/protect": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Titles Protect",
+    "description": "Start protecting or unprotecting several recordings; poll GET /jobs/{id}.",
+    "operationId": "titles_protect_api_v1_titles_protect_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TitlesProtect"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/titles/duplicates": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Titles Duplicates",
+    "description": "Start looking for recordings that are copies of one broadcast; poll GET /jobs/{id} for the sets.",
+    "operationId": "titles_duplicates_api_v1_titles_duplicates_post",
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recorder/playback": {
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Playback Status",
+    "description": "What the recorder is playing on the TV connected to it.",
+    "operationId": "playback_status_api_v1_recorder_playback_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlaybackStatus"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Playback Control",
+    "description": "Pause, resume or stop the recorder's own playback (`resume` only while paused).",
+    "operationId": "playback_control_api_v1_recorder_playback_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlaybackControl"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlaybackStatus"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/titles/{title_id}/play": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Play",
+    "description": "Start playing a recorded title on the TV connected to the recorder.",
+    "operationId": "title_play_api_v1_titles__title_id__play_post",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "title_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Title Id"
+      }
+     },
+     {
+      "name": "position_sec",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Position Sec"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlaybackStatus"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/titles/{title_id}": {
+   "patch": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Update",
+    "description": "Protect / unprotect a recording, clear its NEW mark, or rename it.",
+    "operationId": "title_update_api_v1_titles__title_id__patch",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "title_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Title Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TitleUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TitleFlags"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Delete",
+    "description": "Delete a recording. This is final; the recorder refuses protected titles.",
+    "operationId": "title_delete_api_v1_titles__title_id__delete",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "title_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Title Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Detail",
+    "description": "The programme text of one recording (summary and detail paragraphs).",
+    "operationId": "title_detail_api_v1_titles__title_id__get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "title_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Title Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TitleDetail"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/jobs/{job_id}": {
+   "get": {
+    "tags": [
+     "jobs"
+    ],
+    "summary": "Job Status",
+    "description": "Progress and, once finished, the result of a bulk job.",
+    "operationId": "job_status_api_v1_jobs__job_id__get",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/jobs/{job_id}/cancel": {
+   "post": {
+    "tags": [
+     "jobs"
+    ],
+    "summary": "Job Cancel",
+    "description": "Stop after the item being processed; what is done stays done.",
+    "operationId": "job_cancel_api_v1_jobs__job_id__cancel_post",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Job"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "AutoLogEntry": {
+    "properties": {
+     "id": {
+      "type": "integer",
+      "title": "Id"
+     },
+     "rule_id": {
+      "type": "integer",
+      "title": "Rule Id"
+     },
+     "rule_query": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rule Query"
+     },
+     "broadcasting": {
+      "type": "string",
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "event_id": {
+      "type": "integer",
+      "title": "Event Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "reserved",
+       "conflict",
+       "error"
+      ],
+      "title": "Status"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "rule_id",
+     "broadcasting",
+     "service_id",
+     "event_id",
+     "title",
+     "start",
+     "status",
+     "at"
+    ],
+    "title": "AutoLogEntry"
+   },
+   "AutoRunResult": {
+    "properties": {
+     "rules": {
+      "type": "integer",
+      "title": "Rules"
+     },
+     "checked": {
+      "type": "integer",
+      "title": "Checked"
+     },
+     "reserved": {
+      "type": "integer",
+      "title": "Reserved"
+     },
+     "conflicts": {
+      "type": "integer",
+      "title": "Conflicts"
+     },
+     "errors": {
+      "type": "integer",
+      "title": "Errors"
+     },
+     "notified": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notified",
+      "description": "channels that delivered the report: email, webhook"
+     },
+     "at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "rules",
+     "checked",
+     "reserved",
+     "conflicts",
+     "errors"
+    ],
+    "title": "AutoRunResult"
+   },
+   "Channel": {
+    "properties": {
+     "broadcasting": {
+      "type": "string",
+      "enum": [
+       "td",
+       "bs",
+       "cs",
+       "bs4k",
+       "cs4k"
+      ],
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "sort": {
+      "type": "integer",
+      "title": "Sort"
+     },
+     "logo": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Logo",
+      "description": "station logo as a data: URL (64x36 PNG from the recorder)"
+     },
+     "hidden": {
+      "type": "boolean",
+      "title": "Hidden",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "broadcasting",
+     "service_id",
+     "name",
+     "sort"
+    ],
+    "title": "Channel"
+   },
+   "ChannelPrefs": {
+    "properties": {
+     "order": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Order",
+      "description": "service ids in the wanted order; [] restores the recorder's order"
+     },
+     "hidden": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Hidden",
+      "description": "service ids to hide from the guide and search; [] shows all"
+     }
+    },
+    "type": "object",
+    "title": "ChannelPrefs"
+   },
+   "ConflictReport": {
+    "properties": {
+     "conflicts": {
+      "items": {
+       "$ref": "#/components/schemas/Reservation"
+      },
+      "type": "array",
+      "title": "Conflicts"
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     }
+    },
+    "type": "object",
+    "required": [
+     "conflicts",
+     "ok"
+    ],
+    "title": "ConflictReport"
+   },
+   "Defaults": {
+    "properties": {
+     "quality": {
+      "type": "string",
+      "enum": [
+       "DR",
+       "XR",
+       "XSR",
+       "SR",
+       "LSR",
+       "LR",
+       "ER",
+       "EER"
+      ],
+      "title": "Quality"
+     },
+     "repeat": {
+      "type": "string",
+      "enum": [
+       "none",
+       "title",
+       "daily",
+       "mon",
+       "tue",
+       "wed",
+       "thu",
+       "fri",
+       "sat",
+       "sun",
+       "mon-fri",
+       "mon-sat"
+      ],
+      "title": "Repeat"
+     },
+     "qualities": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Qualities"
+     },
+     "repeats": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Repeats"
+     },
+     "broadcastings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Broadcastings"
+     },
+     "genres": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Genres",
+      "description": "ARIB level-1 genre code → label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "quality",
+     "repeat",
+     "qualities",
+     "repeats",
+     "broadcastings"
+    ],
+    "title": "Defaults"
+   },
+   "Genre": {
+    "properties": {
+     "level1": {
+      "type": "integer",
+      "title": "Level1"
+     },
+     "level2": {
+      "type": "integer",
+      "title": "Level2"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "level1",
+     "level2",
+     "label"
+    ],
+    "title": "Genre"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "Job": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "delete",
+       "protect",
+       "duplicates"
+      ],
+      "title": "Kind"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "done": {
+      "type": "integer",
+      "title": "Done"
+     },
+     "finished": {
+      "type": "boolean",
+      "title": "Finished"
+     },
+     "cancelled": {
+      "type": "boolean",
+      "title": "Cancelled"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "result": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Result",
+      "description": "delete: deleted/skipped; protect: changed/skipped; duplicates: sets"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "total",
+     "done",
+     "finished",
+     "cancelled"
+    ],
+    "title": "Job",
+    "description": "A background job. Poll GET /jobs/{id}; POST /jobs/{id}/cancel stops it after the current item."
+   },
+   "MonitorResult": {
+    "properties": {
+     "free_gb": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Gb"
+     },
+     "low_space": {
+      "type": "boolean",
+      "title": "Low Space"
+     },
+     "new_conflicts": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "New Conflicts"
+     },
+     "notified": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notified"
+     }
+    },
+    "type": "object",
+    "required": [
+     "low_space",
+     "new_conflicts",
+     "notified"
+    ],
+    "title": "MonitorResult"
+   },
+   "NotifyStatus": {
+    "properties": {
+     "configured": {
+      "type": "boolean",
+      "title": "Configured"
+     },
+     "email": {
+      "type": "boolean",
+      "title": "Email"
+     },
+     "webhook": {
+      "type": "boolean",
+      "title": "Webhook"
+     },
+     "to": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "To"
+     },
+     "free_gb": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Gb",
+      "description": "low-space warning threshold, 0 = off"
+     },
+     "sent": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sent"
+     }
+    },
+    "type": "object",
+    "required": [
+     "configured",
+     "email",
+     "webhook"
+    ],
+    "title": "NotifyStatus"
+   },
+   "PlaybackControl": {
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "stop",
+       "pause",
+       "resume"
+      ],
+      "title": "Operation",
+      "description": "resume is only valid while paused"
+     }
+    },
+    "type": "object",
+    "required": [
+     "operation"
+    ],
+    "title": "PlaybackControl"
+   },
+   "PlaybackStatus": {
+    "properties": {
+     "power": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Power"
+     },
+     "play": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Play"
+     },
+     "title_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title Id"
+     },
+     "position_sec": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Position Sec"
+     },
+     "chapter": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chapter"
+     }
+    },
+    "type": "object",
+    "title": "PlaybackStatus"
+   },
+   "PowerResult": {
+    "properties": {
+     "power": {
+      "type": "string",
+      "title": "Power",
+      "description": "the recorder's reply to X_PowerControl, normally PowerOn"
+     }
+    },
+    "type": "object",
+    "required": [
+     "power"
+    ],
+    "title": "PowerResult"
+   },
+   "Program": {
+    "properties": {
+     "broadcasting": {
+      "type": "string",
+      "enum": [
+       "td",
+       "bs",
+       "cs",
+       "bs4k",
+       "cs4k"
+      ],
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "service_name": {
+      "type": "string",
+      "title": "Service Name"
+     },
+     "event_id": {
+      "type": "integer",
+      "title": "Event Id"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "duration_sec": {
+      "type": "integer",
+      "title": "Duration Sec"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "extended": {
+      "type": "string",
+      "title": "Extended",
+      "default": ""
+     },
+     "genres": {
+      "items": {
+       "$ref": "#/components/schemas/Genre"
+      },
+      "type": "array",
+      "title": "Genres"
+     },
+     "copy_control": {
+      "type": "integer",
+      "title": "Copy Control"
+     },
+     "parental_rating": {
+      "type": "integer",
+      "title": "Parental Rating"
+     },
+     "is_reference": {
+      "type": "boolean",
+      "title": "Is Reference",
+      "default": false
+     },
+     "ref_service_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ref Service Id"
+     },
+     "ref_event_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ref Event Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "broadcasting",
+     "service_id",
+     "service_name",
+     "event_id",
+     "start",
+     "end",
+     "duration_sec",
+     "title",
+     "description",
+     "genres",
+     "copy_control",
+     "parental_rating"
+    ],
+    "title": "Program"
+   },
+   "RecordedTitle": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "duration_sec": {
+      "type": "integer",
+      "title": "Duration Sec"
+     },
+     "broadcasting": {
+      "type": "string",
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "service_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service Name"
+     },
+     "quality": {
+      "type": "string",
+      "title": "Quality"
+     },
+     "protected": {
+      "type": "boolean",
+      "title": "Protected"
+     },
+     "is_new": {
+      "type": "boolean",
+      "title": "Is New"
+     },
+     "destination": {
+      "type": "string",
+      "title": "Destination"
+     },
+     "size_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Size Mb"
+     },
+     "dlna_id": {
+      "type": "string",
+      "title": "Dlna Id",
+      "description": "the title's DLNA object id on the recorder"
+     },
+     "genres": {
+      "items": {
+       "$ref": "#/components/schemas/Genre"
+      },
+      "type": "array",
+      "title": "Genres",
+      "description": "from the recorder's genreID"
+     },
+     "series": {
+      "type": "string",
+      "title": "Series",
+      "description": "grouping key derived from the title (episodes of one programme share it)",
+      "default": ""
+     },
+     "last_played": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Played"
+     },
+     "resume_sec": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resume Sec",
+      "description": "where playback stopped last time, 0 when it ran to the end"
+     },
+     "watch_state": {
+      "type": "string",
+      "enum": [
+       "unwatched",
+       "partway",
+       "watched"
+      ],
+      "title": "Watch State",
+      "default": "unwatched"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "start",
+     "duration_sec",
+     "broadcasting",
+     "service_id",
+     "quality",
+     "protected",
+     "is_new",
+     "destination",
+     "size_mb",
+     "dlna_id"
+    ],
+    "title": "RecordedTitle"
+   },
+   "RecorderCandidate": {
+    "properties": {
+     "host": {
+      "type": "string",
+      "title": "Host"
+     },
+     "port": {
+      "type": "integer",
+      "title": "Port"
+     },
+     "friendly_name": {
+      "type": "string",
+      "title": "Friendly Name"
+     },
+     "product": {
+      "type": "string",
+      "title": "Product"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "udn": {
+      "type": "string",
+      "title": "Udn"
+     },
+     "epg_capable": {
+      "type": "boolean",
+      "title": "Epg Capable"
+     },
+     "location": {
+      "type": "string",
+      "title": "Location"
+     },
+     "via": {
+      "type": "string",
+      "title": "Via"
+     },
+     "selected": {
+      "type": "boolean",
+      "title": "Selected",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "host",
+     "port",
+     "friendly_name",
+     "product",
+     "model",
+     "udn",
+     "epg_capable",
+     "location",
+     "via"
+    ],
+    "title": "RecorderCandidate"
+   },
+   "RecorderSelect": {
+    "properties": {
+     "host": {
+      "type": "string",
+      "title": "Host"
+     }
+    },
+    "type": "object",
+    "required": [
+     "host"
+    ],
+    "title": "RecorderSelect"
+   },
+   "RecorderStatus": {
+    "properties": {
+     "configured": {
+      "type": "boolean",
+      "title": "Configured"
+     },
+     "host": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Host"
+     },
+     "friendly_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Friendly Name"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model"
+     },
+     "product": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Product"
+     },
+     "epg_capable": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Epg Capable"
+     },
+     "udn": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Udn"
+     },
+     "firmware": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Firmware"
+     },
+     "power": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Power"
+     },
+     "play": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Play"
+     },
+     "storage": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Storage"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reachable": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reachable",
+      "description": "False when the recorder is not answering on the network (try POST /recorder/wake)"
+     },
+     "mac": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mac"
+     },
+     "epg": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Epg"
+     }
+    },
+    "type": "object",
+    "required": [
+     "configured",
+     "epg"
+    ],
+    "title": "RecorderStatus"
+   },
+   "Reservation": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "duration_sec": {
+      "type": "integer",
+      "title": "Duration Sec"
+     },
+     "broadcasting": {
+      "type": "string",
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "service_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service Name"
+     },
+     "event_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Event Id"
+     },
+     "tracks_program": {
+      "type": "boolean",
+      "title": "Tracks Program"
+     },
+     "repeat": {
+      "type": "string",
+      "title": "Repeat"
+     },
+     "repeat_label": {
+      "type": "string",
+      "title": "Repeat Label"
+     },
+     "quality": {
+      "type": "string",
+      "title": "Quality"
+     },
+     "quality_label": {
+      "type": "string",
+      "title": "Quality Label"
+     },
+     "recording": {
+      "type": "boolean",
+      "title": "Recording"
+     },
+     "conflict": {
+      "type": "boolean",
+      "title": "Conflict"
+     },
+     "destination": {
+      "type": "string",
+      "title": "Destination"
+     },
+     "size_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Size Mb"
+     },
+     "created_by_app": {
+      "type": "boolean",
+      "title": "Created By App"
+     },
+     "genres": {
+      "items": {
+       "$ref": "#/components/schemas/Genre"
+      },
+      "type": "array",
+      "title": "Genres",
+      "description": "from the EPG cache when the reservation tracks a program that is still in it"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "start",
+     "end",
+     "duration_sec",
+     "broadcasting",
+     "service_id",
+     "event_id",
+     "tracks_program",
+     "repeat",
+     "repeat_label",
+     "quality",
+     "quality_label",
+     "recording",
+     "conflict",
+     "destination",
+     "size_mb",
+     "created_by_app"
+    ],
+    "title": "Reservation"
+   },
+   "ReservationCreate": {
+    "properties": {
+     "broadcasting": {
+      "type": "string",
+      "enum": [
+       "td",
+       "bs",
+       "cs",
+       "bs4k",
+       "cs4k"
+      ],
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "type": "integer",
+      "title": "Service Id"
+     },
+     "event_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Event Id",
+      "description": "ARIB event_id; when given, start/duration/title come from the EPG unless overridden"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "duration_sec": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 86400.0,
+        "minimum": 60.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Sec"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title",
+      "description": "used for time-based reservations; with event_id the recorder replaces it with the EPG title"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "DR",
+         "XR",
+         "XSR",
+         "SR",
+         "LSR",
+         "LR",
+         "ER",
+         "EER"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     },
+     "repeat": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "none",
+         "title",
+         "daily",
+         "mon",
+         "tue",
+         "wed",
+         "thu",
+         "fri",
+         "sat",
+         "sun",
+         "mon-fri",
+         "mon-sat"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Repeat"
+     },
+     "force": {
+      "type": "boolean",
+      "title": "Force",
+      "description": "create even if the conflict check reports overlapping reservations",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "broadcasting",
+     "service_id"
+    ],
+    "title": "ReservationCreate"
+   },
+   "ReservationCreated": {
+    "properties": {
+     "reservation": {
+      "$ref": "#/components/schemas/Reservation"
+     },
+     "conflicts": {
+      "items": {
+       "$ref": "#/components/schemas/Reservation"
+      },
+      "type": "array",
+      "title": "Conflicts"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reservation",
+     "conflicts"
+    ],
+    "title": "ReservationCreated"
+   },
+   "ReservationUpdate": {
+    "properties": {
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "DR",
+         "XR",
+         "XSR",
+         "SR",
+         "LSR",
+         "LR",
+         "ER",
+         "EER"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     },
+     "repeat": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "none",
+         "title",
+         "daily",
+         "mon",
+         "tue",
+         "wed",
+         "thu",
+         "fri",
+         "sat",
+         "sun",
+         "mon-fri",
+         "mon-sat"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Repeat"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title",
+      "description": "time-based reservations only"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start",
+      "description": "time-based reservations only"
+     },
+     "duration_sec": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 86400.0,
+        "minimum": 60.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Sec",
+      "description": "time-based reservations only"
+     }
+    },
+    "type": "object",
+    "title": "ReservationUpdate"
+   },
+   "Rule": {
+    "properties": {
+     "id": {
+      "type": "integer",
+      "title": "Id"
+     },
+     "query": {
+      "type": "string",
+      "title": "Query"
+     },
+     "broadcasting": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "td",
+         "bs",
+         "cs",
+         "bs4k",
+         "cs4k"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service Id"
+     },
+     "service_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service Name"
+     },
+     "title_only": {
+      "type": "boolean",
+      "title": "Title Only"
+     },
+     "quality": {
+      "type": "string",
+      "enum": [
+       "DR",
+       "XR",
+       "XSR",
+       "SR",
+       "LSR",
+       "LR",
+       "ER",
+       "EER"
+      ],
+      "title": "Quality"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "created": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "query",
+     "title_only",
+     "quality",
+     "enabled",
+     "created"
+    ],
+    "title": "Rule"
+   },
+   "RuleCreate": {
+    "properties": {
+     "query": {
+      "type": "string",
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Query",
+      "description": "matched case-insensitively (NFKC) against the title, or title + description"
+     },
+     "broadcasting": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "td",
+         "bs",
+         "cs",
+         "bs4k",
+         "cs4k"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Broadcasting"
+     },
+     "service_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service Id"
+     },
+     "title_only": {
+      "type": "boolean",
+      "title": "Title Only",
+      "default": true
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "DR",
+         "XR",
+         "XSR",
+         "SR",
+         "LSR",
+         "LR",
+         "ER",
+         "EER"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     }
+    },
+    "type": "object",
+    "required": [
+     "query"
+    ],
+    "title": "RuleCreate"
+   },
+   "RuleUpdate": {
+    "properties": {
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "DR",
+         "XR",
+         "XSR",
+         "SR",
+         "LSR",
+         "LR",
+         "ER",
+         "EER"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     },
+     "title_only": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title Only"
+     }
+    },
+    "type": "object",
+    "title": "RuleUpdate"
+   },
+   "Storage": {
+    "properties": {
+     "destination": {
+      "type": "string",
+      "title": "Destination",
+      "default": "HDD"
+     },
+     "total_bytes": {
+      "type": "integer",
+      "title": "Total Bytes"
+     },
+     "free_bytes": {
+      "type": "integer",
+      "title": "Free Bytes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "total_bytes",
+     "free_bytes"
+    ],
+    "title": "Storage"
+   },
+   "TitleDetail": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary",
+      "default": ""
+     },
+     "details": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Details",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "TitleDetail"
+   },
+   "TitleFlags": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "protected": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Protected"
+     },
+     "is_new": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is New"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "TitleFlags"
+   },
+   "TitleGroup": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     },
+     "size_mb": {
+      "type": "integer",
+      "title": "Size Mb"
+     },
+     "latest": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Latest"
+     },
+     "earliest": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Earliest"
+     },
+     "protected_count": {
+      "type": "integer",
+      "title": "Protected Count"
+     },
+     "new_count": {
+      "type": "integer",
+      "title": "New Count"
+     }
+    },
+    "type": "object",
+    "required": [
+     "key",
+     "name",
+     "count",
+     "size_mb",
+     "latest",
+     "earliest",
+     "protected_count",
+     "new_count"
+    ],
+    "title": "TitleGroup"
+   },
+   "TitleUpdate": {
+    "properties": {
+     "protected": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Protected",
+      "description": "protect from deletion (the recorder's 保護)"
+     },
+     "is_new": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is New"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "title": "TitleUpdate"
+   },
+   "TitlesDelete": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 300,
+      "minItems": 1,
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ids"
+    ],
+    "title": "TitlesDelete"
+   },
+   "TitlesProtect": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 500,
+      "minItems": 1,
+      "title": "Ids"
+     },
+     "protected": {
+      "type": "boolean",
+      "title": "Protected"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ids",
+     "protected"
+    ],
+    "title": "TitlesProtect"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   },
+   "WakeResult": {
+    "properties": {
+     "awake": {
+      "type": "boolean",
+      "title": "Awake",
+      "description": "the reservation service answers after the magic packets"
+     },
+     "mac": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mac"
+     }
+    },
+    "type": "object",
+    "required": [
+     "awake",
+     "mac"
+    ],
+    "title": "WakeResult"
+   }
+  },
+  "securitySchemes": {
+   "HTTPBearer": {
+    "type": "http",
+    "scheme": "bearer"
+   }
+  }
+ }
+}

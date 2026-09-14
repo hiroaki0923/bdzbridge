@@ -10,7 +10,7 @@ from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import channel_out, program_out
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(auth)])
+router = APIRouter(prefix="/api/v1", tags=["guide"], dependencies=[Depends(auth)])
 
 
 @router.get("/channels", response_model=list[S.Channel])
@@ -41,10 +41,12 @@ async def programs(request: Request, broadcasting: S.Broadcasting | None = None,
 
 @router.get("/programs/now", response_model=list[S.Program])
 async def programs_now(request: Request, broadcasting: S.Broadcasting = "td"):
+    """What is on air right now on every channel of one broadcasting type."""
     return [program_out(p) for p in bridge_of(request).store.now_on_air(broadcasting)]
 
 @router.get("/programs/{broadcasting}/{service_id}/{event_id}", response_model=S.Program)
 async def program(request: Request, broadcasting: S.Broadcasting, service_id: int, event_id: int):
+    """One programme of the cached guide by its ARIB event id."""
     p = bridge_of(request).store.program(broadcasting, service_id, event_id)
     if not p:
         raise HTTPException(404, "program not found")
