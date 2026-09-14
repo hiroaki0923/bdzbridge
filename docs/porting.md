@@ -48,7 +48,7 @@ bdzbridge はサーバー（Python）とブラウザ（PWA）で動いていま�
 | /24 の TCP スキャン | Network framework の `NWConnection` を並列に張り、ポート 64220 が開いているホストを集める |
 | SSDP | `NWConnection` のマルチキャスト。エンタイトルメント申請が必要なので後回しにする |
 | Wake-on-LAN | `NWConnection` の UDP でブロードキャストアドレスへ送る |
-| 連結 zlib の展開 | `libz` を直接使い、`z_stream` の未消費バイト数から次のストリームの開始位置を求める。Compression framework でも消費量は追えるが、境界の判定を自分で書くことになる |
+| 連結 zlib の展開 | `libz` を直接使い、`z_stream` の未消費バイト数から次のストリームの開始位置を求める。`import zlib` がそのまま通り、iOS SDK でも解決します。Compression framework でも消費量は追えるが、境界の判定を自分で書くことになる |
 | XML の解析 | `XMLParser`。SOAP 応答と DIDL-Lite の両方に使う |
 | XML の生成 | 文字列連結で十分。要素の順序を固定したいので、汎用のシリアライザは使わない方が確実 |
 | 番組表の保存 | SQLite。検索用に NFKC + casefold 済みの列を持たせる |
@@ -173,7 +173,9 @@ Android を配布する人向けの注意も一つ書いておきます。Play �
    通し、実機では予約一覧と残容量が Python サーバーと一致することを確認しました
    （`RECORDER_HOST=<ip> swift test --filter LiveRecorderTests`、読み取りのみ）。
 2. EPG: ファイル取得と復号、端末内 DB、日別・チャンネル別の表示。`epg-sample` を通し、実機ファイルで Python と
-   突き合わせる。
+   突き合わせる。**復号まで完了**: `epg-sample` を通し、実機の地デジ 8266 件と BS 8709 件で Python 実装と
+   全フィールドが一致しました（`RECORDER_EPG_DUMP=<dir> swift test --filter LiveRecorderTests` が書き出した
+   行を突き合わせ）。残りは端末内 DB と表示。
 3. 予約: 作成・更新・削除と番組追従。テスト用の予約名を決めて作成→削除で確認する。
 4. 録画: 一覧、詳細、保護、削除、テレビ再生、まとめ、重複。`series.json` を通す。
 5. 宅外: 予約待ちキューと LAN 復帰時の反映。
