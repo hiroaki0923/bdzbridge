@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -158,38 +158,21 @@ class DuplicateSet(BaseModel):
     reasons: dict[str, str] = Field(default_factory=dict, description="per id, why it is kept or suggested for deletion")
 
 
-class DuplicatesJob(BaseModel):
+class Job(BaseModel):
+    """A background job. Poll GET /jobs/{id}; POST /jobs/{id}/cancel stops it after the current item."""
     id: str
+    kind: Literal["delete", "protect", "duplicates"]
     total: int
     done: int
     finished: bool
+    cancelled: bool
     error: str | None = None
-    sets: list[DuplicateSet] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict, description="delete: deleted/skipped; protect: changed/skipped; duplicates: sets")
 
 
 class TitlesProtect(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=500)
     protected: bool
-
-
-class ProtectJob(BaseModel):
-    id: str
-    total: int
-    done: int
-    changed: list[str]
-    skipped: list[TitleSkipped]
-    finished: bool
-    error: str | None = None
-
-
-class DeleteJob(BaseModel):
-    id: str
-    total: int
-    done: int
-    deleted: list[str]
-    skipped: list[TitleSkipped]
-    finished: bool
-    error: str | None = None
 
 
 class PlaybackStatus(BaseModel):

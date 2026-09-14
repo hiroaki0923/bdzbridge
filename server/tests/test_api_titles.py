@@ -55,28 +55,20 @@ def test_title_groups_and_bulk_delete(client):
     assert [g["name"] for g in client.get("/api/v1/titles/groups", headers=H, params={"genre": 0}).json()] == ["別の番組"]
     job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"]})
     assert job.status_code == 202 and job.json()["total"] == 3
-    for _ in range(100):
-        r = client.get(f"/api/v1/titles/delete/{job.json()['id']}", headers=H).json()
-        if r["finished"]:
-            break
-        time.sleep(0.02)
-    assert r["finished"] and r["done"] == 3 and r["error"] is None
-    assert r["deleted"] == ["0x0000010000034d78"]
-    assert [(s["id"], s["reason"]) for s in r["skipped"]] == [("0x0000010000034d79", "protected"), ("0x1", "not found")]
+    r = wait_job(client, job.json()["id"])
+    assert r["kind"] == "delete" and r["done"] == 3 and r["error"] is None and r["cancelled"] is False
+    assert r["result"]["deleted"] == ["0x0000010000034d78"]
+    assert [(s["id"], s["reason"]) for s in r["result"]["skipped"]] == [("0x0000010000034d79", "protected"), ("0x1", "not found")]
     assert [g["count"] for g in client.get("/api/v1/titles/groups", headers=H).json()] == [2, 1]
-    assert client.get("/api/v1/titles/delete/nope", headers=H).status_code == 404
+    assert client.get("/api/v1/jobs/nope", headers=H).status_code == 404
 
 def test_duplicate_scan_suggests_the_later_copy(client):
     job = client.post("/api/v1/titles/duplicates", headers=H)
     assert job.status_code == 202
-    for _ in range(100):
-        r = client.get(f"/api/v1/titles/duplicates/{job.json()['id']}", headers=H).json()
-        if r["finished"]:
-            break
-        time.sleep(0.02)
+    r = wait_job(client, job.json()["id"])
     assert r["error"] is None and r["total"] == 2 and r["done"] == 2
-    assert len(r["sets"]) == 1
-    s = r["sets"][0]
+    assert len(r["result"]["sets"]) == 1
+    s = r["result"]["sets"][0]
     assert s["confidence"] == "high" and {i["id"] for i in s["items"]} == {"0x0000010000034d78", "0x0000010000034d7b"}
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
@@ -85,13 +77,9 @@ def test_duplicate_scan_suggests_the_later_copy(client):
 def test_bulk_protect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"], "protected": True})
     assert job.status_code == 202
-    for _ in range(100):
-        r = client.get(f"/api/v1/titles/protect/{job.json()['id']}", headers=H).json()
-        if r["finished"]:
-            break
-        time.sleep(0.02)
-    assert r["changed"] == ["0x0000010000034d78"] and r["done"] == 3 and r["error"] is None
-    assert [(x["id"], x["reason"]) for x in r["skipped"]] == [("0x0000010000034d79", "unchanged"), ("0x1", "not found")]
+    r = wait_job(client, job.json()["id"])
+    assert r["result"]["changed"] == ["0x0000010000034d78"] and r["done"] == 3 and r["error"] is None
+    assert [(x["id"], x["reason"]) for x in r["result"]["skipped"]] == [("0x0000010000034d79", "unchanged"), ("0x1", "not found")]
     assert client.bridge.recorder.xsrs.title_updates[-1] == ("0x0000010000034d78", {"titleProtectFlag": "1"})
 
 def test_duplicates_keep_protected_partway_and_better_quality(client):
@@ -112,8 +100,8 @@ def test_duplicates_keep_protected_partway_and_better_quality(client):
     ]
     x.summaries = {"0xd1": "月曜のあらすじ", "0xd2": "火曜のあらすじ", "0xc1": "", "0xc2": ""}
     job = client.post("/api/v1/titles/duplicates", headers=H).json()
-    r = wait_job(client, "duplicates", job["id"])
-    sets = {s["title"][:4]: s for s in r["sets"]}
+    r = wait_job(client, job["id"])
+    sets = {s["title"][:4]: s for s in r["result"]["sets"]}
     assert set(sets) == {"ドラマＡ", "ドラマＢ", "ドラマＣ", "録画した"}
     a = sets["ドラマＡ"]
     assert a["keep"] == "0xa3" and a["reasons"]["0xa3"] == "保護中" and sorted(a["suggest_delete"]) == ["0xa1", "0xa2"]
@@ -125,6 +113,22 @@ def test_duplicates_keep_protected_partway_and_better_quality(client):
 
 def test_bulk_unprotect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d79", "0x0000010000034d78"], "protected": False}).json()
-    r = wait_job(client, "protect", job["id"])
-    assert r["changed"] == ["0x0000010000034d79"] and [x["reason"] for x in r["skipped"]] == ["unchanged"]
+    r = wait_job(client, job["id"])
+    assert r["result"]["changed"] == ["0x0000010000034d79"] and [x["reason"] for x in r["result"]["skipped"]] == ["unchanged"]
     assert client.bridge.recorder.xsrs.title_updates[-1] == ("0x0000010000034d79", {"titleProtectFlag": "0"})
+
+
+def test_cancelling_a_job_stops_after_the_current_item(client):
+    x = client.bridge.recorder.xsrs
+    t0 = datetime(2026, 9, 1, 21, 0, tzinfo=JST)
+    x.extra_titles = [make_title(f"0x{i:x}", f"番組{i}", t0 + timedelta(days=i)) for i in range(10, 16)]
+    x.delay = 0.05
+    ids = [t.id for t in x.extra_titles]
+    job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ids}).json()
+    time.sleep(0.12)
+    r = client.post(f"/api/v1/jobs/{job['id']}/cancel", headers=H).json()
+    assert r["cancelled"] is True
+    r = wait_job(client, job["id"])
+    assert r["cancelled"] and r["finished"] and 0 < r["done"] < len(ids) and r["error"] is None
+    assert r["result"]["deleted"] == ids[:r["done"]] and x.deleted == set(ids[:r["done"]])
+    assert client.post(f"/api/v1/jobs/{job['id']}/cancel", headers=H).json()["done"] == r["done"]  # cancelling twice is harmless
