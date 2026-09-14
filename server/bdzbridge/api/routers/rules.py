@@ -5,8 +5,8 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from ...autorec import run_rules
-from ...monitor import run_checks
+from ...services.autorec import run_rules
+from ...services.monitor import run_checks
 from .. import schemas as S
 from ..deps import auth, bridge_of
 from ..serializers import log_out, program_out, rule_out

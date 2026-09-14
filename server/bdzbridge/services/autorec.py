@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from .recorder import codes
-from .recorder.epg import JST
-from .recorder.xsrs import XsrsError, build_create_elements
-from .store import ProgramRow
+from ..recorder import codes
+from ..recorder.epg import JST
+from ..recorder.xsrs import XsrsError, build_create_elements
+from ..store import ProgramRow
 
 log = logging.getLogger("bdzbridge.autorec")
 

@@ -4,7 +4,7 @@ from typing import ClassVar
 import pytest
 
 from bdzbridge.config import Settings
-from bdzbridge.notify import Notifier
+from bdzbridge.services.notify import Notifier
 
 
 class FakeSMTP:
@@ -37,7 +37,7 @@ def test_unconfigured_notifier_sends_nothing():
 
 
 def test_mail_goes_through_smtp(monkeypatch):
-    monkeypatch.setattr("bdzbridge.notify.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr("bdzbridge.services.notify.smtplib.SMTP", FakeSMTP)
     FakeSMTP.instances.clear()
     s = Settings(api_token="t", smtp_host="smtp.example.com", smtp_port=587, smtp_user="me@example.com",
                  smtp_password="pw", notify_to="a@example.com, b@example.com")
@@ -53,8 +53,8 @@ def test_mail_goes_through_smtp(monkeypatch):
 
 @pytest.mark.parametrize("port,starttls", [(465, False), (25, False)])
 def test_mail_transport_variants(monkeypatch, port, starttls):
-    monkeypatch.setattr("bdzbridge.notify.smtplib.SMTP", FakeSMTP)
-    monkeypatch.setattr("bdzbridge.notify.smtplib.SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr("bdzbridge.services.notify.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr("bdzbridge.services.notify.smtplib.SMTP_SSL", FakeSMTP)
     FakeSMTP.instances.clear()
     s = Settings(api_token="t", smtp_host="h", smtp_port=port, smtp_starttls=starttls, notify_to="a@example.com")
     assert asyncio.run(Notifier(s).send("s", "b")) == ["email"]

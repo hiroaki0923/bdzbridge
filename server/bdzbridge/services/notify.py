@@ -8,7 +8,7 @@ from email.message import EmailMessage
 
 import httpx
 
-from .config import Settings
+from ..config import Settings
 
 log = logging.getLogger("bdzbridge.notify")
 

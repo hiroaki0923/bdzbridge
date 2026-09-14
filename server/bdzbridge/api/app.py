@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from ..config import Settings
+from ..services import epg as epg_service
+from ..services import session
 from ..state import Bridge
 from ..store import Store
 from .routers import guide, jobs, recorder, reservations, rules, titles
@@ -27,9 +29,9 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         if b is None:
             settings.ensure_db_dir()
             b = Bridge(settings, None, Store(settings.db_path))
-            await b.resolve_recorder()
+            await session.resolve_recorder(b)
         app.state.bridge = b
-        task = asyncio.create_task(b.refresh_loop()) if bridge is None else None
+        task = asyncio.create_task(epg_service.refresh_loop(b)) if bridge is None else None
         try:
             yield
         finally:
