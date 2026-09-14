@@ -550,6 +550,8 @@ final class AppModel {
             removed = true
         }
         await loadReservations()
+        // the reload asks the recorder again, and if it is a moment behind itself the row would come back
+        if removed { reservations.removeAll { $0.id == reservation.id } }
         return removed
     }
 
