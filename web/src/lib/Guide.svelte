@@ -47,5 +47,5 @@
 {#if error}<p class="error">{error}</p>{/if}
 {#if busy && programs.length === 0}<p class="empty"><span class="spinner"></span>読み込み中</p>
 {:else if view === 'grid'}<GuideGrid {channels} {programs} {day} />
-{:else}<ProgramList {programs} />{/if}
+{:else}<ProgramList {programs} scrollToNow={day === days[0].iso} />{/if}
 {#if prefsOpen}<ChannelPrefs {bt} label={BTS.find(([id]) => id === bt)?.[1] ?? bt} onclose={() => (prefsOpen = false)} onchange={() => loadChannels().then(loadPrograms)} />{/if}

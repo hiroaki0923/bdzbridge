@@ -73,3 +73,4 @@ input.search { width: 100%; padding: 10px 12px; border-radius: 10px; border: 0; 
 .fill { height: 100%; background: var(--danger); transition: width .3s; }
 .fill.accent { background: var(--accent); }
 .mark.dim { background: var(--muted); }
+.item.past { opacity: .5; }
