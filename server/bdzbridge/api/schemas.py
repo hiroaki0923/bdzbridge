@@ -16,6 +16,12 @@ class Channel(BaseModel):
     name: str
     sort: int
     logo: str | None = Field(default=None, description="station logo as a data: URL (64x36 PNG from the recorder)")
+    hidden: bool = False
+
+
+class ChannelPrefs(BaseModel):
+    order: list[int] | None = Field(default=None, description="service ids in the wanted order; [] restores the recorder's order")
+    hidden: list[int] | None = Field(default=None, description="service ids to hide from the guide and search; [] shows all")
 
 
 class Genre(BaseModel):
@@ -159,6 +165,21 @@ class DuplicatesJob(BaseModel):
     finished: bool
     error: str | None = None
     sets: list[DuplicateSet] = Field(default_factory=list)
+
+
+class TitlesProtect(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+    protected: bool
+
+
+class ProtectJob(BaseModel):
+    id: str
+    total: int
+    done: int
+    changed: list[str]
+    skipped: list[TitleSkipped]
+    finished: bool
+    error: str | None = None
 
 
 class DeleteJob(BaseModel):

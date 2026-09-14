@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS auto_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id INTEGER NOT NULL, bt TEXT NOT NULL, service_id INTEGER NOT NULL,
   event_id INTEGER NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL, status TEXT NOT NULL, message TEXT,
   at TEXT NOT NULL, UNIQUE (rule_id, bt, service_id, event_id));
+CREATE TABLE IF NOT EXISTS channel_prefs (
+  bt TEXT NOT NULL, service_id INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0, position INTEGER,
+  PRIMARY KEY (bt, service_id));
 CREATE TABLE IF NOT EXISTS title_summaries (id TEXT PRIMARY KEY, summary TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
 CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
@@ -179,16 +182,35 @@ class Store:
                                 [(bt, lg.service_id, lg.channel_no, lg.png) for lg in logos])
 
     # --- queries ---
-    def channels(self, bt: str | None = None) -> list[dict]:
-        """Channels in guide order; `logo` is the station's PNG (bytes) or None."""
-        q = ("SELECT c.bt, c.service_id, c.name, c.sort, l.png AS logo FROM channels c"
-             " LEFT JOIN logos l ON l.bt=c.bt AND l.service_id=c.service_id")
-        args: tuple = ()
+    def channels(self, bt: str | None = None, include_hidden: bool = False) -> list[dict]:
+        """Channels in the user's order (else the recorder's); `logo` is the station's PNG (bytes) or None."""
+        q = ("SELECT c.bt, c.service_id, c.name, c.sort, l.png AS logo, COALESCE(cp.hidden, 0) AS hidden, cp.position"
+             " FROM channels c LEFT JOIN logos l ON l.bt=c.bt AND l.service_id=c.service_id"
+             " LEFT JOIN channel_prefs cp ON cp.bt=c.bt AND cp.service_id=c.service_id")
+        where, args = [], []
         if bt:
-            q += " WHERE c.bt=?"
-            args = (bt,)
-        q += " ORDER BY c.bt, c.sort"
+            where.append("c.bt=?"); args.append(bt)
+        if not include_hidden:
+            where.append("COALESCE(cp.hidden, 0)=0")
+        if where:
+            q += " WHERE " + " AND ".join(where)
+        q += " ORDER BY c.bt, COALESCE(cp.position, 100000 + c.sort), c.sort"
         return [dict(r) for r in self.db.execute(q, args)]
+
+    def set_channel_prefs(self, bt: str, order: list[int] | None = None, hidden: list[int] | None = None) -> None:
+        """`order`: service ids in the wanted order (empty list = back to the recorder's order);
+        `hidden`: the service ids to hide (empty list = show everything). None leaves that aspect alone."""
+        with self._lock, self.db:
+            ids = [r["service_id"] for r in self.db.execute("SELECT service_id FROM channels WHERE bt=?", (bt,))]
+            for sid in ids:
+                self.db.execute("INSERT OR IGNORE INTO channel_prefs (bt, service_id) VALUES (?, ?)", (bt, sid))
+            if order is not None:
+                pos = {sid: i for i, sid in enumerate(order)}
+                for sid in ids:
+                    self.db.execute("UPDATE channel_prefs SET position=? WHERE bt=? AND service_id=?", (pos.get(sid), bt, sid))
+            if hidden is not None:
+                for sid in ids:
+                    self.db.execute("UPDATE channel_prefs SET hidden=? WHERE bt=? AND service_id=?", (int(sid in hidden), bt, sid))
 
     _SELECT = """
     SELECT p.bt, p.service_id, c.name AS service_name, p.event_id, p.start, p.end,
@@ -201,6 +223,7 @@ class Store:
            p.ref_service_id, p.ref_event_id
     FROM programs p
     LEFT JOIN channels c ON c.bt=p.bt AND c.service_id=p.service_id
+    LEFT JOIN channel_prefs cp ON cp.bt=p.bt AND cp.service_id=p.service_id
     LEFT JOIN programs r ON r.bt=p.bt AND r.service_id=p.ref_service_id AND r.event_id=p.ref_event_id
     """
 
@@ -216,6 +239,7 @@ class Store:
 
     def programs(self, *, bt: str | None = None, service_id: int | None = None, since: datetime | None = None,
                  until: datetime | None = None, query: str | None = None, include_references: bool = False,
+                 include_hidden: bool = False,
                  limit: int = 500, offset: int = 0) -> list[ProgramRow]:
         where, args = [], []
         if bt:
@@ -231,6 +255,8 @@ class Store:
             args.append(f"%{search_norm(query)}%")
         if not include_references:
             where.append("p.ref_event_id IS NULL")
+        if not include_hidden:
+            where.append("COALESCE(cp.hidden, 0)=0")
         sql = self._SELECT + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY p.start, p.bt, p.service_id LIMIT ? OFFSET ?"
         args += [limit, offset]
         return [self._row(r) for r in self.db.execute(sql, args)]

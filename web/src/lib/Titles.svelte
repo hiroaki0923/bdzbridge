@@ -130,13 +130,25 @@
       await Promise.all([loadGroups(), loadStatus().catch(() => {})]) // the free-space figure comes from the status
     } catch (e) { error = e.message; confirmBulk = false } finally { bulkBusy = false; progress = null }
   }
-  async function bulkProtect(on) {
+  // protect / unprotect many titles through a server-side job (one X_UpdateTitle each), polling for progress
+  async function protectIds(ids, on) {
+    let res = await api('/titles/protect', { method: 'POST', body: { ids, protected: on } })
+    progress = { done: res.done, total: res.total }
+    while (!res.finished) {
+      await new Promise((r) => setTimeout(r, 600))
+      res = await api(`/titles/protect/${res.id}`)
+      progress = { done: res.done, total: res.total }
+    }
+    if (res.error) throw new Error(res.error)
+    return res
+  }
+  async function bulkProtect(on, ids = pickedIds) {
     bulkBusy = true; error = ''
     try {
-      progress = { done: 0, total: pickedIds.length }
-      for (const id of pickedIds) { await api(`/titles/${id}`, { method: 'PATCH', body: { protected: on } }); progress = { ...progress, done: progress.done + 1 } }
-      for (const m of members) if (picked[m.id]) m.protected = on
-      toast(on ? `${pickedIds.length} 件を保護しました` : `${pickedIds.length} 件の保護を解除しました`)
+      const res = await protectIds(ids, on)
+      const changed = new Set(res.changed)
+      for (const list of [members, titles, all ?? []]) for (const m of list) if (changed.has(m.id)) m.protected = on
+      toast(on ? `${res.changed.length} 件を保護しました` : `${res.changed.length} 件の保護を解除しました`)
       picked = {}
       await loadGroups(true)
     } catch (e) { error = e.message } finally { bulkBusy = false; progress = null }
@@ -319,9 +331,13 @@
   <div class="sheet">
     <div class="row" style="justify-content: space-between"><h2>{group.name}</h2><button class="chip" onclick={() => (group = null)}>閉じる</button></div>
     <p class="muted">{members.length} 件 · 合計 {(members.reduce((s, m) => s + (m.size_mb ?? 0), 0) / 1024).toFixed(1)}GB</p>
-    <div class="row" style="margin-bottom: 6px">
+    <div class="row" style="margin-bottom: 6px; flex-wrap: wrap">
       <button class="chip" onclick={() => pickAll(true)}>保護以外をすべて選択</button><button class="chip" onclick={() => pickAll(false)}>選択解除</button>
+      <span class="chip-gap" style="height: 20px"></span>
+      <button class="chip" disabled={bulkBusy || !members.length} onclick={() => bulkProtect(true, members.map((m) => m.id))}>🔒 全部を保護</button>
+      <button class="chip" disabled={bulkBusy || !members.length} onclick={() => bulkProtect(false, members.map((m) => m.id))}>全部の保護を解除</button>
     </div>
+    {#if bulkBusy && progress && !confirmBulk}<p class="muted"><span class="spinner"></span>処理中 {progress.done} / {progress.total}</p>{/if}
     <div class="list">
       {#if members.length === 0}<p class="empty"><span class="spinner"></span>読み込み中</p>{/if}
       {#each members as m (m.id)}
@@ -336,7 +352,8 @@
     </div>
     {#if pickedIds.length}
       <button class="btn danger" disabled={bulkBusy} onclick={() => (confirmBulk = true)}>選択した {pickedIds.length} 件を削除（{(pickedSize / 1024).toFixed(1)}GB）</button>
-      <button class="btn ghost" disabled={bulkBusy} onclick={() => bulkProtect(true)}>{bulkBusy && progress ? `保護中 ${progress.done} / ${progress.total}` : '選択した ' + pickedIds.length + ' 件を保護'}</button>
+      <button class="btn ghost" disabled={bulkBusy} onclick={() => bulkProtect(true)}>{'選択した ' + pickedIds.length + ' 件を保護'}</button>
+      <button class="btn ghost" disabled={bulkBusy} onclick={() => bulkProtect(false)}>{'選択した ' + pickedIds.length + ' 件の保護を解除'}</button>
     {/if}
     {#if error}<p class="error">{error}</p>{/if}
   </div>

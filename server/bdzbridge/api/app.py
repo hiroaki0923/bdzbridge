@@ -201,6 +201,32 @@ class Bridge:
                 "size_mb": sum(t.size_mb or 0 for t in members), "items": [title_out(t, self.store) for t in members],
                 "keep": keep.id, "suggest_delete": [t.id for t in members if t.id != keep.id and not t.protected], "reasons": reasons}
 
+    async def run_protect_job(self, job: dict, ids: list[str], protected: bool) -> None:
+        """Set or clear the protect flag on many recordings, one X_UpdateTitle at a time."""
+        rec = self.recorder
+        try:
+            known = {t.id: t for t in await self.all_titles()}
+            for tid in ids:
+                t = known.get(tid)
+                if t is None:
+                    job["skipped"].append({"id": tid, "reason": "not found"})
+                elif t.protected == protected:
+                    job["skipped"].append({"id": tid, "reason": "unchanged"})
+                else:
+                    try:
+                        async with rec.lock:
+                            await rec.xsrs.update_title(build_title_update_elements(tid, protected=protected))
+                        job["changed"].append(tid)
+                    except XsrsError as e:
+                        job["skipped"].append({"id": tid, "reason": str(e)})
+                job["done"] += 1
+        except Exception as e:
+            job["error"] = str(e)
+            log.warning("protect job %s failed: %s", job["id"], e)
+        finally:
+            job["finished"] = True
+            self.forget_titles()
+
     async def run_delete_job(self, job: dict, ids: list[str]) -> None:
         """Delete recordings one by one (each takes the recorder a few seconds) while `job` reports progress."""
         rec = self.recorder
@@ -462,23 +488,34 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     async def epg_refresh(request: Request):
         return await bridge_of(request).refresh_epg()
 
+    def channel_out(c: dict) -> S.Channel:
+        return S.Channel(broadcasting=c["bt"], service_id=c["service_id"], name=c["name"], sort=c["sort"],
+                         logo=_data_url(c["logo"]), hidden=bool(c["hidden"]))
+
     @app.get(v1 + "/channels", response_model=list[S.Channel], dependencies=[Depends(auth)])
-    async def channels(request: Request, broadcasting: S.Broadcasting | None = None):
-        return [S.Channel(broadcasting=c["bt"], service_id=c["service_id"], name=c["name"], sort=c["sort"],
-                          logo=_data_url(c["logo"]))
-                for c in bridge_of(request).store.channels(broadcasting)]
+    async def channels(request: Request, broadcasting: S.Broadcasting | None = None,
+                       include_hidden: bool = Query(False, description="also the channels the user has hidden")):
+        return [channel_out(c) for c in bridge_of(request).store.channels(broadcasting, include_hidden)]
+
+    @app.put(v1 + "/channels/{broadcasting}/prefs", response_model=list[S.Channel], dependencies=[Depends(auth)])
+    async def channel_prefs(request: Request, broadcasting: S.Broadcasting, req: S.ChannelPrefs):
+        """Hide channels and/or reorder them; returns every channel of that type, hidden ones included."""
+        store = bridge_of(request).store
+        store.set_channel_prefs(broadcasting, order=req.order, hidden=req.hidden)
+        return [channel_out(c) for c in store.channels(broadcasting, include_hidden=True)]
 
     @app.get(v1 + "/programs", response_model=list[S.Program], dependencies=[Depends(auth)])
     async def programs(request: Request, broadcasting: S.Broadcasting | None = None, service_id: int | None = None,
                        date: str | None = Query(None, description="YYYY-MM-DD; TV day 04:00-04:00 JST"),
                        since: datetime | None = None, until: datetime | None = None, q: str | None = None,
                        compact: bool = Query(False, description="omit description/extended (for the grid view)"),
+                       include_hidden: bool = Query(False, description="include programs of channels the user has hidden"),
                        limit: int = Query(500, le=5000), offset: int = 0):
         store = bridge_of(request).store
         if date:
             since, until = store.day_range(datetime.fromisoformat(date).replace(tzinfo=JST))
         rows = store.programs(bt=broadcasting, service_id=service_id, since=since, until=until, query=q,
-                              limit=limit, offset=offset)
+                              include_hidden=include_hidden, limit=limit, offset=offset)
         return [program_out(p, compact) for p in rows]
 
     @app.get(v1 + "/programs/now", response_model=list[S.Program], dependencies=[Depends(auth)])
@@ -740,6 +777,23 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
     async def titles_duplicates_status(request: Request, job_id: str):
         job = bridge_of(request).jobs.get(job_id)
         if job is None or "sets" not in job:
+            raise HTTPException(404, "unknown job")
+        return job
+
+    @app.post(v1 + "/titles/protect", response_model=S.ProtectJob, status_code=202, dependencies=[Depends(auth)])
+    async def titles_protect(request: Request, req: S.TitlesProtect):
+        """Protect or unprotect several recordings; poll GET /titles/protect/{id} for progress."""
+        b = bridge_of(request)
+        b.require_recorder()
+        job = {"id": secrets.token_hex(4), "total": len(req.ids), "done": 0, "changed": [], "skipped": [], "finished": False, "error": None}
+        b.jobs[job["id"]] = job
+        asyncio.create_task(b.run_protect_job(job, req.ids, req.protected))
+        return job
+
+    @app.get(v1 + "/titles/protect/{job_id}", response_model=S.ProtectJob, dependencies=[Depends(auth)])
+    async def titles_protect_status(request: Request, job_id: str):
+        job = bridge_of(request).jobs.get(job_id)
+        if job is None or "changed" not in job:
             raise HTTPException(404, "unknown job")
         return job
 

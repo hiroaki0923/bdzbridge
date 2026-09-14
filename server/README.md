@@ -25,6 +25,7 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | POST | /api/v1/recorder/power | wake the recorder |
 | GET | /api/v1/defaults | default quality/repeat and label tables |
 | POST | /api/v1/epg/refresh | re-download the EPG now |
+| PUT | /api/v1/channels/{bt}/prefs | `{"hidden": [service ids], "order": [service ids]}` hides / reorders channels (guide, grid, search, and auto-reservation follow) |
 | GET | /api/v1/channels?broadcasting=td\|bs\|cs\|bs4k | channel list; `logo` is a data: URL of the station logo when the recorder has one |
 | GET | /api/v1/programs?broadcasting=&service_id=&date=YYYY-MM-DD&q=&compact= | programs (TV day 04:00–04:00 JST); `compact=true` drops the text fields |
 | GET | /api/v1/programs/now?broadcasting=td | now on air |
@@ -48,6 +49,7 @@ Discovery tries SSDP first and falls back to scanning the local /24 for port 642
 | DELETE | /api/v1/titles/{id} | delete a recording (final; refused while protected) |
 | GET | /api/v1/titles/groups?genre=&refresh= | recordings grouped into programmes by their names; `GET /titles?series=<key>` lists one group |
 | POST | /api/v1/titles/duplicates | find recordings that are copies of one broadcast (same title, length and programme text); `GET /titles/duplicates/{job}` for progress and the sets with a suggested copy to keep |
+| POST | /api/v1/titles/protect | `{"ids": [...], "protected": true}` protects / unprotects many recordings (202 + job; `GET /titles/protect/{job}`) |
 | POST | /api/v1/titles/delete | `{"ids": [...]}` starts deleting several recordings (202 + job); `GET /titles/delete/{job}` reports done/total; protected ones are skipped |
 | POST | /api/v1/titles/{id}/play | play it on the TV connected to the recorder (powers the recorder on) |
 | GET/POST | /api/v1/recorder/playback | playback status / `{"operation":"pause"|"resume"|"stop"}` |
