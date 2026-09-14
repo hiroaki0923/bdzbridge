@@ -240,9 +240,7 @@ struct GroupSheet: View {
                     }
                     .disabled(model.jobRunning || members.isEmpty)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }
-                }
+                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
             .confirmationDialog("選択した \(chosen.count) 件を削除しますか？", isPresented: $confirmingDelete,

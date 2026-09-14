@@ -12,7 +12,14 @@ struct JobBarView: View {
                     if job.finished {
                         Text(job.outcome).font(.footnote)
                         Spacer()
-                        Button("閉じる") { model.clearJob() }.font(.footnote)
+                        Button {
+                            model.clearJob()
+                        } label: {
+                            Image(systemName: "xmark").font(.caption.weight(.bold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("閉じる")
                     } else {
                         ProgressView().controlSize(.small)
                         Text("\(job.verb)中 \(job.done) / \(job.total)").font(.footnote)

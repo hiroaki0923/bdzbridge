@@ -38,6 +38,26 @@ struct RootView: View {
     }
 }
 
+/// The grey circle a sheet is closed with. A word there would be one the system never uses; the word stays
+/// for anything reading the screen aloud.
+struct SheetCloseButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .background(Color(.tertiarySystemFill), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("閉じる")
+    }
+}
+
 /// Formatters live here because building one is not free and these are used down long lists.
 @MainActor
 enum Format {
