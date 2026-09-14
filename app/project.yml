@@ -32,8 +32,12 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
-        DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
+    # DEVELOPMENT_TEAM lives here and not above, because a build setting outranks an xcconfig:
+    # Signing.xcconfig reads the gitignored Signing.local.xcconfig, which holds the team identifier.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     info:
       path: RecorderApp/Info.plist
       properties:
