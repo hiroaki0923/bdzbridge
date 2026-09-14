@@ -50,7 +50,8 @@ def reservation_out(r: XReservation, store: Store | None = None) -> S.Reservatio
                          repeat_label=codes.REPEAT_LABEL.get(repeat, repeat), quality=quality,
                          quality_label=codes.QUALITY_LABEL.get(quality, quality), recording=r.recording,
                          conflict=r.conflict, destination=r.destination, size_mb=r.size_mb,
-                         created_by_app=r.creator == "2200", genres=genres)
+                         created_by_app=r.creator == "2200", created_by_recorder=r.creator == "1100",
+                         genres=genres)
 
 
 def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:

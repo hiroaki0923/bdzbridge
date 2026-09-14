@@ -25,6 +25,14 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }
     public var qualityName: String? { Codes.quality(code: qualityCode) }
     public var repeatName: String? { Codes.repeatName(code: repeatCode) }
+
+    /// An app on the network set this up: this one, or the official one.
+    public var createdByApp: Bool { creator == "2200" }
+
+    /// The recorder set this up by itself, which is what its own automatic recording does. Observed on a
+    /// BDZ-FBT4100: deleting one of these does work, and then the recorder makes it again with a new id the
+    /// next time it reads the guide. Telling the reader beats letting them wonder.
+    public var createdByRecorder: Bool { creator == "1100" }
 }
 
 /// A recording on the recorder's hard disk.

@@ -522,6 +522,7 @@ Stop after the item being processed; what is done stays done.
 - `destination`: string
 - `size_mb`: integer | null
 - `created_by_app`: boolean
+- `created_by_recorder`: boolean （省略可、既定 `false`） — レコーダー自身が入れた予約（おまかせ録画）。消してもレコーダーが入れ直す
 - `genres`: list[Genre] （省略可） — from the EPG cache when the reservation tracks a program that is still in it
 
 ### ReservationCreate

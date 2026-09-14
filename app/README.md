@@ -57,6 +57,11 @@ list, from the reservation sheet the list opens, or from the guide's own sheet.
 Creating and deleting have both been done against a real BDZ-FBT4100 from the app and the recorder followed
 along, 42 reservations before and 42 after.
 
+Reservations are shown under the day they record on, and can be narrowed to the ones an app put in or the
+ones the recorder's own automatic recording did. Sony's app splits those into two lists as well; the recorder
+marks its own with `reservationCreatorID` 1100 and will put one back after it is deleted, which the app says
+before it deletes.
+
 The recordings screen lists what the recorder holds, as a flat list or gathered into programmes, with the free
 space, the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the
 television, protects it against the recorder's own tidying, and deletes it behind a confirmation.

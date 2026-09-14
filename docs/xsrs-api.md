@@ -68,6 +68,23 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 - 時刻指定で作成した予約に、レコーダーが後から event_id を補うことはない。
 - 一覧の item には上記に加えて `conflictID`、`recordingFlag`（録画中）、`reservationCreatorID`、`recordSize`（MB）などが付く。一覧に付く `mediaRemainAlertID`・`recordSize`・`portableRecordFile`（値付き）などを作成要求に含めると 402 になる。
 
+### 予約を入れたのは誰か
+
+`reservationCreatorID` で分かれます。実機（BDZ-FBT4100）で観測した 45 件の内訳は次のとおりで、2 つの値は
+`mediaRemainAlertID` と完全に対応していました。
+
+| `reservationCreatorID` | `mediaRemainAlertID` | 意味 |
+|---|---|---|
+| `2200` | `0` | ネットワーク越しのアプリが入れた予約（本ソフトや公式アプリ） |
+| `1100` | `s01` | レコーダー自身が入れた予約。おまかせ・まる録の類 |
+
+Video & TV SideView が「予約リスト」と「おまかせ予約リスト」を分けて見せるのはこの区別です。
+
+おまかせの予約は `X_DeleteRecordSchedule` で消せますが、**消しても戻ってきます**。レコーダーがおまかせの一覧を
+作り直すときに同じ番組を入れ直し、そのとき予約 ID が変わります。実機では 1 件消した直後は 44 件になり、
+しばらく後には 45 件に戻っていて、同じ番組の ID が `0x...d38ac` から `0x...d38c9` に変わっていました。
+止めるにはレコーダー本体でおまかせ録画の設定を変える必要があります。
+
 ### コード表
 
 録画モード `desiredQualityMode`:

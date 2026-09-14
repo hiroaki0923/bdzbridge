@@ -13,7 +13,7 @@ struct ReservationsScreen: View {
                 if !model.connected {
                     ContentUnavailableView("レコーダーが未設定です", systemImage: "clock",
                                            description: Text("設定でレコーダーのアドレスを入れてください"))
-                } else if model.reservations.isEmpty {
+                } else if model.shownReservations.isEmpty {
                     ContentUnavailableView("予約はありません", systemImage: "clock",
                                            description: Text("番組表から番組を選んで予約できます"))
                 } else {
@@ -30,6 +30,12 @@ struct ReservationsScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Picker("種類", selection: Binding(get: { model.reservationKind },
+                                                         set: { model.reservationKind = $0 })) {
+                            ForEach(AppModel.ReservationKind.allCases, id: \.self) { kind in
+                                Text(kind.label).tag(kind)
+                            }
+                        }
                         Picker("並び", selection: Binding(get: { model.reservationSort },
                                                          set: { model.reservationSort = $0 })) {
                             ForEach(AppModel.ReservationSort.allCases, id: \.self) { sort in
@@ -37,7 +43,7 @@ struct ReservationsScreen: View {
                             }
                         }
                     } label: {
-                        Image(systemName: model.reservationSort == .time
+                        Image(systemName: model.reservationSort == .time && model.reservationKind == .all
                               ? "line.3.horizontal.decrease.circle"
                               : "line.3.horizontal.decrease.circle.fill")
                     }
@@ -68,7 +74,10 @@ struct ReservationsScreen: View {
                 Button("やめる", role: .cancel) {}
             } message: { reservation in
                 Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                     + "レコーダーから消えます。")
+                     + "レコーダーから消えます。"
+                     + (reservation.createdByRecorder
+                        ? "\nこれはレコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
+                        : ""))
             }
             // whatever goes wrong here has to be visible on this screen, not only on the others
             .safeAreaInset(edge: .bottom) {
@@ -91,9 +100,12 @@ struct ReservationsScreen: View {
     }
 
     private var subtitle: String {
-        let recording = model.reservations.filter(\.recording).count
-        let clashing = model.reservations.filter(\.conflict).count
-        var parts = ["\(model.reservations.count) 件"]
+        let shown = model.shownReservations
+        let recording = shown.filter(\.recording).count
+        let clashing = shown.filter(\.conflict).count
+        var parts: [String] = []
+        if model.reservationKind != .all { parts.append(model.reservationKind.label) }
+        parts.append("\(shown.count) 件")
         if recording > 0 { parts.append("録画中 \(recording)") }
         if clashing > 0 { parts.append("重複 \(clashing)") }
         return parts.joined(separator: " · ")
@@ -134,6 +146,15 @@ struct ReservationRowView: View {
                 }
                 if reservation.conflict {
                     Text("重複").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
+                }
+                if reservation.createdByRecorder {
+                    Text("おまかせ")
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color(.tertiarySystemFill))
+                        .foregroundStyle(.secondary)
+                        .clipShape(Capsule())
                 }
             }
             Text(reservation.title).font(.subheadline).lineLimit(2)

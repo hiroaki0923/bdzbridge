@@ -17,6 +17,7 @@ final class AppModel {
     var broadcasting = "td"
     var day: Date
     var reservationSort = ReservationSort.time
+    var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
     var titleSort = TitleSort.newest
@@ -377,15 +378,12 @@ final class AppModel {
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
         await start()
         guard let client else { return false }
-        var changed = false
-        await run(on ? "保護中" : "保護を解除中") {
+        return await run(on ? "保護中" : "保護を解除中") {
             try await client.updateTitle(id: title.id, protected: on)
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
                 self.titles[index].protected = on
             }
-            changed = true
         }
-        return changed
     }
 
     /// A write, and not one that can be undone: the recording is gone from the recorder.
@@ -393,15 +391,12 @@ final class AppModel {
     func delete(_ title: RecordedTitle) async -> Bool {
         await start()
         guard let client else { return false }
-        var deleted = false
-        await run("削除中") {
+        return await run("削除中") {
             try await client.deleteTitle(id: title.id)
             self.titles.removeAll { $0.id == title.id }
-            deleted = true
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
         }
-        return deleted
     }
 
     /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
@@ -442,6 +437,20 @@ final class AppModel {
         }
     }
 
+    /// The recorder keeps its own automatic recordings alongside the ones an app put in, and so does Sony's
+    /// app: two lists rather than one.
+    enum ReservationKind: String, CaseIterable {
+        case all, mine, automatic
+
+        var label: String {
+            switch self {
+            case .all: "すべて"
+            case .mine: "自分の予約"
+            case .automatic: "おまかせ"
+            }
+        }
+    }
+
     struct ReservationSection: Identifiable {
         var title: String
         var items: [Reservation]
@@ -450,8 +459,16 @@ final class AppModel {
 
     /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
     /// within each, since a reservation is something that has not happened yet.
+    var shownReservations: [Reservation] {
+        switch reservationKind {
+        case .all: reservations
+        case .mine: reservations.filter { !$0.createdByRecorder }
+        case .automatic: reservations.filter(\.createdByRecorder)
+        }
+    }
+
     var reservationSections: [ReservationSection] {
-        let byStart = reservations.sorted { $0.start < $1.start }
+        let byStart = shownReservations.sorted { $0.start < $1.start }
         switch reservationSort {
         case .time:
             return sections(byStart) { Format.day.string(from: $0.start) }
@@ -529,30 +546,28 @@ final class AppModel {
         guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
             return false
         }
-        var created = false
-        await run("予約中") {
+        let created = await run("予約中") {
             _ = try await client.createReservation(request)
-            created = true
         }
         if created { await loadReservations() }
         return created
     }
 
-    /// Also a write: the recorder forgets the reservation.
+    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
+    /// is left on screen rather than being reloaded away.
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
         guard let client else { return false }
-        var removed = false
-        await run("予約を削除中") {
+        let removed = await run("予約を削除中") {
             try await client.deleteReservation(id: reservation.id)
             self.reservations.removeAll { $0.id == reservation.id }
-            removed = true
         }
+        guard removed else { return false }
         await loadReservations()
         // the reload asks the recorder again, and if it is a moment behind itself the row would come back
-        if removed { reservations.removeAll { $0.id == reservation.id } }
-        return removed
+        reservations.removeAll { $0.id == reservation.id }
+        return true
     }
 
     func channelName(for reservation: Reservation) -> String {
@@ -600,17 +615,24 @@ final class AppModel {
         return channels.first { $0.serviceID == serviceFilter }?.name ?? "すべての局"
     }
 
-    private func run(_ what: String, _ work: () async throws -> Void) async {
+    /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something
+    /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
+    @discardableResult
+    private func run(_ what: String, _ work: () async throws -> Void) async -> Bool {
         busy = what
-        problem = nil
+        var failed = false
         do {
             try await work()
+            problem = nil
         } catch let error as RecorderError {
             problem = error.explanation
+            failed = true
         } catch {
             problem = String(describing: error)
+            failed = true
         }
         busy = nil
+        return !failed
     }
 
     private static func databasePath() throws -> String {
