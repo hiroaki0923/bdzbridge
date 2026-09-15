@@ -619,20 +619,31 @@ final class AppModel {
     /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
     /// is left on screen rather than being reloaded away.
     @discardableResult
-    /// Deletes one reservation. 804 is handled apart from the rest: the recorder saying it has no such
-    /// reservation means the list the app is holding has moved on — the recorder replaces the ones its own
-    /// automatic recording made — and reporting a code for that reads like a broken delete rather than a
-    /// stale row. Fetch the list again and say that instead.
+    /// Deletes one reservation, by what it is rather than by the id the app happens to be holding.
+    ///
+    /// The recorder rewrites the ids of the reservations its own automatic recording made — the whole block
+    /// of them at once, when it works through the guide again — so an id read a few hours ago can be dead
+    /// while the row on screen still looks right, and deleting it answers 804. Observed on a BDZ-FBT4100:
+    /// 19 automatic reservations were renumbered in one go, the programmes themselves unchanged. So read
+    /// the list again first and find this reservation by its channel and the moment it starts, which no two
+    /// reservations can share. Only when it is not there at all has it really gone.
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
+        guard client != nil else { return false }
+        await loadReservations()
+        guard let target = current(reservation) else {
+            problem = "この予約はレコーダーにもうありませんでした。一覧を取り直しました。"
+            return false
+        }
         guard let client else { return false }
         busy = "予約を削除中"
         do {
-            try await client.deleteReservation(id: reservation.id)
+            try await client.deleteReservation(id: target.id)
         } catch let error as RecorderError where error.unknownReservation {
+            // the list we just read was itself out of date, which is what happens when reading it failed
             busy = nil
-            await loadReservations()
-            problem = "この予約はレコーダーにもうありませんでした。一覧を取り直しました。"
+            await loadReservations()  // first, because a successful read clears `problem`
+            problem = "レコーダーが予約を作り直していました。一覧を取り直したので、もう一度お試しください。"
             return false
         } catch {
             busy = nil
@@ -641,11 +652,19 @@ final class AppModel {
         }
         busy = nil
         problem = nil
-        reservations.removeAll { $0.id == reservation.id }
+        reservations.removeAll { $0.id == target.id }
         await loadReservations()
         // the reload asks the recorder again, and if it is a moment behind itself the row would come back
-        reservations.removeAll { $0.id == reservation.id }
+        reservations.removeAll { $0.id == target.id }
         return true
+    }
+
+    /// The same reservation as the recorder holds it now, whatever it has renumbered it to.
+    private func current(_ wanted: Reservation) -> Reservation? {
+        reservations.first { $0.id == wanted.id }
+            ?? reservations.first { $0.broadcastingType == wanted.broadcastingType
+                                    && $0.serviceID == wanted.serviceID
+                                    && $0.start == wanted.start }
     }
 
     func channelName(for reservation: Reservation) -> String {
