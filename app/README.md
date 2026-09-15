@@ -33,47 +33,46 @@ the only cost of not paying.
    the app looks for it, and refusing leaves the app with nothing to talk to (Settings > the app > Local
    Network puts it back).
 
-Once installed, a device takes the same launch arguments a simulator does:
+Once installed:
 
 ```
 xcrun devicectl list devices
 xcrun devicectl device install app --device <udid> <path to RecorderApp.app>
-xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp \
-  -recorderHost 192.168.0.63 -startTab guide
+xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp
 ```
 
-The overnight refresh can be made to happen instead of waited for: pause the app in Xcode and, in the
-console,
+A device takes the same launch arguments a simulator does, but they have to come after `--` or devicectl
+reads them as its own options.
+
+
+## Driving it without tapping through it
+
+Four launch arguments exist so that the app can be checked without tapping through it. They do nothing
+unless passed, and nobody installing from the App Store can pass them.
+
+```
+xcrun simctl launch <device> jp.hiroaki.recorderapp \
+  -recorderHost 192.168.0.63 -startTab search -searchFor ニュース -searchScope recordings
+
+xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp \
+  -- -recorderHost 192.168.0.63 -startTab guide
+```
+
+`-recorderHost` fills in the address, which is what a fresh install needs before it can do anything;
+`-startTab` opens `guide`, `search`, `reservations`, `recordings` or `settings`; `-searchFor <word>` fills
+in the search box and `-searchScope guide|reservations|recordings` picks which list it searches.
+
+**A launch argument pins the value for that run.** Anything passed this way lands in `UserDefaults`'
+argument domain, which outranks what the app saves, so the address typed into Settings appears to do
+nothing while `-recorderHost` is in force. Launch without the flag to use the app normally.
+
+The overnight guide refresh is not one of these. Pause the app in Xcode and, in the console,
 
 ```
 e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"jp.hiroaki.recorderapp.guideRefresh"]
 ```
 
-which runs the real task the real way, whereas `-runBackgroundWork 1` only runs its body.
-
-## Driving it without tapping through it
-
-Two launch arguments exist for testing on a simulator or a device. They do nothing unless passed, and nobody
-installing from the App Store can pass them.
-
-```
-xcrun simctl launch <device> jp.hiroaki.recorderapp \
-  -recorderHost 192.168.0.63 -refreshOnStart 1 -startTab reservations
-```
-
-`-wakeOnStart 1` sends the magic packet at launch, which is the only way to see whether a broadcast gets
-out of the sandbox at all. `-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at
-launch, `-startTab` opens
-`guide`, `reservations`, `recordings` or `settings`, `-guideMode` picks `list` or `grid`, `-recordingsMode`
-picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, `-scanOnStart 1` starts the
-duplicate scan, which only reads, and `-searchFor <word>` fills in the search box, `-searchScope guide|reservations|recordings` picks which list it searches, and `-runBackgroundWork 1` does what the overnight guide
-refresh does, which is the only way to watch that path without waiting for iOS to schedule it.
-
-**A launch argument pins the value for that run.** Anything passed this way lands in `UserDefaults`'
-argument domain, which outranks what the app saves, so picking another mode in a run started with
-`-recordingsMode` appears to do nothing: the pick is written but the argument keeps being read back. Launch
-without the flag to use the app normally. The same goes for the address typed into Settings while
-`-recorderHost` is in force.
+which runs the real task the real way rather than only its body.
 
 ## What works
 

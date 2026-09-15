@@ -143,10 +143,10 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 
 | 指定 | 結果 |
 |---|---|
-| CS テレ朝チャンネル１（未契約）＋ `desiredMatchingID` | 831 |
+| 未契約の CS チャンネル ＋ `desiredMatchingID` | 831 |
 | 同じ番組を `desiredMatchingID` なし（時刻のみ） | 作成できる |
-| BS WOWOWライブ（未契約）＋ `desiredMatchingID` | 831 |
-| BS NHK BS（受信可）＋ `desiredMatchingID` | 作成できる |
+| 未契約の BS チャンネル ＋ `desiredMatchingID` | 831 |
+| 受信できる BS チャンネル ＋ `desiredMatchingID` | 作成できる |
 | 地上デジタル（受信可）＋ `desiredMatchingID` | 作成できる |
 
 録画モードは無関係でした（DR でも 831）。放送種別でもありません（受信できる BS は通る）。
