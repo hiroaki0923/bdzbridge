@@ -7,6 +7,10 @@ public enum RecorderError: Error, Equatable, Sendable {
     case transport(String)
     /// An answer that was not XML at all, usually a wrong path or a different device on that port.
     case badResponse(status: Int)
+    /// The recorder answered, but not with the guide file asked for. A BDZ-FBT4100 answers 500 here while
+    /// it has no file to give: after the box is restarted or its channels are re-scanned, the files are
+    /// gone until it builds them again, which it does in the small hours.
+    case guideFileMissing(name: String, status: Int)
     case notHTTP
     /// The recorder was reached but is not the one we expect.
     case notARecorder(host: String)
@@ -28,6 +32,9 @@ public enum RecorderError: Error, Equatable, Sendable {
             }
         case .transport(let detail): "レコーダーに届きませんでした: \(detail)"
         case .badResponse(let status): "レコーダーの応答が XML ではありませんでした (HTTP \(status))"
+        case .guideFileMissing(let name, let status):
+            "レコーダーが番組表のファイルを渡してくれませんでした (HTTP \(status): \(name))。"
+                + "本体を再起動したりチャンネルを再スキャンした直後は、レコーダーが作り直すまでこうなります。"
         case .notHTTP: "レコーダーの応答が HTTP ではありませんでした"
         case .notARecorder(let host): "\(host) はソニーのレコーダーだと名乗りませんでした"
         }
