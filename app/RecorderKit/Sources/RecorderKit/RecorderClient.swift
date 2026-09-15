@@ -15,6 +15,10 @@ public actor RecorderClient {
 
     private static let soapTimeout: TimeInterval = 30
     private static let fileTimeout: TimeInterval = 120
+    /// Long enough for a recorder that is there, short enough not to sit through a recorder that is not.
+    /// A recorder off the network does not refuse a connection, it says nothing at all, so this is the
+    /// whole wait before the caller can conclude it has gone.
+    public static let probeTimeout: TimeInterval = 5
 
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
                 upnpPort: Int = Upnp.port, streamPort: Int? = nil) {
@@ -29,9 +33,10 @@ public actor RecorderClient {
 
     /// Reads `description.xml`, which is also how a candidate found by a scan is confirmed to be a recorder.
     @discardableResult
-    public func describe(via: String = "manual") async throws -> RecorderDescription {
+    public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
+        -> RecorderDescription {
         let response = try await send(HTTPRequest(url: url(port: upnpPort, path: "/description.xml"),
-                                                  timeout: Self.soapTimeout))
+                                                  timeout: timeout ?? Self.soapTimeout))
         guard response.statusCode == 200,
               let described = Discovery.parseDescription(response.text, host: host, port: upnpPort,
                                                          location: url(port: upnpPort, path: "/description.xml").absoluteString,
