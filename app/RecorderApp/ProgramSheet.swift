@@ -12,11 +12,18 @@ struct ProgramSheet: View {
     @State private var repeating = "none"
     @State private var conflicts: [Reservation]?
     @State private var checking = false
-    /// The one question the sheet can ask. Two alerts on the same view is not something SwiftUI promises
-    /// to honour, and this sheet never needs both: a programme is either reserved or it is not.
+    /// What the one alert is for. Two alerts on the same view is not something SwiftUI promises to honour,
+    /// and asking and reporting never happen at once. Reporting is in here because the red line at the foot
+    /// of the sheet was below the fold: a reservation the recorder refused looked like nothing at all.
     private enum Ask {
         case reserve
         case cancel(Reservation)
+        case failed(String)
+
+        var isFailure: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
     @State private var ask: Ask?
     @State private var done = false
@@ -85,20 +92,28 @@ struct ProgramSheet: View {
             .task(id: taskKey) { await check() }
             .alert(askTitle, isPresented: Binding(get: { ask != nil },
                                                   set: { if !$0 { ask = nil } }),
-                   presenting: ask) { ask in
-                switch ask {
+                   presenting: ask) { asked in
+                switch asked {
                 case .reserve:
                     Button("予約する") {
-                        Task { done = await model.reserve(program, quality: quality, repeating: repeating) }
+                        Task {
+                            done = await model.reserve(program, quality: quality, repeating: repeating)
+                            if !done { ask = .failed(model.problem ?? "レコーダーが受け付けませんでした") }
+                        }
                     }
                 case .cancel(let reservation):
                     Button("取り消す", role: .destructive) {
-                        Task { done = await model.cancel(reservation) }
+                        Task {
+                            done = await model.cancel(reservation)
+                            if !done { ask = .failed(model.problem ?? "レコーダーが受け付けませんでした") }
+                        }
                     }
+                case .failed:
+                    EmptyView()
                 }
-                Button("やめる", role: .cancel) {}
-            } message: { ask in
-                switch ask {
+                Button(asked.isFailure ? "OK" : "やめる", role: .cancel) {}
+            } message: { asked in
+                switch asked {
                 case .reserve:
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "\(Codes.qualityLabel[quality] ?? quality) · "
@@ -106,6 +121,8 @@ struct ProgramSheet: View {
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "レコーダーから消えます。")
+                case .failed(let reason):
+                    Text(reason)
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
@@ -115,6 +132,7 @@ struct ProgramSheet: View {
     private var askTitle: String {
         switch ask {
         case .cancel: "この予約を取り消しますか？"
+        case .failed: "うまくいきませんでした"
         case .reserve, nil: "この番組を録画予約しますか？"
         }
     }

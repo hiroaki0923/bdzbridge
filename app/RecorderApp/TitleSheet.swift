@@ -9,6 +9,7 @@ struct TitleSheet: View {
 
     @State private var detail: (summary: String, details: [String])?
     @State private var confirmingDelete = false
+    @State private var failure: String?
     @State private var deleted = false
 
     /// The live copy, since protecting it changes the list underneath.
@@ -64,7 +65,13 @@ struct TitleSheet: View {
                 Section {
                     Toggle("自動削除しないように保護", isOn: Binding(
                         get: { current.protected },
-                        set: { on in Task { await model.setProtected(current, on) } }))
+                        set: { on in
+                            Task {
+                                if await !model.setProtected(current, on) {
+                                    failure = model.problem ?? "レコーダーが受け付けませんでした"
+                                }
+                            }
+                        }))
                     .disabled(model.busy != nil)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
                         .disabled(current.protected || model.busy != nil)
@@ -91,14 +98,27 @@ struct TitleSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task { detail = await model.detail(of: title) }
-            .alert("この録画を削除しますか？", isPresented: $confirmingDelete,
-                   presenting: current) { title in
-                Button("削除する", role: .destructive) {
-                    Task { deleted = await model.delete(title) }
+            // One alert does both jobs: two on the same view is not something SwiftUI promises to honour.
+            .alert(failure == nil ? "この録画を削除しますか？" : "うまくいきませんでした",
+                   isPresented: Binding(get: { confirmingDelete || failure != nil },
+                                        set: { if !$0 { confirmingDelete = false; failure = nil } })) {
+                if failure == nil {
+                    Button("削除する", role: .destructive) {
+                        Task {
+                            deleted = await model.delete(current)
+                            if !deleted { failure = model.problem ?? "レコーダーが受け付けませんでした" }
+                        }
+                    }
+                    Button("やめる", role: .cancel) {}
+                } else {
+                    Button("OK", role: .cancel) {}
                 }
-                Button("やめる", role: .cancel) {}
-            } message: { title in
-                Text("\(title.title)\nレコーダーから消えます。元に戻せません。")
+            } message: {
+                if let failure {
+                    Text(failure)
+                } else {
+                    Text("\(current.title)\nレコーダーから消えます。元に戻せません。")
+                }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }
         }
