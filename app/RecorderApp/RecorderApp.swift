@@ -68,6 +68,15 @@ struct SheetCloseButton: View {
 
 /// Formatters live here because building one is not free and these are used down long lists.
 @MainActor
+extension View {
+    /// A row in a list is tapped anywhere along it, not only on the words. A plain button's hit area is
+    /// its content, so a row of short text leaves the rest of the line dead and the tap does nothing,
+    /// which reads as the app ignoring you.
+    func rowHitArea() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+    }
+}
+
 enum Format {
     static let time: DateFormatter = formatter("HH:mm")
     static let day: DateFormatter = formatter("M/d(E)")

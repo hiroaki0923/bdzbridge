@@ -707,6 +707,13 @@ final class AppModel {
         channelLogos["\(program.broadcasting)-\(program.serviceID)"]
     }
 
+    /// A reservation names its channel by the numeric broadcasting type, which the logos are not keyed by.
+    /// Stations whose logo the recorder never received have none, so this is often nil on purpose.
+    func logo(for reservation: Reservation) -> Data? {
+        Codes.broadcasting(code: reservation.broadcastingType)
+            .flatMap { channelLogos["\($0)-\(reservation.serviceID)"] }
+    }
+
     /// Programmes still to come whose title or description contains this, across every broadcasting type.
     /// The search runs against the cache, so it works away from home too.
     func search(_ query: String) async -> [GuideProgramRow] {

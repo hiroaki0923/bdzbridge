@@ -30,6 +30,7 @@ struct SearchScreen: View {
                         Button { tapped = program } label: {
                             ProgramRowView(program: program, logo: model.logo(for: program),
                                            reservation: model.reservation(for: program))
+                                .rowHitArea()
                         }
                         .buttonStyle(.plain)
                     }
