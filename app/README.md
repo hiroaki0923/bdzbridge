@@ -18,10 +18,17 @@ decided yet.
 
 ## On a real iPhone
 
-A free Apple ID is enough. Nothing here needs a capability a personal team cannot have: the background
-refresh is an Info.plist key, not an entitlement, and the local network is a user grant rather than
-something Apple hands out. The build expires after seven days and has to be installed again, which is
-the only cost of not paying.
+**Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer
+Program team, so read the free-account paragraph as an expectation rather than a report.
+
+Apple documents on-device testing with a free Apple Account, at
+<https://developer.apple.com/support/compare-memberships/>: ten App IDs, three devices, three apps per
+device, and provisioning profiles that expire seven days from issue, so the app has to be built and
+installed again each week. The same page says advanced app capabilities need a membership, without saying
+which capabilities those are. Nothing here asks for an entitlement — the overnight refresh is the
+`UIBackgroundModes` and `BGTaskSchedulerPermittedIdentifiers` keys in Info.plist rather than a capability,
+and the local network is a prompt the reader answers — so a personal team ought to be able to sign it. That
+has not been tried.
 
 1. Put the team identifier in `app/Signing.local.xcconfig`, which is gitignored:
    `echo 'DEVELOPMENT_TEAM = ABCDE12345' > Signing.local.xcconfig`. Xcode > Settings > Accounts shows
