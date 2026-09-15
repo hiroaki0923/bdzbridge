@@ -24,10 +24,37 @@ _CLIENT_HEADERS = {
 }
 
 
+# The criteria syntax is `field = "value"`, and it has to be exact: the recorder answers 860/861 to a field
+# it cannot search on, but a *value* it cannot parse silently matches everything rather than failing
+# (docs/upnp/service-sweep.md). Written wrongly, this filter quietly does nothing.
+_DESTINATION_HDD = 'recordDestinationID = "HDD"'
+
+
+# Codes seen on a BDZ-FBT4100. The full list with what produces each one is in docs/xsrs-api.md.
+_ERROR_TEXT = {
+    "402": "レコーダーがこの要求を受け付けませんでした",
+    "804": "レコーダーにこの予約がありません",
+    "820": "レコーダーにこの録画がありません",
+    "831": "このチャンネルは受信できないため、番組を選んだ予約ができません。"
+           "契約やアンテナの設定を確かめてください",
+    "880": "レコーダーが待機状態です。先に電源を入れてください",
+}
+
+
 class XsrsError(Exception):
     def __init__(self, action: str, status: int, code: str | None, body: str = ""):
         super().__init__(f"{action} failed: HTTP {status} UPnP error {code}")
         self.action, self.status, self.code, self.body = action, status, code, body
+
+    @property
+    def explanation(self) -> str:
+        """What to put in front of the reader; the web app shows this. Japanese, with the code and the
+        action kept in it so that a report of it can be looked up in docs/xsrs-api.md."""
+        if text := _ERROR_TEXT.get(self.code or ""):
+            return f"{text} ({self.code}: {self.action})"
+        if self.code:
+            return f"レコーダーがエラーを返しました ({self.code}: {self.action}, HTTP {self.status})"
+        return f"レコーダーが HTTP {self.status} を返しました ({self.action})"
 
 
 @dataclass
@@ -254,7 +281,7 @@ class XsrsClient:
     # --- recorded titles ---
     async def list_titles(self, count: int = 100, start: int = 0) -> list[RecordedTitle]:
         items, _ = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                            [("SearchCriteria", "recordDestinationID=HDD"), ("StartingIndex", start),
+                                            [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
                                              ("RequestedCount", count), ("SortCriteria", "-scheduledStartDateTime"),
                                              ("Filter", "*")])
         return [parse_title(i) for i in items]
@@ -265,7 +292,7 @@ class XsrsClient:
         start = 0
         while True:
             items, root = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                                   [("SearchCriteria", "recordDestinationID=HDD"), ("StartingIndex", start),
+                                                   [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
                                                     ("RequestedCount", page), ("SortCriteria", "-scheduledStartDateTime"),
                                                     ("Filter", "*")])
             out += [parse_title(i) for i in items]
@@ -277,6 +304,13 @@ class XsrsClient:
     async def _pvr(self, action: str, args: list[tuple[str, object]]) -> str:
         root = await self._call("/X_PvrControl", PVR_TYPE, action, args)
         return _find_text(root, "Result") or ""
+
+    async def private_ip(self) -> dict[str, str]:
+        """The recorder's own network settings: ipAddress, subNetMask, defaultGateWay, primaryDns,
+        useDhcp, and both MAC addresses (macAddress wired, wirelessMacAddress). Verified on a
+        BDZ-FBT4100, where macAddress matches what ARP reports."""
+        res = ET.fromstring(await self._pvr("X_GetPrivateIp", []))
+        return {child.tag.split("}")[-1]: (child.text or "") for child in res}
 
     async def play_status(self) -> dict[str, str]:
         res = ET.fromstring(await self._pvr("X_GetPlayStatus", []))

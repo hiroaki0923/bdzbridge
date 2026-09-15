@@ -54,10 +54,28 @@
     try { await api(`/reservations/${confirmTarget.id}`, { method: 'PATCH', body: { quality, repeat } }); await loadReservations(); toast('予約を変更しました'); editing = false; confirmTarget = null }
     catch (e) { error = e.message } finally { busy = false }
   }
+  // The recorder renumbers the reservations its own automatic recording made, the whole block at once,
+  // whenever it works through the guide again (docs/xsrs-api.md). A list left open therefore holds ids that
+  // are already dead, and deleting one answers 804 — which reads as a broken delete rather than a stale
+  // row. So read the list again first and find this reservation by its channel and start time, which no two
+  // reservations can share.
   async function remove() {
     busy = true; error = ''
-    try { await api(`/reservations/${confirmTarget.id}`, { method: 'DELETE' }); await loadReservations(); toast('予約を削除しました'); confirmTarget = null }
-    catch (e) { error = e.message } finally { busy = false }
+    try {
+      await loadReservations()
+      const target = app.reservations.find((r) => r.id === confirmTarget.id)
+        ?? app.reservations.find((r) => r.broadcasting === confirmTarget.broadcasting
+          && r.service_id === confirmTarget.service_id && r.start === confirmTarget.start)
+      if (!target) {
+        error = 'この予約はレコーダーにもうありませんでした。一覧を取り直しました。'
+        confirmTarget = null
+        return
+      }
+      await api(`/reservations/${target.id}`, { method: 'DELETE' })
+      await loadReservations()
+      toast('予約を削除しました')
+      confirmTarget = null
+    } catch (e) { error = e.message } finally { busy = false }
   }
 </script>
 

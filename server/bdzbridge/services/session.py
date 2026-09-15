@@ -33,9 +33,24 @@ async def set_recorder(bridge, host: str, persist: bool = True) -> RecorderClien
         bridge.store.set_meta("recorder_host", host)
         bridge.store.set_meta("recorder_udn", info.udn)
         bridge.store.set_meta("recorder_name", info.friendly_name)
-    if not bridge.settings.recorder_mac and (mac := await wol.mac_for(host)):
+    if not bridge.settings.recorder_mac and (mac := await _discover_mac(client, host)):
         bridge.store.set_meta("recorder_mac", mac)  # for Wake-on-LAN later
     return client
+
+
+async def _discover_mac(client, host: str) -> str | None:
+    """The recorder hands out its own MAC, which beats hoping the OS has it in ARP: that needs the host to
+    have talked to the recorder recently and to be on the same segment. ARP stays as the fallback for a
+    recorder too old to answer."""
+    try:
+        async with client.lock:
+            settings = await client.xsrs.private_ip()
+    except Exception as e:  # any recorder that does not answer this leaves ARP to try
+        log.debug("X_GetPrivateIp did not answer: %s", e)
+    else:
+        if mac := wol.normalize_mac(settings.get("macAddress", "")):
+            return mac
+    return await wol.mac_for(host)
 
 
 def mac(bridge: Bridge) -> str | None:

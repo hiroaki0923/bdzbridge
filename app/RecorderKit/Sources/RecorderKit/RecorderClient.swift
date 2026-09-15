@@ -124,8 +124,11 @@ public actor RecorderClient {
     }
 
     private func titlePage(count: Int, start: Int) async throws -> (titles: [RecordedTitle], count: Int, total: Int) {
+        // The criteria syntax is `field = "value"`. It matters that it is exact: anything the recorder
+        // cannot parse silently matches everything rather than failing (docs/upnp/service-sweep.md).
         let answer = try await resultText(Upnp.xsrsControlURL, Upnp.xsrsService, "X_GetTitleList",
-                                          [("SearchCriteria", "recordDestinationID=HDD"), ("StartingIndex", "\(start)"),
+                                          [("SearchCriteria", "recordDestinationID = \"HDD\""),
+                                           ("StartingIndex", "\(start)"),
                                            ("RequestedCount", "\(count)"), ("SortCriteria", "-scheduledStartDateTime"),
                                            ("Filter", "*")])
         let items = try XsrsParse.items(inResult: answer.result)

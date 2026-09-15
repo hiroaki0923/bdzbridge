@@ -68,7 +68,7 @@ async def reservation_check(request: Request, req: S.ReservationCreate):
         async with rec.lock:
             conflicts = await rec.xsrs.conflicts(el)
     except XsrsError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(502, e.explanation)
     return S.ConflictReport(conflicts=[reservation_out(c, b.store) for c in conflicts], ok=not conflicts)
 
 @router.post("/reservations", response_model=S.ReservationCreated, status_code=201)
@@ -86,7 +86,7 @@ async def reservation_create(request: Request, req: S.ReservationCreate):
             new_id = await rec.xsrs.create_reservation(el)
             items = await rec.xsrs.list_reservations()
     except XsrsError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(502, e.explanation)
     created = next((r for r in items if r.id == new_id), None)
     if created is None:
         raise HTTPException(502, f"recorder returned id {new_id} but it is not in the list")
@@ -117,7 +117,7 @@ async def reservation_update(request: Request, reservation_id: str, req: S.Reser
             await rec.xsrs.update_reservation(el)
             updated = next((r for r in await rec.xsrs.list_reservations() if r.id == reservation_id), None)
     except XsrsError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(502, e.explanation)
     if updated is None:
         raise HTTPException(502, "reservation disappeared after update")
     return reservation_out(updated, b.store)
@@ -130,6 +130,9 @@ async def reservation_delete(request: Request, reservation_id: str):
         async with rec.lock:
             await rec.xsrs.delete_reservation(reservation_id)
     except XsrsError as e:
-        raise HTTPException(502 if e.code not in ("701", "801") else 404, str(e))
+        # 804 is the recorder saying it has no such reservation, which happens on its own: it renumbers the
+        # ones its automatic recording made, all of them at once (docs/xsrs-api.md). The id a client is
+        # holding goes stale without anything looking different, so this is a 404, not a bad gateway.
+        raise HTTPException(502 if e.code not in ("701", "801", "804") else 404, e.explanation)
 
 # --- keyword auto-reservation ---

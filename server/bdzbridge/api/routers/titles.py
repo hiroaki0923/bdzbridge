@@ -111,7 +111,7 @@ async def playback_control(request: Request, req: S.PlaybackControl):
             await asyncio.sleep(1)
             return _playback(await rec.xsrs.play_status())
     except XsrsError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(502, e.explanation)
 
 @router.post("/titles/{title_id}/play", response_model=S.PlaybackStatus)
 async def title_play(request: Request, title_id: str, position_sec: int = Query(0, ge=0)):
@@ -127,7 +127,7 @@ async def title_play(request: Request, title_id: str, position_sec: int = Query(
             await asyncio.sleep(2)
             return _playback(await rec.xsrs.play_status())
     except XsrsError as e:
-        raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
+        raise HTTPException(404 if e.code in ("701", "803") else 502, e.explanation)
 
 @router.patch("/titles/{title_id}", response_model=S.TitleFlags)
 async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
@@ -140,7 +140,7 @@ async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
         async with rec.lock:
             await rec.xsrs.update_title(el)
     except XsrsError as e:
-        raise HTTPException(404 if e.code in ("701", "803") else 502, str(e))
+        raise HTTPException(404 if e.code in ("701", "803") else 502, e.explanation)
     svc.forget_titles(bridge_of(request))
     return S.TitleFlags(id=title_id, protected=req.protected, is_new=req.is_new, title=req.title)
 
@@ -154,7 +154,7 @@ async def title_delete(request: Request, title_id: str):
             await rec.xsrs.title_detail(title_id)
             await rec.xsrs.delete_title(title_id)
     except XsrsError as e:
-        raise HTTPException(404 if e.code in ("701", "803", "820") else 502, str(e))
+        raise HTTPException(404 if e.code in ("701", "803", "820") else 502, e.explanation)
     svc.forget_titles(bridge_of(request))
 
 @router.get("/titles/{title_id}", response_model=S.TitleDetail)
@@ -165,5 +165,5 @@ async def title_detail(request: Request, title_id: str):
         async with rec.lock:
             detail = await rec.xsrs.title_detail(title_id)
     except XsrsError as e:
-        raise HTTPException(404 if e.code in ("701", "803", "820") else 502, str(e))
+        raise HTTPException(404 if e.code in ("701", "803", "820") else 502, e.explanation)
     return S.TitleDetail(id=title_id, summary=detail["summary"], details=detail["details"])
