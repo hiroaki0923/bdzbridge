@@ -119,18 +119,22 @@ final class AppModel {
         guard !host.isEmpty else { return }
         let client = RecorderClient(host: host)
         self.client = client
-        var reached = await attach(client)
+        // The first ask is a short one. A recorder that has left the network does not refuse the
+        // connection, it says nothing, so a patient timeout means half a minute of silence before anything
+        // can be done about it — and that silence looked like the waking never happened.
+        var reached = await attach(client, timeout: RecorderClient.probeTimeout)
         if !reached { reached = await wakeAndAttach(client) }
         if reached { await refreshGuideIfStale() }
     }
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
     /// is the only case worth sending a magic packet for.
-    private func attach(_ client: RecorderClient, what: String = "接続中") async -> Bool {
+    private func attach(_ client: RecorderClient, what: String = "接続中",
+                        timeout: TimeInterval? = nil) async -> Bool {
         busy = what
         defer { busy = nil }
         do {
-            info = try await client.describe()
+            info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
             UserDefaults.standard.set(host, forKey: Self.hostKey)
@@ -162,9 +166,13 @@ final class AppModel {
               let mac = UserDefaults.standard.string(forKey: Self.macKey),
               WakeOnLan.wake(mac) > 0
         else { return false }
+        // Nothing is wrong yet, so nothing should be on screen saying there is: the failed probe that got
+        // us here left its explanation behind, and waking is the answer to it rather than another fault.
+        problem = nil
         for _ in 0..<8 {
             try? await Task.sleep(for: .seconds(2))
-            if await attach(client, what: "レコーダーを起こしています") { return true }
+            if await attach(client, what: "レコーダーを起こしています",
+                            timeout: RecorderClient.probeTimeout) { return true }
         }
         problem = "レコーダーが応答しません。本体の電源とネットワークを確かめてください。"
         return false
