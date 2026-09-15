@@ -74,9 +74,15 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
 - ネットワークスタンバイ中でも API は答える。電源を入れるのは `X_PowerControl` の `on`（`PowerOn` や `On` は不可）。
 - レコーダーが完全に落ちている（電源オフ後しばらく）と何も答えない。Wake-on-LAN で起きる。本体の「ネットワーク待機」が
   切だと、しばらく操作がないだけで LAN から消えるので、これは例外ではなく普通に起きる。
-- **`description.xml` の `<UDN>` の末尾 12 桁が MAC アドレス**（`uuid:XXXXXXXX-XXXX-XXXX-XXXX-<MAC>` の形）。実機で ARP
-  テーブルの値と一致しました。iOS は ARP を読めないので、Wake-on-LAN の宛先をユーザーに入力させずに済む唯一の経路です。
-  接続時に UDN を控えておけば、次に落ちていても起こせます。
+- **Wake-on-LAN はレコーダー自身が申告しています。** `description.xml` の `X_WakeupOnLAN` が `1`（取説には記載なし）。
+  宛先の MAC は 2 通りで取れるので、ユーザーに入力させる必要はありません。`X_PvrControl` の `X_GetPrivateIp` が
+  `macAddress` と `wirelessMacAddress` を返すのが正攻法で、`description.xml` の `<UDN>` の末尾 12 桁も同じ有線 MAC です
+  （`uuid:XXXXXXXX-XXXX-XXXX-XXXX-<MAC>`、実機で ARP と一致）。iOS は ARP を読めないので、起きているうちに控えておくのが
+  唯一の手です。有線と無線で MAC が違うので、繋いでいる側を使うこと。
+- `X_GetPrivateIp` は `useDhcp` も返します。アドレスが DHCP で動く機体なら、保存した IP に繋ぐだけの実装は取りこぼします。
+  サーバー側は UDN で再探索していますが、移植先でも同じ手当てが必要です。
+- サービスは 5 つに見えて実質 4 つ。`/XSRSExt`（`X_ScheduledRecordingExt:1`）は `/XSRS` と SCPD が完全に同一で、同じ答えを
+  返します。詳細は `upnp/service-sweep.md`。
 
 **予約**
 - `X_CreateRecordSchedule` の `<Elements>` は公式アプリの送信内容と同一にする（`port/xsrs.json` の `create_elements[0]`
