@@ -68,6 +68,25 @@ struct SheetCloseButton: View {
 
 /// Formatters live here because building one is not free and these are used down long lists.
 @MainActor
+/// What to say when there is no recorder to talk to. Two situations that look the same to the code and need
+/// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
+/// phone is away from home. Sending someone to Settings to correct an address that is already right is
+/// worse than saying nothing.
+struct NoRecorderView: View {
+    let icon: String
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if model.host.isEmpty {
+            ContentUnavailableView("レコーダーが未設定です", systemImage: icon,
+                                   description: Text("設定でレコーダーのアドレスを入れてください"))
+        } else {
+            ContentUnavailableView("レコーダーにつながりません", systemImage: icon,
+                                   description: Text("電源が入っているか、同じネットワークにいるかを確かめてください"))
+        }
+    }
+}
+
 extension View {
     /// A row in a list is tapped anywhere along it, not only on the words. A plain button's hit area is
     /// its content, so a row of short text leaves the rest of the line dead and the tap does nothing,

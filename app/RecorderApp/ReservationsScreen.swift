@@ -17,8 +17,7 @@ struct ReservationsScreen: View {
         NavigationStack {
             Group {
                 if !model.connected {
-                    ContentUnavailableView("レコーダーが未設定です", systemImage: "clock",
-                                           description: Text("設定でレコーダーのアドレスを入れてください"))
+                    NoRecorderView(icon: "clock")
                 } else if model.shownReservations.isEmpty {
                     ContentUnavailableView("予約はありません", systemImage: "clock",
                                            description: Text("番組表から番組を選んで予約できます"))

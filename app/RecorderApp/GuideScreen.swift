@@ -129,10 +129,12 @@ struct GuideScreen: View {
             ContentUnavailableView("うまくいきませんでした", systemImage: "exclamationmark.triangle",
                                    description: Text(problem))
         } else if shown.isEmpty {
-            ContentUnavailableView(model.connected ? "この日の番組表がありません" : "レコーダーが未設定です",
-                                   systemImage: "calendar",
-                                   description: Text(model.connected ? "右上の更新でレコーダーから取得します"
-                                                                     : "設定でレコーダーのアドレスを入れてください"))
+            if model.connected {
+                ContentUnavailableView("この日の番組表がありません", systemImage: "calendar",
+                                       description: Text("右上の更新でレコーダーから取得します"))
+            } else {
+                NoRecorderView(icon: "calendar")
+            }
         } else {
             List(shown) { program in
                 Button { tapped = program } label: {
