@@ -1,0 +1,68 @@
+ConnectionManager (/CMS) on a BDZ-FBT4100, as captured with the three actions it defines. The SCPD itself is
+in ConnectionManager.xml; this is what the device answers.
+
+Worth knowing from it:
+- Sink is empty. The recorder only sends; nothing is streamed into it this way.
+- The only still-image profile is JPEG_TN, the thumbnail one. There is no full-size image profile, which
+  fits the recorder handing out one shared dummy thumbnail for every recording.
+- Everything else is MPEG-2 TS, either plain (video/vnd.dlna.mpeg-tts) or wrapped in DTCP-IP
+  (application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts"). Japanese broadcasts are copy-protected, so
+  in practice a recording is only offered through the DTCP-IP ones -- which is why playing a recording on a
+  phone needs a licensed DTCP-IP client and is out of scope here.
+- SONY.COM_PN=DTCP_AVC_TS_BP_{720p,360p,180p}_30_AAC_T with DLNA.ORG_CI=1 are transcoded, downscaled
+  versions: the ladder the remote-viewing feature streams. CI=1 means the stream is a converted copy rather
+  than what was recorded.
+- ARIB.OR.JP_PN=MPEG_TTS_CP marks the ARIB copy-protected transport stream.
+- GetCurrentConnectionIDs answers "0" and connection 0 reports RcsID -1, AVTransportID -1, no
+  ProtocolInfo, Direction Output, Status Unknown. That is the placeholder connection a server reports when
+  it has no PrepareForConnection, which this one does not: content is fetched by plain HTTP GET.
+
+
+=== GetProtocolInfo: HTTP 200 ===
+Source: 33 entries
+    http-get:*:image/jpeg:DLNA.ORG_PN=JPEG_TN;DLNA.ORG_FLAGS=00900000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_MPEG_TS_JP_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000;ARIB.OR.JP_PN=MPEG_TTS_CP
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=MPEG_TS_JP_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_MPEG_TS_JP_T;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01511000000000000000000000000000;DTCP.COM_FLAGS=C0000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=MPEG_TS_HD_60_L2_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_AVC_TS_JP_AAC_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=AVC_TS_JP_AAC_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_AVC_TS_JP_AAC_T;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01511000000000000000000000000000;DTCP.COM_FLAGS=C0000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_MPEG_TS_JP_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_AVC_TS_HD_60_AC3_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=AVC_TS_HD_60_AC3_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=AVC_TS_HD_24_AC3_T;DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_PN=DTCP_AVC_TS_JP_AAC_T;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0D110000000000000000000000000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=HD2_60_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_HD_60_AC3_T
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=AVC_TS_HD_60_AC3_T
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=AVC_TS_HD_24_AC3_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=1;DLNA.ORG_FLAGS=0D110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_720p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0D110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_720p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=1;DLNA.ORG_FLAGS=0D110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_360p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=1;DLNA.ORG_FLAGS=0D110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_180p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_720p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_720p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_360p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01110000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_180p_30_AAC_T
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=AVC_TS_BP_720p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01511000000000000000000000000000;ARIB.OR.JP_PN=MPEG_TTS_CP;DTCP.COM_FLAGS=C0000000
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01511000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_360p_30_AAC_T;DTCP.COM_FLAGS=C0000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=AVC_TS_BP_360p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01510000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_360p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01511000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_180p_30_AAC_T;DTCP.COM_FLAGS=C0000000
+    http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01100000000000000000000000000000;SONY.COM_PN=AVC_TS_BP_180p_30_AAC_T
+    http-get:*:application/x-dtcp1;CONTENTFORMAT="video/vnd.dlna.mpeg-tts":DLNA.ORG_OP=10;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01510000000000000000000000000000;SONY.COM_PN=DTCP_AVC_TS_BP_180p_30_AAC_T
+Sink: 0 entries
+
+=== GetCurrentConnectionIDs: HTTP 200 ===
+ConnectionIDs: '0'
+
+=== GetCurrentConnectionInfo: HTTP 200 ===
+RcsID: '-1'
+AVTransportID: '-1'
+ProtocolInfo: ''
+PeerConnectionManager: ''
+PeerConnectionID: '-1'
+Direction: 'Output'
+Status: 'Unknown'
