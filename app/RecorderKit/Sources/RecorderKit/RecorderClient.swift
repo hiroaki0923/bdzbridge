@@ -176,6 +176,17 @@ public actor RecorderClient {
         try XmlNode.parse(try await pvr("X_GetFirmwareVersion")).firstDescendantText("version") ?? ""
     }
 
+    /// The recorder's own network settings. `macAddress` is the wired side and is what a magic packet has
+    /// to be addressed to; `wireless` is the Wi-Fi side. Worth reading while the recorder is answering,
+    /// because it is the only way an iOS app can learn the address to wake it at later: ARP is off limits.
+    public func networkSettings() async throws -> NetworkSettings {
+        let root = try XmlNode.parse(try await pvr("X_GetPrivateIp"))
+        return NetworkSettings(mac: root.firstDescendantText("macAddress") ?? "",
+                               wireless: root.firstDescendantText("wirelessMacAddress") ?? "",
+                               address: root.firstDescendantText("ipAddress") ?? "",
+                               usesDhcp: root.firstDescendantText("useDhcp") == "1")
+    }
+
     /// Wakes the recorder out of network standby. `PowerOn` and `On` do not work, only `on`.
     @discardableResult
     public func powerOn() async throws -> String {

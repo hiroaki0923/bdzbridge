@@ -1,0 +1,81 @@
+import Darwin
+import Foundation
+
+/// Waking a recorder that has left the network.
+///
+/// A recorder in network standby answers its API, and `X_PowerControl` is the way to bring it out of that.
+/// This is for the state below that: the box has dropped off the LAN entirely and answers nothing, which a
+/// BDZ-FBT4100 does on its own after a while. Only a magic packet gets it back, and the recorder tells us
+/// it supports one: `X_WakeupOnLAN` is `1` in its `description.xml`.
+///
+/// The address to send to comes from the recorder itself (`X_GetPrivateIp` gives `macAddress`), so nobody
+/// has to type it in — iOS cannot read the ARP table, which is the only other place it could come from.
+public enum WakeOnLan {
+    /// Accepts the shapes a recorder or a person writes a MAC in: colons, hyphens, or nothing at all, in
+    /// either case. Returns the lower-case colon form, or nil if it is not six bytes.
+    public static func normalise(_ mac: String) -> String? {
+        let digits = mac.lowercased().filter { $0.isHexDigit }
+        guard digits.count == 12 else { return nil }
+        return stride(from: 0, to: 12, by: 2)
+            .map { String(digits[digits.index(digits.startIndex, offsetBy: $0)...].prefix(2)) }
+            .joined(separator: ":")
+    }
+
+    /// Six 0xFF bytes, then the MAC sixteen times over: 102 bytes.
+    public static func magicPacket(for mac: String) -> Data? {
+        guard let normalised = normalise(mac) else { return nil }
+        let bytes = normalised.split(separator: ":").compactMap { UInt8($0, radix: 16) }
+        guard bytes.count == 6 else { return nil }
+        return Data(repeating: 0xFF, count: 6) + Data(bytes).repeated(16)
+    }
+
+    /// Sends the packet to every broadcast address on every port a recorder might be listening on. Returns
+    /// how many sends the system accepted; anything above zero means the packet went out, which is as much
+    /// as the sender can ever know — nothing answers a magic packet.
+    @discardableResult
+    public static func wake(_ mac: String, addresses: [String] = LocalNetwork.broadcastAddresses(),
+                            ports: [UInt16] = [9, 7]) -> Int {
+        guard let packet = magicPacket(for: mac) else { return 0 }
+        var sent = 0
+        for address in addresses {
+            for port in ports where send(packet, to: address, port: port) {
+                sent += 1
+            }
+        }
+        return sent
+    }
+
+    private static func send(_ packet: Data, to address: String, port: UInt16) -> Bool {
+        let handle = socket(AF_INET, SOCK_DGRAM, 0)
+        guard handle >= 0 else { return false }
+        defer { close(handle) }
+
+        var on: Int32 = 1
+        guard setsockopt(handle, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size)) == 0
+        else { return false }
+
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, address, &destination.sin_addr) == 1 else { return false }
+
+        let count = withUnsafePointer(to: &destination) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddress in
+                packet.withUnsafeBytes { bytes in
+                    sendto(handle, bytes.baseAddress, bytes.count, 0, sockaddress,
+                           socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+        return count == packet.count
+    }
+}
+
+private extension Data {
+    func repeated(_ times: Int) -> Data {
+        var out = Data(capacity: count * times)
+        for _ in 0..<times { out.append(self) }
+        return out
+    }
+}

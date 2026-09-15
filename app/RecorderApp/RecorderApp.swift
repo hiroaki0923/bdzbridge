@@ -81,8 +81,19 @@ struct NoRecorderView: View {
             ContentUnavailableView("レコーダーが未設定です", systemImage: icon,
                                    description: Text("設定でレコーダーのアドレスを入れてください"))
         } else {
-            ContentUnavailableView("レコーダーにつながりません", systemImage: icon,
-                                   description: Text("電源が入っているか、同じネットワークにいるかを確かめてください"))
+            ContentUnavailableView {
+                Label("レコーダーにつながりません", systemImage: icon)
+            } description: {
+                Text("電源が入っているか、同じネットワークにいるかを確かめてください")
+            } actions: {
+                // A recorder that has dropped off the LAN answers nothing, so there is nothing to ask:
+                // only a magic packet reaches it. The offer appears once the recorder has told us its MAC.
+                if model.canWake {
+                    Button("レコーダーを起こす") { Task { await model.wake() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.busy != nil)
+                }
+            }
         }
     }
 }
