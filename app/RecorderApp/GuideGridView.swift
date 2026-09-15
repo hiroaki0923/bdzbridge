@@ -132,8 +132,10 @@ struct GuideGridView: View {
             // is for the tab bar's own scroll to the top, which cannot be declined (see GuideScreen).
             .onChange(of: nowRequests) {
                 Task {
-                    try? await Task.sleep(for: .milliseconds(120))
-                    show(minute: showsNow ? nowMinutes : 0, with: scroller)
+                    for wait in [0, 120, 300] {
+                        try? await Task.sleep(for: .milliseconds(wait))
+                        show(minute: showsNow ? nowMinutes : 0, with: scroller)
+                    }
                 }
             }
         }

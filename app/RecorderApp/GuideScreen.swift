@@ -8,6 +8,10 @@ struct GuideScreen: View {
 
     private var grid: Bool { mode == "grid" }
 
+    /// When to ask, after being taken home. The first is as soon as the main actor comes back round, the
+    /// rest are there in case the platform's own scroll lands after it.
+    private static let homeWaits = [0, 120, 300]
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -161,14 +165,16 @@ struct GuideScreen: View {
                 // the reader wanted, without animating: at eleven at night the distance is most of a day,
                 // and a snap reads better than a long slide.
                 //
-                // The wait is short on purpose. Long enough to land after the platform's scroll, short
-                // enough that on a real device the two read as one movement rather than two — checked on
-                // an iPhone, where a longer wait made the pause visible.
+                // Timing is a race this end cannot see the other side of, so it is not run once. The first
+                // ask arrives before the platform's scroll and may be overridden by it; the later ones
+                // land after it and put things right. On a real iPhone the result reads as one movement.
                 .onChange(of: model.nowRequests) {
                     Task {
-                        try? await Task.sleep(for: .milliseconds(120))
-                        guard let target = onAirOrNext else { return }
-                        withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                        for wait in Self.homeWaits {
+                            try? await Task.sleep(for: .milliseconds(wait))
+                            guard let target = onAirOrNext else { return }
+                            withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                        }
                     }
                 }
             }
