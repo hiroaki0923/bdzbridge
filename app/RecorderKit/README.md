@@ -24,7 +24,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `XsrsElements.swift` | The reservation and title payloads, byte-identical to what the official app sends |
 | `XsrsParse.swift` | `<item>` elements into `Reservation` and `RecordedTitle` |
 | `Discovery.swift` | `description.xml` into `RecorderDescription`, and looking through a subnet for one |
-| `LocalNetwork.swift` | This device's own interfaces, and the addresses worth trying around them |
+| `LocalNetwork.swift` | This device's own interfaces, the addresses worth trying around them, and where a broadcast goes |
+| `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
 | `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |
@@ -47,17 +48,16 @@ Every file in `docs/port/` is checked from here: `codes.json`, `xsrs.json`, `des
 A read-only check against a real recorder is included and skipped by default:
 
 ```
-RECORDER_HOST=192.0.2.63 swift test --filter LiveRecorderTests
+RECORDER_HOST=<recorder ip> swift test --filter LiveRecorderTests
 ```
 
 It only reads, so it cannot change what the recorder is going to record. Compare its printed figures with the
 same ones from the Python server to see that both agree.
 
-## What is next
+## What is not here
 
-The app target, which is not in this repository yet; when it arrives it will live beside this package in `app/`
-and depend on it as a local package.
+The app itself is in `app/RecorderApp`, beside this package and depending on it. Everything with a screen
+lives there; everything that talks to a recorder or decodes one of its files lives here.
 
-Still on the server side only: finding a recorder by scanning the subnet, duplicate detection among
-recordings, keyword auto-reservation, and Wake-on-LAN. None of them is needed to put a guide and a
-reservation list on screen.
+Keyword auto-reservation is still only on the server side, which is the right place for it: it has to run
+whether or not anybody is holding a phone.

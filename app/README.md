@@ -2,7 +2,7 @@
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
-- `RecorderApp/` — the app itself: SwiftUI, three screens, no server in the middle.
+- `RecorderApp/` — the app itself: SwiftUI, five tabs, no server in the middle.
 - `project.yml` — the Xcode project is generated from this by XcodeGen and is **not** committed.
 
 ## Build and run
@@ -59,10 +59,10 @@ unless passed, and nobody installing from the App Store can pass them.
 
 ```
 xcrun simctl launch <device> jp.hiroaki.bdbridge \
-  -recorderHost 192.0.2.63 -startTab search -searchFor ニュース -searchScope recordings
+  -recorderHost <recorder ip> -startTab search -searchFor ニュース -searchScope recordings
 
 xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge \
-  -- -recorderHost 192.0.2.63 -startTab guide
+  -- -recorderHost <recorder ip> -startTab guide
 ```
 
 `-recorderHost` fills in the address, which is what a fresh install needs before it can do anything;
@@ -93,8 +93,7 @@ BDZ-FBT4100 from the simulator.
 
 The grid mirrors the web app's: an hour ruler down the left and the channel names across the top, genre
 colours, the elapsed part of what is on air shaded up to a red line at the current time, and a time axis
-that pinches. Today
-opens at the current time.
+that pinches. Today opens at the current time, and pinching keeps the hour under the fingers where it is.
 
 A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder what the
 new reservation would clash with, and creates it behind a confirmation. Reserved programmes are tinted and
@@ -109,9 +108,13 @@ the morning's eight days are current without opening the app or being at home. i
 never while the app is force-quit, Background App Refresh is off, or the battery is in Low Power Mode, and
 nothing breaks when a night is missed. The settings screen shows when it last succeeded.
 
-Searching: programmes still to come whose title or description contains the words, across every broadcasting
-type and all eight days, read from the cache so it works away from home. A result opens the same sheet the
-guide does, and one that is already reserved says so.
+Searching, over any of three lists: programmes still to come, whose title or description contains the words,
+across every broadcasting type and all eight days; the reservations the recorder holds; and the recordings on
+its disk. The guide half reads the cache, so it works away from home. A result opens the same sheet its own
+screen would, and a programme that is already reserved says so.
+
+Reservation and recording rows carry the station's logo, in the same place the guide's rows do, with the
+space held even where a station has none so that the names line up.
 
 Reservations are shown under the day they record on, and can be narrowed to the ones an app put in or the
 ones the recorder's own automatic recording did. Sony's app splits those into two lists as well; the recorder
@@ -130,12 +133,17 @@ A programme's recordings can be worked on together: select some of them, or the 
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,
 and it lives outside the sheet that started it: closing the sheet neither stops it nor hides the stop button.
 
-Waking the recorder: a BDZ-FBT4100 leaves the LAN on its own after a while and then answers nothing at
-all, which is below the network standby that `X_PowerControl` can reach. A magic packet is the only way
-back, and the recorder both says it takes one (`X_WakeupOnLAN` in its description) and hands over the
-address to send it to (`X_GetPrivateIp`), so nothing has to be typed in — which matters, because iOS
-cannot read an ARP table. The address is kept whenever the recorder answers, and a screen with no recorder
-offers to wake it.
+Waking the recorder, without being asked to: a BDZ-FBT4100 leaves the LAN on its own after a while and
+then answers nothing at all, which is below the network standby that `X_PowerControl` can reach. A magic
+packet is the only way back, and the recorder both says it takes one (`X_WakeupOnLAN` in its description)
+and hands over the address to send it to (`X_GetPrivateIp`), so nothing has to be typed in — which matters,
+because iOS cannot read an ARP table. Connecting sends the packet itself when the recorder answered nothing
+at all, and waits for it to come back: measured at eleven seconds from launching the app to the recorder
+answering again. Nobody has to know their recorder left the network.
+
+Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
+another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
+in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
 
 ## What is missing
 

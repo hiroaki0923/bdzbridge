@@ -9,7 +9,7 @@ struct SettingsScreen: View {
         NavigationStack {
             Form {
                 Section("レコーダー") {
-                    TextField("192.0.2.63", text: $typedHost)
+                    TextField("192.168.1.10", text: $typedHost)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.numbersAndPunctuation)
