@@ -50,7 +50,7 @@ final class WakeOnLanTests: XCTestCase {
         let packet = try XCTUnwrap(WakeOnLan.magicPacket(for: "f8:4e:17:00:00:00"))
         XCTAssertEqual(packet.count, 102)
         XCTAssertEqual(Array(packet.prefix(6)), [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
-        let address: [UInt8] = [0xF8, 0x4E, 0x17, 0x3C, 0xCF, 0x84]
+        let address: [UInt8] = [0xF8, 0x4E, 0x17, 0x00, 0x00, 0x00]
         for repeatIndex in 0..<16 {
             let start = 6 + repeatIndex * 6
             XCTAssertEqual(Array(packet[start..<(start + 6)]), address, "copy \(repeatIndex)")

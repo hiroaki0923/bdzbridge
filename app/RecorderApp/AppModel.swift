@@ -61,10 +61,7 @@ final class AppModel {
         let midnight = calendar.startOfDay(for: Date())
         days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
-        // `-startDay 6` opens the guide six days out, which is how a day with reservations on it is reached
-        // without tapping through the app.
-        let offset = UserDefaults.standard.integer(forKey: "startDay")
-        day = days.indices.contains(offset) ? days[offset] : (days.first ?? Date())
+        day = days.first ?? Date()
     }
 
     var connected: Bool { info != nil }
@@ -84,28 +81,6 @@ final class AppModel {
             store = try GuideStore(path: try Storage.guidePath())
             await reloadFromCache()
             if !host.isEmpty { await connect() }
-            // a hook for driving the app from a simulator or a device without tapping through it:
-            //   xcrun simctl launch <device> <bundle id> -recorderHost 192.0.2.63 -refreshOnStart 1
-            // Connecting already fetches a guide that needs it; this one fetches a guide that does not.
-            if UserDefaults.standard.bool(forKey: "refreshOnStart"), connected { await refreshGuide() }
-            // `-runBackgroundWork 1` does what the overnight run does, which is the only way to see that
-            // path work without waiting for iOS to decide to run it.
-            if UserDefaults.standard.bool(forKey: "runBackgroundWork") {
-                busy = "バックグラウンドの処理を試しています"
-                _ = await BackgroundWork.refreshNow()
-                busy = nil
-                await reloadFromCache()
-            }
-            if UserDefaults.standard.bool(forKey: "scanOnStart"), connected {
-                await loadTitlesNow(force: false)
-                startDuplicateScan()
-            }
-            // `-wakeOnStart 1` sends the magic packet at launch. Last, so that nothing after it clears what
-            // it has to say, and the only way to see whether the sandbox lets a broadcast out at all.
-            if UserDefaults.standard.bool(forKey: "wakeOnStart") {
-                unreachable = true  // pretend, so the packet goes out even though the recorder answered
-                await wakeAndAttach()
-            }
         } catch {
             problem = "番組表の保存先を開けませんでした: \(error)"
         }
