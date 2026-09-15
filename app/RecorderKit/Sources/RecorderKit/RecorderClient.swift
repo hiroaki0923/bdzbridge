@@ -263,7 +263,9 @@ public actor RecorderClient {
         switch response.statusCode {
         case 200: return response.body
         case 404, 416: return nil
-        default: throw RecorderError.badResponse(status: response.statusCode)
+        // Not `badResponse`: nothing here wanted XML, and saying so sent the reader looking for a fault
+        // that was not there. The recorder has simply got no file to give yet.
+        default: throw RecorderError.guideFileMissing(name: name, status: response.statusCode)
         }
     }
 
