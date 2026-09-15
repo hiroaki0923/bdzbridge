@@ -66,7 +66,7 @@ out of the sandbox at all. `-recorderHost` fills in the address, `-refreshOnStar
 launch, `-startTab` opens
 `guide`, `reservations`, `recordings` or `settings`, `-guideMode` picks `list` or `grid`, `-recordingsMode`
 picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, `-scanOnStart 1` starts the
-duplicate scan, which only reads, and `-searchFor <word>` fills in the search box, and `-runBackgroundWork 1` does what the overnight guide
+duplicate scan, which only reads, and `-searchFor <word>` fills in the search box, `-searchScope guide|reservations|recordings` picks which list it searches, and `-runBackgroundWork 1` does what the overnight guide
 refresh does, which is the only way to watch that path without waiting for iOS to schedule it.
 
 **A launch argument pins the value for that run.** Anything passed this way lands in `UserDefaults`'
