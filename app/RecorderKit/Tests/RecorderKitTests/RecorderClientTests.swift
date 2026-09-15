@@ -65,6 +65,24 @@ final class RecorderClientTests: XCTestCase {
         }
     }
 
+    /// 831 on a create is the recorder refusing to follow a programme on a channel it cannot receive, seen
+    /// on a BDZ-FBT4100 with a pay channel the box is not subscribed to. It reads as a broken app unless it
+    /// is told apart, so it has its own flag and its own wording.
+    func testAnUnreceivableChannelIsRecognisedOnItsOwn() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("831")))
+        do {
+            _ = try await client.createReservation(ReservationRequest(
+                title: "x", start: Date(), durationSec: 1800, repeatCode: "1", broadcastingType: 4,
+                serviceID: 298, qualityCode: 240, eventID: 1))
+            XCTFail("a fault should throw")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreceivableChannel)
+            XCTAssertFalse(error.unknownReservation)
+            XCTAssertTrue(error.explanation.contains("831"))
+            XCTAssertTrue(error.explanation.contains("受信"))
+        }
+    }
+
     func testStandbyIsRecognisedSoTheCallerCanPowerTheRecorderOn() async throws {
         let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("880")))
         do {
