@@ -50,6 +50,10 @@ targets:
         # The recorder is reached over plain HTTP on the LAN, and nowhere else.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # The answer to the export compliance question every upload otherwise stops to ask. "No
+        # non-exempt encryption" is the truthful answer: the recorder is spoken to over plain HTTP, there
+        # is no TLS anywhere, and nothing here encrypts anything of its own. zlib is compression.
+        ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: 自宅のレコーダーを見つけて、番組表と録画予約をやりとりします。
         # the overnight guide refresh; the identifier has to be listed for BGTaskScheduler to accept it
         UIBackgroundModes:
