@@ -19,4 +19,4 @@ def test_port_vectors_round_trip():
     assert epg["services"][1]["programs"][0]["reference"] and epg["services"][0]["programs"][0]["title"] == "サンプルニュース　あさの放送[字]"
     series = json.loads(out[portkit.OUT / "series.json"])
     by_title = {c["title"]: c for c in series["titles"]}
-    assert by_title["日曜劇場「サンプルドラマ」 第1話"]["series_key"] == by_title["日曜劇場「サンプルドラマ」第１８話　前半戦完結　主人公＆相棒"]["series_key"]
+    assert by_title["日曜劇場「SAMPLE」 第1話"]["series_key"] == by_title["日曜劇場「ＳＡＭＰＬＥ」第１８話　前半戦完結　主人公＆相棒"]["series_key"]

@@ -25,7 +25,7 @@ def test_reference_programs_resolve_to_parent(client):
     assert row.is_reference and row.title == "サンプルニュース　あさの放送"
 
 def test_search_ignores_width_and_case(client):
-    for term in ["sample", "ＳＡＭＰＬＥ", "Vivant"]:
+    for term in ["sample", "SAMPLE", "ＳＡＭＰＬＥ"]:
         ps = client.get("/api/v1/programs", headers=H, params={"q": term}).json()
         assert [p["event_id"] for p in ps] == [14794], term
 

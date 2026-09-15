@@ -30,7 +30,7 @@ def make_services() -> list[Service]:
         Program(1024, 14793, day + timedelta(hours=1), day + timedelta(hours=1, minutes=15), "あさのサンプル", "生活情報", "",
                 genres=[(2, 4)]),
         Program(1024, 14800, day + timedelta(days=1, hours=15), day + timedelta(days=1, hours=16), "翌日の番組", "", "x"),
-        Program(1024, 14794, day + timedelta(hours=16), day + timedelta(hours=17), "日曜劇場「サンプルドラマ」", "", ""),
+        Program(1024, 14794, day + timedelta(hours=16), day + timedelta(hours=17), "日曜劇場「ＳＡＭＰＬＥ」", "", ""),
     ])
     sub = Service(1025, "ＮＨＫ総合２・東京", [
         Program(1025, 14792, day, day + timedelta(hours=1), ref_service_id=1024, ref_event_id=14792),

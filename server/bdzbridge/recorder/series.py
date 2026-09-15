@@ -23,7 +23,7 @@ _EPISODE = re.compile(
     re.IGNORECASE,
 )
 _SEPARATORS = re.compile(r"[　▽▼▲△◆◇■□●○★☆※…：／｜～〜]")
-# frames whose "「…」" part is the programme itself (日曜劇場「サンプルドラマ」), not an episode subtitle
+# frames whose "「…」" part is the programme itself (日曜劇場「ＳＡＭＰＬＥ」), not an episode subtitle
 _FRAMES = {"日曜劇場", "土曜ドラマ", "金曜ドラマ", "木曜劇場", "火曜ドラマ", "水曜ドラマ", "月曜ドラマ", "連続テレビ小説", "大河ドラマ",
            "夜ドラ", "ドラマ１０", "ドラマ10", "プレミアムドラマ", "土曜時代ドラマ", "アニメ", "映画", "シネマ", "特集ドラマ", "スペシャルドラマ"}
 _OPENERS = (("「", "」"), ("『", "』"), ("【", "】"), ("（", "）"), ("(", ")"), ("〔", "〕"))
@@ -35,7 +35,7 @@ def _clean(title: str) -> str:
 
 
 def _drop_subtitle_brackets(t: str) -> str:
-    """'サンプル・パトロール「ピカピカ…」' → 'サンプル・パトロール'; frames like '日曜劇場「サンプルドラマ」' are kept whole."""
+    """'サンプル・パトロール「ピカピカ…」' → 'サンプル・パトロール'; frames like '日曜劇場「ＳＡＭＰＬＥ」' are kept whole."""
     i = t.find("「")
     if i < 2:
         return t

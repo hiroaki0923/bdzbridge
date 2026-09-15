@@ -24,7 +24,7 @@ final class SeriesVectorTests: XCTestCase {
     }
 
     func testEpisodesOfOneProgrammeShareAKeyAndOtherEpisodesDoNot() {
-        XCTAssertEqual(Series.key("日曜劇場「サンプルドラマ」 第1話"), Series.key("日曜劇場「サンプルドラマ」第１８話"))
+        XCTAssertEqual(Series.key("日曜劇場「SAMPLE」 第1話"), Series.key("日曜劇場「ＳＡＭＰＬＥ」第１８話"))
         XCTAssertEqual(Series.sameTitleKey("ドラマＡ　第３話[再]"), Series.sameTitleKey("ドラマA 第3話"))
         XCTAssertNotEqual(Series.sameTitleKey("ドラマＡ　第３話"), Series.sameTitleKey("ドラマＡ　第４話"))
     }

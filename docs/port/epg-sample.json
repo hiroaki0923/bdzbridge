@@ -1,6 +1,6 @@
 {
  "file": "epg-sample.dat",
- "sha256": "d52d23ba83680182d40f4133b0c56999316f6b0fea8edb758119f095dd78de36",
+ "sha256": "425dfb80fe26ee45ad1c37ec31be1f3e6e7755280149eacbf483a4dddff3a0fc",
  "services": [
   {
    "service_id": 1024,
@@ -52,7 +52,7 @@
      "start": "2026-09-14T21:00:00+09:00",
      "end": "2026-09-14T22:00:00+09:00",
      "duration_sec": 3600,
-     "title": "日曜劇場「サンプルドラマ」",
+     "title": "日曜劇場「ＳＡＭＰＬＥ」",
      "description": "",
      "extended": "",
      "genres": [],

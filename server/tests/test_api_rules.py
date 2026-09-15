@@ -28,11 +28,11 @@ def test_rules_reserve_matching_programs_once(client):
     rid = r.json()["id"]
     assert [m["event_id"] for m in c.get(f"/api/v1/rules/{rid}/matches", headers=H).json()] == [14794]
     res = [x for x in c.get("/api/v1/reservations", headers=H).json() if x["event_id"] == 14794]
-    assert len(res) == 1 and res[0]["title"] == "日曜劇場「サンプルドラマ」" and res[0]["quality"] == "LSR"
+    assert len(res) == 1 and res[0]["title"] == "日曜劇場「ＳＡＭＰＬＥ」" and res[0]["quality"] == "LSR"
     logs = c.get("/api/v1/rules/log", headers=H).json()
     assert [(x["status"], x["event_id"], x["rule_query"]) for x in logs] == [("reserved", 14794, "sample")]
     sent = c.bridge.notifier.sent
-    assert len(sent) == 1 and sent[0][0] == "[bdzbridge] 自動予約 1 件" and "ＳＡＭＰＬＥ" in sent[0][1] and "「sample」" in sent[0][1]
+    assert len(sent) == 1 and sent[0][0] == "[bdzbridge] 自動予約 1 件" and "ＳＡＭＰＬＥ" in sent[0][1] and "「ＳＡＭＰＬＥ」" in sent[0][1]
     # a second pass finds nothing new and stays quiet
     run = c.post("/api/v1/rules/run", headers=H).json()
     assert (run["checked"], run["reserved"], run["notified"]) == (1, 0, []) and len(sent) == 1

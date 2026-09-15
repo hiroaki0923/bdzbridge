@@ -43,7 +43,7 @@ public enum Series {
         return cleaned.isEmpty ? title : cleaned
     }
 
-    /// The grouping key: NFKC, lower-cased, without spaces, so ＳＡＭＰＬＥ and SAMPLE group together.
+    /// The grouping key: NFKC, lower-cased, without spaces, so サンプルドラマ and サンプルドラマ group together.
     public static func key(_ title: String) -> String {
         replacingMatches(of: anyWhitespace, in: Search.normalise(name(title)))
     }
@@ -68,7 +68,7 @@ public enum Series {
 
     // MARK: - the pieces
 
-    /// Frames whose 「…」 part is the programme itself, as in 日曜劇場「サンプルドラマ」, not an episode subtitle.
+    /// Frames whose 「…」 part is the programme itself, as in 日曜劇場「ＳＡＭＰＬＥ」, not an episode subtitle.
     static let frames: Set<String> = [
         "日曜劇場", "土曜ドラマ", "金曜ドラマ", "木曜劇場", "火曜ドラマ", "水曜ドラマ", "月曜ドラマ", "連続テレビ小説",
         "大河ドラマ", "夜ドラ", "ドラマ１０", "ドラマ10", "プレミアムドラマ", "土曜時代ドラマ", "アニメ", "映画", "シネマ",
