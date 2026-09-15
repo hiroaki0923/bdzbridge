@@ -105,8 +105,7 @@ struct RecordingsScreen: View {
     @ViewBuilder
     private var content: some View {
         if !model.connected {
-            ContentUnavailableView("レコーダーが未設定です", systemImage: "play.rectangle",
-                                   description: Text("設定でレコーダーのアドレスを入れてください"))
+            NoRecorderView(icon: "play.rectangle")
         } else if model.busy != nil && model.titles.isEmpty {
             ContentUnavailableView {
                 Label("読み込み中", systemImage: "play.rectangle")
