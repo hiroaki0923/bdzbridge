@@ -201,3 +201,66 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 **Sony 独自の 2 サービスは `allowedValueList` を一つも宣言していません**（`XSRS.xml` も `X_PvrControl.xml` も 0 件）。
 規格上の引数一覧はここまでで、あとは `*` を試すか、総当たりか、キャプチャです。
+
+## ワイルドカードを全引数に当てた結果
+
+読み取り専用アクションの文字列引数すべてに `*` `%` `?` `all` `ALL` `any` `ANY` `*.*` `**` `.*` `-1` `0` を
+入れて回しました。分かったことは 4 つです。
+
+### 1. `*` が効くのは `X_GetSetupInfo` だけ
+
+他の 11 種のワイルドカード候補はすべて 803 です。`X_GetServiceStatus` の `ServiceName` は `*` でも 803。
+つまりこれは「ワイルドカードという作法」ではなく、この 1 アクションの実装にそう書いてあるだけです。
+
+### 2. まったく見ていない引数がある
+
+| アクション | 無視される引数 | 実際の挙動 |
+|---|---|---|
+| `X_GetServiceStatus` | `Elements` | 空でなければ何でも通り、答えは同じ |
+| `X_ChkWlanOdekakeUsability` | `recordDestinationID` | 何を渡しても `WlanOdekakeUsable` |
+| `X_HDLnkGetRecordDestinationInfo` | `RecordDestinationID` | 何を渡しても HDD の情報 |
+| `X_HDLnkGetRecordContainerID` | `Elements` | 何を渡しても `0` |
+| `X_GetTitleList` / `X_GetRecordScheduleList` | `Filter` | 返るバイト数が常に同一 |
+
+`X_HDLnkGetRecordDestinationInfo` は属性で `totalCapacity` `availableCapacity` `dtcpSupport="1"`
+`allowedTypes="HDD"` `recordable="1"` を返します。空き容量はこれが一次情報です。
+
+### 3. `SearchCriteria` の値は整数として読まれ、読めなければ「全件」になる
+
+`reservationCreatorID = "…"` に何を入れたか（録画 1323 件に対して）:
+
+| 値 | 一致 |
+|---|---|
+| `1100` | 282 |
+| `2000` | 1041 |
+| `-1` / `9999` | 0 |
+| `*` / `%` / `all` / `0` / 空 | **1323（全件）** |
+
+**綴りを間違えるとエラーにならず全件返ります。** 絞り込んだつもりで全件取得している、という失敗をしても
+気づけません。フィールド名の方を間違えた場合は 860/861 になるので、そちらは安全です。
+
+### 4. `X_GetLiveChList` は引数を見ている（前回の測定は当方の解析ミス）
+
+返るのは `<item>` の列ではなく `channelNum` と、サービス ID を `_` で連結した `channelList` です。
+`<item>` を数えていたので 0 件に見えていました。待機中でも答えます。
+
+| `BroadcastType` | `channelNum` |
+|---|---|
+| `2`（地上デジタル） | 27 |
+| `3`（BS） | 60 |
+| `4`（110度CS） | 57 |
+| `23`（BS4K） | 9 |
+| `*` や `99` など不明値 | 27（地上デジタルに落ちる） |
+
+`SkipChannel` も効きます。地上デジタルで `0` なら 27、**`1` なら 31**。31 はロゴファイルのレコード数と
+一致するので、`1` は「スキップ設定のチャンネルも含める」でしょう。
+
+### 追加で分かったエラーコード
+
+| コード | 出るとき |
+|---|---|
+| `701` | `Browse` の `ObjectID` がそんなオブジェクトを指していない |
+| `874` | `X_GetTitleInfoExt` に `TitleID=0`（`X_GetTitleInfo` は同じ入力で 820） |
+
+`X_ConvertItemId` はワイルドカードでも動きませんでした。XML でない値は 802、`<xsrs>` 配下に何を置いても
+402。ここだけは総当たりで埋まりません。
