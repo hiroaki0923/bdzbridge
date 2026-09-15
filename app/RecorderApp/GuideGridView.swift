@@ -17,6 +17,14 @@ struct GuideGridView: View {
     @State private var offset = CGPoint.zero
     @State private var viewport = CGSize.zero
     @State private var pinchStart: Double?
+    /// The quarter-hour mark the next scale change has to leave where it is, and where on screen that is.
+    @State private var hold: Hold?
+
+    private struct Hold: Equatable {
+        var minute: Double
+        /// Fraction of the viewport the mark sits at.
+        var unit: Double
+    }
 
     private let column = 132.0
     private let gutter = 30.0
@@ -94,11 +102,23 @@ struct GuideGridView: View {
                 MagnifyGesture(minimumScaleDelta: 0.02)
                     .onChanged { value in
                         let start = pinchStart ?? pointsPerMinute
-                        pinchStart = start
+                        if pinchStart == nil {
+                            pinchStart = start
+                            // `startAnchor` is where the fingers went down as a fraction of this view, so
+                            // it is the one measurement that does not depend on how far the grid is scrolled
+                            hold = holdingTime(atScreenY: value.startAnchor.y * viewport.height, scale: start)
+                        }
                         pointsPerMinute = min(largest, max(smallest, start * value.magnification))
                     }
                     .onEnded { _ in pinchStart = nil }
             )
+            // After the scale changes, and not inside the gesture: the scroll view has to have been laid
+            // out again for `scrollTo` to land on the right place.
+            .onChange(of: pointsPerMinute) {
+                guard let hold else { return }
+                scroller.scrollTo(anchorName(forMinute: hold.minute),
+                                  anchor: UnitPoint(x: 0, y: hold.unit))
+            }
             // today opens at the current time, another day at the top of the day; the wait is for the
             // content to be laid out, since there is nothing to scroll to before that
             .task(id: dayKey) {
@@ -133,7 +153,12 @@ struct GuideGridView: View {
             ForEach(0..<Int(dayMinutes / 15), id: \.self) { step in
                 Color.clear
                     .frame(width: 1, height: 15 * pointsPerMinute)
-                    .id(anchorName(forMinute: Double(step) * 15))
+                    // The mark is a point tall and sits at the top of its quarter hour. `scrollTo(anchor:)`
+                    // lines up the same fraction of the target as of the viewport, so a target as tall as a
+                    // quarter hour would itself move when the scale changed.
+                    .overlay(alignment: .top) {
+                        Color.clear.frame(width: 1, height: 1).id(anchorName(forMinute: Double(step) * 15))
+                    }
             }
         }
     }
@@ -214,6 +239,7 @@ struct GuideGridView: View {
 
     private func zoomButton(_ symbol: String, factor: Double, enabled: Bool) -> some View {
         Button {
+            hold = holdingTime(atScreenY: viewport.height / 2, scale: pointsPerMinute)
             pointsPerMinute = min(largest, max(smallest, pointsPerMinute * factor))
         } label: {
             Image(systemName: symbol)
@@ -228,6 +254,17 @@ struct GuideGridView: View {
     // MARK: - geometry
 
     private var dayKey: String { "\(Int(dayStart.timeIntervalSince1970))-\(columns.count)" }
+
+    /// What to hold still while the scale changes: the quarter-hour mark nearest a point on screen, and the
+    /// fraction of the viewport it is at right now. Without this the grid simply grows downwards from the
+    /// start of the day and whatever was under the fingers slides away.
+    private func holdingTime(atScreenY screenY: Double, scale: Double) -> Hold? {
+        guard viewport.height > 0 else { return nil }
+        let minute = (screenY - offset.y - header) / scale
+        let quarter = min(max(0, (minute / 15).rounded() * 15), dayMinutes - 15)
+        let markY = header + quarter * scale + offset.y
+        return Hold(minute: quarter, unit: min(max(0, markY / viewport.height), 1))
+    }
 
     private func anchorName(forMinute minute: Double) -> String {
         "minute-\(Int((minute / 15).rounded(.down)) * 15)"
