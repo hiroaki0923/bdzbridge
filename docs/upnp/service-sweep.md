@@ -52,8 +52,8 @@
 | `X_GetWatchingChInfo` | 視聴中のチャンネル。何も見ていなければ空で `NumberReturned=0` |
 | `X_ChkWlanOdekakeUsability(recordDestinationID)` | `WlanOdekakeUsable`（実機は `true`） |
 | `X_GetPrefRecSettingList(..., Format)` | **おまかせ・まる録の条件一覧。`Format` は空でなければ 803。実機では 0 件** |
-| `X_GetSetupInfo(SetupName)` | 本体設定の読み出し。`SetupName` の語彙が不明で、`QuickStart` `NetworkStandby` `PowerSave` `HomeServer` `StandbyMode` `WakeOnLan` はいずれも **803** |
-| `X_GetServiceStatus(Elements, ServiceName)` | 引数の語彙が不明で空だと **402** |
+| `X_GetSetupInfo(SetupName)` | アプリ向け設定の読み出し。**`SetupName` に `*` を渡すと全項目**。下記参照 |
+| `X_GetServiceStatus(Elements, ServiceName)` | `Elements` に `*`、`ServiceName` に `DLNA` か `MOVE`。下記参照 |
 
 `X_GetPrefRecSettingList` が 0 件なのに `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
 つまりこの一覧に載る「おまかせ・まる録の条件」とは別の仕組み（新番組おまかせ録画などの単発設定）が予約を
@@ -83,3 +83,40 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 `connectionmanager-answers.txt` に別途。要点は、送信 33 プロファイル・受信 0、録画は DTCP-IP 経由でしか
 出てこないこと、`PrepareForConnection` が無いので接続管理は実質存在しないこと。
+
+## 引数の語彙は `*` で引き出せる
+
+`X_GetSetupInfo` と `X_GetServiceStatus` は引数に決まった語彙を要求しますが、SCPD には手掛かりがありません。
+`X_PvrControl.xml` には `allowedValueList` が**一つもなく**、`SetupName` の型も汎用の `A_ARG_TYPE_ObjectID` です。
+取説の設定項目から作った候補 203 個（`StandbyMode` `QuickStart` `HomeServer` など、CamelCase と lowerCamel の
+両方）は全滅で、返るのは一律 `803` でした。
+
+答えは**ワイルドカード**でした。`SetupName` に `*` を渡すと有効な項目が全部返り、それが語彙そのものです。
+
+| `SetupName` | 実機の値 | 中身 |
+|---|---|---|
+| `zipCode` | （伏せる） | **郵便番号。** 放送地域の判定用と思われる |
+| `mobTarget` | `WIRELESS_DEV` | おでかけ転送の宛先種別 |
+| `autoAvcCreate` | `1` | AVC 変換の自動作成 |
+| `autoAvcCreateForAdvanced` | `1` | 同じものの上位設定 |
+| `postMetaRecorderID` | （伏せる） | 機器を識別する不透明な ID |
+| `ssid` | （空。有線なので） | 無線 LAN の SSID |
+| `remoteAccessPermission` | `1` | 外からどこでも視聴の許可状態 |
+
+この 7 つだけです。個別名でも同じ値が返り、他の名前はすべて 803。**スタンバイモード（高速起動）は含まれません**
+ので、待機の挙動をこの API から読むことはできません。
+
+`X_GetServiceStatus` も同じ発想で開きます。`Elements` が `*`、`ServiceName` が識別子で、`ServiceName` 自体に
+`*` は使えません（803）。候補 60 個のうち通ったのは 2 つだけでした。
+
+```xml
+<object type="SERVICE" id="DLNA"><isCapable>1</isCapable><isAvailable>1</isAvailable></object>
+<object type="SERVICE" id="MOVE"><isCapable>1</isCapable><isAvailable>1</isAvailable></object>
+```
+
+`isCapable` が「機器として対応しているか」、`isAvailable` が「今使えるか」でしょう。
+
+### 認証なしで郵便番号が読めることについて
+
+`X_GetSetupInfo` に認証はありません。同じ LAN にいる誰でも郵便番号と、無線接続なら SSID と、機器の ID を
+読み出せます。移植するアプリは**これらを読む必要がないので読まないこと**。ログにも残さない。
