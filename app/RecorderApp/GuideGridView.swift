@@ -10,6 +10,9 @@ struct GuideGridView: View {
     let channels: [Channel]
     let programs: [GuideProgramRow]
     let day: Date
+    /// Counts the times the reader has asked to be taken back to now. Watched rather than acted on, so the
+    /// grid can answer a second ask.
+    let nowRequests: Int
     let reservationFor: (GuideProgramRow) -> Reservation?
     let onSelect: (GuideProgramRow) -> Void
 
@@ -123,12 +126,25 @@ struct GuideGridView: View {
             // content to be laid out, since there is nothing to scroll to before that
             .task(id: dayKey) {
                 try? await Task.sleep(for: .milliseconds(120))
-                // aim high enough that the quarter hour before now clears the channel names above it
-                let wanted = showsNow ? nowMinutes - 15 - header / pointsPerMinute : 0
-                withAnimation(.none) {
-                    scroller.scrollTo(anchorName(forMinute: max(0, wanted)), anchor: .topLeading)
+                show(minute: showsNow ? nowMinutes : 0, with: scroller)
+            }
+            // A day that is already today does not change, so the task above does not run again. The wait
+            // is for the tab bar's own scroll to the top, which cannot be declined (see GuideScreen).
+            .onChange(of: nowRequests) {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(120))
+                    show(minute: showsNow ? nowMinutes : 0, with: scroller)
                 }
             }
+        }
+    }
+
+    /// Puts a minute of the day at the top of the screen, aiming high enough that the quarter hour before
+    /// it clears the channel names drawn over the top.
+    private func show(minute: Double, with scroller: ScrollViewProxy) {
+        let wanted = max(0, minute - 15 - header / pointsPerMinute)
+        withAnimation(.none) {
+            scroller.scrollTo(anchorName(forMinute: wanted), anchor: .topLeading)
         }
     }
 

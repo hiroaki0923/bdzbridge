@@ -13,6 +13,7 @@ struct GuideScreen: View {
             VStack(spacing: 0) {
                 if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
+                                  nowRequests: model.nowRequests,
                                   reservationFor: { model.reservation(for: $0) }) { tapped = $0 }
                     .frame(maxHeight: .infinity)
                 } else {
@@ -123,6 +124,13 @@ struct GuideScreen: View {
                 set: { model.serviceFilter = $0 < 0 ? nil : $0 })
     }
 
+    /// What is on at this minute, or the next thing if nothing is. `shown` is in start order, so the first
+    /// programme that has not ended is it.
+    private var onAirOrNext: GuideProgramRow? {
+        let now = Date()
+        return shown.first { $0.end > now }
+    }
+
     @ViewBuilder
     private var list: some View {
         if let problem = model.problem {
@@ -136,15 +144,34 @@ struct GuideScreen: View {
                 NoRecorderView(icon: "calendar")
             }
         } else {
-            List(shown) { program in
-                Button { tapped = program } label: {
-                    ProgramRowView(program: program, logo: logo(for: program.serviceID),
-                                   reservation: model.reservation(for: program))
-                        .rowHitArea()
+            ScrollViewReader { scroller in
+                List(shown) { program in
+                    Button { tapped = program } label: {
+                        ProgramRowView(program: program, logo: logo(for: program.serviceID),
+                                       reservation: model.reservation(for: program))
+                            .rowHitArea()
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .listStyle(.plain)
+                // The tab bar's own answer to a tap on the tab already showing is the top of the list, and
+                // there is no declining it: `UIScrollView.scrollsToTop` is honoured for the status bar but
+                // not for a tab, and the scroll view here belongs to SwiftUI, so it cannot be replaced with
+                // one that ignores the request. So this waits for that scroll to finish and then goes where
+                // the reader wanted, without animating: at eleven at night the distance is most of a day,
+                // and a snap reads better than a long slide.
+                //
+                // The wait is short on purpose. Long enough to land after the platform's scroll, short
+                // enough that on a real device the two read as one movement rather than two — checked on
+                // an iPhone, where a longer wait made the pause visible.
+                .onChange(of: model.nowRequests) {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(120))
+                        guard let target = onAirOrNext else { return }
+                        withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                    }
+                }
             }
-            .listStyle(.plain)
         }
     }
 

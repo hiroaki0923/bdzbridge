@@ -24,8 +24,17 @@ struct RootView: View {
     /// simulator without tapping through them.
     @State private var tab = UserDefaults.standard.string(forKey: "startTab") ?? "guide"
 
+    /// Tapping a tab that is already showing is a "take me home" gesture, and the guide's home is now.
+    /// A plain binding cannot tell that apart from a change, so this one compares before it assigns.
+    private var selection: Binding<String> {
+        Binding(get: { tab }, set: { chosen in
+            if chosen == tab, chosen == "guide" { model.goToNow() }
+            tab = chosen
+        })
+    }
+
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: selection) {
             GuideScreen()
                 .tabItem { Label("番組表", systemImage: "squareshape.split.3x3") }
                 .tag("guide")

@@ -66,6 +66,17 @@ final class AppModel {
 
     var connected: Bool { info != nil }
 
+    /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
+    /// asking twice works.
+    private(set) var nowRequests = 0
+
+    /// Today, at this minute. Tapping the guide tab while already on it scrolls to the top of the day by
+    /// itself, and the top of a broadcast day is four in the morning, which is nobody's idea of home.
+    func goToNow() {
+        day = days.first ?? Date()
+        nowRequests += 1
+    }
+
     /// Opens the cache, shows what is in it, then connects. Every screen awaits this before asking for
     /// anything, and only the first caller does the work: two clients at once would mean two conversations
     /// with a recorder that answers 503 to the second.
