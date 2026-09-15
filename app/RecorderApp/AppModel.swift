@@ -710,8 +710,16 @@ final class AppModel {
     /// A reservation names its channel by the numeric broadcasting type, which the logos are not keyed by.
     /// Stations whose logo the recorder never received have none, so this is often nil on purpose.
     func logo(for reservation: Reservation) -> Data? {
-        Codes.broadcasting(code: reservation.broadcastingType)
-            .flatMap { channelLogos["\($0)-\(reservation.serviceID)"] }
+        logo(broadcastingType: reservation.broadcastingType, serviceID: reservation.serviceID)
+    }
+
+    func logo(for title: RecordedTitle) -> Data? {
+        logo(broadcastingType: title.broadcastingType, serviceID: title.serviceID)
+    }
+
+    private func logo(broadcastingType: Int, serviceID: Int) -> Data? {
+        Codes.broadcasting(code: broadcastingType)
+            .flatMap { channelLogos["\($0)-\(serviceID)"] }
     }
 
     /// Programmes still to come whose title or description contains this, across every broadcasting type.

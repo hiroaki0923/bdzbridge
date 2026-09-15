@@ -124,7 +124,8 @@ struct RecordingsScreen: View {
         } else {
             List(model.shownTitles) { title in
                 Button { opened = title } label: {
-                    TitleRowView(title: title, channel: model.channelName(for: title)).rowHitArea()
+                    TitleRowView(title: title, channel: model.channelName(for: title),
+                                 logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
             }
@@ -137,6 +138,7 @@ struct RecordingsScreen: View {
 struct TitleRowView: View {
     let title: RecordedTitle
     let channel: String
+    let logo: Data?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -146,6 +148,11 @@ struct TitleRowView: View {
             }
             HStack(spacing: 6) {
                 Text(Format.dateTime.string(from: title.start))
+                // no space held for a missing logo, unlike the reservations: this one sits in the middle of
+                // the line, where a held gap would read as something having gone wrong
+                if let logo, let image = UIImage(data: logo) {
+                    Image(uiImage: image).resizable().scaledToFit().frame(height: 14)
+                }
                 if !channel.isEmpty { Text(channel) }
                 Text(Format.duration(title.durationSec))
                 if let size = title.sizeMB { Text(String(format: "%.1fGB", Double(size) / 1024)) }
@@ -269,7 +276,8 @@ struct GroupSheet: View {
                         Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(title.protected ? .secondary : Color.accentColor)
                     }
-                    TitleRowView(title: title, channel: model.channelName(for: title))
+                    TitleRowView(title: title, channel: model.channelName(for: title),
+                                 logo: model.logo(for: title))
                 }
                 .rowHitArea()
             }
