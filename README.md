@@ -34,7 +34,10 @@ docs/     レコーダーの仕様（観察に基づく）と移植ガイド
 
 ### iOS アプリ
 
-無料の Apple ID で実機に入れられます。手順とコマンドは `app/README.md` にあります。
+手順とコマンドは `app/README.md` にあります。Apple は無料の Apple アカウントでも
+[実機テストができる](https://developer.apple.com/support/compare-memberships/)としています（デバイス 3 台、
+1 台につきアプリ 3 つ、プロファイルは 7 日で失効）。このアプリはエンタイトルメントを必要としないので無料の
+アカウントでも署名できる見込みですが、**開発に使っているのは有料メンバーシップで、無料での確認はしていません。**
 
 ```
 brew install xcodegen
