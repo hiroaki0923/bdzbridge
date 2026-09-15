@@ -7,10 +7,27 @@ struct ReservationsScreen: View {
     /// The row swiped, by id rather than by value: the reservation itself is read back out of the model
     /// when the dialog asks, so a delete can only ever be sent for a row the list still holds.
     @State private var removing: String?
+    @State private var failure: String?
     @State private var opened: Reservation?
 
-    private var pending: Reservation? {
-        removing.flatMap { id in model.reservations.first { $0.id == id } }
+    /// One alert does both jobs, because two on the same view is not something SwiftUI promises to honour.
+    /// A failure wins: it is the answer to what was just asked.
+    private enum Shown {
+        case confirm(Reservation)
+        case failed(String)
+    }
+
+    private var shown: Shown? {
+        if let failure { return .failed(failure) }
+        if let id = removing, let reservation = model.reservations.first(where: { $0.id == id }) {
+            return .confirm(reservation)
+        }
+        return nil
+    }
+
+    private var alertTitle: String {
+        if case .failed = shown { return "うまくいきませんでした" }
+        return "この予約を削除しますか？"
     }
 
     var body: some View {
@@ -68,20 +85,34 @@ struct ReservationsScreen: View {
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
-            .alert("この予約を削除しますか？",
-                   isPresented: Binding(get: { pending != nil },
-                                        set: { if !$0 { removing = nil } }),
-                   presenting: pending) { reservation in
-                Button("削除する", role: .destructive) {
-                    Task { await model.cancel(reservation) }
+            .alert(alertTitle,
+                   isPresented: Binding(get: { shown != nil },
+                                        set: { if !$0 { removing = nil; failure = nil } }),
+                   presenting: shown) { shown in
+                switch shown {
+                case .confirm(let reservation):
+                    Button("削除する", role: .destructive) {
+                        Task {
+                            if await !model.cancel(reservation) {
+                                failure = model.problem ?? "レコーダーが受け付けませんでした"
+                            }
+                        }
+                    }
+                    Button("やめる", role: .cancel) {}
+                case .failed:
+                    Button("OK", role: .cancel) {}
                 }
-                Button("やめる", role: .cancel) {}
-            } message: { reservation in
-                Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                     + "レコーダーから消えます。"
-                     + (reservation.createdByRecorder
-                        ? "\nこれはレコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
-                        : ""))
+            } message: { shown in
+                switch shown {
+                case .confirm(let reservation):
+                    Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
+                         + "レコーダーから消えます。"
+                         + (reservation.createdByRecorder
+                            ? "\nこれはレコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
+                            : ""))
+                case .failed(let reason):
+                    Text(reason)
+                }
             }
             // whatever goes wrong here has to be visible on this screen, not only on the others
             .safeAreaInset(edge: .bottom) {

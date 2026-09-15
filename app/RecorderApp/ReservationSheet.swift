@@ -11,6 +11,7 @@ struct ReservationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var confirming = false
+    @State private var failure: String?
     @State private var program: GuideProgramRow?
     @State private var done = false
 
@@ -68,17 +69,32 @@ struct ReservationSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task { program = await model.program(for: reservation) }
-            .alert("この予約を取り消しますか？", isPresented: $confirming) {
-                Button("取り消す", role: .destructive) {
-                    Task { done = await model.cancel(reservation) }
+            // One alert, because two on the same view is not something SwiftUI promises to honour, and
+            // asking and reporting never happen at once. The red line further up the sheet was missed.
+            .alert(failure == nil ? "この予約を取り消しますか？" : "うまくいきませんでした",
+                   isPresented: Binding(get: { confirming || failure != nil },
+                                        set: { if !$0 { confirming = false; failure = nil } })) {
+                if failure == nil {
+                    Button("取り消す", role: .destructive) {
+                        Task {
+                            done = await model.cancel(reservation)
+                            if !done { failure = model.problem ?? "レコーダーが受け付けませんでした" }
+                        }
+                    }
+                    Button("やめる", role: .cancel) {}
+                } else {
+                    Button("OK", role: .cancel) {}
                 }
-                Button("やめる", role: .cancel) {}
             } message: {
-                Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                     + "レコーダーから消えます。"
-                     + (reservation.createdByRecorder
-                        ? "\nおまかせ録画が入れた予約なので、レコーダーが入れ直すことがあります。"
-                        : ""))
+                if let failure {
+                    Text(failure)
+                } else {
+                    Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
+                         + "レコーダーから消えます。"
+                         + (reservation.createdByRecorder
+                            ? "\nおまかせ録画が入れた予約なので、レコーダーが入れ直すことがあります。"
+                            : ""))
+                }
             }
             .onChange(of: done) { if $1 { dismiss() } }
         }
