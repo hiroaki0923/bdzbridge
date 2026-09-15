@@ -26,7 +26,7 @@ targets:
         product: RecorderKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.recorderapp
+        PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
@@ -55,4 +55,4 @@ targets:
         UIBackgroundModes:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
-          - jp.hiroaki.recorderapp.guideRefresh
+          - jp.hiroaki.bdbridge.guideRefresh

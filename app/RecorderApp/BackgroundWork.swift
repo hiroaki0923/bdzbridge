@@ -42,7 +42,7 @@ enum GuideRefresh {
 /// switched off, or in Low Power Mode. Nothing breaks when a night is missed, which is what makes the guide a
 /// fair thing to do this way.
 enum BackgroundWork {
-    static let refreshIdentifier = "jp.hiroaki.recorderapp.guideRefresh"
+    static let refreshIdentifier = "jp.hiroaki.bdbridge.guideRefresh"
     /// Shown on the settings screen, so that something invisible can still be seen to be working.
     static let lastRefreshKey = "lastBackgroundRefresh"
 

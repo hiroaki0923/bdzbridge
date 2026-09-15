@@ -45,7 +45,7 @@ Once installed:
 ```
 xcrun devicectl list devices
 xcrun devicectl device install app --device <udid> <path to RecorderApp.app>
-xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp
+xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge
 ```
 
 A device takes the same launch arguments a simulator does, but they have to come after `--` or devicectl
@@ -58,10 +58,10 @@ Four launch arguments exist so that the app can be checked without tapping throu
 unless passed, and nobody installing from the App Store can pass them.
 
 ```
-xcrun simctl launch <device> jp.hiroaki.recorderapp \
+xcrun simctl launch <device> jp.hiroaki.bdbridge \
   -recorderHost 192.0.2.63 -startTab search -searchFor ニュース -searchScope recordings
 
-xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp \
+xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge \
   -- -recorderHost 192.0.2.63 -startTab guide
 ```
 
@@ -76,7 +76,7 @@ nothing while `-recorderHost` is in force. Launch without the flag to use the ap
 The overnight guide refresh is not one of these. Pause the app in Xcode and, in the console,
 
 ```
-e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"jp.hiroaki.recorderapp.guideRefresh"]
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"jp.hiroaki.bdbridge.guideRefresh"]
 ```
 
 which runs the real task the real way rather than only its body.
