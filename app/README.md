@@ -52,18 +52,6 @@ A device takes the same launch arguments a simulator does, but they have to come
 reads them as its own options.
 
 
-## Getting it to somebody else's phone
-
-Wireless install works on the same network as the Mac and not otherwise: a device is found over Bonjour,
-which is link-local, and the pairing daemon then connects out of the interface that announced it. So a
-phone on a VPN shows as `unavailable` and there is no address to point `devicectl` at. TestFlight is the
-route for that, which needs an App Store Connect record under this bundle identifier — and the identifier
-cannot be changed once that record exists.
-
-The export compliance question an upload would otherwise ask every time is answered in advance, in
-`project.yml`: `ITSAppUsesNonExemptEncryption` is false, which is the truthful answer, since the recorder
-is spoken to over plain HTTP and nothing here encrypts anything of its own.
-
 ## Driving it without tapping through it
 
 Four launch arguments exist so that the app can be checked without tapping through it. They do nothing
