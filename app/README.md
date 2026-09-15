@@ -38,7 +38,7 @@ Once installed, a device takes the same launch arguments a simulator does:
 ```
 xcrun devicectl list devices
 xcrun devicectl device install app --device <udid> <path to RecorderApp.app>
-xcrun devicectl device process launch --device <udid> io.github.hiroaki0923.recorderapp \
+xcrun devicectl device process launch --device <udid> jp.hiroaki.recorderapp \
   -recorderHost 192.0.2.63 -startTab guide
 ```
 
@@ -46,7 +46,7 @@ The overnight refresh can be made to happen instead of waited for: pause the app
 console,
 
 ```
-e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"io.github.hiroaki0923.recorderapp.guideRefresh"]
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"jp.hiroaki.recorderapp.guideRefresh"]
 ```
 
 which runs the real task the real way, whereas `-runBackgroundWork 1` only runs its body.
@@ -57,7 +57,7 @@ Two launch arguments exist for testing on a simulator or a device. They do nothi
 installing from the App Store can pass them.
 
 ```
-xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
+xcrun simctl launch <device> jp.hiroaki.recorderapp \
   -recorderHost 192.0.2.63 -refreshOnStart 1 -startTab reservations
 ```
 
