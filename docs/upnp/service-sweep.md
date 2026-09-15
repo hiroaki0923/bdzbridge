@@ -120,3 +120,84 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 `X_GetSetupInfo` に認証はありません。同じ LAN にいる誰でも郵便番号と、無線接続なら SSID と、機器の ID を
 読み出せます。移植するアプリは**これらを読む必要がないので読まないこと**。ログにも残さない。
+
+## リストは絞り込みと並べ替えができる（未使用の機能）
+
+`X_GetTitleList` と `X_GetRecordScheduleList` の `SearchCriteria` と `SortCriteria` は**生きています**。
+この 2 つは今まで常に空で呼んでいましたが、レコーダー側で絞り込めます。1300 件を全ページ取得している
+処理は、用途によっては 1 リクエストで済みます。
+
+| | `X_GetTitleList`（録画） | `X_GetRecordScheduleList`（予約） |
+|---|---|---|
+| 検索できる項目 | `reservationCreatorID`、`recordDestinationID` | `reservationCreatorID` のみ |
+| 他の項目 | `titleProtectFlag` `titleNewFlag` `recordingFlag` `genreID` `title contains …` は **861** | `conflictID` `recordingFlag` `recordDestinationID` は **860** |
+| 並べ替え | `+scheduledStartDateTime` / `-scheduledStartDateTime` | 同じ |
+| 他の並べ替え | `+title` `-title` `+recordSize` `+dc:title` は **809** | 同じ |
+| 検索と並べ替えの併用 | できる | できる |
+| `Filter` | **無視される。** `*`／`title`／`@id`／空でも返るバイト数が同一 | 同じ |
+
+構文は UPnP 流の `フィールド = "値"` です。`SearchCriteria` に `*` は **860/861**、`SortCriteria` に `*` は
+**809**。
+
+**予約リストの罠。** `reservationCreatorID = "2200"` は実機に 19 件あるのに **0 件を返します**。`"1100"` は
+20 件を正しく返します。つまり「アプリが入れた予約だけ」をレコーダー側で絞ることはできません。これで
+絞った画面は空になり、予約が消えたように見えます。絞り込みは `1100`（レコーダー自身の予約）だけ信用できます。
+
+**録画と予約で creator の値space が違います。** 録画 1323 件は `1100` が 282 件、`2000` が 1041 件で合計が
+一致します。予約 39 件は `1100` が 20 件、`2200` が 19 件。つまり録画側は `2000`、予約側は `2200` です。
+
+## 引数の棚卸し
+
+### 語彙が確定しているもの
+
+- `X_GetSetupInfo(SetupName)` — 7 項目。`*` で列挙できるので網羅的。
+- `X_HDLnkGetRecordDestinationInfo` / `X_GetMediaInfo` / `X_ChkWlanOdekakeUsability` の `recordDestinationID`
+  — `X_HDLnkGetRecordDestinations` が列挙してくれる（実機は `HDD` のみ）。網羅的。
+- `Browse` の `BrowseFlag` — `BrowseMetadata` / `BrowseDirectChildren`。**CDS の SCPD が `allowedValueList` で
+  宣言している**唯一の例。
+- `GetCurrentConnectionInfo` の `Direction` / `Status` — ConnectionManager の SCPD が宣言済み。
+- `SearchCriteria` / `SortCriteria` — 上の表のとおり、通る項目を総当たりで確定。
+
+### 見つけたが網羅性は不明
+
+- `X_GetServiceStatus` の `ServiceName` — `DLNA` と `MOVE` のみ。候補 84 個（`X_SPTVCAP` と `X_JLABSCAP` の
+  トークンを含む）を試しての 2 件なので、未知の名前が残っている可能性はあります。
+- `X_PlayControlTitle` の `Operation` — `play` / `pause` / `stop`（小文字）は実証済み。早送りや次章送りに
+  相当する値があるかは不明。
+- `X_PowerControl` の `Operation` — `on` は実証済み（`PowerOn` `On` は不可）。切る側の値は未検証。
+- 観測から作った表（`desiredQualityMode`、`scheduledConditionID`、`markingID`、`mediaRemainAlertID`、
+  `powerstatus`、`playstatus`）— いずれも実機で見えた値だけ。網羅の保証はありません。
+
+### まだ分からないもの
+
+- **`X_ConvertItemId(Elements)`** — `<xsrs>` 配下に `object` / `item` / `titleID` を置く形はすべて **402**、
+  XML でないものは **802**。形が分かりません。XSRS のタイトル ID と DLNA の `V_<n>` の対応をビット演算で
+  求めている箇所を、正規の方法に置き換えられるはずなので、**パケットキャプチャの価値が一番高いのはここ**。
+- `X_GetTitleInfoExt` / `X_GetRecordScheduleInfoExt` / `X_GetPrefRecSettingList` の `Format` — 空なら通り、
+  `*` `1` `2` `xsrs` は **803**。語彙不明。
+- `X_GetLiveChList` の `SkipChannel` — `0` `1` `*` 空 `true` `false` すべて 0 件でしたが、**レコーダーが待機中で
+  ライブが無い状態での測定**なので結論になりません。電源が入っているときに再測定が必要。
+- `X_InputRemoteKey` の `RemoteKey` — **総当たりしていません。** ボタンを押す操作なので読み取り専用の枠を
+  出ます。キャプチャか、公式アプリの挙動からしか埋まりません。
+- `X_GetRecordScheduleFileSize`、`X_HDLnkGetRecordContainerID`、`X_ConvertItemId` 以外の `Elements` 引数、
+  および書き込み系（`CreateObject`、`X_CreateNextRecordSchedule`、`X_RegisterRemoteDevice`、
+  `X_CreatePrefRecSetting` 系）— 未検証。
+- `Browse` の `ObjectID` — 上位 3 階層は歩きました（`0` → `VideoRoot` → 5 つ、`AllVideoTuners` → 3 波）。
+  その下は未踏。
+
+### エラーコードの意味（実測）
+
+| コード | 出るとき |
+|---|---|
+| `402` | `Elements` の XML の形が違う |
+| `802` | `Elements` が XML ではない、`ServiceName` が空 |
+| `803` | 引数の値がその引数の語彙に無い（`SetupName`、`Format`、`ServiceName`） |
+| `804` | その予約 ID が無い |
+| `809` | `SortCriteria` がその項目を並べ替えできない |
+| `820` | そのタイトル ID が無い |
+| `860` | `SearchCriteria` がその項目で検索できない（予約リスト） |
+| `861` | 同じもの（録画リスト） |
+| `880` | ネットワークスタンバイ中で実行できない |
+
+**Sony 独自の 2 サービスは `allowedValueList` を一つも宣言していません**（`XSRS.xml` も `X_PvrControl.xml` も 0 件）。
+規格上の引数一覧はここまでで、あとは `*` を試すか、総当たりか、キャプチャです。
