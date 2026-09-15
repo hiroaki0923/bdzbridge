@@ -65,7 +65,7 @@ struct ReservationsScreen: View {
                 }
             }
             .refreshable { await model.loadReservations() }
-            .task(id: model.connected) { if model.reservations.isEmpty { await model.loadReservations() } }
+            .task(id: model.connected) { await model.loadReservations() }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
@@ -126,11 +126,11 @@ struct ReservationsScreen: View {
                                                channel: model.channelName(for: reservation))
                         }
                         .buttonStyle(.plain)
-                        // the row is given its own identity so that a reused row cannot carry another
-                        // row's swipe action with it
-                        .id(reservation.id)
-                        .swipeActions {
-                            Button("削除", role: .destructive) { removing = reservation.id }
+                        // `role: .destructive` would animate the row away as it is swiped, before there
+                        // is an answer, and it stays away when the answer is no. The colour is all that is
+                        // wanted here. A full swipe is off for the same reason: this one asks first.
+                        .swipeActions(allowsFullSwipe: false) {
+                            Button("削除") { removing = reservation.id }.tint(.red)
                         }
                     }
                 }

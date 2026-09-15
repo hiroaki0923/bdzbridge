@@ -32,6 +32,10 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     /// The recorder set this up by itself, which is what its own automatic recording does. Observed on a
     /// BDZ-FBT4100: deleting one of these does work, and then the recorder makes it again with a new id the
     /// next time it reads the guide. Telling the reader beats letting them wonder.
+    ///
+    /// The renumbering takes the whole block of them at once, not one at a time — 19 in one go, the
+    /// programmes themselves unchanged — so an id of one of these goes stale on its own, without anything
+    /// on screen looking different. Anything that writes has to find the reservation again first.
     public var createdByRecorder: Bool { creator == "1100" }
 }
 
