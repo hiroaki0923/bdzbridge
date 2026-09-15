@@ -56,6 +56,22 @@ public enum LocalNetwork {
         interfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
     }
 
+    /// Where to send something that everything on the subnet should hear. The subnet's own broadcast
+    /// address first, since a router is likelier to pass that than the all-ones one, and 255.255.255.255
+    /// after it for the case where the netmask could not be read.
+    public static func broadcastAddresses() -> [String] {
+        var out: [String] = []
+        for interface in interfaces() {
+            guard let address = packed(interface.address), let mask = packed(interface.netmask) else {
+                continue
+            }
+            let broadcast = dotted((address & mask) | ~mask)
+            if !out.contains(broadcast) { out.append(broadcast) }
+        }
+        out.append("255.255.255.255")
+        return out
+    }
+
     private static func text(of address: UnsafeMutablePointer<sockaddr>) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         var sin = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }

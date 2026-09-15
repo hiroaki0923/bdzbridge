@@ -39,6 +39,16 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     public var createdByRecorder: Bool { creator == "1100" }
 }
 
+/// What the recorder says about its own place on the network.
+public struct NetworkSettings: Equatable, Sendable {
+    /// The wired MAC. A BDZ-FBT4100 reports this whether it is wired or not, and it matches ARP.
+    public var mac: String
+    public var wireless: String
+    public var address: String
+    /// True when the address it is reachable at today is a lease rather than a setting.
+    public var usesDhcp: Bool
+}
+
 /// A recording on the recorder's hard disk.
 public struct RecordedTitle: Equatable, Sendable, Identifiable {
     public var id: String

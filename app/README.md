@@ -61,7 +61,9 @@ xcrun simctl launch <device> io.github.hiroaki0923.recorderapp \
   -recorderHost 192.0.2.63 -refreshOnStart 1 -startTab reservations
 ```
 
-`-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at launch, `-startTab` opens
+`-wakeOnStart 1` sends the magic packet at launch, which is the only way to see whether a broadcast gets
+out of the sandbox at all. `-recorderHost` fills in the address, `-refreshOnStart 1` fetches the guide at
+launch, `-startTab` opens
 `guide`, `reservations`, `recordings` or `settings`, `-guideMode` picks `list` or `grid`, `-recordingsMode`
 picks `list`, `groups` or `dups`, `-startDay 6` opens the guide six days out, `-scanOnStart 1` starts the
 duplicate scan, which only reads, and `-searchFor <word>` fills in the search box, and `-runBackgroundWork 1` does what the overnight guide
@@ -121,6 +123,13 @@ marked with the reason, and the rest come pre-selected for deletion.
 A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,
 and it lives outside the sheet that started it: closing the sheet neither stops it nor hides the stop button.
+
+Waking the recorder: a BDZ-FBT4100 leaves the LAN on its own after a while and then answers nothing at
+all, which is below the network standby that `X_PowerControl` can reach. A magic packet is the only way
+back, and the recorder both says it takes one (`X_WakeupOnLAN` in its description) and hands over the
+address to send it to (`X_GetPrivateIp`), so nothing has to be typed in — which matters, because iOS
+cannot read an ARP table. The address is kept whenever the recorder answers, and a screen with no recorder
+offers to wake it.
 
 ## What is missing
 

@@ -51,6 +51,7 @@ final class AppModel {
     private var starting: Task<Void, Never>?
 
     private static let hostKey = "recorderHost"
+    private static let macKey = "recorderMac"
 
     init() {
         var calendar = Calendar(identifier: .gregorian)
@@ -97,6 +98,9 @@ final class AppModel {
                 await loadTitlesNow(force: false)
                 startDuplicateScan()
             }
+            // `-wakeOnStart 1` sends the magic packet at launch. Last, so that nothing after it clears what
+            // it has to say, and the only way to see whether the sandbox lets a broadcast out at all.
+            if UserDefaults.standard.bool(forKey: "wakeOnStart") { _ = await wake() }
         } catch {
             problem = "番組表の保存先を開けませんでした: \(error)"
         }
@@ -137,10 +141,46 @@ final class AppModel {
             // address that works is written down however it arrived
             UserDefaults.standard.set(self.host, forKey: Self.hostKey)
             self.firmware = try await client.firmwareVersion()
+            // Kept for waking it later. The recorder is the only place this can come from on iOS, which
+            // cannot read an ARP table, so it is read every time rather than once.
+            if let settings = try? await client.networkSettings(),
+               let mac = WakeOnLan.normalise(settings.mac) {
+                UserDefaults.standard.set(mac, forKey: Self.macKey)
+            }
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
         }
         await refreshGuideIfStale()
+    }
+
+    /// True once the recorder has told us its MAC, which is what a magic packet needs. Until then there is
+    /// nothing to offer: the address cannot be guessed and iOS will not read the ARP table.
+    var canWake: Bool { UserDefaults.standard.string(forKey: Self.macKey) != nil }
+
+    /// Wakes a recorder that has left the network altogether, which a BDZ-FBT4100 does on its own after a
+    /// while. In network standby it answers the API and `X_PowerControl` is the way in; below that only a
+    /// magic packet reaches it, and the recorder says it takes one (`X_WakeupOnLAN` in its description).
+    /// Nothing acknowledges the packet, so this sends it and then waits for the recorder to answer again.
+    func wake() async -> Bool {
+        await start()
+        guard let mac = UserDefaults.standard.string(forKey: Self.macKey) else { return false }
+        busy = "レコーダーを起こしています"
+        guard WakeOnLan.wake(mac) > 0 else {
+            busy = nil
+            problem = "起動の合図を送れませんでした。Wi-Fi につながっているか確かめてください。"
+            return false
+        }
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .seconds(2))
+            await connect()
+            if connected {
+                problem = nil
+                return true
+            }
+        }
+        busy = nil
+        problem = "レコーダーが応答しませんでした。本体の電源とネットワークを確かめてください。"
+        return false
     }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent

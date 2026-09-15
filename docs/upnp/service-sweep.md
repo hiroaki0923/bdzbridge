@@ -187,17 +187,26 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 ### エラーコードの意味（実測）
 
-| コード | 出るとき |
-|---|---|
-| `402` | `Elements` の XML の形が違う |
-| `802` | `Elements` が XML ではない、`ServiceName` が空 |
-| `803` | 引数の値がその引数の語彙に無い（`SetupName`、`Format`、`ServiceName`） |
-| `804` | その予約 ID が無い |
-| `809` | `SortCriteria` がその項目を並べ替えできない |
-| `820` | そのタイトル ID が無い |
-| `860` | `SearchCriteria` がその項目で検索できない（予約リスト） |
-| `861` | 同じもの（録画リスト） |
-| `880` | ネットワークスタンバイ中で実行できない |
+実機で出させたものだけを並べます。UPnP の標準コード（401/402/501/701）以外は Sony 独自です。
+
+| コード | 出るとき | 確かめ方 |
+|---|---|---|
+| `402` | `Elements` の XML の形が違う。時刻のオフセットが `+0900` のような形式違反も含む | 作成要素の要素順を崩す |
+| `701` | `Browse` の `ObjectID` がそんなオブジェクトを指していない | `ObjectID` に `*` |
+| `802` | `Elements` が XML ではない、`ServiceName` が空 | `X_ConvertItemId` に生文字列 |
+| `803` | 引数の値がその引数の語彙に無い（`SetupName`、`Format`、`ServiceName`、`recordDestinationID`）。実在しないチャンネルや放送種別の組み合わせもここ | `SetupName` に `QuickStart` |
+| `804` | その予約 ID が無い。**レコーダーがおまかせ予約を振り直した後に古い ID を送ると普通に起きる** | 削除済みの ID を削除 |
+| `809` | `SortCriteria` がその項目を並べ替えできない（`scheduledStartDateTime` 以外すべて） | `SortCriteria` に `+title` |
+| `820` | そのタイトル ID が無い（`X_GetTitleInfo` / `X_GetTitleDetail` 系） | 存在しない録画 ID |
+| `831` | **受信できないチャンネルの番組を `desiredMatchingID` 付きで予約しようとした。** 未契約の CS／BS で再現。録画モードや放送種別ではない | 未契約局＋eventID で作成 |
+| `860` | `SearchCriteria` がその項目で検索できない（予約リスト） | `conflictID = "0"` |
+| `861` | 同じもの（録画リスト） | `titleProtectFlag = "1"` |
+| `874` | `X_GetTitleInfoExt` に `TitleID=0`。同じ入力で `X_GetTitleInfo` は 820 なので、Ext 系は別系統のコードを使っている | `TitleID` に `0` |
+| `880` | ネットワークスタンバイ中で実行できない（再生など） | 待機中に `X_PlayControlTitle` |
+| `884` | 未解明。BS の 60 秒の番組を `,,0x65,<event>` という matching id で予約したときに 1 度だけ観測。同じ形で別の番組は通るので、番組の長さか一時的な状態のどちらか | 再現せず |
+
+`831` と `804` はアプリが利用者に説明しなければならない 2 つです。前者は「このチャンネルは受信できない」、
+後者は「この予約はもうない」であって、どちらも操作の失敗ではありません。
 
 **Sony 独自の 2 サービスは `allowedValueList` を一つも宣言していません**（`XSRS.xml` も `X_PvrControl.xml` も 0 件）。
 規格上の引数一覧はここまでで、あとは `*` を試すか、総当たりか、キャプチャです。
@@ -254,13 +263,6 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 `SkipChannel` も効きます。地上デジタルで `0` なら 27、**`1` なら 31**。31 はロゴファイルのレコード数と
 一致するので、`1` は「スキップ設定のチャンネルも含める」でしょう。
-
-### 追加で分かったエラーコード
-
-| コード | 出るとき |
-|---|---|
-| `701` | `Browse` の `ObjectID` がそんなオブジェクトを指していない |
-| `874` | `X_GetTitleInfoExt` に `TitleID=0`（`X_GetTitleInfo` は同じ入力で 820） |
 
 `X_ConvertItemId` はワイルドカードでも動きませんでした。XML でない値は 802、`<xsrs>` 配下に何を置いても
 402。ここだけは総当たりで埋まりません。
