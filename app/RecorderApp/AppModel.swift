@@ -44,6 +44,8 @@ final class AppModel {
     private(set) var busy: String?
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     private(set) var needsPower = false
+    /// Set when the recorder answered nothing at all rather than answering with an error.
+    private(set) var unreachable = false
     private(set) var problem: String?
 
     private var store: GuideStore?
@@ -100,7 +102,10 @@ final class AppModel {
             }
             // `-wakeOnStart 1` sends the magic packet at launch. Last, so that nothing after it clears what
             // it has to say, and the only way to see whether the sandbox lets a broadcast out at all.
-            if UserDefaults.standard.bool(forKey: "wakeOnStart") { _ = await wake() }
+            if UserDefaults.standard.bool(forKey: "wakeOnStart") {
+                unreachable = true  // pretend, so the packet goes out even though the recorder answered
+                await wakeAndAttach()
+            }
         } catch {
             problem = "番組表の保存先を開けませんでした: \(error)"
         }
@@ -130,17 +135,31 @@ final class AppModel {
         await connect()
     }
 
+    /// Connects, and wakes the recorder first if that is what it needs. A BDZ-FBT4100 leaves the LAN when
+    /// it has been idle a while and then answers nothing at all, which is below the network standby that
+    /// `X_PowerControl` can reach: only a magic packet gets it back. Nobody has to ask for that, so it
+    /// happens here rather than as a button — the address came from the recorder itself, the packet costs
+    /// nothing, and the reader only wanted to see their guide.
     func connect() async {
         guard !host.isEmpty else { return }
         let client = RecorderClient(host: host)
         self.client = client
-        await run("接続中") {
-            let info = try await client.describe()
-            self.info = info
+        var reached = await attach(client)
+        if !reached { reached = await wakeAndAttach(client) }
+        if reached { await refreshGuideIfStale() }
+    }
+
+    /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
+    /// is the only case worth sending a magic packet for.
+    private func attach(_ client: RecorderClient, what: String = "接続中") async -> Bool {
+        busy = what
+        defer { busy = nil }
+        do {
+            info = try await client.describe()
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
-            UserDefaults.standard.set(self.host, forKey: Self.hostKey)
-            self.firmware = try await client.firmwareVersion()
+            UserDefaults.standard.set(host, forKey: Self.hostKey)
+            firmware = try await client.firmwareVersion()
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once.
             if let settings = try? await client.networkSettings(),
@@ -148,40 +167,37 @@ final class AppModel {
                 UserDefaults.standard.set(mac, forKey: Self.macKey)
             }
             let capacity = try await client.recordDestinationInfo()
-            self.storage = (capacity.freeBytes, capacity.totalBytes)
+            storage = (capacity.freeBytes, capacity.totalBytes)
+            unreachable = false
+            problem = nil
+            return true
+        } catch {
+            let recorderError = error as? RecorderError
+            unreachable = recorderError?.unreachable ?? false
+            problem = recorderError?.explanation ?? String(describing: error)
+            return false
         }
-        await refreshGuideIfStale()
+    }
+
+    /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
+    /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
+    @discardableResult
+    func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
+        guard let client = client ?? self.client, unreachable, canWake,
+              let mac = UserDefaults.standard.string(forKey: Self.macKey),
+              WakeOnLan.wake(mac) > 0
+        else { return false }
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .seconds(2))
+            if await attach(client, what: "レコーダーを起こしています") { return true }
+        }
+        problem = "レコーダーが応答しません。本体の電源とネットワークを確かめてください。"
+        return false
     }
 
     /// True once the recorder has told us its MAC, which is what a magic packet needs. Until then there is
-    /// nothing to offer: the address cannot be guessed and iOS will not read the ARP table.
+    /// nothing to send: the address cannot be guessed and iOS will not read the ARP table.
     var canWake: Bool { UserDefaults.standard.string(forKey: Self.macKey) != nil }
-
-    /// Wakes a recorder that has left the network altogether, which a BDZ-FBT4100 does on its own after a
-    /// while. In network standby it answers the API and `X_PowerControl` is the way in; below that only a
-    /// magic packet reaches it, and the recorder says it takes one (`X_WakeupOnLAN` in its description).
-    /// Nothing acknowledges the packet, so this sends it and then waits for the recorder to answer again.
-    func wake() async -> Bool {
-        await start()
-        guard let mac = UserDefaults.standard.string(forKey: Self.macKey) else { return false }
-        busy = "レコーダーを起こしています"
-        guard WakeOnLan.wake(mac) > 0 else {
-            busy = nil
-            problem = "起動の合図を送れませんでした。Wi-Fi につながっているか確かめてください。"
-            return false
-        }
-        for _ in 0..<8 {
-            try? await Task.sleep(for: .seconds(2))
-            await connect()
-            if connected {
-                problem = nil
-                return true
-            }
-        }
-        busy = nil
-        problem = "レコーダーが応答しませんでした。本体の電源とネットワークを確かめてください。"
-        return false
-    }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
     /// rebuild is behind what the recorder would hand over now.

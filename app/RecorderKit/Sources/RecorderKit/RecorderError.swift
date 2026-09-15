@@ -33,6 +33,16 @@ public enum RecorderError: Error, Equatable, Sendable {
         }
     }
 
+    /// True when nothing answered at all, as opposed to a recorder that answered with an error. That is
+    /// the case worth acting on by itself: a BDZ-FBT4100 leaves the LAN when it has been idle a while, and
+    /// a magic packet is the only thing that reaches it there.
+    public var unreachable: Bool {
+        switch self {
+        case .transport, .notHTTP: true
+        default: false
+        }
+    }
+
     /// True when the recorder needs powering on before this will work.
     public var needsPowerOn: Bool {
         if case .soap(_, _, "880", _) = self { return true }

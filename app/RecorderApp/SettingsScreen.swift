@@ -24,12 +24,6 @@ struct SettingsScreen: View {
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
 
-                    // For the state below network standby, where the recorder answers nothing at all. Its
-                    // own MAC, read while it was awake, is the only address a magic packet can go to.
-                    if model.canWake {
-                        Button("レコーダーを起こす") { Task { await model.wake() } }
-                            .disabled(model.busy != nil)
-                    }
 
                     if let scanning = model.scanning {
                         VStack(alignment: .leading, spacing: 4) {

@@ -86,13 +86,11 @@ struct NoRecorderView: View {
             } description: {
                 Text("電源が入っているか、同じネットワークにいるかを確かめてください")
             } actions: {
-                // A recorder that has dropped off the LAN answers nothing, so there is nothing to ask:
-                // only a magic packet reaches it. The offer appears once the recorder has told us its MAC.
-                if model.canWake {
-                    Button("レコーダーを起こす") { Task { await model.wake() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.busy != nil)
-                }
+                // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
+                // there is nothing here about waking: trying again is the whole of it.
+                Button("もう一度つないでみる") { Task { await model.connect() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.busy != nil)
             }
         }
     }
