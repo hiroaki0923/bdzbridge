@@ -117,7 +117,7 @@ struct RecordingsScreen: View {
             DuplicatesView { opened = $0 }
         } else if grouped {
             List(model.titleGroups) { group in
-                Button { openedGroup = group } label: { GroupRowView(group: group) }
+                Button { openedGroup = group } label: { GroupRowView(group: group).rowHitArea() }
                     .buttonStyle(.plain)
             }
             .listStyle(.plain)
@@ -125,7 +125,7 @@ struct RecordingsScreen: View {
         } else {
             List(model.shownTitles) { title in
                 Button { opened = title } label: {
-                    TitleRowView(title: title, channel: model.channelName(for: title))
+                    TitleRowView(title: title, channel: model.channelName(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
             }
@@ -272,6 +272,7 @@ struct GroupSheet: View {
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title))
                 }
+                .rowHitArea()
             }
             .buttonStyle(.plain)
         }

@@ -137,6 +137,7 @@ struct DuplicatesView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
+                .rowHitArea()
             }
             .buttonStyle(.plain)
         }

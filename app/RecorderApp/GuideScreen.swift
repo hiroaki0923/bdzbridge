@@ -138,6 +138,7 @@ struct GuideScreen: View {
                 Button { tapped = program } label: {
                     ProgramRowView(program: program, logo: logo(for: program.serviceID),
                                    reservation: model.reservation(for: program))
+                        .rowHitArea()
                 }
                 .buttonStyle(.plain)
             }

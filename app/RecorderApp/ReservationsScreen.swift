@@ -123,7 +123,9 @@ struct ReservationsScreen: View {
                     ForEach(section.items) { reservation in
                         Button { opened = reservation } label: {
                             ReservationRowView(reservation: reservation,
-                                               channel: model.channelName(for: reservation))
+                                               channel: model.channelName(for: reservation),
+                                               logo: model.logo(for: reservation))
+                                .rowHitArea()
                         }
                         .buttonStyle(.plain)
                         // `role: .destructive` would animate the row away as it is swiped, before there
@@ -143,6 +145,7 @@ struct ReservationsScreen: View {
 struct ReservationRowView: View {
     let reservation: Reservation
     let channel: String
+    let logo: Data?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -167,6 +170,14 @@ struct ReservationRowView: View {
             }
             Text(reservation.title).font(.subheadline).lineLimit(2)
             HStack(spacing: 6) {
+                // The space is held whether or not there is a logo, so the names line up down the list.
+                // Plenty of stations have none: the recorder only has the ones it has been sent.
+                Group {
+                    if let logo, let image = UIImage(data: logo) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                    }
+                }
+                .frame(width: 25, height: 14)
                 if !channel.isEmpty { Text(channel) }
                 if let quality = reservation.qualityName { Text(quality) }
                 if let name = reservation.repeatName, name != "none" {
