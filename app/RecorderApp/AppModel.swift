@@ -175,7 +175,7 @@ final class AppModel {
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
         guard let client = client ?? self.client, unreachable, canWake,
               let mac = UserDefaults.standard.string(forKey: Self.macKey),
-              WakeOnLan.wake(mac) > 0
+              WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0
         else { return false }
         // Nothing is wrong yet, so nothing should be on screen saying there is: the failed probe that got
         // us here left its explanation behind, and waking is the answer to it rather than another fault.

@@ -72,6 +72,15 @@ public enum LocalNetwork {
         return out
     }
 
+    /// The broadcast address of the subnet another host is on, read from its address alone. The mask is a
+    /// guess — /24, which is what a home network is — because the only thing that knows the real one is the
+    /// network this device is not on. For reaching a recorder from the other side of a VPN, where this
+    /// device's own interfaces say nothing about the subnet the recorder lives in.
+    public static func broadcast(forHost host: String) -> String? {
+        guard let address = packed(host) else { return nil }
+        return dotted(address | 0xFF)
+    }
+
     private static func text(of address: UnsafeMutablePointer<sockaddr>) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         var sin = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }

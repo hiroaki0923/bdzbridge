@@ -29,9 +29,26 @@ public enum WakeOnLan {
         return Data(repeating: 0xFF, count: 6) + Data(bytes).repeated(16)
     }
 
-    /// Sends the packet to every broadcast address on every port a recorder might be listening on. Returns
-    /// how many sends the system accepted; anything above zero means the packet went out, which is as much
-    /// as the sender can ever know — nothing answers a magic packet.
+    /// Where to send a packet meant for a recorder at `host`: the broadcast addresses of the subnets this
+    /// device is on, which is what reaches it on the same network, then the recorder's own address and the
+    /// broadcast address of its subnet, which is the only chance of reaching it from the other side of a
+    /// VPN. Nothing routes 255.255.255.255, and a device on a VPN cannot work out the home subnet from its
+    /// own interfaces, so both of those have to come from the recorder's address.
+    ///
+    /// Sending straight to the recorder only works while the router still remembers which machine that
+    /// address belongs to. A recorder that has left the network answers no ARP, so once that has expired
+    /// there is nothing on the far side to deliver to and only something already on the LAN can wake it.
+    public static func addresses(forRecorderAt host: String) -> [String] {
+        var out = LocalNetwork.broadcastAddresses()
+        for candidate in [LocalNetwork.broadcast(forHost: host), host].compacted() where !out.contains(candidate) {
+            out.append(candidate)
+        }
+        return out
+    }
+
+    /// Sends the packet to every address on every port a recorder might be listening on. Returns how many
+    /// sends the system accepted; anything above zero means the packet went out, which is as much as the
+    /// sender can ever know — nothing answers a magic packet.
     @discardableResult
     public static func wake(_ mac: String, addresses: [String] = LocalNetwork.broadcastAddresses(),
                             ports: [UInt16] = [9, 7]) -> Int {
@@ -70,6 +87,10 @@ public enum WakeOnLan {
         }
         return count == packet.count
     }
+}
+
+private extension Array {
+    func compacted<Wrapped>() -> [Wrapped] where Element == Wrapped? { compactMap { $0 } }
 }
 
 private extension Data {

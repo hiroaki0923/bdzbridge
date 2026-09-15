@@ -58,6 +58,18 @@ final class WakeOnLanTests: XCTestCase {
         XCTAssertNil(WakeOnLan.magicPacket(for: "nope"))
     }
 
+    func testWhereToSendForARecorderOnTheOtherSideOfAVpn() {
+        let addresses = WakeOnLan.addresses(forRecorderAt: "192.0.2.63")
+        // its own subnet's broadcast and its own address, because a device on a VPN cannot work the home
+        // subnet out from its own interfaces and nothing routes the all-ones address
+        XCTAssertTrue(addresses.contains("192.0.2.255"), "\(addresses)")
+        XCTAssertTrue(addresses.contains("192.0.2.63"), "\(addresses)")
+        XCTAssertTrue(addresses.contains("255.255.255.255"), "\(addresses)")
+        XCTAssertEqual(Set(addresses).count, addresses.count, "no address twice")
+        XCTAssertEqual(LocalNetwork.broadcast(forHost: "10.1.2.3"), "10.1.2.255")
+        XCTAssertNil(LocalNetwork.broadcast(forHost: "not an address"))
+    }
+
     func testTheSubnetBroadcastComesBeforeTheAllOnesOne() {
         let addresses = LocalNetwork.broadcastAddresses()
         XCTAssertEqual(addresses.last, "255.255.255.255")
