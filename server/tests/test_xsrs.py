@@ -92,7 +92,7 @@ def test_parse_recorder_rule_reads_the_hex_genre_and_both_keyword_lists():
     r = parse_recorder_rule(ET.fromstring(RULE_XML))
     assert r.id == "0x0000470f" and r.name == "クイズ/サンプル/テスト"
     assert r.keywords == ["サンプル", "テスト"] and r.excluded == ["ダミー"] and r.logic == "AND"
-    assert r.genre_code == 0x50 and r.time_scope == "NIGHT" and r.broadcasting_scope == "TRD"
+    assert (r.genre_level1, r.genre_level2) == (5, 0) and r.time_scope == "NIGHT" and r.broadcasting_scope == "TRD"
     assert r.quality_code == 220 and r.quality_code_4k is None and r.destination == "HDD"
 
 
@@ -104,10 +104,22 @@ def test_recorder_rule_elements_follow_the_recorders_own_order():
         '<searchSetting type="MULTIPLE" logic="OR"><name>サンプル</name><keyword>サンプル</keyword>'
         '<timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>')
     # everything at once: the genre in hex before the keywords, exclusions after, text escaped
-    assert build_recorder_rule_elements(keywords=["a & b", "c"], excluded=["x"], logic="AND", genre_code=0x30,
+    assert build_recorder_rule_elements(keywords=["a & b", "c"], excluded=["x"], logic="AND", genre_level1=3, genre_level2=0,
                                         time_scope="NIGHT", broadcasting_scope="TRD", quality_code=230) == (
         '<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><object type="SEARCH">'
         '<desiredQualityMode>230</desiredQualityMode><recordDestinationID>HDD</recordDestinationID>'
         '<searchSetting type="MULTIPLE" logic="AND"><name>a &amp; b</name><genreID type="2">0x30</genreID>'
         '<keyword>a &amp; b</keyword><keyword>c</keyword><excludeKeyword>x</excludeKeyword>'
         '<timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object></xsrs>')
+
+
+def test_a_whole_genre_is_the_recorders_starred_form():
+    # what a BDZ-FBT4100 wrote for a condition set up on its screen as バラエティ with no sub-genre, and no keyword
+    obj = ET.fromstring('<object type="SEARCH" id="0x00021703"><searchSetting type="MULTIPLE" logic="OR">'
+                        '<name>バラエティ</name><genreID type="3">0x5*</genreID><timeScope>MORNING</timeScope>'
+                        '<broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object>')
+    r = parse_recorder_rule(obj)
+    assert (r.genre_level1, r.genre_level2) == (5, None) and r.keywords == [] and r.quality_code is None
+    assert r.time_scope == "MORNING" and r.broadcasting_scope == "BSD"
+    assert '<genreID type="3">0x5*</genreID>' in build_recorder_rule_elements(keywords=[], genre_level1=5, quality_code=220)
+    assert '<genreID type="2">0x50</genreID>' in build_recorder_rule_elements(keywords=[], genre_level1=5, genre_level2=0, quality_code=220)

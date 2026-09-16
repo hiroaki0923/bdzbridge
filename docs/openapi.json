@@ -2431,8 +2431,16 @@
       "title": "Level1"
      },
      "level2": {
-      "type": "integer",
-      "title": "Level2"
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level2",
+      "description": "None stands for the whole level-1 genre, as a recorder condition can"
      },
      "label": {
       "type": "string",
@@ -3126,9 +3134,8 @@
       },
       "type": "array",
       "maxItems": 5,
-      "minItems": 1,
       "title": "Keywords",
-      "description": "as the recorder's own screen allows: up to 5"
+      "description": "as the recorder's own screen allows: up to 5; a genre alone is also a condition"
      },
      "excluded": {
       "items": {
@@ -3148,19 +3155,33 @@
       "title": "Logic",
       "default": "OR"
      },
-     "genre_code": {
+     "genre_level1": {
       "anyOf": [
        {
         "type": "integer",
-        "maximum": 255.0,
+        "maximum": 15.0,
         "minimum": 0.0
        },
        {
         "type": "null"
        }
       ],
-      "title": "Genre Code",
-      "description": "ARIB content nibbles as level1 * 16 + level2"
+      "title": "Genre Level1",
+      "description": "ARIB level-1 genre; alone it means the whole genre"
+     },
+     "genre_level2": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 15.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Genre Level2",
+      "description": "the sub-genre within level1"
      },
      "time_scope": {
       "type": "string",
@@ -3199,9 +3220,6 @@
      }
     },
     "type": "object",
-    "required": [
-     "keywords"
-    ],
     "title": "RecorderRuleCreate",
     "description": "A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The\nchannel narrowing the recorder's screen offers cannot be set over the LAN."
    },

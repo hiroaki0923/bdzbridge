@@ -524,7 +524,7 @@ Stop after the item being processed; what is done stays done.
 ### Genre
 
 - `level1`: integer
-- `level2`: integer
+- `level2`: integer | null — None stands for the whole level-1 genre, as a recorder condition can
 - `label`: string
 
 ### Reservation
@@ -653,10 +653,11 @@ Stop after the item being processed; what is done stays done.
 A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The
 channel narrowing the recorder's screen offers cannot be set over the LAN.
 
-- `keywords`: list[string] — as the recorder's own screen allows: up to 5
+- `keywords`: list[string] （省略可） — as the recorder's own screen allows: up to 5; a genre alone is also a condition
 - `excluded`: list[string] （省略可） — up to 2
 - `logic`: "OR" | "AND" （省略可、既定 `"OR"`）
-- `genre_code`: integer | null （省略可） — ARIB content nibbles as level1 * 16 + level2
+- `genre_level1`: integer | null （省略可） — ARIB level-1 genre; alone it means the whole genre
+- `genre_level2`: integer | null （省略可） — the sub-genre within level1
 - `time_scope`: string （省略可、既定 `"ALL"`） — ALL or NIGHT are known; others are passed through
 - `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL or TRD are known; others are passed through
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Broadcasting = Literal["td", "bs", "cs", "bs4k", "cs4k"]
 Quality = Literal["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
@@ -26,7 +26,7 @@ class ChannelPrefs(BaseModel):
 
 class Genre(BaseModel):
     level1: int
-    level2: int
+    level2: int | None = Field(description="None stands for the whole level-1 genre, as a recorder condition can")
     label: str
 
 
@@ -267,10 +267,11 @@ RuleLogic = Literal["OR", "AND"]
 class RecorderRuleCreate(BaseModel):
     """A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The
     channel narrowing the recorder's screen offers cannot be set over the LAN."""
-    keywords: list[str] = Field(min_length=1, max_length=5, description="as the recorder's own screen allows: up to 5")
+    keywords: list[str] = Field(default_factory=list, max_length=5, description="as the recorder's own screen allows: up to 5; a genre alone is also a condition")
     excluded: list[str] = Field(default_factory=list, max_length=2, description="up to 2")
     logic: RuleLogic = "OR"
-    genre_code: int | None = Field(None, ge=0, le=0xFF, description="ARIB content nibbles as level1 * 16 + level2")
+    genre_level1: int | None = Field(None, ge=0, le=0xF, description="ARIB level-1 genre; alone it means the whole genre")
+    genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
     time_scope: str = Field("ALL", max_length=16, description="ALL or NIGHT are known; others are passed through")
     broadcasting_scope: str = Field("ALL", max_length=16, description="ALL or TRD are known; others are passed through")
     quality: Quality | None = None
@@ -282,6 +283,14 @@ class RecorderRuleCreate(BaseModel):
         if any(len(w) > 50 for w in cleaned):
             raise ValueError("a keyword is at most 50 characters")
         return cleaned
+
+    @model_validator(mode="after")
+    def _something_to_match(self) -> RecorderRuleCreate:
+        if not self.keywords and self.genre_level1 is None:
+            raise ValueError("a keyword or a genre is needed")
+        if self.genre_level2 is not None and self.genre_level1 is None:
+            raise ValueError("a sub-genre needs its level-1 genre")
+        return self
 
 
 class RecorderRule(BaseModel):

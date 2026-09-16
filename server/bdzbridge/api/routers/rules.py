@@ -90,7 +90,7 @@ async def recorder_rule_create(request: Request, req: S.RecorderRuleCreate):
     b = bridge_of(request)
     rec = b.require_recorder()
     el = build_recorder_rule_elements(keywords=req.keywords, excluded=req.excluded, logic=req.logic,
-                                      genre_code=req.genre_code, time_scope=req.time_scope,
+                                      genre_level1=req.genre_level1, genre_level2=req.genre_level2, time_scope=req.time_scope,
                                       broadcasting_scope=req.broadcasting_scope,
                                       quality_code=codes.QUALITY[req.quality or b.settings.default_quality])
     try:

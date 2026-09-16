@@ -58,8 +58,8 @@ public enum Codes {
     /// The order to offer these in. The vectors pin the codes; this is only how they are listed.
     /// おまかせ・まる録 vocabularies seen on a real recorder; anything else is shown as it is.
     public static let ruleLogicLabel: [String: String] = ["OR": "いずれかのキーワードを含む", "AND": "すべてのキーワードを含む"]
-    public static let timeScopeLabel: [String: String] = ["ALL": "すべての時間帯", "NIGHT": "夜"]
-    public static let broadcastingScopeLabel: [String: String] = ["ALL": "すべての放送", "TRD": "地上放送"]
+    public static let timeScopeLabel: [String: String] = ["ALL": "すべての時間帯", "MORNING": "朝", "NIGHT": "夜"]
+    public static let broadcastingScopeLabel: [String: String] = ["ALL": "すべての放送", "TRD": "地上放送", "BSD": "BS放送"]
 
     public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
     public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]

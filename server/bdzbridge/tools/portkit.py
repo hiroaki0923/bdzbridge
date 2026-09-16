@@ -287,14 +287,21 @@ def xsrs_vectors() -> dict:
         '<desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID>'
         '<searchSetting type="MULTIPLE" logic="OR"><name>サンプル語</name><keyword>サンプル語</keyword>'
         '<timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object>'
+        # the box's own: a whole genre and nothing else, on BS, in the morning (read with an empty Filter)
+        '<object type="SEARCH" id="0x00021703"><searchSetting type="MULTIPLE" logic="OR"><name>バラエティ</name>'
+        '<genreID type="3">0x5*</genreID><timeScope>MORNING</timeScope><broadcastTypeScope>BSD</broadcastTypeScope>'
+        '</searchSetting></object>'
     )
     rule_list = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rule_objects}</xsrs>'
     rule_cases = [
         {"name": "keyword only, as accepted by a BDZ-FBT4100",
          "input": {"keywords": ["サンプル"], "quality_code": 220}},
         {"name": "every field: genre in hex before the keywords, exclusions after, text escaped",
-         "input": {"keywords": ["a & b", "c"], "excluded": ["x"], "logic": "AND", "genre_code": 0x30,
+         "input": {"keywords": ["a & b", "c"], "excluded": ["x"], "logic": "AND", "genre_level1": 3, "genre_level2": 0,
                    "time_scope": "NIGHT", "broadcasting_scope": "TRD", "quality_code": 230}},
+        {"name": "a whole genre and no keyword, the recorder's starred form",
+         "input": {"keywords": [], "genre_level1": 5, "time_scope": "MORNING", "broadcasting_scope": "BSD",
+                   "quality_code": 220}},
     ]
     for c in rule_cases:
         c["elements"] = build_recorder_rule_elements(**c["input"])

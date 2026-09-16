@@ -115,6 +115,7 @@ struct RecorderRuleSheet: View {
     @State private var keywords = ""
     @State private var excluded = ""
     @State private var logic = "OR"
+    @State private var genreLevel1 = -1   // -1: no genre
     @State private var broadcastingScope = "ALL"
     @State private var timeScope = "ALL"
     @AppStorage("defaultQuality") private var quality = "LSR"
@@ -130,7 +131,7 @@ struct RecorderRuleSheet: View {
     }
 
     private var problem: String? {
-        if words.isEmpty { return "キーワードを入力してください" }
+        if words.isEmpty && genreLevel1 < 0 { return "キーワードかジャンルを指定してください" }
         if words.count > 5 { return "キーワードは 5 つまでです" }
         if excludedWords.count > 2 { return "除外ワードは 2 つまでです" }
         return nil
@@ -150,12 +151,20 @@ struct RecorderRuleSheet: View {
                     if let problem { Text(problem) }
                 }
                 Section {
+                    Picker("ジャンル", selection: $genreLevel1) {
+                        Text("指定しない").tag(-1)
+                        ForEach(Codes.genreLabel.keys.sorted(), id: \.self) { level in
+                            Text(Codes.genreLabel[level] ?? "").tag(level)
+                        }
+                    }
                     Picker("放送", selection: $broadcastingScope) {
                         Text("すべての放送").tag("ALL")
                         Text("地上放送").tag("TRD")
+                        Text("BS放送").tag("BSD")
                     }
                     Picker("時間帯", selection: $timeScope) {
                         Text("すべての時間帯").tag("ALL")
+                        Text("朝").tag("MORNING")
                         Text("夜").tag("NIGHT")
                     }
                     Picker("録画モード", selection: $quality) {
@@ -175,6 +184,7 @@ struct RecorderRuleSheet: View {
                     Button("レコーダーに登録") {
                         Task {
                             let request = RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic,
+                                                              genreLevel1: genreLevel1 < 0 ? nil : genreLevel1,
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
                                                               qualityCode: Codes.quality[quality] ?? 240)
                             if await model.addRecorderRule(request) {

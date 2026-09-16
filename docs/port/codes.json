@@ -59,11 +59,13 @@
  },
  "time_scope_label": {
   "ALL": "すべての時間帯",
+  "MORNING": "朝",
   "NIGHT": "夜"
  },
  "broadcasting_scope_label": {
   "ALL": "すべての放送",
-  "TRD": "地上放送"
+  "TRD": "地上放送",
+  "BSD": "BS放送"
  },
  "repeat": {
   "none": "1",

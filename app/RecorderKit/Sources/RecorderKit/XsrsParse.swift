@@ -14,9 +14,19 @@ public enum XsrsParse {
         return try XmlNode.parse(result).descendants("object")
     }
 
+    /// `0x50` is level 5, sub-genre 0; `0x5*` (the recorder's type="3") is level 5, any sub-genre.
+    static func genreLevels(_ text: String) -> (Int?, Int?) {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard t.hasPrefix("0x") else { return Int(t).map { ($0 >> 4, $0 & 0xF) } ?? (nil, nil) }
+        t.removeFirst(2)
+        if t.hasSuffix("*") { return (Int(t.dropLast(), radix: 16), nil) }
+        guard let code = Int(t, radix: 16) else { return (nil, nil) }
+        return (code >> 4, code & 0xF)
+    }
+
     public static func recorderRule(_ object: XmlNode) -> RecorderRule {
         let setting = object.child("searchSetting")
-        let genre = setting?.childText("genreID") ?? ""
+        let (level1, level2) = genreLevels(setting?.childText("genreID") ?? "")
         let quality = object.childText("desiredQualityMode")
         let quality4K = object.childText("desiredQualityModeForAdvanced")
         return RecorderRule(
@@ -25,7 +35,8 @@ public enum XsrsParse {
             keywords: setting?.descendants("keyword").map(\.strippedText) ?? [],
             excluded: setting?.descendants("excludeKeyword").map(\.strippedText) ?? [],
             logic: setting?.attributes["logic"] ?? "OR",
-            genreCode: genre.lowercased().hasPrefix("0x") ? hexInt(genre) : Int(genre),
+            genreLevel1: level1,
+            genreLevel2: level2,
             timeScope: setting?.childText("timeScope", default: "ALL") ?? "ALL",
             broadcastingScope: setting?.childText("broadcastTypeScope", default: "ALL") ?? "ALL",
             qualityCode: quality.isEmpty ? nil : Int(quality),

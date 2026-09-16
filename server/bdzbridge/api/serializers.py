@@ -90,8 +90,9 @@ def rule_out(b, r: dict) -> S.Rule:
 def recorder_rule_out(r: XRecorderRule) -> S.RecorderRule:
     def quality(code: int | None) -> str | None:
         return None if code is None else codes.QUALITY_BY_CODE.get(code, str(code))
+    genres = _genres([(r.genre_level1, r.genre_level2)]) if r.genre_level1 is not None else []
     return S.RecorderRule(id=r.id, name=r.name, keywords=r.keywords, excluded=r.excluded, logic=r.logic,
-                          logic_label=codes.RULE_LOGIC_LABEL.get(r.logic, r.logic), genres=_genres_from_code(r.genre_code),
+                          logic_label=codes.RULE_LOGIC_LABEL.get(r.logic, r.logic), genres=genres,
                           time_scope=r.time_scope, time_scope_label=codes.TIME_SCOPE_LABEL.get(r.time_scope, r.time_scope),
                           broadcasting_scope=r.broadcasting_scope,
                           broadcasting_scope_label=codes.BROADCASTING_SCOPE_LABEL.get(r.broadcasting_scope, r.broadcasting_scope),

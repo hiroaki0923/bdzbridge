@@ -117,7 +117,8 @@ final class XsrsVectorTests: XCTestCase {
             XCTAssertEqual(rule.keywords, row["keywords"] as? [String])
             XCTAssertEqual(rule.excluded, row["excluded"] as? [String])
             XCTAssertEqual(rule.logic, row.string("logic"))
-            XCTAssertEqual(rule.genreCode, row.int("genre_code"))
+            XCTAssertEqual(rule.genreLevel1, row.int("genre_level1"))
+            XCTAssertEqual(rule.genreLevel2, row.int("genre_level2"))
             XCTAssertEqual(rule.timeScope, row.string("time_scope"))
             XCTAssertEqual(rule.broadcastingScope, row.string("broadcasting_scope"))
             XCTAssertEqual(rule.qualityCode, row.int("quality_code"))
@@ -134,7 +135,8 @@ final class XsrsVectorTests: XCTestCase {
             let request = RecorderRuleRequest(keywords: input["keywords"] as? [String] ?? [],
                                               excluded: input["excluded"] as? [String] ?? [],
                                               logic: input["logic"] as? String ?? "OR",
-                                              genreCode: input.int("genre_code"),
+                                              genreLevel1: input.int("genre_level1"),
+                                              genreLevel2: input.int("genre_level2"),
                                               timeScope: input["time_scope"] as? String ?? "ALL",
                                               broadcastingScope: input["broadcasting_scope"] as? String ?? "ALL",
                                               qualityCode: try XCTUnwrap(input.int("quality_code")))

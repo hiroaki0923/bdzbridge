@@ -252,9 +252,10 @@ class RecorderRule:
     keywords: list[str]
     excluded: list[str]
     logic: str                   # OR: any keyword matches; AND: all of them
-    genre_code: int | None       # level1 * 16 + level2, as reservations carry it; hex on the wire here, decimal there
-    time_scope: str              # ALL, NIGHT, ...
-    broadcasting_scope: str      # ALL, TRD, ...
+    genre_level1: int | None     # ARIB level-1 genre; on the wire as hex, 0x50 (type="2") or 0x5* (type="3")
+    genre_level2: int | None     # the sub-genre; None means the whole level-1 genre, the 0x5* form
+    time_scope: str              # ALL, MORNING, NIGHT, ...
+    broadcasting_scope: str      # ALL, TRD, BSD, ...
     quality_code: int | None     # 録画モード(地上/BS/CS); the recorder only sends it for Filter "*"
     quality_code_4k: int | None  # 録画モード(BS4K/CS4K); the recorder fills it in, and omits it for a one-wave scope
     destination: str
@@ -271,11 +272,26 @@ def _texts(item: ET.Element, tag: str) -> list[str]:
     return [c.text or "" for c in item if c.tag.split("}")[-1] == tag]
 
 
+def _genre_levels(text: str) -> tuple[int | None, int | None]:
+    """`0x50` is level 5, sub-genre 0; `0x5*` (the recorder's type="3") is level 5, any sub-genre."""
+    t = text.strip().lower()
+    if not t.startswith("0x"):
+        return (int(t) >> 4, int(t) & 0xF) if t.isdigit() else (None, None)
+    t = t[2:]
+    try:
+        if t.endswith("*"):
+            return int(t[:-1], 16), None
+        code = int(t, 16)
+        return code >> 4, code & 0xF
+    except ValueError:
+        return None, None
+
+
 def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
     setting = _child(obj, "searchSetting")
     if setting is None:
         setting = ET.Element("searchSetting")
-    genre = _text(setting, "genreID", "")
+    level1, level2 = _genre_levels(_text(setting, "genreID", ""))
     quality = _text(obj, "desiredQualityMode", "")
     quality_4k = _text(obj, "desiredQualityModeForAdvanced", "")
     return RecorderRule(
@@ -284,7 +300,8 @@ def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
         keywords=_texts(setting, "keyword"),
         excluded=_texts(setting, "excludeKeyword"),
         logic=setting.get("logic", "OR"),
-        genre_code=int(genre, 16) if genre.lower().startswith("0x") else (int(genre) if genre.isdigit() else None),
+        genre_level1=level1,
+        genre_level2=level2,
         time_scope=_text(setting, "timeScope", "ALL"),
         broadcasting_scope=_text(setting, "broadcastTypeScope", "ALL"),
         quality_code=int(quality) if quality.isdigit() else None,
@@ -294,14 +311,21 @@ def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
 
 
 def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | tuple[str, ...] = (), logic: str = "OR",
-                                 genre_code: int | None = None, time_scope: str = "ALL", broadcasting_scope: str = "ALL",
+                                 genre_level1: int | None = None, genre_level2: int | None = None,
+                                 time_scope: str = "ALL", broadcasting_scope: str = "ALL",
                                  quality_code: int, destination: str = "HDD") -> str:
     """The <Elements> for X_CreatePrefRecSetting, in the order the recorder itself writes a condition and with no
     id attribute at all. A name is sent because every request that went through carried one, but the recorder
-    composes its own from the genre and the keywords and drops whatever arrives."""
+    composes its own from the genre and the keywords and drops whatever arrives. A genre without a sub-genre is
+    the recorder's own `0x5*` form, which stands for the whole level-1 genre."""
     def esc(s: str) -> str:
         return html.escape(s, quote=False)
-    genre = f'<genreID type="2">{genre_code:#x}</genreID>' if genre_code is not None else ""
+    if genre_level1 is None:
+        genre = ""
+    elif genre_level2 is None:
+        genre = f'<genreID type="3">{genre_level1:#x}*</genreID>'
+    else:
+        genre = f'<genreID type="2">{genre_level1 * 16 + genre_level2:#x}</genreID>'
     return (
         f'<xsrs xmlns="{XSRS_NS}"><object type="SEARCH">'
         f"<desiredQualityMode>{quality_code}</desiredQualityMode>"

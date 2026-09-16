@@ -64,5 +64,5 @@ GENRE_LABEL = {
 # おまかせ・まる録, the recorder's own keyword conditions: the vocabularies seen on a real recorder. Anything else the
 # recorder reports is shown as it is, since only these values have been observed (docs/xsrs-api.md).
 RULE_LOGIC_LABEL = {"OR": "いずれかのキーワードを含む", "AND": "すべてのキーワードを含む"}
-TIME_SCOPE_LABEL = {"ALL": "すべての時間帯", "NIGHT": "夜"}
-BROADCASTING_SCOPE_LABEL = {"ALL": "すべての放送", "TRD": "地上放送"}
+TIME_SCOPE_LABEL = {"ALL": "すべての時間帯", "MORNING": "朝", "NIGHT": "夜"}
+BROADCASTING_SCOPE_LABEL = {"ALL": "すべての放送", "TRD": "地上放送", "BSD": "BS放送"}

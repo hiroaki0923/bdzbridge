@@ -126,12 +126,12 @@ def test_rules_match_description_when_not_title_only(client):
 def test_recorder_rules_are_made_on_the_recorder_and_deleted_there(client):
     r = client.post("/api/v1/recorder-rules", headers=H,
                     json={"keywords": [" サンプル ", "テスト"], "excluded": ["ダミー"], "logic": "AND",
-                          "genre_code": 0x50, "time_scope": "NIGHT", "broadcasting_scope": "TRD", "quality": "XSR"})
+                          "genre_level1": 5, "genre_level2": 0, "time_scope": "NIGHT", "broadcasting_scope": "TRD", "quality": "XSR"})
     assert r.status_code == 201, r.text
     made = r.json()
     assert made["keywords"] == ["サンプル", "テスト"] and made["excluded"] == ["ダミー"]
     assert made["logic"] == "AND" and made["logic_label"] == "すべてのキーワードを含む"
-    assert made["genres"][0]["level1"] == 5 and made["genres"][0]["label"] == "バラエティ"
+    assert made["genres"][0]["level1"] == 5 and made["genres"][0]["level2"] == 0 and made["genres"][0]["label"] == "バラエティ"
     assert made["time_scope_label"] == "夜" and made["broadcasting_scope_label"] == "地上放送"
     assert made["quality"] == "XSR" and made["quality_4k"] is None and made["destination"] == "HDD"
     assert made["name"] == "サンプル/テスト"  # the fake composes one the way the recorder does
@@ -148,6 +148,11 @@ def test_recorder_rule_defaults_and_limits(client):
     assert made["logic"] == "OR" and made["time_scope"] == "ALL" and made["broadcasting_scope"] == "ALL"
     assert made["quality"] == "LSR" and made["genres"] == []   # the server's default quality
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": []}).status_code == 422
+    assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level2": 0}).status_code == 422
+    whole = client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level1": 5, "time_scope": "MORNING",
+                                                                  "broadcasting_scope": "BSD"}).json()
+    assert whole["genres"] == [{"level1": 5, "level2": None, "label": "バラエティ"}] and whole["keywords"] == []
+    assert whole["time_scope_label"] == "朝" and whole["broadcasting_scope_label"] == "BS放送"
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"] * 6}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "excluded": ["x", "y", "z"]}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "logic": "XOR"}).status_code == 422

@@ -29,7 +29,7 @@
   let recRules = $state([])
   let recOpen = $state(false)
   let recBusy = $state(false)
-  let recForm = $state({ keywords: '', excluded: '', logic: 'OR', broadcasting_scope: 'ALL', time_scope: 'ALL', quality: '' })
+  let recForm = $state({ keywords: '', excluded: '', logic: 'OR', genre: '', broadcasting_scope: 'ALL', time_scope: 'ALL', quality: '' })
   const splitWords = (text) => text.split(/[、,\s]+/).map((w) => w.trim()).filter(Boolean)
   async function loadRecRules() {
     try { recRules = await api('/recorder-rules') } catch { recRules = [] }
@@ -38,11 +38,12 @@
   async function addRecRule(e) {
     e.preventDefault()
     const keywords = splitWords(recForm.keywords), excluded = splitWords(recForm.excluded)
-    if (!keywords.length) { toast('キーワードを入れてください'); return }
+    if (!keywords.length && recForm.genre === '') { toast('キーワードかジャンルを指定してください'); return }
     if (keywords.length > 5 || excluded.length > 2) { toast('キーワードは 5 つ、除外は 2 つまでです'); return }
     recBusy = true
     try {
       const body = { keywords, excluded, logic: recForm.logic, broadcasting_scope: recForm.broadcasting_scope, time_scope: recForm.time_scope }
+      if (recForm.genre !== '') body.genre_level1 = Number(recForm.genre)
       if (recForm.quality) body.quality = recForm.quality
       const made = await api('/recorder-rules', { method: 'POST', body })
       toast(`本体に登録しました: ${made.name}`)
@@ -145,8 +146,9 @@
       <div class="field"><span>キーワード</span><input bind:value={recForm.keywords} placeholder="、区切りで最大 5 つ" /></div>
       <div class="field"><span>除外ワード</span><input bind:value={recForm.excluded} placeholder="最大 2 つ" /></div>
       <div class="field"><span>検索方法</span><select bind:value={recForm.logic}><option value="OR">いずれかのキーワードを含む</option><option value="AND">すべてのキーワードを含む</option></select></div>
-      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option></select></div>
-      <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="NIGHT">夜</option></select></div>
+      <div class="field"><span>ジャンル</span><select bind:value={recForm.genre}><option value="">指定しない</option>{#each Object.entries(app.defaults?.genres ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
+      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option></select></div>
+      <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="MORNING">朝</option><option value="NIGHT">夜</option></select></div>
       <div class="field"><span>録画モード</span><select bind:value={recForm.quality}><option value="">既定（{app.defaults?.quality ?? 'LSR'}）</option>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
       <button class="btn" type="submit" disabled={recBusy}>{recBusy ? '登録中…' : '本体に登録'}</button>
     </form>

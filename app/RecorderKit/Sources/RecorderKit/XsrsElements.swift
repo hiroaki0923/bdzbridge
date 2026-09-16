@@ -31,19 +31,22 @@ public struct RecorderRuleRequest: Equatable, Sendable {
     public var keywords: [String]
     public var excluded: [String]
     public var logic: String
-    public var genreCode: Int?
+    /// The level-1 genre alone stands for the whole genre; with `genreLevel2` it is one sub-genre.
+    public var genreLevel1: Int?
+    public var genreLevel2: Int?
     public var timeScope: String
     public var broadcastingScope: String
     public var qualityCode: Int
     public var destination: String
 
-    public init(keywords: [String], excluded: [String] = [], logic: String = "OR", genreCode: Int? = nil,
-                timeScope: String = "ALL", broadcastingScope: String = "ALL", qualityCode: Int,
-                destination: String = "HDD") {
+    public init(keywords: [String], excluded: [String] = [], logic: String = "OR", genreLevel1: Int? = nil,
+                genreLevel2: Int? = nil, timeScope: String = "ALL", broadcastingScope: String = "ALL",
+                qualityCode: Int, destination: String = "HDD") {
         self.keywords = keywords
         self.excluded = excluded
         self.logic = logic
-        self.genreCode = genreCode
+        self.genreLevel1 = genreLevel1
+        self.genreLevel2 = genreLevel2
         self.timeScope = timeScope
         self.broadcastingScope = broadcastingScope
         self.qualityCode = qualityCode
@@ -56,7 +59,14 @@ public enum XsrsElements {
     /// no id attribute at all. A name is sent because every request that went through carried one; the recorder
     /// composes its own from the genre and the keywords and drops whatever arrives.
     public static func recorderRule(_ request: RecorderRuleRequest) -> String {
-        let genre = request.genreCode.map { "<genreID type=\"2\">\(hex($0))</genreID>" } ?? ""
+        let genre: String
+        if let level1 = request.genreLevel1, let level2 = request.genreLevel2 {
+            genre = "<genreID type=\"2\">\(hex(level1 * 16 + level2))</genreID>"
+        } else if let level1 = request.genreLevel1 {
+            genre = "<genreID type=\"3\">\(hex(level1))*</genreID>"   // the recorder's own form for a whole genre
+        } else {
+            genre = ""
+        }
         let words = request.keywords.map { "<keyword>\(Soap.escape($0, quotes: false))</keyword>" }.joined()
         let excluded = request.excluded.map { "<excludeKeyword>\(Soap.escape($0, quotes: false))</excludeKeyword>" }.joined()
         return "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"><object type=\"SEARCH\">"

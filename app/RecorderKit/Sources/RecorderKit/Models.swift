@@ -107,8 +107,10 @@ public struct RecorderRule: Equatable, Sendable, Identifiable {
     public var excluded: [String]
     /// `OR`: any keyword matches; `AND`: all of them.
     public var logic: String
-    /// ARIB content nibbles as level1 * 16 + level2, as reservations carry it; hex on the wire here, decimal there.
-    public var genreCode: Int?
+    /// The ARIB level-1 genre; on the wire as hex, `0x50` (type="2") or `0x5*` (type="3").
+    public var genreLevel1: Int?
+    /// The sub-genre; nil means the whole level-1 genre, the recorder's `0x5*` form.
+    public var genreLevel2: Int?
     public var timeScope: String
     public var broadcastingScope: String
     /// 録画モード(地上/BS/CS); the recorder only sends it when asked with Filter "*".
@@ -121,5 +123,5 @@ public struct RecorderRule: Equatable, Sendable, Identifiable {
     public var logicLabel: String { Codes.ruleLogicLabel[logic] ?? logic }
     public var timeScopeLabel: String { Codes.timeScopeLabel[timeScope] ?? timeScope }
     public var broadcastingScopeLabel: String { Codes.broadcastingScopeLabel[broadcastingScope] ?? broadcastingScope }
-    public var genreLabel: String? { genreCode.flatMap { Codes.genreLabel[$0 >> 4] } }
+    public var genreLabel: String? { genreLevel1.flatMap { Codes.genreLabel[$0] } }
 }
