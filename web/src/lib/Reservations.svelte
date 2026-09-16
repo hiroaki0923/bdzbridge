@@ -24,6 +24,36 @@
     } catch (e) { error = e.message } finally { autoBusy = false }
   }
   const statusLabel = { reserved: '予約', conflict: '重複', error: '失敗' }
+  // the recorder's own keyword conditions (おまかせ・まる録): create and delete only, never update, because a
+  // condition read over the LAN lacks the channel narrowing the recorder's screen can set
+  let recRules = $state([])
+  let recOpen = $state(false)
+  let recBusy = $state(false)
+  let recForm = $state({ keywords: '', excluded: '', logic: 'OR', broadcasting_scope: 'ALL', time_scope: 'ALL', quality: '' })
+  const splitWords = (text) => text.split(/[、,\s]+/).map((w) => w.trim()).filter(Boolean)
+  async function loadRecRules() {
+    try { recRules = await api('/recorder-rules') } catch { recRules = [] }
+  }
+  $effect(() => { if (recOpen) loadRecRules() })
+  async function addRecRule(e) {
+    e.preventDefault()
+    const keywords = splitWords(recForm.keywords), excluded = splitWords(recForm.excluded)
+    if (!keywords.length) { toast('キーワードを入れてください'); return }
+    if (keywords.length > 5 || excluded.length > 2) { toast('キーワードは 5 つ、除外は 2 つまでです'); return }
+    recBusy = true
+    try {
+      const body = { keywords, excluded, logic: recForm.logic, broadcasting_scope: recForm.broadcasting_scope, time_scope: recForm.time_scope }
+      if (recForm.quality) body.quality = recForm.quality
+      const made = await api('/recorder-rules', { method: 'POST', body })
+      toast(`本体に登録しました: ${made.name}`)
+      recForm = { ...recForm, keywords: '', excluded: '' }
+      await loadRecRules()
+    } catch (err) { toast(err.message) } finally { recBusy = false }
+  }
+  async function deleteRecRule(r) {
+    if (!window.confirm(`「${r.name}」を本体から削除します。本体で設定したチャンネルの絞り込みも一緒に消えます。`)) return
+    try { await api(`/recorder-rules/${r.id}`, { method: 'DELETE' }); toast('本体から削除しました'); await loadRecRules() } catch (err) { toast(err.message) }
+  }
   const SORTS = [['time', '日時'], ['genre', 'ジャンル'], ['channel', '局']]
   let sort = $state(loadPref('resSort', null) || 'time')
   $effect(() => { savePref('resSort', sort) })
@@ -97,6 +127,29 @@
       <p class="muted" style="margin:10px 0 4px">最近の結果</p>
       {#each autoLog as l (l.id)}<div class="muted">{fmtDateTime(l.start)} {l.title} — {statusLabel[l.status] ?? l.status}{l.message ? '（' + l.message + '）' : ''}</div>{/each}
     {/if}
+  {/if}
+</div>
+<div class="card">
+  <button class="row" style="width:100%; justify-content: space-between" onclick={() => (recOpen = !recOpen)}>
+    <span class="title">レコーダーのおまかせ・まる録{#if recOpen} <span class="muted">{recRules.length} 件</span>{/if}</span><span class="muted">{recOpen ? '閉じる' : '開く'}</span>
+  </button>
+  {#if recOpen}
+    <p class="muted">レコーダー本体が自分で番組を探して録画する条件です。このサーバーが止まっていても働きます。対象チャンネルの絞り込みは本体でしか設定できず、ここには表示されません。</p>
+    {#each recRules as r (r.id)}
+      <div class="field">
+        <span><b>{r.name}</b><br /><span class="muted">{r.keywords.join('、')}{r.excluded.length ? '　除外: ' + r.excluded.join('、') : ''} · {r.logic === 'AND' ? 'すべて含む' : 'いずれか含む'} · {r.broadcasting_scope_label} · {r.time_scope_label}{r.genres[0] ? ' · ' + r.genres[0].label : ''}{r.quality ? ' · ' + r.quality : ''}</span></span>
+        <button class="chip" onclick={() => deleteRecRule(r)}>削除</button>
+      </div>
+    {/each}
+    <form onsubmit={addRecRule}>
+      <div class="field"><span>キーワード</span><input bind:value={recForm.keywords} placeholder="、区切りで最大 5 つ" /></div>
+      <div class="field"><span>除外ワード</span><input bind:value={recForm.excluded} placeholder="最大 2 つ" /></div>
+      <div class="field"><span>検索方法</span><select bind:value={recForm.logic}><option value="OR">いずれかのキーワードを含む</option><option value="AND">すべてのキーワードを含む</option></select></div>
+      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option></select></div>
+      <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="NIGHT">夜</option></select></div>
+      <div class="field"><span>録画モード</span><select bind:value={recForm.quality}><option value="">既定（{app.defaults?.quality ?? 'LSR'}）</option>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
+      <button class="btn" type="submit" disabled={recBusy}>{recBusy ? '登録中…' : '本体に登録'}</button>
+    </form>
   {/if}
 </div>
 <div class="seg">{#each SORTS as [id, label]}<button class:on={sort === id} onclick={() => (sort = id)}>{label}</button>{/each}</div>

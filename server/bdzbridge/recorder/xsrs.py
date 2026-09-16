@@ -239,6 +239,82 @@ def parse_title(item: ET.Element) -> RecordedTitle:
     )
 
 
+@dataclass
+class RecorderRule:
+    """One of the recorder's own おまかせ・まる録 conditions: what the box records by itself, by keyword.
+
+    The channel narrowing the box can hold is neither reported nor accepted over the LAN, so it is not here.
+    A condition read this way and written back would lose it, which is why there is no update, only
+    create and delete (docs/xsrs-api.md).
+    """
+    id: str
+    name: str                    # composed by the recorder from genre and keywords; whatever is sent is replaced
+    keywords: list[str]
+    excluded: list[str]
+    logic: str                   # OR: any keyword matches; AND: all of them
+    genre_code: int | None       # level1 * 16 + level2, as reservations carry it; hex on the wire here, decimal there
+    time_scope: str              # ALL, NIGHT, ...
+    broadcasting_scope: str      # ALL, TRD, ...
+    quality_code: int | None     # 録画モード(地上/BS/CS); the recorder only sends it for Filter "*"
+    quality_code_4k: int | None  # 録画モード(BS4K/CS4K); the recorder fills it in, and omits it for a one-wave scope
+    destination: str
+
+
+def _objects(result_xml: str) -> list[ET.Element]:
+    if not result_xml.strip():
+        return []
+    root = ET.fromstring(result_xml)
+    return [e for e in root.iter() if e.tag.split("}")[-1] == "object"]
+
+
+def _texts(item: ET.Element, tag: str) -> list[str]:
+    return [c.text or "" for c in item if c.tag.split("}")[-1] == tag]
+
+
+def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
+    setting = _child(obj, "searchSetting")
+    if setting is None:
+        setting = ET.Element("searchSetting")
+    genre = _text(setting, "genreID", "")
+    quality = _text(obj, "desiredQualityMode", "")
+    quality_4k = _text(obj, "desiredQualityModeForAdvanced", "")
+    return RecorderRule(
+        id=obj.get("id", ""),
+        name=_text(setting, "name"),
+        keywords=_texts(setting, "keyword"),
+        excluded=_texts(setting, "excludeKeyword"),
+        logic=setting.get("logic", "OR"),
+        genre_code=int(genre, 16) if genre.lower().startswith("0x") else (int(genre) if genre.isdigit() else None),
+        time_scope=_text(setting, "timeScope", "ALL"),
+        broadcasting_scope=_text(setting, "broadcastTypeScope", "ALL"),
+        quality_code=int(quality) if quality.isdigit() else None,
+        quality_code_4k=int(quality_4k) if quality_4k.isdigit() else None,
+        destination=_text(obj, "recordDestinationID", "HDD"),
+    )
+
+
+def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | tuple[str, ...] = (), logic: str = "OR",
+                                 genre_code: int | None = None, time_scope: str = "ALL", broadcasting_scope: str = "ALL",
+                                 quality_code: int, destination: str = "HDD") -> str:
+    """The <Elements> for X_CreatePrefRecSetting, in the order the recorder itself writes a condition and with no
+    id attribute at all. A name is sent because every request that went through carried one, but the recorder
+    composes its own from the genre and the keywords and drops whatever arrives."""
+    def esc(s: str) -> str:
+        return html.escape(s, quote=False)
+    genre = f'<genreID type="2">{genre_code:#x}</genreID>' if genre_code is not None else ""
+    return (
+        f'<xsrs xmlns="{XSRS_NS}"><object type="SEARCH">'
+        f"<desiredQualityMode>{quality_code}</desiredQualityMode>"
+        f"<recordDestinationID>{destination}</recordDestinationID>"
+        f'<searchSetting type="MULTIPLE" logic="{logic}">'
+        f"<name>{esc(keywords[0]) if keywords else ''}</name>{genre}"
+        + "".join(f"<keyword>{esc(k)}</keyword>" for k in keywords)
+        + "".join(f"<excludeKeyword>{esc(k)}</excludeKeyword>" for k in excluded)
+        + f"<timeScope>{time_scope}</timeScope><broadcastTypeScope>{broadcasting_scope}</broadcastTypeScope>"
+        "</searchSetting></object></xsrs>"
+    )
+
+
 class XsrsClient:
     def __init__(self, host: str, http: httpx.AsyncClient, port: int = 64220):
         self.base = f"http://{host}:{port}"
@@ -326,6 +402,22 @@ class XsrsClient:
         res = ET.fromstring(await self._pvr("X_GetLiveChList", [("BroadcastType", broadcasting_type), ("SkipChannel", 0)]))
         text = _find_text(res, "channelList") or ""
         return [int(x) for x in text.split("_") if x]
+
+    # --- the recorder's own keyword conditions (おまかせ・まる録) ---
+    async def list_recorder_rules(self) -> list[RecorderRule]:
+        # Filter must be "*": unlike the title and reservation lists this one honours it, and an empty one drops
+        # the quality and the destination without a word
+        res = await self._pvr("X_GetPrefRecSettingList", [("SearchCriteria", ""), ("Filter", "*"), ("StartingIndex", 0),
+                                                          ("RequestedCount", 200), ("SortCriteria", ""), ("Format", "")])
+        return [parse_recorder_rule(o) for o in _objects(res)]
+
+    async def create_recorder_rule(self, elements: str) -> str:
+        """Answers with the new condition's id, which the recorder renumbers if the box later edits it."""
+        root = await self._call("/X_PvrControl", PVR_TYPE, "X_CreatePrefRecSetting", [("Elements", elements), ("Format", "")])
+        return _find_text(root, "SearchSettingID") or ""
+
+    async def delete_recorder_rule(self, rule_id: str) -> None:
+        await self._call("/X_PvrControl", PVR_TYPE, "X_DeletePrefRecSetting", [("SearchSettingID", rule_id)])
 
     async def play_control(self, title_id: str, operation: str, position: int = 0) -> None:
         """Playback on the TV connected to the recorder. operation: play | stop | pause (lower case; "pause" toggles,

@@ -27,10 +27,13 @@ from ..recorder.logo import LOGO_CLUT, decode_logo_file, encode_logo_file
 from ..recorder.series import same_title_key, series_key, series_name, summary_key
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import (
+    _objects,
     _soap_body,
     build_create_elements,
+    build_recorder_rule_elements,
     build_title_update_elements,
     build_update_elements,
+    parse_recorder_rule,
     parse_reservation,
     parse_title,
 )
@@ -218,6 +221,8 @@ def codes_vectors() -> dict:
         "broadcasting": codes.BROADCASTING, "broadcasting_label": codes.BROADCASTING_LABEL,
         "epg_files": codes.EPG_FILES, "logo_files": codes.LOGO_FILES,
         "quality": codes.QUALITY, "quality_elsewhere": codes.QUALITY_ELSEWHERE, "quality_label": codes.QUALITY_LABEL,
+        "rule_logic_label": codes.RULE_LOGIC_LABEL, "time_scope_label": codes.TIME_SCOPE_LABEL,
+        "broadcasting_scope_label": codes.BROADCASTING_SCOPE_LABEL,
         "repeat": codes.REPEAT, "repeat_label": codes.REPEAT_LABEL, "weekday_repeat": codes.WEEKDAY_REPEAT,
         "genre_label": {f"{k:#x}": v for k, v in codes.GENRE_LABEL.items()},
         "arib_symbols": {f"U+{ord(k):04X}": v for k, v in ARIB_SYMBOLS.items()},
@@ -270,7 +275,39 @@ def xsrs_vectors() -> dict:
     def dt(v):
         return v.isoformat() if isinstance(v, datetime) else v
 
+    # the recorder's own keyword conditions, as a BDZ-FBT4100 lists them: one set up on the box with everything
+    # filled in, one made over the LAN with only a keyword (the recorder added the 4K quality itself)
+    rule_objects = (
+        '<object type="SEARCH" id="0x0000470f"><desiredQualityMode>220</desiredQualityMode>'
+        '<recordDestinationID>HDD</recordDestinationID><searchSetting type="MULTIPLE" logic="AND">'
+        '<name>クイズ/サンプル/テスト</name><genreID type="2">0x50</genreID><keyword>サンプル</keyword>'
+        '<keyword>テスト</keyword><excludeKeyword>ダミー</excludeKeyword><timeScope>NIGHT</timeScope>'
+        '<broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object>'
+        '<object type="SEARCH" id="0x0000570b"><desiredQualityMode>220</desiredQualityMode>'
+        '<desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID>'
+        '<searchSetting type="MULTIPLE" logic="OR"><name>サンプル語</name><keyword>サンプル語</keyword>'
+        '<timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object>'
+    )
+    rule_list = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rule_objects}</xsrs>'
+    rule_cases = [
+        {"name": "keyword only, as accepted by a BDZ-FBT4100",
+         "input": {"keywords": ["サンプル"], "quality_code": 220}},
+        {"name": "every field: genre in hex before the keywords, exclusions after, text escaped",
+         "input": {"keywords": ["a & b", "c"], "excluded": ["x"], "logic": "AND", "genre_code": 0x30,
+                   "time_scope": "NIGHT", "broadcasting_scope": "TRD", "quality_code": 230}},
+    ]
+    for c in rule_cases:
+        c["elements"] = build_recorder_rule_elements(**c["input"])
+
     return {
+        "recorder_rules": {
+            "note": "X_GetPrefRecSettingList with Filter \"*\" (an empty Filter drops the quality and the destination). "
+                    "The channel narrowing the recorder's screen offers is never reported and is dropped when sent; "
+                    "there is no update, only create and delete.",
+            "list_result": rule_list,
+            "parsed": [asdict(parse_recorder_rule(o)) for o in _objects(rule_list)],
+            "create_elements": rule_cases,
+        },
         "soap": {
             "note": "POST to control_url; headers Content-Type: text/xml; charset=\"utf-8\", Accept-Language: ja, "
                     "SOAPACTION: \"<service>#<action>\". Body exactly as below (no whitespace between elements).",

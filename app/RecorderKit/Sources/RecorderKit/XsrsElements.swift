@@ -25,7 +25,50 @@ public struct ReservationRequest: Equatable, Sendable {
     }
 }
 
+/// A condition to register on the recorder itself. The recorder composes the name, and the channel cannot be set
+/// this way (docs/xsrs-api.md).
+public struct RecorderRuleRequest: Equatable, Sendable {
+    public var keywords: [String]
+    public var excluded: [String]
+    public var logic: String
+    public var genreCode: Int?
+    public var timeScope: String
+    public var broadcastingScope: String
+    public var qualityCode: Int
+    public var destination: String
+
+    public init(keywords: [String], excluded: [String] = [], logic: String = "OR", genreCode: Int? = nil,
+                timeScope: String = "ALL", broadcastingScope: String = "ALL", qualityCode: Int,
+                destination: String = "HDD") {
+        self.keywords = keywords
+        self.excluded = excluded
+        self.logic = logic
+        self.genreCode = genreCode
+        self.timeScope = timeScope
+        self.broadcastingScope = broadcastingScope
+        self.qualityCode = qualityCode
+        self.destination = destination
+    }
+}
+
 public enum XsrsElements {
+    /// The `<Elements>` for `X_CreatePrefRecSetting`, in the order the recorder itself writes a condition and with
+    /// no id attribute at all. A name is sent because every request that went through carried one; the recorder
+    /// composes its own from the genre and the keywords and drops whatever arrives.
+    public static func recorderRule(_ request: RecorderRuleRequest) -> String {
+        let genre = request.genreCode.map { "<genreID type=\"2\">\(hex($0))</genreID>" } ?? ""
+        let words = request.keywords.map { "<keyword>\(Soap.escape($0, quotes: false))</keyword>" }.joined()
+        let excluded = request.excluded.map { "<excludeKeyword>\(Soap.escape($0, quotes: false))</excludeKeyword>" }.joined()
+        return "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"><object type=\"SEARCH\">"
+            + "<desiredQualityMode>\(request.qualityCode)</desiredQualityMode>"
+            + "<recordDestinationID>\(request.destination)</recordDestinationID>"
+            + "<searchSetting type=\"MULTIPLE\" logic=\"\(request.logic)\">"
+            + "<name>\(Soap.escape(request.keywords.first ?? "", quotes: false))</name>" + genre + words + excluded
+            + "<timeScope>\(request.timeScope)</timeScope>"
+            + "<broadcastTypeScope>\(request.broadcastingScope)</broadcastTypeScope>"
+            + "</searchSetting></object></xsrs>"
+    }
+
     /// The `<Elements>` payload for `X_CreateRecordSchedule`, identical to what the official app sends.
     /// Element order, the `channelType` attribute and the `+09:00` offset all matter.
     public static func create(_ request: ReservationRequest) -> String {

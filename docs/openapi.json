@@ -1229,6 +1229,123 @@
     }
    }
   },
+  "/api/v1/recorder-rules": {
+   "get": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Recorder Rules",
+    "description": "The keyword conditions held by the recorder itself (おまかせ・まる録). These record without this server. The channel narrowing set on the recorder's screen is not reported.",
+    "operationId": "recorder_rules_api_v1_recorder_rules_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RecorderRule"
+         },
+         "type": "array",
+         "title": "Response Recorder Rules Api V1 Recorder Rules Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Recorder Rule Create",
+    "description": "Register a condition on the recorder itself. The recorder composes the name; the channel cannot be set this way.",
+    "operationId": "recorder_rule_create_api_v1_recorder_rules_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecorderRuleCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecorderRule"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recorder-rules/{rule_id}": {
+   "delete": {
+    "tags": [
+     "rules"
+    ],
+    "summary": "Recorder Rule Delete",
+    "description": "Remove a condition from the recorder, whoever made it. Ids change whenever the recorder's screen edits a condition, so read the list first.",
+    "operationId": "recorder_rule_delete_api_v1_recorder_rules__rule_id__delete",
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "rule_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rule Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/monitor/run": {
    "post": {
     "tags": [
@@ -2896,6 +3013,197 @@
      "via"
     ],
     "title": "RecorderCandidate"
+   },
+   "RecorderRule": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "composed by the recorder from the genre and the keywords"
+     },
+     "keywords": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Keywords"
+     },
+     "excluded": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Excluded"
+     },
+     "logic": {
+      "type": "string",
+      "title": "Logic"
+     },
+     "logic_label": {
+      "type": "string",
+      "title": "Logic Label"
+     },
+     "genres": {
+      "items": {
+       "$ref": "#/components/schemas/Genre"
+      },
+      "type": "array",
+      "title": "Genres"
+     },
+     "time_scope": {
+      "type": "string",
+      "title": "Time Scope"
+     },
+     "time_scope_label": {
+      "type": "string",
+      "title": "Time Scope Label"
+     },
+     "broadcasting_scope": {
+      "type": "string",
+      "title": "Broadcasting Scope"
+     },
+     "broadcasting_scope_label": {
+      "type": "string",
+      "title": "Broadcasting Scope Label"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality",
+      "description": "録画モード(地上/BS/CS)"
+     },
+     "quality_4k": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality 4K",
+      "description": "録画モード(BS4K/CS4K), filled in by the recorder"
+     },
+     "destination": {
+      "type": "string",
+      "title": "Destination"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "keywords",
+     "excluded",
+     "logic",
+     "logic_label",
+     "genres",
+     "time_scope",
+     "time_scope_label",
+     "broadcasting_scope",
+     "broadcasting_scope_label",
+     "quality",
+     "quality_4k",
+     "destination"
+    ],
+    "title": "RecorderRule"
+   },
+   "RecorderRuleCreate": {
+    "properties": {
+     "keywords": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Keywords",
+      "description": "as the recorder's own screen allows: up to 5"
+     },
+     "excluded": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 2,
+      "title": "Excluded",
+      "description": "up to 2"
+     },
+     "logic": {
+      "type": "string",
+      "enum": [
+       "OR",
+       "AND"
+      ],
+      "title": "Logic",
+      "default": "OR"
+     },
+     "genre_code": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 255.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Genre Code",
+      "description": "ARIB content nibbles as level1 * 16 + level2"
+     },
+     "time_scope": {
+      "type": "string",
+      "maxLength": 16,
+      "title": "Time Scope",
+      "description": "ALL or NIGHT are known; others are passed through",
+      "default": "ALL"
+     },
+     "broadcasting_scope": {
+      "type": "string",
+      "maxLength": 16,
+      "title": "Broadcasting Scope",
+      "description": "ALL or TRD are known; others are passed through",
+      "default": "ALL"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "DR",
+         "XR",
+         "XSR",
+         "SR",
+         "LSR",
+         "LR",
+         "ER",
+         "EER"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     }
+    },
+    "type": "object",
+    "required": [
+     "keywords"
+    ],
+    "title": "RecorderRuleCreate",
+    "description": "A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The\nchannel narrowing the recorder's screen offers cannot be set over the LAN."
    },
    "RecorderSelect": {
     "properties": {

@@ -1,4 +1,73 @@
 {
+ "recorder_rules": {
+  "note": "X_GetPrefRecSettingList with Filter \"*\" (an empty Filter drops the quality and the destination). The channel narrowing the recorder's screen offers is never reported and is dropped when sent; there is no update, only create and delete.",
+  "list_result": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\" id=\"0x0000470f\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"AND\"><name>クイズ/サンプル/テスト</name><genreID type=\"2\">0x50</genreID><keyword>サンプル</keyword><keyword>テスト</keyword><excludeKeyword>ダミー</excludeKeyword><timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x0000570b\"><desiredQualityMode>220</desiredQualityMode><desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル語</name><keyword>サンプル語</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>",
+  "parsed": [
+   {
+    "id": "0x0000470f",
+    "name": "クイズ/サンプル/テスト",
+    "keywords": [
+     "サンプル",
+     "テスト"
+    ],
+    "excluded": [
+     "ダミー"
+    ],
+    "logic": "AND",
+    "genre_code": 80,
+    "time_scope": "NIGHT",
+    "broadcasting_scope": "TRD",
+    "quality_code": 220,
+    "quality_code_4k": null,
+    "destination": "HDD"
+   },
+   {
+    "id": "0x0000570b",
+    "name": "サンプル語",
+    "keywords": [
+     "サンプル語"
+    ],
+    "excluded": [],
+    "logic": "OR",
+    "genre_code": null,
+    "time_scope": "ALL",
+    "broadcasting_scope": "ALL",
+    "quality_code": 220,
+    "quality_code_4k": 100,
+    "destination": "HDD"
+   }
+  ],
+  "create_elements": [
+   {
+    "name": "keyword only, as accepted by a BDZ-FBT4100",
+    "input": {
+     "keywords": [
+      "サンプル"
+     ],
+     "quality_code": 220
+    },
+    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル</name><keyword>サンプル</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>"
+   },
+   {
+    "name": "every field: genre in hex before the keywords, exclusions after, text escaped",
+    "input": {
+     "keywords": [
+      "a & b",
+      "c"
+     ],
+     "excluded": [
+      "x"
+     ],
+     "logic": "AND",
+     "genre_code": 48,
+     "time_scope": "NIGHT",
+     "broadcasting_scope": "TRD",
+     "quality_code": 230
+    },
+    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>230</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"AND\"><name>a &amp; b</name><genreID type=\"2\">0x30</genreID><keyword>a &amp; b</keyword><keyword>c</keyword><excludeKeyword>x</excludeKeyword><timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object></xsrs>"
+   }
+  ]
+ },
  "soap": {
   "note": "POST to control_url; headers Content-Type: text/xml; charset=\"utf-8\", Accept-Language: ja, SOAPACTION: \"<service>#<action>\". Body exactly as below (no whitespace between elements).",
   "example": {

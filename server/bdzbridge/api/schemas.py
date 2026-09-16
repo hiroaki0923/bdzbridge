@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Broadcasting = Literal["td", "bs", "cs", "bs4k", "cs4k"]
 Quality = Literal["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
@@ -259,6 +259,46 @@ class RuleUpdate(BaseModel):
     enabled: bool | None = None
     quality: Quality | None = None
     title_only: bool | None = None
+
+
+RuleLogic = Literal["OR", "AND"]
+
+
+class RecorderRuleCreate(BaseModel):
+    """A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The
+    channel narrowing the recorder's screen offers cannot be set over the LAN."""
+    keywords: list[str] = Field(min_length=1, max_length=5, description="as the recorder's own screen allows: up to 5")
+    excluded: list[str] = Field(default_factory=list, max_length=2, description="up to 2")
+    logic: RuleLogic = "OR"
+    genre_code: int | None = Field(None, ge=0, le=0xFF, description="ARIB content nibbles as level1 * 16 + level2")
+    time_scope: str = Field("ALL", max_length=16, description="ALL or NIGHT are known; others are passed through")
+    broadcasting_scope: str = Field("ALL", max_length=16, description="ALL or TRD are known; others are passed through")
+    quality: Quality | None = None
+
+    @field_validator("keywords", "excluded")
+    @classmethod
+    def _words(cls, words: list[str]) -> list[str]:
+        cleaned = [w.strip() for w in words if w.strip()]
+        if any(len(w) > 50 for w in cleaned):
+            raise ValueError("a keyword is at most 50 characters")
+        return cleaned
+
+
+class RecorderRule(BaseModel):
+    id: str
+    name: str = Field(description="composed by the recorder from the genre and the keywords")
+    keywords: list[str]
+    excluded: list[str]
+    logic: str
+    logic_label: str
+    genres: list[Genre]
+    time_scope: str
+    time_scope_label: str
+    broadcasting_scope: str
+    broadcasting_scope_label: str
+    quality: str | None = Field(description="録画モード(地上/BS/CS)")
+    quality_4k: str | None = Field(description="録画モード(BS4K/CS4K), filled in by the recorder")
+    destination: str
 
 
 class Rule(BaseModel):

@@ -59,3 +59,4 @@ Every API call needs `Authorization: Bearer <BDZBRIDGE_API_TOKEN>`.
 - Creating a reservation with `event_id` makes the recorder follow schedule changes and replaces any title we send with its own EPG title. Time-only reservations never get an event id back-filled.
 - The recorder answers in network standby; `X_PowerControl` with `on` works, `PowerOn`/`On` do not.
 - Writes to the recorder (create/update/delete) are real. Tests never touch a device; manual checks should use a clearly named reservation and delete it afterwards.
+- The recorder's own keyword conditions (おまかせ・まる録, `X_*PrefRecSetting`) are created and deleted, never updated: the list omits the channel narrowing the recorder's screen can set, and writing a condition back erases it (verified). `Filter` must be `*` there or the quality is dropped. See `docs/xsrs-api.md`.

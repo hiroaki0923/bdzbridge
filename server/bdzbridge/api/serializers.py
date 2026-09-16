@@ -9,6 +9,7 @@ from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
 from ..recorder.series import series_key
 from ..recorder.xsrs import RecordedTitle as XTitle
+from ..recorder.xsrs import RecorderRule as XRecorderRule
 from ..recorder.xsrs import Reservation as XReservation
 from ..store import ProgramRow, Store
 from . import schemas as S
@@ -85,6 +86,17 @@ def rule_out(b, r: dict) -> S.Rule:
         name = ch[0]["name"] if ch else None
     return S.Rule(id=r["id"], query=r["query"], broadcasting=r["bt"], service_id=r["service_id"], service_name=name,
                   title_only=bool(r["title_only"]), quality=r["quality"], enabled=bool(r["enabled"]), created=r["created"])
+
+def recorder_rule_out(r: XRecorderRule) -> S.RecorderRule:
+    def quality(code: int | None) -> str | None:
+        return None if code is None else codes.QUALITY_BY_CODE.get(code, str(code))
+    return S.RecorderRule(id=r.id, name=r.name, keywords=r.keywords, excluded=r.excluded, logic=r.logic,
+                          logic_label=codes.RULE_LOGIC_LABEL.get(r.logic, r.logic), genres=_genres_from_code(r.genre_code),
+                          time_scope=r.time_scope, time_scope_label=codes.TIME_SCOPE_LABEL.get(r.time_scope, r.time_scope),
+                          broadcasting_scope=r.broadcasting_scope,
+                          broadcasting_scope_label=codes.BROADCASTING_SCOPE_LABEL.get(r.broadcasting_scope, r.broadcasting_scope),
+                          quality=quality(r.quality_code), quality_4k=quality(r.quality_code_4k), destination=r.destination)
+
 
 def log_out(r: dict) -> S.AutoLogEntry:
     return S.AutoLogEntry(id=r["id"], rule_id=r["rule_id"], rule_query=r["rule_query"], broadcasting=r["bt"],

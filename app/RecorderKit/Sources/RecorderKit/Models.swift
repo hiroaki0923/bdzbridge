@@ -93,3 +93,33 @@ public struct RecorderDescription: Equatable, Sendable {
     /// How it was found: `ssdp`, `scan` or `manual`.
     public var via: String
 }
+
+/// One of the recorder's own おまかせ・まる録 conditions: what the box records by itself, by keyword.
+///
+/// The channel narrowing the box can hold is neither reported nor accepted over the LAN, so it is not here. A
+/// condition read this way and written back would lose it, which is why the client creates and deletes and
+/// never updates (docs/xsrs-api.md).
+public struct RecorderRule: Equatable, Sendable, Identifiable {
+    public var id: String
+    /// Composed by the recorder from the genre and the keywords; whatever is sent is replaced.
+    public var name: String
+    public var keywords: [String]
+    public var excluded: [String]
+    /// `OR`: any keyword matches; `AND`: all of them.
+    public var logic: String
+    /// ARIB content nibbles as level1 * 16 + level2, as reservations carry it; hex on the wire here, decimal there.
+    public var genreCode: Int?
+    public var timeScope: String
+    public var broadcastingScope: String
+    /// 録画モード(地上/BS/CS); the recorder only sends it when asked with Filter "*".
+    public var qualityCode: Int?
+    /// 録画モード(BS4K/CS4K); the recorder fills it in itself and omits it for a one-wave scope.
+    public var qualityCode4K: Int?
+    public var destination: String
+
+    public var qualityName: String? { qualityCode.flatMap(Codes.quality(code:)) }
+    public var logicLabel: String { Codes.ruleLogicLabel[logic] ?? logic }
+    public var timeScopeLabel: String { Codes.timeScopeLabel[timeScope] ?? timeScope }
+    public var broadcastingScopeLabel: String { Codes.broadcastingScopeLabel[broadcastingScope] ?? broadcastingScope }
+    public var genreLabel: String? { genreCode.flatMap { Codes.genreLabel[$0 >> 4] } }
+}

@@ -116,6 +116,10 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
 - サムネイルは全タイトル共通のダミー画像なので出さない。番組内容は `X_GetTitleDetail`（summary と detail 群）。
 - DLNA ツリーにはシリーズ ID がない。「まとめ」はタイトル文字列から `series.py` の規則で作る。公式クライアントも
   同じくクライアント側でタイトル文字列から鍵を作っている。
+- レコーダー本体の「おまかせ・まる録」（キーワード自動録画）は `X_GetPrefRecSettingList` で読め、
+  `X_CreatePrefRecSetting` / `X_DeletePrefRecSetting` で作成・削除できる。**変更は実装しない**: 一覧には本体で設定した
+  対象チャンネルが含まれず、書き戻すとそれが消える（実測）。`Filter` は `*` を渡すこと。形と語彙は `xsrs-api.md`、
+  ベクタは `port/xsrs.json` の `recorder_rules`。
 
 **番組表**
 - 時刻は 1970-01-01 00:00 **JST** 起点の秒（unix 時刻 + 32400）。

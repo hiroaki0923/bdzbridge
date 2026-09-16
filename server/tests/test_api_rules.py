@@ -121,3 +121,33 @@ def test_rules_match_description_when_not_title_only(client):
     wide = c.post("/api/v1/rules", headers=H, json={"query": "朝のニュース", "title_only": False}).json()
     assert c.get(f"/api/v1/rules/{only['id']}/matches", headers=H).json() == []
     assert [m["event_id"] for m in c.get(f"/api/v1/rules/{wide['id']}/matches", headers=H).json()] == [14792]
+
+
+def test_recorder_rules_are_made_on_the_recorder_and_deleted_there(client):
+    r = client.post("/api/v1/recorder-rules", headers=H,
+                    json={"keywords": [" サンプル ", "テスト"], "excluded": ["ダミー"], "logic": "AND",
+                          "genre_code": 0x50, "time_scope": "NIGHT", "broadcasting_scope": "TRD", "quality": "XSR"})
+    assert r.status_code == 201, r.text
+    made = r.json()
+    assert made["keywords"] == ["サンプル", "テスト"] and made["excluded"] == ["ダミー"]
+    assert made["logic"] == "AND" and made["logic_label"] == "すべてのキーワードを含む"
+    assert made["genres"][0]["level1"] == 5 and made["genres"][0]["label"] == "バラエティ"
+    assert made["time_scope_label"] == "夜" and made["broadcasting_scope_label"] == "地上放送"
+    assert made["quality"] == "XSR" and made["quality_4k"] is None and made["destination"] == "HDD"
+    assert made["name"] == "サンプル/テスト"  # the fake composes one the way the recorder does
+    listed = client.get("/api/v1/recorder-rules", headers=H).json()
+    assert [x["id"] for x in listed] == [made["id"]]
+    assert client.delete(f"/api/v1/recorder-rules/{made['id']}", headers=H).status_code == 204
+    assert client.get("/api/v1/recorder-rules", headers=H).json() == []
+
+
+def test_recorder_rule_defaults_and_limits(client):
+    r = client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["サンプル"]})
+    assert r.status_code == 201, r.text
+    made = r.json()
+    assert made["logic"] == "OR" and made["time_scope"] == "ALL" and made["broadcasting_scope"] == "ALL"
+    assert made["quality"] == "LSR" and made["genres"] == []   # the server's default quality
+    assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": []}).status_code == 422
+    assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"] * 6}).status_code == 422
+    assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "excluded": ["x", "y", "z"]}).status_code == 422
+    assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "logic": "XOR"}).status_code == 422

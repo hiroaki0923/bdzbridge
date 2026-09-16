@@ -5,11 +5,13 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from ...recorder import codes
+from ...recorder.xsrs import XsrsError, build_recorder_rule_elements
 from ...services.autorec import run_rules
 from ...services.monitor import run_checks
 from .. import schemas as S
 from ..deps import auth, bridge_of
-from ..serializers import log_out, program_out, rule_out
+from ..serializers import log_out, program_out, recorder_rule_out, rule_out
 
 router = APIRouter(prefix="/api/v1", tags=["rules"], dependencies=[Depends(auth)])
 
@@ -64,6 +66,55 @@ async def rule_delete(request: Request, rule_id: int):
     """Delete a rule and its log."""
     if not bridge_of(request).store.delete_rule(rule_id):
         raise HTTPException(404, "rule not found")
+
+# --- the recorder's own keyword conditions (おまかせ・まる録) ---
+# Create and delete only. A condition the recorder lists is missing the channel narrowing its own screen can
+# set, so writing one back would destroy that; and since the recorder renumbers a condition on every change,
+# an update would keep nothing that a delete and a create do not.
+
+@router.get("/recorder-rules", response_model=list[S.RecorderRule])
+async def recorder_rules(request: Request):
+    """The keyword conditions held by the recorder itself (おまかせ・まる録). These record without this server. The channel narrowing set on the recorder's screen is not reported."""
+    b = bridge_of(request)
+    rec = b.require_recorder()
+    try:
+        async with rec.lock:
+            rules = await rec.xsrs.list_recorder_rules()
+    except XsrsError as e:
+        raise HTTPException(502, e.explanation)
+    return [recorder_rule_out(r) for r in rules]
+
+@router.post("/recorder-rules", response_model=S.RecorderRule, status_code=201)
+async def recorder_rule_create(request: Request, req: S.RecorderRuleCreate):
+    """Register a condition on the recorder itself. The recorder composes the name; the channel cannot be set this way."""
+    b = bridge_of(request)
+    rec = b.require_recorder()
+    el = build_recorder_rule_elements(keywords=req.keywords, excluded=req.excluded, logic=req.logic,
+                                      genre_code=req.genre_code, time_scope=req.time_scope,
+                                      broadcasting_scope=req.broadcasting_scope,
+                                      quality_code=codes.QUALITY[req.quality or b.settings.default_quality])
+    try:
+        async with rec.lock:
+            new_id = await rec.xsrs.create_recorder_rule(el)
+            rules = await rec.xsrs.list_recorder_rules()
+    except XsrsError as e:
+        raise HTTPException(502, e.explanation)
+    made = next((r for r in rules if r.id == new_id), None)
+    if made is None:
+        raise HTTPException(502, f"recorder returned id {new_id} but it is not in the list")
+    return recorder_rule_out(made)
+
+@router.delete("/recorder-rules/{rule_id}", status_code=204)
+async def recorder_rule_delete(request: Request, rule_id: str):
+    """Remove a condition from the recorder, whoever made it. Ids change whenever the recorder's screen edits a condition, so read the list first."""
+    b = bridge_of(request)
+    rec = b.require_recorder()
+    try:
+        async with rec.lock:
+            await rec.xsrs.delete_recorder_rule(rule_id)
+    except XsrsError as e:
+        raise HTTPException(502, e.explanation)
+
 
 @router.post("/monitor/run", response_model=S.MonitorResult)
 async def monitor_run(request: Request):

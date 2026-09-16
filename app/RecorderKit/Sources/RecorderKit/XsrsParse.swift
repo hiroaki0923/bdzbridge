@@ -8,6 +8,32 @@ public enum XsrsParse {
         return try XmlNode.parse(result).descendants("item")
     }
 
+    /// The `<object>` elements of a `Result` payload, which is how the recorder lists its own conditions.
+    public static func objects(inResult result: String) throws -> [XmlNode] {
+        guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return try XmlNode.parse(result).descendants("object")
+    }
+
+    public static func recorderRule(_ object: XmlNode) -> RecorderRule {
+        let setting = object.child("searchSetting")
+        let genre = setting?.childText("genreID") ?? ""
+        let quality = object.childText("desiredQualityMode")
+        let quality4K = object.childText("desiredQualityModeForAdvanced")
+        return RecorderRule(
+            id: object.attributes["id"] ?? "",
+            name: setting?.childText("name") ?? "",
+            keywords: setting?.descendants("keyword").map(\.strippedText) ?? [],
+            excluded: setting?.descendants("excludeKeyword").map(\.strippedText) ?? [],
+            logic: setting?.attributes["logic"] ?? "OR",
+            genreCode: genre.lowercased().hasPrefix("0x") ? hexInt(genre) : Int(genre),
+            timeScope: setting?.childText("timeScope", default: "ALL") ?? "ALL",
+            broadcastingScope: setting?.childText("broadcastTypeScope", default: "ALL") ?? "ALL",
+            qualityCode: quality.isEmpty ? nil : Int(quality),
+            qualityCode4K: quality4K.isEmpty ? nil : Int(quality4K),
+            destination: object.childText("recordDestinationID", default: "HDD")
+        )
+    }
+
     public static func reservation(_ item: XmlNode) -> Reservation? {
         guard let start = RecorderTime.parse(item.childText("scheduledStartDateTime")) else { return nil }
         let channel = item.child("scheduledChannelID")

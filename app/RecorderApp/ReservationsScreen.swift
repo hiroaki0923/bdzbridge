@@ -79,6 +79,15 @@ struct ReservationsScreen: View {
                     }
                     .disabled(!model.connected || model.busy != nil)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        RecorderRulesScreen()
+                    } label: {
+                        Image(systemName: "wand.and.stars")
+                    }
+                    .accessibilityLabel("おまかせ・まる録")
+                    .disabled(!model.connected)
+                }
             }
             .refreshable { await model.loadReservations() }
             .task(id: model.connected) { await model.loadReservations() }

@@ -242,6 +242,32 @@ Delete a rule and its log.
 レスポンス:
 - 204: 本文なし
 
+### GET /recorder-rules
+
+The keyword conditions held by the recorder itself (おまかせ・まる録). These record without this server. The channel narrowing set on the recorder's screen is not reported.
+
+レスポンス:
+- 200: `list[RecorderRule]`
+
+### POST /recorder-rules
+
+Register a condition on the recorder itself. The recorder composes the name; the channel cannot be set this way.
+
+リクエスト本文: `RecorderRuleCreate`
+
+レスポンス:
+- 201: `RecorderRule`
+
+### DELETE /recorder-rules/{rule_id}
+
+Remove a condition from the recorder, whoever made it. Ids change whenever the recorder's screen edits a condition, so read the list first.
+
+パラメータ:
+- `rule_id` (path): string
+
+レスポンス:
+- 204: 本文なし
+
 ### POST /monitor/run
 
 Check free space and conflicting reservations now (normally runs after every EPG refresh).
@@ -604,6 +630,36 @@ Stop after the item being processed; what is done stays done.
 - `enabled`: boolean | null （省略可）
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 - `title_only`: boolean | null （省略可）
+
+### RecorderRule
+
+- `id`: string
+- `name`: string — composed by the recorder from the genre and the keywords
+- `keywords`: list[string]
+- `excluded`: list[string]
+- `logic`: string
+- `logic_label`: string
+- `genres`: list[Genre]
+- `time_scope`: string
+- `time_scope_label`: string
+- `broadcasting_scope`: string
+- `broadcasting_scope_label`: string
+- `quality`: string | null — 録画モード(地上/BS/CS)
+- `quality_4k`: string | null — 録画モード(BS4K/CS4K), filled in by the recorder
+- `destination`: string
+
+### RecorderRuleCreate
+
+A condition for the recorder's own おまかせ・まる録, which then records by it without this server. The
+channel narrowing the recorder's screen offers cannot be set over the LAN.
+
+- `keywords`: list[string] — as the recorder's own screen allows: up to 5
+- `excluded`: list[string] （省略可） — up to 2
+- `logic`: "OR" | "AND" （省略可、既定 `"OR"`）
+- `genre_code`: integer | null （省略可） — ARIB content nibbles as level1 * 16 + level2
+- `time_scope`: string （省略可、既定 `"ALL"`） — ALL or NIGHT are known; others are passed through
+- `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL or TRD are known; others are passed through
+- `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 
 ### MonitorResult
 

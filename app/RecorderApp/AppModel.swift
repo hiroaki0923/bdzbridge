@@ -258,6 +258,36 @@ final class AppModel {
         }
     }
 
+    // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
+
+    private(set) var recorderRules: [RecorderRule] = []
+
+    func loadRecorderRules() async {
+        await start()
+        guard let client else { return }
+        await run("おまかせの条件を取得中") { self.recorderRules = try await client.recorderRules() }
+    }
+
+    /// Registers a condition on the recorder itself, which then records by it with nothing else running.
+    func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
+        await start()
+        guard let client else { return false }
+        let made = await run("本体に登録中") { _ = try await client.createRecorderRule(request) }
+        if made { await loadRecorderRules() }
+        return made
+    }
+
+    /// Delete only, never edit: a condition read over the LAN lacks the channel narrowing the recorder's own
+    /// screen can set, and writing it back would erase that. The list is read again afterwards either way,
+    /// because the recorder renumbers a condition whenever its screen edits one.
+    func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
+        await start()
+        guard let client else { return false }
+        let removed = await run("本体から削除中") { try await client.deleteRecorderRule(id: rule.id) }
+        await loadRecorderRules()
+        return removed
+    }
+
     // MARK: - bulk work
 
     /// Deleting or protecting many recordings, one request at a time because that is all the recorder will

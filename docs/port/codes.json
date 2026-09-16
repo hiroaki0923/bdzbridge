@@ -53,6 +53,18 @@
   "3x": "3倍",
   "AVC": "AVC"
  },
+ "rule_logic_label": {
+  "OR": "いずれかのキーワードを含む",
+  "AND": "すべてのキーワードを含む"
+ },
+ "time_scope_label": {
+  "ALL": "すべての時間帯",
+  "NIGHT": "夜"
+ },
+ "broadcasting_scope_label": {
+  "ALL": "すべての放送",
+  "TRD": "地上放送"
+ },
  "repeat": {
   "none": "1",
   "title": "S001",

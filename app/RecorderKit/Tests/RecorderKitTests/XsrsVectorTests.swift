@@ -106,6 +106,42 @@ final class XsrsVectorTests: XCTestCase {
         }
     }
 
+    func testRecorderRuleParsingMatchesTheVector() throws {
+        let vector = try Vectors.load("xsrs.json").dictionary("recorder_rules")
+        let rules = try XsrsParse.objects(inResult: vector.string("list_result")).map(XsrsParse.recorderRule)
+        let expected = vector.dictionaries("parsed")
+        XCTAssertEqual(rules.count, expected.count)
+        for (rule, row) in zip(rules, expected) {
+            XCTAssertEqual(rule.id, row.string("id"))
+            XCTAssertEqual(rule.name, row.string("name"))
+            XCTAssertEqual(rule.keywords, row["keywords"] as? [String])
+            XCTAssertEqual(rule.excluded, row["excluded"] as? [String])
+            XCTAssertEqual(rule.logic, row.string("logic"))
+            XCTAssertEqual(rule.genreCode, row.int("genre_code"))
+            XCTAssertEqual(rule.timeScope, row.string("time_scope"))
+            XCTAssertEqual(rule.broadcastingScope, row.string("broadcasting_scope"))
+            XCTAssertEqual(rule.qualityCode, row.int("quality_code"))
+            XCTAssertEqual(rule.qualityCode4K, row.int("quality_code_4k"))
+            XCTAssertEqual(rule.destination, row.string("destination"))
+        }
+    }
+
+    func testRecorderRuleElementsMatchTheVectors() throws {
+        let cases = try Vectors.load("xsrs.json").dictionary("recorder_rules").dictionaries("create_elements")
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = testCase.dictionary("input")
+            let request = RecorderRuleRequest(keywords: input["keywords"] as? [String] ?? [],
+                                              excluded: input["excluded"] as? [String] ?? [],
+                                              logic: input["logic"] as? String ?? "OR",
+                                              genreCode: input.int("genre_code"),
+                                              timeScope: input["time_scope"] as? String ?? "ALL",
+                                              broadcastingScope: input["broadcasting_scope"] as? String ?? "ALL",
+                                              qualityCode: try XCTUnwrap(input.int("quality_code")))
+            XCTAssertEqual(XsrsElements.recorderRule(request), testCase.string("elements"), testCase.string("name"))
+        }
+    }
+
     func testDlnaIDIsTheLowThirtyTwoBitsOfTheTitleID() throws {
         let item = try XmlNode.parse(
             "<item id=\"0x0000010000034d78\"><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"

@@ -13,7 +13,14 @@ from bdzbridge.config import Settings
 from bdzbridge.recorder import wol
 from bdzbridge.recorder.epg import JST, Program, Service
 from bdzbridge.recorder.logo import Logo, with_palette
-from bdzbridge.recorder.xsrs import RecordedTitle, Reservation, XsrsError, parse_reservation
+from bdzbridge.recorder.xsrs import (
+    RecordedTitle,
+    RecorderRule,
+    Reservation,
+    XsrsError,
+    parse_recorder_rule,
+    parse_reservation,
+)
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.test_logo import make_png
@@ -50,6 +57,7 @@ class FakeXsrs:
         self.reservations: list[Reservation] = []
         self.conflict_with: list[Reservation] = []
         self.created: list[str] = []
+        self.recorder_rules: list[RecorderRule] = []
 
     async def list_reservations(self, count=200):
         return list(self.reservations)
@@ -75,6 +83,22 @@ class FakeXsrs:
 
     async def delete_reservation(self, rid):
         self.reservations = [r for r in self.reservations if r.id != rid]
+
+    # the recorder's own keyword conditions: it assigns the id and composes the name itself
+    async def list_recorder_rules(self):
+        return list(self.recorder_rules)
+
+    async def create_recorder_rule(self, elements):
+        obj = ET.fromstring(elements).find("{urn:schemas-xsrs-org:metadata-1-0/x_srs/}object")
+        obj.set("id", f"0x{0x1702 + 0x1000 * len(self.recorder_rules):08x}")
+        rule = parse_recorder_rule(obj)
+        rule.name = "/".join(rule.keywords)
+        self.recorder_rules.append(rule)
+        self.created.append(elements)
+        return rule.id
+
+    async def delete_recorder_rule(self, rid):
+        self.recorder_rules = [r for r in self.recorder_rules if r.id != rid]
 
     def _titles(self):
         deleted = getattr(self, "deleted", set())

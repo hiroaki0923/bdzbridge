@@ -203,6 +203,28 @@ public actor RecorderClient {
 
     /// Playback on the television attached to the recorder. `pause` toggles, so it resumes as well; `play`
     /// with a position restarts from the beginning. The recorder has to be fully on.
+    // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
+
+    /// Filter must be "*": unlike the title and reservation lists this one honours it, and an empty one drops
+    /// the quality and the destination without a word.
+    public func recorderRules() async throws -> [RecorderRule] {
+        let result = try await pvr("X_GetPrefRecSettingList",
+                                   [("SearchCriteria", ""), ("Filter", "*"), ("StartingIndex", "0"),
+                                    ("RequestedCount", "200"), ("SortCriteria", ""), ("Format", "")])
+        return try XsrsParse.objects(inResult: result).map(XsrsParse.recorderRule)
+    }
+
+    /// Answers with the new condition's id. The recorder renumbers a condition whenever its own screen edits it.
+    public func createRecorderRule(_ request: RecorderRuleRequest) async throws -> String {
+        let root = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_CreatePrefRecSetting",
+                                  [("Elements", XsrsElements.recorderRule(request)), ("Format", "")])
+        return root.firstDescendantText("SearchSettingID") ?? ""
+    }
+
+    public func deleteRecorderRule(id: String) async throws {
+        _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_DeletePrefRecSetting", [("SearchSettingID", id)])
+    }
+
     public func playControl(titleID: String, operation: String, position: Int = 0) async throws {
         _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_PlayControlTitle",
                            [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])

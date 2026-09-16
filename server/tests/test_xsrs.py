@@ -4,7 +4,13 @@ from datetime import datetime
 from pathlib import Path
 
 from bdzbridge.recorder.epg import JST
-from bdzbridge.recorder.xsrs import build_create_elements, build_update_elements, parse_reservation
+from bdzbridge.recorder.xsrs import (
+    build_create_elements,
+    build_recorder_rule_elements,
+    build_update_elements,
+    parse_recorder_rule,
+    parse_reservation,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -72,3 +78,36 @@ def test_parse_title_never_played():
                          '<scheduledDuration>60</scheduledDuration><lastPlaybackTime resumePoint="0">notplayed</lastPlaybackTime></item>')
     t = parse_title(item)
     assert t.last_played is None and t.resume_sec == 0
+
+
+# what a BDZ-FBT4100 answered for one condition set up on its own screen, and what it accepted from the LAN
+RULE_XML = ('<object type="SEARCH" id="0x0000470f"><desiredQualityMode>220</desiredQualityMode>'
+            '<recordDestinationID>HDD</recordDestinationID><searchSetting type="MULTIPLE" logic="AND">'
+            '<name>クイズ/サンプル/テスト</name><genreID type="2">0x50</genreID><keyword>サンプル</keyword>'
+            '<keyword>テスト</keyword><excludeKeyword>ダミー</excludeKeyword><timeScope>NIGHT</timeScope>'
+            '<broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object>')
+
+
+def test_parse_recorder_rule_reads_the_hex_genre_and_both_keyword_lists():
+    r = parse_recorder_rule(ET.fromstring(RULE_XML))
+    assert r.id == "0x0000470f" and r.name == "クイズ/サンプル/テスト"
+    assert r.keywords == ["サンプル", "テスト"] and r.excluded == ["ダミー"] and r.logic == "AND"
+    assert r.genre_code == 0x50 and r.time_scope == "NIGHT" and r.broadcasting_scope == "TRD"
+    assert r.quality_code == 220 and r.quality_code_4k is None and r.destination == "HDD"
+
+
+def test_recorder_rule_elements_follow_the_recorders_own_order():
+    # the shape that went through X_CreatePrefRecSetting on the real recorder: keyword only, scopes wide open
+    assert build_recorder_rule_elements(keywords=["サンプル"], quality_code=220) == (
+        '<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><object type="SEARCH">'
+        '<desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID>'
+        '<searchSetting type="MULTIPLE" logic="OR"><name>サンプル</name><keyword>サンプル</keyword>'
+        '<timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>')
+    # everything at once: the genre in hex before the keywords, exclusions after, text escaped
+    assert build_recorder_rule_elements(keywords=["a & b", "c"], excluded=["x"], logic="AND", genre_code=0x30,
+                                        time_scope="NIGHT", broadcasting_scope="TRD", quality_code=230) == (
+        '<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><object type="SEARCH">'
+        '<desiredQualityMode>230</desiredQualityMode><recordDestinationID>HDD</recordDestinationID>'
+        '<searchSetting type="MULTIPLE" logic="AND"><name>a &amp; b</name><genreID type="2">0x30</genreID>'
+        '<keyword>a &amp; b</keyword><keyword>c</keyword><excludeKeyword>x</excludeKeyword>'
+        '<timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object></xsrs>')
