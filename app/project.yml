@@ -29,7 +29,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
         MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO

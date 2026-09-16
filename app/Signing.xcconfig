@@ -9,4 +9,10 @@
 // Choosing the team in Xcode's Signing & Capabilities tab instead writes it into the project file,
 // which the next `xcodegen generate` throws away; this survives that.
 // With no such file the build is unsigned, which is all a simulator needs.
+
+// The build number. One is enough for a build that only ever lands on a phone here; Xcode Cloud replaces it
+// with its own, which counts up, by writing the file included below. A later definition wins in an xcconfig,
+// which is why the include comes last.
+CURRENT_PROJECT_VERSION = 1
+
 #include? "Signing.local.xcconfig"

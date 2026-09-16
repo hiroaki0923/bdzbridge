@@ -86,7 +86,10 @@ from `project.yml` after the clone, so that a cloud build matches the definition
 committed, and writes the `Signing.local.xcconfig` that is gitignored here. The directory has to be at the
 root: a copy beside the Xcode project is reported as "Post-Clone script not found". The workflow has to set `DEVELOPMENT_TEAM` to the
 team identifier; Xcode Cloud manages the certificates and profiles itself, so nothing else is needed and no
-key is kept on any machine. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store Connect,
+key is kept on any machine. The build number comes from `CI_BUILD_NUMBER`, which Xcode Cloud counts up, so
+nothing has to be edited between builds -- `Signing.xcconfig` holds 1 for a build made here, and the file the
+script writes wins because an xcconfig takes its last definition. If a cloud number ever collides with one
+already uploaded from a Mac, raise the next build number in the workflow rather than editing `project.yml`. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store Connect,
 point it at `app/BDBridge.xcodeproj`, and give it an archive action that distributes to internal testers.
 
 
