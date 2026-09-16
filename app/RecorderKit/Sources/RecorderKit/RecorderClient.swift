@@ -20,6 +20,11 @@ public actor RecorderClient {
     /// whole wait before the caller can conclude it has gone.
     public static let probeTimeout: TimeInterval = 5
 
+    /// While waiting for a recorder to come back from a magic packet. It answers in milliseconds once it is
+    /// up, so a long timeout only makes the app notice late: with this, each look costs at most two seconds
+    /// and the waking is seen almost as soon as it happens.
+    public static let wakeProbeTimeout: TimeInterval = 2
+
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
                 upnpPort: Int = Upnp.port, streamPort: Int? = nil) {
         self.host = host

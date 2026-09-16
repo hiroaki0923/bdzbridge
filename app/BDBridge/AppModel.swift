@@ -145,6 +145,11 @@ final class AppModel {
         // The first ask is a short one. A recorder that has left the network does not refuse the
         // connection, it says nothing, so a patient timeout means half a minute of silence before anything
         // can be done about it — and that silence looked like the waking never happened.
+        // The packet is a hundred bytes and the probe takes five seconds to fail, so send it now rather
+        // than after: a recorder that is asleep is already on its way up while the first probe runs, and one
+        // that is awake ignores it. Waiting for the failure first is what made this look like a fault
+        // followed by a retry.
+        sendMagicPacket()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached { reached = await wakeAndAttach(client) }
         if reached { await refreshGuideIfStale() }
@@ -184,19 +189,26 @@ final class AppModel {
 
     /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
     /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
+    /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
+    private func sendMagicPacket() {
+        guard let mac else { return }
+        _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
+    }
+
     @discardableResult
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
-        guard let client = client ?? self.client, unreachable, let mac,
-              WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0
-        else { return false }
+        guard let client = client ?? self.client, unreachable, mac != nil else { return false }
+        sendMagicPacket()   // again: connect() sends one too, and a second costs nothing
         // Nothing is wrong yet, so nothing should be on screen saying there is. The probe that got us here
         // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
-        for _ in 0..<8 {
-            try? await Task.sleep(for: .seconds(2))
+        // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet. Looking every second with a
+        // two-second timeout catches that within a second or so of it happening, over about half a minute.
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .seconds(1))
             if await attach(client, what: "レコーダーを起動しています",
-                            timeout: RecorderClient.probeTimeout, quiet: true) { return true }
+                            timeout: RecorderClient.wakeProbeTimeout, quiet: true) { return true }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
