@@ -19,6 +19,8 @@ struct ProgramSheet: View {
         case reserve
         case cancel(Reservation)
         case failed(String)
+        /// The recorder was not there, so the reservation is waiting instead of made.
+        case queued
 
         var isFailure: Bool {
             if case .failed = self { return true }
@@ -97,8 +99,15 @@ struct ProgramSheet: View {
                 case .reserve:
                     Button("予約する") {
                         Task {
-                            done = await model.reserve(program, quality: quality, repeating: repeating)
-                            if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
+                            let ok = await model.reserve(program, quality: quality, repeating: repeating)
+                            if !ok {
+                                ask = .failed(model.problem ?? "レコーダーがエラーを返しました")
+                            } else if model.queued != nil {
+                                model.queued = nil
+                                ask = .queued          // kept, not made: say so before the sheet closes
+                            } else {
+                                done = true
+                            }
                         }
                     }
                 case .cancel(let reservation):
@@ -108,10 +117,14 @@ struct ProgramSheet: View {
                             if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
                         }
                     }
-                case .failed:
+                case .failed, .queued:
                     EmptyView()
                 }
-                Button(asked.isFailure ? "OK" : "キャンセル", role: .cancel) {}
+                if case .queued = asked {
+                    Button("OK", role: .cancel) { done = true }
+                } else {
+                    Button(asked.isFailure ? "OK" : "キャンセル", role: .cancel) {}
+                }
             } message: { asked in
                 switch asked {
                 case .reserve:
@@ -123,6 +136,10 @@ struct ProgramSheet: View {
                          + "レコーダーから削除されます。")
                 case .failed(let reason):
                     Text(reason)
+                case .queued:
+                    Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
+                         + "レコーダーに届かなかったので、予約を端末に保存しました。"
+                         + "次にレコーダーにつながったときに登録します。予約タブで取り消せます。")
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
@@ -133,6 +150,7 @@ struct ProgramSheet: View {
         switch ask {
         case .cancel: "この予約を取り消しますか？"
         case .failed: "エラー"
+        case .queued: "送信待ちにしました"
         case .reserve, nil: "この番組を録画予約しますか？"
         }
     }

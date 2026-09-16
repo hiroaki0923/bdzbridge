@@ -47,6 +47,8 @@ final class AppModel {
     /// Set when the recorder answered nothing at all rather than answering with an error.
     private(set) var unreachable = false
     private(set) var problem: String?
+    /// Set when a reservation went to the queue instead of the recorder, so a screen can say so once.
+    var queued: PendingReservation?
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     private(set) var mac: String?
@@ -167,6 +169,7 @@ final class AppModel {
             storage = (capacity.freeBytes, capacity.totalBytes)
             unreachable = false
             problem = nil
+            await flushPending()
             return true
         } catch {
             let recorderError = error as? RecorderError
@@ -267,6 +270,9 @@ final class AppModel {
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
     private(set) var recorderRules: [RecorderRule] = []
+
+    /// Reservations made while the recorder could not be reached, waiting for it to answer.
+    private(set) var pending: [PendingReservation] = []
 
     func loadRecorderRules() async {
         await start()
@@ -703,16 +709,92 @@ final class AppModel {
     }
 
     /// Writes to the recorder: after this the box really will record the programme.
+    ///
+    /// Away from home the recorder is not there to write to, and the programme is still worth keeping: a
+    /// reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
+    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
-        guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
+        guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
+        guard let client else {
+            await queue(request, serviceName: program.serviceName)
+            return true
+        }
+        busy = "予約を登録中"
+        defer { busy = nil }
+        do {
+            _ = try await client.createReservation(request)
+            problem = nil
+            await loadReservations()
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            await queue(request, serviceName: program.serviceName)
+            return true
+        } catch let error as RecorderError {
+            problem = error.explanation
+            return false
+        } catch {
+            problem = String(describing: error)
             return false
         }
-        let created = await run("予約を登録中") {
-            _ = try await client.createReservation(request)
+    }
+
+    // MARK: - reservations waiting for the recorder
+
+    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing.
+    private func queue(_ request: ReservationRequest, serviceName: String) async {
+        guard let store else { return }
+        let waiting = PendingReservation(request: request, serviceName: serviceName)
+        do {
+            try await store.queue(waiting)
+            pending = try await store.pendingReservations()
+            problem = nil
+            queued = waiting
+        } catch {
+            problem = String(describing: error)
         }
-        if created { await loadReservations() }
-        return created
+    }
+
+    func loadPending() async {
+        guard let store else { return }
+        pending = (try? await store.pendingReservations()) ?? []
+    }
+
+    func removePending(_ waiting: PendingReservation) async {
+        guard let store else { return }
+        try? await store.removePending(waiting.id)
+        await loadPending()
+    }
+
+    /// Sends what has been waiting. Called whenever the recorder has just answered, so it runs on a launch at
+    /// home and after the overnight refresh; a programme that has already started is dropped rather than sent,
+    /// since the recorder cannot record the past.
+    @discardableResult
+    func flushPending() async -> Int {
+        guard let client, let store else { return 0 }
+        await loadPending()
+        guard !pending.isEmpty else { return 0 }
+        var sent = 0
+        for waiting in pending {
+            if waiting.request.start < Date() {
+                try? await store.removePending(waiting.id)
+                continue
+            }
+            do {
+                _ = try await client.createReservation(waiting.request)
+                try? await store.removePending(waiting.id)
+                sent += 1
+            } catch let error as RecorderError where error.unreachable {
+                break                                   // it went away again; the rest keep waiting
+            } catch let error as RecorderError {
+                try? await store.setPendingProblem(waiting.id, error.explanation)
+            } catch {
+                try? await store.setPendingProblem(waiting.id, String(describing: error))
+            }
+        }
+        await loadPending()
+        if sent > 0 { await loadReservations() }
+        return sent
     }
 
     /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason

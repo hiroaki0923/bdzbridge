@@ -73,6 +73,10 @@ public actor GuideStore {
       bt TEXT NOT NULL, service_id INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0, position INTEGER,
       PRIMARY KEY (bt, service_id));
     CREATE TABLE IF NOT EXISTS title_summaries (id TEXT PRIMARY KEY, summary TEXT NOT NULL, at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS pending_reservations (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, start INTEGER NOT NULL, duration_sec INTEGER NOT NULL,
+      repeat_code TEXT NOT NULL, bt INTEGER NOT NULL, service_id INTEGER NOT NULL, service_name TEXT NOT NULL,
+      quality_code INTEGER NOT NULL, event_id INTEGER, queued_at INTEGER NOT NULL, problem TEXT);
     CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
     CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
     """
@@ -289,6 +293,64 @@ public actor GuideStore {
 
     /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.
     /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale.
+    // MARK: - reservations waiting for the recorder
+
+    /// Adds one, or replaces the same programme queued before. Kept out of the tables the schema version
+    /// throws away: this is the reader's, not a copy of the recorder's.
+    public func queue(_ pending: PendingReservation) throws {
+        try db.run("""
+        INSERT OR REPLACE INTO pending_reservations
+          (id, title, start, duration_sec, repeat_code, bt, service_id, service_name, quality_code, event_id,
+           queued_at, problem)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, values(for: pending))
+    }
+
+    /// Built a piece at a time: as one literal of twelve mixed values the type checker gives up.
+    private func values(for pending: PendingReservation) -> [SqlValue] {
+        let r = pending.request
+        var out: [SqlValue] = [.text(pending.id), .text(r.title)]
+        out.append(.integer(Int(r.start.timeIntervalSince1970)))
+        out.append(.integer(r.durationSec))
+        out.append(.text(r.repeatCode))
+        out.append(.integer(r.broadcastingType))
+        out.append(.integer(r.serviceID))
+        out.append(.text(pending.serviceName))
+        out.append(.integer(r.qualityCode))
+        out.append(SqlValue(r.eventID))
+        out.append(.integer(Int(pending.queuedAt.timeIntervalSince1970)))
+        out.append(SqlValue(pending.problem))
+        return out
+    }
+
+    public func pendingReservations() throws -> [PendingReservation] {
+        try db.query("SELECT * FROM pending_reservations ORDER BY start") { row in
+            let start = Date(timeIntervalSince1970: TimeInterval(row.int("start")))
+            let queued = Date(timeIntervalSince1970: TimeInterval(row.int("queued_at")))
+            let request = ReservationRequest(title: row.string("title"),
+                                             start: start,
+                                             durationSec: row.int("duration_sec"),
+                                             repeatCode: row.string("repeat_code"),
+                                             broadcastingType: row.int("bt"),
+                                             serviceID: row.int("service_id"),
+                                             qualityCode: row.int("quality_code"),
+                                             eventID: row.optionalInt("event_id"))
+            let problem = row.string("problem")
+            return PendingReservation(request: request, serviceName: row.string("service_name"),
+                                      queuedAt: queued, problem: problem.isEmpty ? nil : problem)
+        }
+    }
+
+    public func removePending(_ id: String) throws {
+        try db.run("DELETE FROM pending_reservations WHERE id = ?", [.text(id)])
+    }
+
+    /// Records why the recorder refused, so the row can say so instead of silently waiting for ever.
+    public func setPendingProblem(_ id: String, _ problem: String?) throws {
+        try db.run("UPDATE pending_reservations SET problem = ? WHERE id = ?",
+                   [SqlValue(problem), .text(id)])
+    }
+
     public func titleSummary(_ id: String) throws -> String? {
         try db.query("SELECT summary FROM title_summaries WHERE id=?", [.text(id)]) { $0.string("summary") }
             .first

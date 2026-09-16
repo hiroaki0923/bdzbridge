@@ -40,7 +40,7 @@ struct ReservationsScreen: View {
                     // down still reloads: a reservation just made on the box is exactly what an empty
                     // screen is waiting for, and a plain placeholder has nothing to pull.
                     list.overlay {
-                        if model.shownReservations.isEmpty {
+                        if model.shownReservations.isEmpty, model.pending.isEmpty {
                             ContentUnavailableView("予約はありません", systemImage: "clock",
                                                    description: Text("番組表から番組を選んで予約できます"))
                         }
@@ -86,8 +86,14 @@ struct ReservationsScreen: View {
                     .disabled(!model.connected)
                 }
             }
-            .refreshable { await model.loadReservations() }
-            .task(id: model.connected) { await model.loadReservations() }
+            .refreshable {
+                await model.loadReservations()
+                await model.flushPending()
+            }
+            .task(id: model.connected) {
+                await model.loadReservations()
+                await model.loadPending()
+            }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
@@ -154,6 +160,20 @@ struct ReservationsScreen: View {
 
     private var list: some View {
         List {
+            if !model.pending.isEmpty {
+                Section {
+                    ForEach(model.pending) { waiting in
+                        PendingRowView(waiting: waiting)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button("取り消す") { Task { await model.removePending(waiting) } }.tint(.red)
+                            }
+                    }
+                } header: {
+                    Text("送信待ち \(model.pending.count) 件")
+                } footer: {
+                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。")
+                }
+            }
             ForEach(model.reservationSections) { section in
                 Section(section.title) {
                     ForEach(section.items) { reservation in
@@ -227,5 +247,37 @@ struct ReservationRowView: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// A reservation the recorder has not heard yet. It shows what was asked for, not what the recorder made of
+/// it, because the recorder has not made anything of it.
+struct PendingRowView: View {
+    let waiting: PendingReservation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                Text(waiting.request.title).lineLimit(2)
+            }
+            Text(details).font(.caption).foregroundStyle(.secondary)
+            if let problem = waiting.problem {
+                Text(problem).font(.caption).foregroundStyle(.red)
+            }
+        }
+        .padding(.vertical, 2)
+        .rowHitArea()
+    }
+
+    private var details: String {
+        var parts = [Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
+        if let quality = Codes.quality(code: waiting.request.qualityCode) {
+            parts.append(Codes.qualityLabel[quality] ?? quality)
+        }
+        if waiting.request.eventID == nil { parts.append("時刻指定") }
+        return parts.joined(separator: " · ")
     }
 }

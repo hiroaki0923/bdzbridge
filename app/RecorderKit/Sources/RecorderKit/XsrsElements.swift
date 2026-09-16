@@ -54,6 +54,33 @@ public struct RecorderRuleRequest: Equatable, Sendable {
     }
 }
 
+/// A reservation made while the recorder could not be reached, kept until it can be.
+///
+/// Away from home the guide is on the phone but the recorder is not, so a reservation has nowhere to go. It
+/// waits here instead, and is sent the next time the recorder answers. What it holds is the request itself
+/// plus enough to show a row without the guide: nothing is looked up again at sending time, so a reservation
+/// made on Tuesday is the one the recorder gets on Thursday.
+public struct PendingReservation: Sendable, Equatable, Identifiable {
+    public var request: ReservationRequest
+    /// The channel's name as the guide had it, so the row reads properly with the guide since replaced.
+    public var serviceName: String
+    public var queuedAt: Date
+    /// What the recorder said last time this was tried, if it has been tried and refused.
+    public var problem: String?
+
+    /// One reservation per programme: the same programme queued twice replaces the first.
+    public var id: String {
+        "\(request.broadcastingType)/\(request.serviceID)/\(request.eventID.map(String.init) ?? RecorderTime.format(request.start))"
+    }
+
+    public init(request: ReservationRequest, serviceName: String, queuedAt: Date = Date(), problem: String? = nil) {
+        self.request = request
+        self.serviceName = serviceName
+        self.queuedAt = queuedAt
+        self.problem = problem
+    }
+}
+
 public enum XsrsElements {
     /// The `<Elements>` for `X_CreatePrefRecSetting`, in the order the recorder itself writes a condition and with
     /// no id attribute at all. A name is sent because every request that went through carried one; the recorder

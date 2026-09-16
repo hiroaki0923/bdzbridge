@@ -171,7 +171,20 @@ Tapping the guide tab while it is already showing goes to what is on at this min
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
 
+### Reservations made away from home
+
+The guide is on the phone and the recorder is not, so a reservation made away from home has nowhere to go.
+It is kept instead: the programme, the quality and the repeat exactly as asked for, in the phone's own
+database, and shown on the reservations tab under 送信待ち where it can be cancelled. The next time the
+recorder answers -- a launch at home, a pull on the reservations list, the overnight refresh -- what is
+waiting is sent. A programme whose start has passed is dropped rather than sent, since the recorder cannot
+record the past, and one the recorder refuses keeps its reason on the row rather than being retried
+silently for ever.
+
+Only silence is queued. A recorder that answers and says no has said something worth reading, so that is
+shown as it always was.
+
 ## What is missing
 
-The queue that holds reservations made while away from home. Finding the recorder over SSDP, which would be
-quicker than looking through the subnet but needs an entitlement from Apple.
+Finding the recorder over SSDP, which would be quicker than looking through the subnet but needs an
+entitlement from Apple.
