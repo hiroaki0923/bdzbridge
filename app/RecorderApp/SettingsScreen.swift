@@ -5,6 +5,7 @@ struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
     @State private var typedHost = ""
     @State private var typedMac = ""
+    @State private var showingGuide = false
 
     var body: some View {
         NavigationStack {
@@ -14,11 +15,18 @@ struct SettingsScreen: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.numbersAndPunctuation)
-                    Button("接続する") {
-                        model.host = typedHost.trimmingCharacters(in: .whitespaces)
-                        Task { await model.connect() }
+                    // Connecting happens by itself at launch and after a scan, so a button is only for an
+                    // address typed by hand, or for trying the saved one again after it failed.
+                    if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
+                        Button("このアドレスにつなぐ") {
+                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
+                            Task { await model.connect() }
+                        }
+                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                    } else if !model.connected, !model.host.isEmpty {
+                        Button("もう一度つないでみる") { Task { await model.connect() } }
+                            .disabled(model.busy != nil)
                     }
-                    .disabled(typedHost.isEmpty || model.busy != nil)
 
                     Button("LAN から探す") {
                         Task { await model.scanForRecorders() }
@@ -33,7 +41,7 @@ struct SettingsScreen: View {
                             .keyboardType(.asciiCapable)
                     }
                     // Kept as the reader types rather than on the return key, because the next thing they do
-                    // is tap 接続する, and a MAC that was only half committed cannot wake anything.
+                    // is tap the connect button, and a MAC that was only half committed cannot wake anything.
                     .onChange(of: typedMac) {
                         let typed = typedMac.trimmingCharacters(in: .whitespaces)
                         if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
@@ -68,13 +76,7 @@ struct SettingsScreen: View {
                                 typedHost = recorder.host
                                 Task { await model.use(recorder) }
                             } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(recorder.product).font(.subheadline)
-                                    Text("\(recorder.host) · \(recorder.friendlyName)"
-                                         + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
+                                FoundRecorderRow(recorder: recorder)
                             }
                             .buttonStyle(.plain)
                         }
@@ -114,6 +116,10 @@ struct SettingsScreen: View {
                     .disabled(!model.connected || model.busy != nil)
                 }
 
+                Section {
+                    Button("使いはじめの手順を見る") { showingGuide = true }
+                }
+
                 if let busy = model.busy {
                     Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
                 }
@@ -123,6 +129,7 @@ struct SettingsScreen: View {
             }
             .navigationTitle("設定")
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }
+            .sheet(isPresented: $showingGuide) { WelcomeView() }
         }
     }
 }

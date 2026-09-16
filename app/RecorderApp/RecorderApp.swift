@@ -23,6 +23,8 @@ struct RootView: View {
     /// `-startTab reservations` on the command line opens that tab, which is how the screens are checked in a
     /// simulator without tapping through them.
     @State private var tab = UserDefaults.standard.string(forKey: "startTab") ?? "guide"
+    /// Up until a recorder has been chosen, the tutorial is the first thing on screen.
+    @State private var welcoming = false
 
     /// Tapping a tab that is already showing is a "take me home" gesture, and the guide's home is now.
     /// A plain binding cannot tell that apart from a change, so this one compares before it assigns.
@@ -51,7 +53,11 @@ struct RootView: View {
                 .tabItem { Label("設定", systemImage: "slider.horizontal.3") }
                 .tag("settings")
         }
-        .task { await model.start() }
+        .task {
+            welcoming = model.host.isEmpty
+            await model.start()
+        }
+        .fullScreenCover(isPresented: $welcoming) { WelcomeView() }
     }
 }
 
@@ -84,11 +90,19 @@ struct SheetCloseButton: View {
 struct NoRecorderView: View {
     let icon: String
     @Environment(AppModel.self) private var model
+    @State private var welcoming = false
 
     var body: some View {
         if model.host.isEmpty {
-            ContentUnavailableView("レコーダーが未設定です", systemImage: icon,
-                                   description: Text("設定でレコーダーのアドレスを入れてください"))
+            ContentUnavailableView {
+                Label("レコーダーが未設定です", systemImage: icon)
+            } description: {
+                Text("同じ Wi-Fi にいるレコーダーを探して選びます")
+            } actions: {
+                Button("レコーダーを探す") { welcoming = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .sheet(isPresented: $welcoming) { WelcomeView() }
         } else {
             ContentUnavailableView {
                 Label("レコーダーにつながりません", systemImage: icon)
