@@ -51,13 +51,13 @@
 | `X_GetLiveChList(BroadcastType, SkipChannel)` | 放送中のチャンネル一覧 |
 | `X_GetWatchingChInfo` | 視聴中のチャンネル。何も見ていなければ空で `NumberReturned=0` |
 | `X_ChkWlanOdekakeUsability(recordDestinationID)` | `WlanOdekakeUsable`（実機は `true`） |
-| `X_GetPrefRecSettingList(..., Format)` | **おまかせ・まる録の条件一覧。`Format` は空でなければ 803。実機では 0 件** |
+| `X_GetPrefRecSettingList(..., Format)` | **おまかせ・まる録の条件一覧。`Format` は空でなければ 803**。応答の形は `xsrs-api.md` |
 | `X_GetSetupInfo(SetupName)` | アプリ向け設定の読み出し。**`SetupName` に `*` を渡すと全項目**。下記参照 |
 | `X_GetServiceStatus(Elements, ServiceName)` | `Elements` に `*`、`ServiceName` に `DLNA` か `MOVE`。下記参照 |
 
-`X_GetPrefRecSettingList` が 0 件なのに `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
-つまりこの一覧に載る「おまかせ・まる録の条件」とは別の仕組み（新番組おまかせ録画などの単発設定）が予約を
-作っています。逆に、こちらが作っていない予約に `2200`（アプリが作成）が付いている例も観測しました。
+本体に「おまかせ・まる録」の条件を登録していなければこの一覧は 0 件ですが、それでも `reservationCreatorID` が
+`1100`（レコーダー自身）の予約は存在します。つまりこの一覧に載る条件とは別の仕組み（新番組おまかせ録画などの
+単発設定）も予約を作っています。逆に、こちらが作っていない予約に `2200`（アプリが作成）が付いている例も観測しました。
 `2200` を「自分が入れた予約」と読むのは危険です。
 
 ## ContentDirectory の木

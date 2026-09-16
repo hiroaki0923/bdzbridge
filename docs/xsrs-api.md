@@ -127,6 +127,80 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 `5`（124/128 度 CS と思われる）、`6`（CATV）、`10`（ひかりTV）、`101`（レコーダー内部のコンテンツ）がありますが、
 本機では観測していません。
 
+## おまかせ・まる録の条件（X_PvrControl）
+
+レコーダー本体の「おまかせ・まる録」の条件は `X_GetPrefRecSettingList` で読めて、`X_CreatePrefRecSetting` /
+`X_UpdatePrefRecSetting` / `X_DeletePrefRecSetting` で書けます（読み出しのみ実測、書き込みは未検証）。
+
+キーワードだけを登録した状態と、そこにジャンルと放送波を足した状態の実機の応答:
+
+```xml
+<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
+  <object type="SEARCH" id="0x00001702">
+    <searchSetting type="MULTIPLE" logic="OR">
+      <name>サンプル</name>
+      <keyword>サンプル</keyword>
+      <timeScope>ALL</timeScope>
+      <broadcastTypeScope>ALL</broadcastTypeScope>
+    </searchSetting>
+  </object>
+</xsrs>
+```
+
+```xml
+<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
+  <object type="SEARCH" id="0x00003701">
+    <searchSetting type="MULTIPLE" logic="OR">
+      <name>クイズ/サンプル</name>
+      <genreID type="2">0x50</genreID>
+      <keyword>サンプル</keyword>
+      <timeScope>ALL</timeScope>
+      <broadcastTypeScope>TRD</broadcastTypeScope>
+    </searchSetting>
+  </object>
+</xsrs>
+```
+
+`object` の `id` が `X_DeletePrefRecSetting` と `X_UpdatePrefRecSetting` の `SearchSettingID` です。
+指定していない項目は要素ごと出てきません（1 つめの例に `genreID` が無いのはそのため）。
+
+分かったことが 3 つあります。
+
+- **`id` は条件を変えると振り直されます。** 上の 2 つは同じ 1 件の条件を編集した前後で、`0x00001702` から
+  `0x00003701` に変わりました。おまかせ予約の ID と同じ性質なので、**控えた `SearchSettingID` を後で使うのは
+  危険**です。削除・変更の直前に一覧を取り直すこと。
+- **`genreID` は 16 進です。** 値の作り方は予約の `genreID` と同じ（level1×16＋level2）ですが、予約は十進
+  （`48`）、ここは `0x` 付きの 16 進（`0x50`）で書かれます。同じ名前の項目で表記が違う点に注意。`0x50` は
+  level1=5（バラエティ）level2=0（クイズ）で、本体が付けた表示名「クイズ/サンプル」と一致しました。
+- **`name` はレコーダーが組み立てます。** 条件を足すと `クイズ/サンプル` のように、こちらが入れていない文字列に
+  変わりました。表示名として読むだけにして、識別子として使わないこと。
+- **`broadcastTypeScope` は文字列コード**で、地上デジタルは `TRD`。番組表ファイル名（`EPG_TRDEPG_FILE.dat`）と
+  同じ綴りなので、BS は `BS`、110度CS は `CS`、4K は `ADVBSD` / `ADVCSD` と推測できますが未確認です。
+
+要素は本体の設定画面の項目に対応します。左が取説（2021 年 4K モデルの使いかたマニュアル）の呼び名です。
+
+| 本体の条件 | 要素 | 備考 |
+|---|---|---|
+| タイトル／キーワード／人名 | `keyword`（複数可） | 部分一致。`name` は条件そのものの表示名 |
+| 除外 | `excludeKeyword`（複数可） | |
+| ジャンル | `genreID`（複数可、`type` 属性つき） | 予約の `genreID` と同じ体系と思われる |
+| チャンネル | `presetID`（複数可） | |
+| 時間帯 | `timeScope` | 指定なしは `ALL` |
+| 放送波 | `broadcastTypeScope` | 指定なしは `ALL` |
+| 画質（録画モード） | `desiredQualityMode` | `object` 直下。上の録画モード表と同じ値 |
+| 録画先 | `recordDestinationID` | `object` 直下 |
+
+**まだ分からないもの**: `timeScope` に `ALL` 以外を入れたときの書式（時間帯を指定しても `ALL` のままでした）、
+`presetID` の実体（チャンネルを指定していないため一度も出ていない）、`desiredQualityMode` と
+`recordDestinationID` が既定値のときに出ないのかどうか、`object` の `type` は `SEARCH` 以外に何があるか、
+`searchSetting` の `type="MULTIPLE"` と `logic="OR"` の他の値、1 台に登録できる条件の数。
+
+`X_GetPrefRecSettingList` が 0 件でも `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
+この一覧に載るのは「おまかせ・まる録」の条件だけで、新番組おまかせ録画などの単発設定は別の仕組みです。
+
+なお、詳細設定の記述方法はネットワーク経由で取得する、と取説にあります。公式 PC クライアントもキーワード一覧を
+サーバーから落としてローカルに保存していて、突き合わせると同じ仕掛けに見えます。
+
 ## X_PvrControl（使用しているもの）
 
 | アクション | 備考 |
