@@ -33,10 +33,10 @@ struct DuplicatesView: View {
             Button("\(chosen.count) 件を削除する", role: .destructive) {
                 model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
             }
-            Button("やめる", role: .cancel) {}
+            Button("キャンセル", role: .cancel) {}
         } message: {
-            Text(String(format: "合計 %.1fGB。それぞれの組で「残す」と付いた方は残ります。\n"
-                        + "レコーダーから消えます。元に戻せません。", chosenGB))
+            Text(String(format: "合計 %.1fGB。各組で「残す」が付いたものは削除されません。\n"
+                        + "レコーダーから削除され、元に戻せません。", chosenGB))
         }
     }
 
@@ -44,10 +44,10 @@ struct DuplicatesView: View {
         ContentUnavailableView {
             Label(scanned ? "重複はありませんでした" : "重複した録画を探す", systemImage: "square.on.square")
         } description: {
-            Text("同じタイトルで同じ長さの録画について、レコーダーに番組内容を聞いて突き合わせます。"
-                 + "一件ずつしか聞けないので、初めては時間がかかります。")
+            Text("タイトルと長さが同じ録画について、番組内容をレコーダーから取得して照合します。"
+                 + "1 件ずつ取得するため、初回は時間がかかります。")
         } actions: {
-            Button(scanned ? "もう一度調べる" : "調べる") { model.startDuplicateScan() }
+            Button(scanned ? "もう一度調べる" : "検出を開始") { model.startDuplicateScan() }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.jobRunning || model.titles.isEmpty)
         }
@@ -56,8 +56,8 @@ struct DuplicatesView: View {
     private var list: some View {
         List {
             Section {
-                Text("チェックが付いているのが削除候補です。先に放送された方を残します。"
-                     + "保護中や視聴途中のものがあればそちらを残します。")
+                Text("チェックが付いたものが削除候補です。先に放送されたものを残します。"
+                     + "保護中や視聴途中のものがある場合は、そちらを残します。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

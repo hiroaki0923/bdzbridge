@@ -53,13 +53,13 @@ struct RecordingsScreen: View {
                                 }
                             }
                         }
-                        Picker("並び", selection: Binding(get: { model.titleSort },
+                        Picker("並び順", selection: Binding(get: { model.titleSort },
                                                          set: { model.titleSort = $0 })) {
                             ForEach(AppModel.TitleSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
                             }
                         }
-                        Picker("視聴", selection: Binding(get: { model.titleState },
+                        Picker("視聴状態", selection: Binding(get: { model.titleState },
                                                          set: { model.titleState = $0 })) {
                             Text("すべて").tag(WatchState?.none)
                             ForEach(WatchState.allCases, id: \.self) { state in
@@ -70,7 +70,7 @@ struct RecordingsScreen: View {
                         Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill"
                                                     : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel("ジャンルと並びと視聴で絞る")
+                    .accessibilityLabel("ジャンル・並び順・視聴状態で絞り込む")
                 }
             }
             .task(id: model.connected) { await model.loadTitles() }
@@ -114,7 +114,7 @@ struct RecordingsScreen: View {
                     .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .overlay { if model.titleGroups.isEmpty { ContentUnavailableView("録画はありません", systemImage: "play.rectangle") } }
+            .overlay { if model.titleGroups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         } else {
             List(model.shownTitles) { title in
                 Button { opened = title } label: {
@@ -124,7 +124,7 @@ struct RecordingsScreen: View {
                 .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .overlay { if model.shownTitles.isEmpty { ContentUnavailableView("録画はありません", systemImage: "play.rectangle") } }
+            .overlay { if model.shownTitles.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         }
     }
 }
@@ -227,10 +227,10 @@ struct GroupSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("この番組を全部保護") {
+                        Button("この番組をすべて保護") {
                             model.startBulk(.protecting(true), ids: members.map(\.id))
                         }
-                        Button("この番組の保護を全部解除") {
+                        Button("この番組の保護をすべて解除") {
                             model.startBulk(.protecting(false), ids: members.map(\.id))
                         }
                     } label: {
@@ -247,10 +247,10 @@ struct GroupSheet: View {
                     selecting = false
                     selected = []
                 }
-                Button("やめる", role: .cancel) {}
+                Button("キャンセル", role: .cancel) {}
             } message: {
-                Text(String(format: "合計 %.1fGB。保護されているものは削除されません。\n"
-                            + "レコーダーから消えます。元に戻せません。", chosenGB))
+                Text(String(format: "合計 %.1fGB。保護された録画は削除されません。\n"
+                            + "レコーダーから削除され、元に戻せません。", chosenGB))
             }
         }
     }

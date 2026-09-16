@@ -56,8 +56,8 @@ struct GuideGridView: View {
     var body: some View {
         let columns = columns
         if columns.isEmpty {
-            ContentUnavailableView("この日の番組表がありません", systemImage: "squareshape.split.3x3",
-                                   description: Text("右上の更新でレコーダーから取得します"))
+            ContentUnavailableView("この日の番組表はありません", systemImage: "squareshape.split.3x3",
+                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
         } else {
             // A GeometryReader, because the rulers are as wide as the whole grid and must not report that
             // width upwards: everything around them would be stretched to it.

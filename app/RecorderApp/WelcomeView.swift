@@ -16,20 +16,20 @@ struct WelcomeView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("BD Bridge").font(.largeTitle.bold())
-                        Text("レコーダーの番組表を iPhone に持ち、予約と録画をここから扱います。"
-                             + "はじめにレコーダーを見つけます。")
+                        Text("レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
+                             + "まず、お使いのレコーダーを登録しましょう。")
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 6)
                     .listRowBackground(Color.clear)
                 }
-                Section("はじめかた") {
+                Section("セットアップ") {
                     step(1, "レコーダーの電源を入れる",
-                         "リモコンで入れてください。必要なのは初回だけで、以後はアプリが起こします。")
-                    step(2, "iPhone を同じ Wi-Fi につなぐ",
-                         "レコーダーと同じネットワークにいるときだけ見つけられます。")
-                    step(3, "「LAN から探す」を押す",
-                         "初回は iOS がローカルネットワークへのアクセスを尋ねるので、許可してください。")
+                         "電源が入っている必要があるのは最初の登録のときだけです。次回からはアプリがレコーダーを自動で起動します。")
+                    step(2, "iPhone をレコーダーと同じ Wi-Fi につなぐ",
+                         "同じネットワーク上にあるレコーダーだけが見つかります。")
+                    step(3, "「レコーダーを探す」をタップする",
+                         "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。")
                 }
                 Section {
                     Button {
@@ -38,7 +38,7 @@ struct WelcomeView: View {
                         HStack {
                             Spacer()
                             if model.scanning != nil { ProgressView().controlSize(.small).padding(.trailing, 6) }
-                            Text("LAN から探す").bold()
+                            Text("レコーダーを探す").bold()
                             Spacer()
                         }
                     }
@@ -46,7 +46,7 @@ struct WelcomeView: View {
                     if let scanning = model.scanning {
                         VStack(alignment: .leading, spacing: 4) {
                             ProgressView(value: Double(scanning.done), total: Double(max(1, scanning.total)))
-                            Text("探しています \(scanning.done) / \(scanning.total)")
+                            Text("検索中 \(scanning.done) / \(scanning.total)")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -65,16 +65,16 @@ struct WelcomeView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
-                        Button("このアドレスにつなぐ") {
+                        Button("このアドレスに接続") {
                             model.host = typedHost.trimmingCharacters(in: .whitespaces)
                             Task { await model.connect() }
                         }
                         .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
                     } else {
-                        Button("アドレスを直接入れる") { typing = true }
+                        Button("IP アドレスを直接入力") { typing = true }
                     }
                 } footer: {
-                    Text("探しても見つからないときは、レコーダーの設定画面に出るアドレスを入れられます。")
+                    Text("見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。")
                 }
                 if let busy = model.busy {
                     Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
@@ -85,7 +85,7 @@ struct WelcomeView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("あとで") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("あとで設定") { dismiss() } }
             }
             // the recorder answering is the end of the tutorial; nothing to read after that
             .onChange(of: model.connected) { if model.connected { dismiss() } }

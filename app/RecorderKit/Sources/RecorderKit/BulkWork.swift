@@ -24,7 +24,7 @@ public extension RecorderClient {
         do {
             _ = try await titleDetail(id: title.id)
         } catch let error as RecorderError {
-            if case .soap(_, _, "820", _) = error { return .skipped(reason: "すでにありません") }
+            if case .soap(_, _, "820", _) = error { return .skipped(reason: "すでに削除されています") }
         } catch {
             // anything else here is not worth giving up on; the delete below will say what went wrong
         }

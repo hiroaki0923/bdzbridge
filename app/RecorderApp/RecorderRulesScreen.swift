@@ -23,7 +23,7 @@ struct RecorderRulesScreen: View {
     }
 
     private var alertTitle: String {
-        if case .failed = shown { return "うまくいきませんでした" }
+        if case .failed = shown { return "エラー" }
         return "この条件を削除しますか？"
     }
 
@@ -31,7 +31,7 @@ struct RecorderRulesScreen: View {
         List {
             Section {
                 if model.recorderRules.isEmpty {
-                    Text("条件はありません").foregroundStyle(.secondary)
+                    Text("条件が登録されていません").foregroundStyle(.secondary)
                 }
                 ForEach(model.recorderRules) { rule in
                     RecorderRuleRow(rule: rule)
@@ -40,8 +40,8 @@ struct RecorderRulesScreen: View {
                         }
                 }
             } footer: {
-                Text("レコーダー本体が自分で番組を探して録画する条件です。アプリを閉じていても働きます。"
-                     + "対象チャンネルの絞り込みは本体でしか設定できず、ここには出ません。")
+                Text("レコーダー本体が番組を自動で探して録画する条件です。アプリを閉じていても動作します。"
+                     + "対象チャンネルの指定はレコーダー本体でのみ設定でき、ここには表示されません。")
             }
         }
         .navigationTitle("おまかせ・まる録")
@@ -65,18 +65,18 @@ struct RecorderRulesScreen: View {
                 Button("削除する", role: .destructive) {
                     Task {
                         if await !model.removeRecorderRule(rule) {
-                            failure = model.problem ?? "レコーダーが受け付けませんでした"
+                            failure = model.problem ?? "レコーダーがエラーを返しました"
                         }
                     }
                 }
-                Button("やめる", role: .cancel) {}
+                Button("キャンセル", role: .cancel) {}
             case .failed:
                 Button("OK", role: .cancel) {}
             }
         } message: { shown in
             switch shown {
             case .confirm(let rule):
-                Text("「\(rule.name)」がレコーダーから消えます。本体で設定したチャンネルの絞り込みも一緒に消えます。")
+                Text("「\(rule.name)」をレコーダーから削除します。本体で設定した対象チャンネルの指定も削除されます。")
             case .failed(let text):
                 Text(text)
             }
@@ -130,7 +130,7 @@ struct RecorderRuleSheet: View {
     }
 
     private var problem: String? {
-        if words.isEmpty { return "キーワードを入れてください" }
+        if words.isEmpty { return "キーワードを入力してください" }
         if words.count > 5 { return "キーワードは 5 つまでです" }
         if excludedWords.count > 2 { return "除外ワードは 2 つまでです" }
         return nil
@@ -140,7 +140,7 @@ struct RecorderRuleSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("キーワード（、区切りで最大 5 つ）", text: $keywords)
+                    TextField("キーワード（最大 5 つ、「、」区切り）", text: $keywords)
                     TextField("除外ワード（最大 2 つ）", text: $excluded)
                     Picker("検索方法", selection: $logic) {
                         Text("いずれかのキーワードを含む").tag("OR")
@@ -164,15 +164,15 @@ struct RecorderRuleSheet: View {
                         }
                     }
                 } footer: {
-                    Text("対象チャンネルの絞り込みは本体でのみ設定できます。条件の名前はレコーダーが付けます。")
+                    Text("対象チャンネルの指定はレコーダー本体でのみ設定できます。条件の名前はレコーダーが自動で付けます。")
                 }
             }
             .navigationTitle("条件を追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("やめる") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("本体に登録") {
+                    Button("レコーダーに登録") {
                         Task {
                             let request = RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic,
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
@@ -180,14 +180,14 @@ struct RecorderRuleSheet: View {
                             if await model.addRecorderRule(request) {
                                 dismiss()
                             } else {
-                                failure = model.problem ?? "レコーダーが受け付けませんでした"
+                                failure = model.problem ?? "レコーダーがエラーを返しました"
                             }
                         }
                     }
                     .disabled(problem != nil || model.busy != nil)
                 }
             }
-            .alert("うまくいきませんでした",
+            .alert("エラー",
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {

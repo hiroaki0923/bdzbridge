@@ -40,11 +40,11 @@ struct SearchScreen: View {
         var explanation: String {
             switch self {
             case .guide:
-                "番組名か番組内容に含まれる言葉で、これから放送される 8 日分を探します。"
+                "番組名や番組内容に含まれる言葉で、今後 8 日分の番組を検索します。"
             case .reservations:
-                "レコーダーに入っている予約を番組名で探します。おまかせ録画が入れたものも含みます。"
+                "レコーダーに登録されている予約を番組名で検索します。おまかせ・まる録による予約も含みます。"
             case .recordings:
-                "レコーダーに録れている番組を名前で探します。"
+                "レコーダーに録画されている番組を番組名で検索します。"
             }
         }
     }
@@ -76,7 +76,7 @@ struct SearchScreen: View {
             Group {
                 if query.isEmpty {
                     ContentUnavailableView {
-                        Label("\(scope.label)を探す", systemImage: "magnifyingglass")
+                        Label("\(scope.label)を検索", systemImage: "magnifyingglass")
                     } description: {
                         Text(scope.explanation + "\n全角と半角、大文字と小文字は区別しません。")
                     }

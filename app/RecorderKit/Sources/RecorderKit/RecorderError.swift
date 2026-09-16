@@ -22,21 +22,21 @@ public enum RecorderError: Error, Equatable, Sendable {
         case .soap(let action, let status, let code, _):
             switch code {
             case "402": "レコーダーがこの要求を受け付けませんでした (402: \(action))"
-            case "804": "レコーダーにこの予約がありません (804: \(action))"
-            case "820": "レコーダーにこの録画がありません (820: \(action))"
-            case "831": "このチャンネルは受信できないため、番組を選んだ予約ができません。"
-                        + "契約やアンテナの設定を確かめてください (831: \(action))"
-            case "880": "レコーダーが待機状態です。先に電源を入れてください (880: \(action))"
+            case "804": "この予約はレコーダーにありません (804: \(action))"
+            case "820": "この録画はレコーダーにありません (820: \(action))"
+            case "831": "このチャンネルは受信できないため、番組を指定した予約はできません。"
+                        + "契約状況やアンテナの設定を確認してください (831: \(action))"
+            case "880": "レコーダーがスタンバイ状態です。先に電源を入れてください (880: \(action))"
             case .some(let code): "レコーダーがエラーを返しました (\(code): \(action), HTTP \(status))"
             case nil: "レコーダーが HTTP \(status) を返しました (\(action))"
             }
-        case .transport(let detail): "レコーダーに届きませんでした: \(detail)"
-        case .badResponse(let status): "レコーダーの応答が XML ではありませんでした (HTTP \(status))"
+        case .transport(let detail): "レコーダーに接続できませんでした: \(detail)"
+        case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
         case .guideFileMissing(let name, let status):
-            "レコーダーが番組表のファイルを渡してくれませんでした (HTTP \(status): \(name))。"
-                + "本体を再起動したりチャンネルを再スキャンした直後は、レコーダーが作り直すまでこうなります。"
-        case .notHTTP: "レコーダーの応答が HTTP ではありませんでした"
-        case .notARecorder(let host): "\(host) はソニーのレコーダーだと名乗りませんでした"
+            "レコーダーから番組表ファイルを取得できませんでした (HTTP \(status): \(name))。"
+                + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
+        case .notHTTP: "レコーダーの応答を解釈できませんでした"
+        case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
         }
     }
 

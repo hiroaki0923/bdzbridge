@@ -18,23 +18,23 @@ struct SettingsScreen: View {
                     // Connecting happens by itself at launch and after a scan, so a button is only for an
                     // address typed by hand, or for trying the saved one again after it failed.
                     if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
-                        Button("このアドレスにつなぐ") {
+                        Button("このアドレスに接続") {
                             model.host = typedHost.trimmingCharacters(in: .whitespaces)
                             Task { await model.connect() }
                         }
                         .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
                     } else if !model.connected, !model.host.isEmpty {
-                        Button("もう一度つないでみる") { Task { await model.connect() } }
+                        Button("再接続") { Task { await model.connect() } }
                             .disabled(model.busy != nil)
                     }
 
-                    Button("LAN から探す") {
+                    Button("レコーダーを探す") {
                         Task { await model.scanForRecorders() }
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
 
                     LabeledContent("MAC アドレス") {
-                        TextField("つながると控えます", text: $typedMac)
+                        TextField("接続時に自動で記録", text: $typedMac)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -55,7 +55,7 @@ struct SettingsScreen: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
-                                Text("探しています \(scanning.done) / \(scanning.total)")
+                                Text("検索中 \(scanning.done) / \(scanning.total)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -66,7 +66,7 @@ struct SettingsScreen: View {
                 } header: {
                     Text("レコーダー")
                 } footer: {
-                    Text("MAC アドレスは寝ているレコーダーを起こすのに使います。つながったときに自動で控えるので、普段は入力しなくて構いません。")
+                    Text("MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。")
                 }
 
                 if !model.found.isEmpty {
@@ -84,7 +84,7 @@ struct SettingsScreen: View {
                 }
 
                 if let info = model.info {
-                    Section("つながっているレコーダー") {
+                    Section("接続中のレコーダー") {
                         LabeledContent("機種", value: info.product)
                         LabeledContent("名前", value: info.friendlyName)
                         LabeledContent("ファームウェア", value: model.firmware)
@@ -96,7 +96,7 @@ struct SettingsScreen: View {
                     }
                 }
 
-                Section("端末内の番組表") {
+                Section("保存されている番組表") {
                     ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
                         let counts = model.counts[broadcasting]
                         LabeledContent(Codes.broadcastingLabel[broadcasting] ?? broadcasting) {
@@ -105,19 +105,19 @@ struct SettingsScreen: View {
                         }
                     }
                     if let refreshed = model.counts["td"]?.refreshed {
-                        LabeledContent("最後の取得", value: refreshed)
+                        LabeledContent("最終更新", value: refreshed)
                     }
                     if let overnight = UserDefaults.standard.string(forKey: BackgroundWork.lastRefreshKey) {
-                        LabeledContent("最後の自動取得", value: overnight)
+                        LabeledContent("最終自動更新", value: overnight)
                     }
-                    Button("番組表を取得する") {
+                    Button("番組表を更新") {
                         Task { await model.refreshGuide() }
                     }
                     .disabled(!model.connected || model.busy != nil)
                 }
 
                 Section {
-                    Button("使いはじめの手順を見る") { showingGuide = true }
+                    Button("セットアップ手順を見る") { showingGuide = true }
                 }
 
                 if let busy = model.busy {

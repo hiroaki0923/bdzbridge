@@ -26,7 +26,7 @@ struct ReservationsScreen: View {
     }
 
     private var alertTitle: String {
-        if case .failed = shown { return "うまくいきませんでした" }
+        if case .failed = shown { return "エラー" }
         return "この予約を削除しますか？"
     }
 
@@ -63,7 +63,7 @@ struct ReservationsScreen: View {
                                 Text(kind.label).tag(kind)
                             }
                         }
-                        Picker("並び", selection: Binding(get: { model.reservationSort },
+                        Picker("並び順", selection: Binding(get: { model.reservationSort },
                                                          set: { model.reservationSort = $0 })) {
                             ForEach(AppModel.ReservationSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
@@ -74,7 +74,7 @@ struct ReservationsScreen: View {
                               ? "line.3.horizontal.decrease.circle"
                               : "line.3.horizontal.decrease.circle.fill")
                     }
-                    .accessibilityLabel("並びを変える")
+                    .accessibilityLabel("並び順を変更")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -100,11 +100,11 @@ struct ReservationsScreen: View {
                     Button("削除する", role: .destructive) {
                         Task {
                             if await !model.cancel(reservation) {
-                                failure = model.problem ?? "レコーダーが受け付けませんでした"
+                                failure = model.problem ?? "レコーダーがエラーを返しました"
                             }
                         }
                     }
-                    Button("やめる", role: .cancel) {}
+                    Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
                 }
@@ -112,9 +112,9 @@ struct ReservationsScreen: View {
                 switch shown {
                 case .confirm(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから消えます。"
+                         + "レコーダーから削除されます。"
                          + (reservation.createdByRecorder
-                            ? "\nこれはレコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
+                            ? "\nこれはおまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                             : ""))
                 case .failed(let reason):
                     Text(reason)

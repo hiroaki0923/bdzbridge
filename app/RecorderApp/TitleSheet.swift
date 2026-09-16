@@ -29,7 +29,7 @@ struct TitleSheet: View {
                     if let quality = current.qualityName {
                         LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
                     }
-                    LabeledContent("視聴", value: viewing)
+                    LabeledContent("視聴状態", value: viewing)
                     if let genre = current.genre?.label {
                         LabeledContent("ジャンル", value: genre)
                     }
@@ -59,16 +59,16 @@ struct TitleSheet: View {
                         }
                         .foregroundStyle(.orange)
                     }
-                    Text("レコーダーにつながったテレビに映ります。").font(.caption).foregroundStyle(.secondary)
+                    Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
-                    Toggle("自動削除しないように保護", isOn: Binding(
+                    Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in
                             Task {
                                 if await !model.setProtected(current, on) {
-                                    failure = model.problem ?? "レコーダーが受け付けませんでした"
+                                    failure = model.problem ?? "レコーダーがエラーを返しました"
                                 }
                             }
                         }))
@@ -76,7 +76,7 @@ struct TitleSheet: View {
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
                         .disabled(current.protected || model.busy != nil)
                     if current.protected {
-                        Text("保護されているので削除できません。保護を外してください。")
+                        Text("保護されているため削除できません。先に保護を解除してください。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -99,17 +99,17 @@ struct TitleSheet: View {
             .toolbar { SheetCloseButton() }
             .task { detail = await model.detail(of: title) }
             // One alert does both jobs: two on the same view is not something SwiftUI promises to honour.
-            .alert(failure == nil ? "この録画を削除しますか？" : "うまくいきませんでした",
+            .alert(failure == nil ? "この録画を削除しますか？" : "エラー",
                    isPresented: Binding(get: { confirmingDelete || failure != nil },
                                         set: { if !$0 { confirmingDelete = false; failure = nil } })) {
                 if failure == nil {
                     Button("削除する", role: .destructive) {
                         Task {
                             deleted = await model.delete(current)
-                            if !deleted { failure = model.problem ?? "レコーダーが受け付けませんでした" }
+                            if !deleted { failure = model.problem ?? "レコーダーがエラーを返しました" }
                         }
                     }
-                    Button("やめる", role: .cancel) {}
+                    Button("キャンセル", role: .cancel) {}
                 } else {
                     Button("OK", role: .cancel) {}
                 }
@@ -117,7 +117,7 @@ struct TitleSheet: View {
                 if let failure {
                     Text(failure)
                 } else {
-                    Text("\(current.title)\nレコーダーから消えます。元に戻せません。")
+                    Text("\(current.title)\nレコーダーから削除され、元に戻せません。")
                 }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }

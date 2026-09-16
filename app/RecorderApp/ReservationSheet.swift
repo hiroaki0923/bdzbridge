@@ -29,7 +29,7 @@ struct ReservationSheet: View {
                     if reservation.eventID != nil {
                         LabeledContent("番組追従", value: "時間が変わっても追いかけます")
                     }
-                    LabeledContent("入れた人", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
+                    LabeledContent("登録元", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
                                    : reservation.createdByApp ? "アプリから" : "不明")
                     if let size = reservation.sizeMB {
                         LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
@@ -38,11 +38,11 @@ struct ReservationSheet: View {
 
                 if reservation.recording || reservation.conflict || reservation.createdByRecorder {
                     Section {
-                        if reservation.recording { Text("いま録画中です").foregroundStyle(.red) }
-                        if reservation.conflict { Text("他の予約と重なっています").foregroundStyle(.orange) }
+                        if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+                        if reservation.conflict { Text("他の予約と重複しています").foregroundStyle(.orange) }
                         if reservation.createdByRecorder {
-                            Text("レコーダーのおまかせ録画が入れた予約です。消してもレコーダーが入れ直すことがあります。"
-                                 + "続けて入るのを止めるには、レコーダー本体でおまかせ録画の設定を変えてください。")
+                            Text("おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
+                                 + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -71,17 +71,17 @@ struct ReservationSheet: View {
             .task { program = await model.program(for: reservation) }
             // One alert, because two on the same view is not something SwiftUI promises to honour, and
             // asking and reporting never happen at once. The red line further up the sheet was missed.
-            .alert(failure == nil ? "この予約を取り消しますか？" : "うまくいきませんでした",
+            .alert(failure == nil ? "この予約を取り消しますか？" : "エラー",
                    isPresented: Binding(get: { confirming || failure != nil },
                                         set: { if !$0 { confirming = false; failure = nil } })) {
                 if failure == nil {
                     Button("取り消す", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
-                            if !done { failure = model.problem ?? "レコーダーが受け付けませんでした" }
+                            if !done { failure = model.problem ?? "レコーダーがエラーを返しました" }
                         }
                     }
-                    Button("やめる", role: .cancel) {}
+                    Button("キャンセル", role: .cancel) {}
                 } else {
                     Button("OK", role: .cancel) {}
                 }
@@ -90,9 +90,9 @@ struct ReservationSheet: View {
                     Text(failure)
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから消えます。"
+                         + "レコーダーから削除されます。"
                          + (reservation.createdByRecorder
-                            ? "\nおまかせ録画が入れた予約なので、レコーダーが入れ直すことがあります。"
+                            ? "\nおまかせ・まる録による予約のため、レコーダーが再登録することがあります。"
                             : ""))
                 }
             }

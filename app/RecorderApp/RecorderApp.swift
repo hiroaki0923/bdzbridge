@@ -95,9 +95,9 @@ struct NoRecorderView: View {
     var body: some View {
         if model.host.isEmpty {
             ContentUnavailableView {
-                Label("レコーダーが未設定です", systemImage: icon)
+                Label("レコーダーが登録されていません", systemImage: icon)
             } description: {
-                Text("同じ Wi-Fi にいるレコーダーを探して選びます")
+                Text("同じ Wi-Fi 上のレコーダーを探して登録してください")
             } actions: {
                 Button("レコーダーを探す") { welcoming = true }
                     .buttonStyle(.borderedProminent)
@@ -105,13 +105,13 @@ struct NoRecorderView: View {
             .sheet(isPresented: $welcoming) { WelcomeView() }
         } else {
             ContentUnavailableView {
-                Label("レコーダーにつながりません", systemImage: icon)
+                Label("レコーダーに接続できません", systemImage: icon)
             } description: {
-                Text("電源が入っているか、同じネットワークにいるかを確かめてください")
+                Text("レコーダーの電源と、同じネットワークに接続されているかを確認してください")
             } actions: {
                 // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
                 // there is nothing here about waking: trying again is the whole of it.
-                Button("もう一度つないでみる") { Task { await model.connect() } }
+                Button("再接続") { Task { await model.connect() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.busy != nil)
             }

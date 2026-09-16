@@ -54,7 +54,7 @@ struct ProgramSheet: View {
                         LabeledContent("録画モード", value: reservation.qualityName ?? "-")
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
-                        if reservation.recording { Text("いま録画中です").foregroundStyle(.red) }
+                        if reservation.recording { Text("録画中です").foregroundStyle(.red) }
                         Button("予約を取り消す", role: .destructive) { ask = .cancel(reservation) }
                             .disabled(model.busy != nil)
                     }
@@ -98,29 +98,29 @@ struct ProgramSheet: View {
                     Button("予約する") {
                         Task {
                             done = await model.reserve(program, quality: quality, repeating: repeating)
-                            if !done { ask = .failed(model.problem ?? "レコーダーが受け付けませんでした") }
+                            if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
                         }
                     }
                 case .cancel(let reservation):
                     Button("取り消す", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
-                            if !done { ask = .failed(model.problem ?? "レコーダーが受け付けませんでした") }
+                            if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
                         }
                     }
                 case .failed:
                     EmptyView()
                 }
-                Button(asked.isFailure ? "OK" : "やめる", role: .cancel) {}
+                Button(asked.isFailure ? "OK" : "キャンセル", role: .cancel) {}
             } message: { asked in
                 switch asked {
                 case .reserve:
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "\(Codes.qualityLabel[quality] ?? quality) · "
-                         + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに反映されます。")
+                         + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに予約を登録します。")
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから消えます。")
+                         + "レコーダーから削除されます。")
                 case .failed(let reason):
                     Text(reason)
                 }
@@ -132,7 +132,7 @@ struct ProgramSheet: View {
     private var askTitle: String {
         switch ask {
         case .cancel: "この予約を取り消しますか？"
-        case .failed: "うまくいきませんでした"
+        case .failed: "エラー"
         case .reserve, nil: "この番組を録画予約しますか？"
         }
     }
@@ -142,15 +142,15 @@ struct ProgramSheet: View {
     @ViewBuilder
     private var conflictRow: some View {
         if checking {
-            HStack { ProgressView().controlSize(.small); Text("重なりを確認中").foregroundStyle(.secondary) }
+            HStack { ProgressView().controlSize(.small); Text("重複を確認中").foregroundStyle(.secondary) }
         } else if let conflicts {
             if conflicts.isEmpty {
-                Label("重なる予約はありません", systemImage: "checkmark.circle")
+                Label("重複する予約はありません", systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("\(conflicts.count) 件の予約と重なります", systemImage: "exclamationmark.triangle")
+                    Label("\(conflicts.count) 件の予約と重複します", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                         .font(.callout)
                     ForEach(conflicts) { conflict in

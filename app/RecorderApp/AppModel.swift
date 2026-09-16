@@ -97,7 +97,7 @@ final class AppModel {
             await reloadFromCache()
             if !host.isEmpty { await connect() }
         } catch {
-            problem = "番組表の保存先を開けませんでした: \(error)"
+            problem = "番組表の保存領域を開けませんでした: \(error)"
         }
     }
 
@@ -107,7 +107,7 @@ final class AppModel {
         found = []
         let hosts = LocalNetwork.hostsToScan()
         guard !hosts.isEmpty else {
-            problem = "この端末の LAN の情報が読めませんでした"
+            problem = "この端末のネットワーク情報を取得できませんでした"
             return
         }
         scanning = (0, hosts.count)
@@ -115,7 +115,7 @@ final class AppModel {
             Task { @MainActor in self.scanning = (done, total) }
         })
         scanning = nil
-        if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークにあるか確かめてください。" }
+        if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークに接続されているか確認してください。" }
     }
 
     /// Takes one of the recorders the scan turned up.
@@ -182,10 +182,10 @@ final class AppModel {
         problem = nil
         for _ in 0..<8 {
             try? await Task.sleep(for: .seconds(2))
-            if await attach(client, what: "レコーダーを起こしています",
+            if await attach(client, what: "レコーダーを起動しています",
                             timeout: RecorderClient.probeTimeout) { return true }
         }
-        problem = "レコーダーが応答しません。本体の電源とネットワークを確かめてください。"
+        problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
     }
 
@@ -247,7 +247,7 @@ final class AppModel {
     func loadReservations() async {
         await start()
         guard let client else { return }
-        await run("予約を取得中") {
+        await run("予約一覧を取得中") {
             self.reservations = try await client.reservations()
             self.reservationsByProgram = Dictionary(
                 self.reservations.compactMap { reservation in
@@ -265,14 +265,14 @@ final class AppModel {
     func loadRecorderRules() async {
         await start()
         guard let client else { return }
-        await run("おまかせの条件を取得中") { self.recorderRules = try await client.recorderRules() }
+        await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
     }
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
         guard let client else { return false }
-        let made = await run("本体に登録中") { _ = try await client.createRecorderRule(request) }
+        let made = await run("レコーダーに登録中") { _ = try await client.createRecorderRule(request) }
         if made { await loadRecorderRules() }
         return made
     }
@@ -283,7 +283,7 @@ final class AppModel {
     func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
         await start()
         guard let client else { return false }
-        let removed = await run("本体から削除中") { try await client.deleteRecorderRule(id: rule.id) }
+        let removed = await run("レコーダーから削除中") { try await client.deleteRecorderRule(id: rule.id) }
         await loadRecorderRules()
         return removed
     }
@@ -328,7 +328,7 @@ final class AppModel {
         /// What to tell the reader once it has stopped, in the shape the web app settled on.
         var outcome: String {
             if case .scanning = kind {
-                return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件を調べ終わりました"
+                return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
             }
             let count = changed.count
             let head = cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
@@ -433,7 +433,7 @@ final class AppModel {
 
     private func deleteOne(_ id: String, _ client: RecorderClient) async {
         guard let title = titles.first(where: { $0.id == id }) else {
-            job?.skipped.append(.init(id: id, reason: "一覧にありません"))
+            job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
         let outcome = await client.deleteIfPresent(title)
@@ -443,14 +443,14 @@ final class AppModel {
             job?.changed.append(id)
         case .skipped(let reason):
             // the recorder had already lost it, so the list should not keep showing it either
-            if reason == "すでにありません" { titles.removeAll { $0.id == id } }
+            if reason == "すでに削除されています" { titles.removeAll { $0.id == id } }
             job?.skipped.append(.init(id: id, reason: reason))
         }
     }
 
     private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async {
         guard let index = titles.firstIndex(where: { $0.id == id }) else {
-            job?.skipped.append(.init(id: id, reason: "一覧にありません"))
+            job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
         switch await client.setProtected(titles[index], on) {
@@ -601,7 +601,7 @@ final class AppModel {
         var label: String {
             switch self {
             case .all: "すべて"
-            case .mine: "自分の予約"
+            case .mine: "通常の予約"
             case .automatic: "おまかせ"
             }
         }
@@ -702,7 +702,7 @@ final class AppModel {
         guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
             return false
         }
-        let created = await run("予約中") {
+        let created = await run("予約を登録中") {
             _ = try await client.createReservation(request)
         }
         if created { await loadReservations() }
@@ -725,7 +725,7 @@ final class AppModel {
         guard client != nil else { return false }
         await loadReservations()
         guard let target = current(reservation) else {
-            problem = "この予約はレコーダーにもうありませんでした。一覧を取り直しました。"
+            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
         }
         guard let client else { return false }
@@ -736,7 +736,7 @@ final class AppModel {
             // the list we just read was itself out of date, which is what happens when reading it failed
             busy = nil
             await loadReservations()  // first, because a successful read clears `problem`
-            problem = "レコーダーが予約を作り直していました。一覧を取り直したので、もう一度お試しください。"
+            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
         } catch {
             busy = nil
@@ -792,7 +792,7 @@ final class AppModel {
                 uniquingKeysWith: { first, _ in first })
             programs = try await store.day(day, broadcasting: broadcasting)
         } catch {
-            problem = "番組表を読み出せませんでした: \(error)"
+            problem = "番組表を読み込めませんでした: \(error)"
         }
     }
 

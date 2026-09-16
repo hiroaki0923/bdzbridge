@@ -77,7 +77,7 @@ struct GuideScreen: View {
                     } label: {
                         Image(systemName: grid ? "tablecells" : "list.bullet")
                     }
-                    .accessibilityLabel(grid ? "リスト表示にする" : "表形式にする")
+                    .accessibilityLabel(grid ? "リスト表示にする" : "表形式で表示")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -138,12 +138,12 @@ struct GuideScreen: View {
     @ViewBuilder
     private var list: some View {
         if let problem = model.problem {
-            ContentUnavailableView("うまくいきませんでした", systemImage: "exclamationmark.triangle",
+            ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle",
                                    description: Text(problem))
         } else if shown.isEmpty {
             if model.connected {
-                ContentUnavailableView("この日の番組表がありません", systemImage: "calendar",
-                                       description: Text("右上の更新でレコーダーから取得します"))
+                ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
+                                       description: Text("右上の更新ボタンでレコーダーから取得できます"))
             } else {
                 NoRecorderView(icon: "calendar")
             }
