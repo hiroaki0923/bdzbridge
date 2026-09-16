@@ -72,16 +72,10 @@ struct RecordingsScreen: View {
                     }
                     .accessibilityLabel("ジャンルと並びと視聴で絞る")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await model.loadTitles(force: true) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(!model.connected || model.busy != nil || model.jobRunning)
-                }
             }
             .task(id: model.connected) { await model.loadTitles() }
+            // pulling down reads the list again from the recorder; not while a bulk job is walking it
+            .refreshable { if !model.jobRunning { await model.loadTitles(force: true) } }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .sheet(item: $openedGroup) { group in
                 GroupSheet(group: group) { opened = $0 }

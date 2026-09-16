@@ -35,11 +35,16 @@ struct ReservationsScreen: View {
             Group {
                 if !model.connected {
                     NoRecorderView(icon: "clock")
-                } else if model.shownReservations.isEmpty {
-                    ContentUnavailableView("予約はありません", systemImage: "clock",
-                                           description: Text("番組表から番組を選んで予約できます"))
                 } else {
-                    list
+                    // The empty state sits on top of the list rather than in its place, so that pulling
+                    // down still reloads: a reservation just made on the box is exactly what an empty
+                    // screen is waiting for, and a plain placeholder has nothing to pull.
+                    list.overlay {
+                        if model.shownReservations.isEmpty {
+                            ContentUnavailableView("予約はありません", systemImage: "clock",
+                                                   description: Text("番組表から番組を選んで予約できます"))
+                        }
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -70,14 +75,6 @@ struct ReservationsScreen: View {
                               : "line.3.horizontal.decrease.circle.fill")
                     }
                     .accessibilityLabel("並びを変える")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await model.loadReservations() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(!model.connected || model.busy != nil)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
