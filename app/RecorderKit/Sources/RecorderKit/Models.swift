@@ -71,10 +71,11 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }
     public var qualityName: String? { Codes.quality(code: qualityCode) }
-    /// The DLNA item id of this recording: the low 32 bits of the XSRS id.
+    /// The DLNA item id of this recording: the low 32 bits of the XSRS id, prefixed by the disk it lives on
+    /// (`V_` internal, `USBV_` USB), which is how the official client derives it.
     public var dlnaID: String? {
         guard let value = hexInt(id) else { return nil }
-        return "V_\(UInt32(truncatingIfNeeded: value))"
+        return "\(destination == "USBHDD" ? "USBV" : "V")_\(UInt32(truncatingIfNeeded: value))"
     }
 }
 

@@ -110,6 +110,9 @@ final class XsrsVectorTests: XCTestCase {
         let item = try XmlNode.parse(
             "<item id=\"0x0000010000034d78\"><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
             + "<scheduledDuration>60</scheduledDuration></item>")
-        XCTAssertEqual(try XCTUnwrap(XsrsParse.title(item)).dlnaID, "V_216440")
+        var title = try XCTUnwrap(XsrsParse.title(item))
+        XCTAssertEqual(title.dlnaID, "V_216440")
+        title.destination = "USBHDD"
+        XCTAssertEqual(title.dlnaID, "USBV_216440")
     }
 }

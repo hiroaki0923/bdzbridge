@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
+from bdzbridge.recorder.client import RecorderClient
 from bdzbridge.recorder.epg import JST
 from tests.conftest import (
     H,
@@ -18,6 +19,11 @@ def test_titles_and_detail(client):
     assert ts[0]["dlna_id"] == "V_216440" and ts[0]["is_new"]
     d = client.get("/api/v1/titles/0x0000010000034d78", headers=H).json()
     assert d["summary"] == "あらすじ" and d["details"] == ["番組内容 本文"] and d["id"] == "0x0000010000034d78"
+
+def test_dlna_id_names_the_disk_the_title_lives_on():
+    assert RecorderClient.cds_id("0x0000010000034d78") == "V_216440"
+    assert RecorderClient.cds_id("0x0000010000034d78", "USBHDD") == "USBV_216440"
+
 
 def test_play_on_tv_and_stop(client):
     r = client.post("/api/v1/titles/0x0000010000034d78/play", headers=H)

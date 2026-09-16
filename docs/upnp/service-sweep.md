@@ -87,8 +87,9 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 **番組単位のまとめはレコーダーからは取れません。** 本体画面の「まとめ」に相当するものは DLNA にも XSRS にも無く、
 タイトルにグループを指す項目もありません（`xsrs-api.md` の全列挙）。名前ベースのグルーピングが必要なのはこのためです。
 
-`AllVideoFolders` 配下の item は `MK_<n>`、`AllVideos` 配下は `V_<n>` で、数値部分は同じ録画を指します。
-同じ録画が経路によって別の id で見える。`X_ConvertItemId` が未解明なのはこれと関係がありそうです。
+`AllVideoFolders` 配下の item は `MK_<n>`、ジャンル配下は `GR<nn>_<n>`、`AllVideos` 配下は `V_<n>` で、数値部分は
+同じ録画を指します。フォルダとジャンルの item は DIDL-Lite の参照（`refID="V_<n>"`）で、実体は `AllVideos` の 1 件
+だけです。`X_ConvertItemId` はこの対応のためのものかと考えていましたが、公式クライアントは呼んでいません。
 
 **サムネイルは全件同一です。** `IMAGE_VTN_TN_<n>.jpg` の URL は録画ごとに違いますが、6 件取って比べたところ
 サイズもハッシュも完全に一致しました（13035 バイト）。レコーダーが用意しているのは placeholder で、
@@ -190,14 +191,15 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 ### まだ分からないもの
 
 - **`X_ConvertItemId(Elements)`** — `<xsrs>` 配下に `object` / `item` / `titleID` を置く形はすべて **402**、
-  XML でないものは **802**。形が分かりません。XSRS のタイトル ID と DLNA の `V_<n>` の対応をビット演算で
-  求めている箇所を、正規の方法に置き換えられるはずなので、**パケットキャプチャの価値が一番高いのはここ**。
+  XML でないものは **802**。形が分かりません。用途として想定していた「XSRS のタイトル ID と DLNA の `V_<n>` の
+  対応」は、公式クライアントもビット演算（ID の下 8 桁の 16 進を十進に）で求めていて、このアクションは呼んで
+  いません。本ソフトの求め方は公式と同じで、置き換える理由はなくなりました。
 - `X_GetTitleInfoExt` / `X_GetRecordScheduleInfoExt` / `X_GetPrefRecSettingList` の `Format` — 空なら通り、
   `*` `1` `2` `xsrs` は **803**。語彙不明。
 - `X_GetLiveChList` の `SkipChannel` — `0` `1` `*` 空 `true` `false` すべて 0 件でしたが、**レコーダーが待機中で
   ライブが無い状態での測定**なので結論になりません。電源が入っているときに再測定が必要。
 - `X_InputRemoteKey` の `RemoteKey` — **総当たりしていません。** ボタンを押す操作なので読み取り専用の枠を
-  出ます。キャプチャか、公式アプリの挙動からしか埋まりません。
+  出ます。キャプチャか、公式アプリの挙動からしか埋まりません（PC 版は呼んでいないので、スマホ版だけが手がかり）。
 - `X_GetRecordScheduleFileSize`、`X_HDLnkGetRecordContainerID`、`X_ConvertItemId` 以外の `Elements` 引数、
   および書き込み系（`CreateObject`、`X_CreateNextRecordSchedule`、`X_RegisterRemoteDevice`、
   `X_CreatePrefRecSetting` 系）— 未検証。

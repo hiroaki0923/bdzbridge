@@ -119,9 +119,11 @@ class RecorderClient:
         return decode_logo_file(r.content)
 
     @staticmethod
-    def cds_id(title_id: str) -> str:
-        """The DLNA item id of a recorded title: the low 32 bits of the XSRS title id."""
-        return f"V_{int(title_id, 16) & 0xFFFFFFFF}"
+    def cds_id(title_id: str, destination: str = "HDD") -> str:
+        """The DLNA item id of a recorded title: the low 32 bits of the XSRS title id, prefixed by the disk it
+        lives on (`V_` internal, `USBV_` USB), which is how the official client derives it."""
+        prefix = "USBV" if destination == "USBHDD" else "V"
+        return f"{prefix}_{int(title_id, 16) & 0xFFFFFFFF}"
 
     async def fetch_logo_file(self, broadcasting: str) -> bytes | None:
         url = f"http://{self.host}:{self.stream_port}//{codes.LOGO_FILES[broadcasting]}"
