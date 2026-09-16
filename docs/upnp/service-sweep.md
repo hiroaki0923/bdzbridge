@@ -166,6 +166,14 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 **録画と予約で creator の値space が違います。** 録画 1323 件は `1100` が 282 件、`2000` が 1041 件で合計が
 一致します。予約 39 件は `1100` が 20 件、`2200` が 19 件。つまり録画側は `2000`、予約側は `2200` です。
 
+## 制御 URL はアクション名だけで振り分けている
+
+`/X_PvrControl` に `X_GetPrefRecSettingList` を投げるとき、SOAPACTION のサービス型を
+`urn:schemas-xsrs-org:service:X_ScheduledRecording:2`（別サービスのもの）にしても**同じ答えが返ります**。
+逆に、`/XSRS` や `/XSRSExt` に `X_PvrControl` のアクションを投げると 401 です。つまり振り分けは
+「制御 URL ＋ アクション名」で、SOAPACTION のサービス型は照合されていません。移植では正しい型を送れば
+よいだけですが、他人のキャプチャを読むときに型が合っていなくても動いている例がありえます。
+
 ## 引数の棚卸し
 
 ### 語彙が確定しているもの

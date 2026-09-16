@@ -133,6 +133,9 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 `X_UpdatePrefRecSetting` / `X_DeletePrefRecSetting` で書けます。**4 つすべて実機で確認しました**（作成した条件は
 確認後に削除）。
 
+**`SearchCriteria` は無視されます。** 空、`*`、`presetID = "011"`、`type = "SEARCH"` など 7 通りで応答は
+まったく同じでした（エラーにもなりません）。録画一覧・予約一覧では絞り込みが効くので、逆になっています。
+
 **`Filter` は効きます。** 録画一覧・予約一覧の `Filter` は無視されますが、ここは違います。受け付けるのは
 `*`、空、`desiredQualityMode`、`recordDestinationID`、`searchSetting` の 5 つだけで、ほかはすべて **803**。
 空と `searchSetting` は同じ答え（条件の中身だけ）で、`desiredQualityMode` と `recordDestinationID` を足したいときは
@@ -281,6 +284,11 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 - `0x00000001` / `0x00000002` / `0x00000003` — **32 ビットのビットマスク説**。画面がチェックボックスの一覧
   なので自然な読みですが、外れでした。2 ビット立てたものも「すべてのチャンネル」で、1 ビットのものと区別が
   付きません。この線を再度試す必要はありません。
+
+**他の経路もありません。** 1 件だけを引く宣言外のアクション（`X_GetTitleInfoExt` があるので同じ型を疑い、
+`X_GetPrefRecSettingInfoExt` など 10 通り）はすべて **401**。`/XSRS` と `/XSRSExt` に投げても 401。
+`searchSetting` が 2 つ並ぶ形や別の `object` も出てきません（公式クライアントは `searchSetting` をリストで
+読む作りですが、この機種は常に 1 つ）。
 
 結果として、LAN から扱えるのは対象チャンネル以外のすべてです。チャンネルで絞りたい人は本体でやる必要があります。
 そして**人が本体で作った条件を `X_UpdatePrefRecSetting` で書き戻すと、その絞り込みが消える**と考えるべきです
