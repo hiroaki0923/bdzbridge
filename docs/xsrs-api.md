@@ -158,3 +158,34 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 `0x0` でも通ります**（レコーダー自身が入れた予約はすべて `,,0x0,<event>`、捕獲した公式アプリの要求は
 `,,0x428,<event>`）。一方、**形が壊れていると（フィールド数が足りない、16 進でない）エラーにならず、番組追従
 なしの予約として作成されます**。番組を追いかけているつもりで時刻予約になっている、という失敗が起こり得ます。
+
+## 録画タイトルが持つ項目（全列挙）
+
+「レコーダーが番組単位のまとめを持っているなら、名前からの推測は不要になるはず」という問いに答えるため、
+タイトルが持つ項目を全部列挙しました（2026-09-16、BDZ-FBT4100）。
+
+`X_GetTitleList` の item（17 項目）:
+`desiredQualityMode` `genreID` `lastPlaybackTime` `markingID` `portableRecordFile` `recordDestinationID`
+`recordSize` `recordingFlag` `reservationCreatorID` `scheduledChannelID` `scheduledDuration`
+`scheduledStartDateTime` `targetQualityMode` `title` `titleHevcFlag` `titleNewFlag` `titleProtectFlag`
+
+`X_GetTitleInfoExt` の object（40 項目、上記に加えて）:
+`autoCreatedFlag` `chapterTime` `dlnaFlag` `downloadFlag` `editCount` `eventDetail` `eventSummary`
+`lastPlaybackDateTime` `longestDigestScene` `normalDigestScene` `shortestDigestScene` `odekakeSize`
+`parentalRate` `pictstoryFlag` `playListFlag` `privateFlag` `recommendedFlag` `recordStartDate`
+`remoteViewFlag` `rentalFlag` `resumePoint` `searchSetting` `startPTS` `titleSize` `userPlaybackTime`
+
+**グループ・シリーズ・フォルダを指す項目はありません。** 番組単位のまとめは、レコーダーからは取れません。
+`recorder/series.py` と `Series.swift` の名前ベースのグルーピングは近道ではなく、必要なものです。
+
+分かったこと:
+
+- **`autoCreatedFlag`** — 実機では `1` ⟺ `reservationCreatorID=1100`（レコーダー自身の録画）、`0` ⟺ `2000`。
+  予約側の `reservationCreatorID` は作っていない予約に `2200` が付く例があって信用できませんが、こちらは
+  その種の矛盾をまだ見ていません。「レコーダーが自分で録ったか」の判定はこれを使うほうが堅い。
+- **`searchSetting`** — おまかせの条件を指すらしい項目ですが、実機では全タイトルで空。`X_GetPrefRecSettingList`
+  が 0 件なのと整合します。
+- **`eventSummary` / `eventDetail`** — `X_GetTitleDetail` で別に取っている番組説明と同じもの。両方要るなら
+  `X_GetTitleInfoExt` 1 回で済みます（1 タイトル 1 リクエストなのは変わらない）。
+- `titleSize` は MB、`odekakeSize` は桁からして KB。`recordSize`（一覧側）とは別項目。
+- `dlnaFlag` / `remoteViewFlag` は配信可否。`recommendedFlag` は自動録画の一部に `1`。

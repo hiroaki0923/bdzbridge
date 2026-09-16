@@ -75,6 +75,25 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 `AllVideoTuners` は `VideoRoot` の子ではなく、`description.xml` の `videoLiveTunerContainer` から辿ります。
 **BS4K のチューナーは出てきません。** ライブ配信できるのは 3 波までです。
 
+### レコーダー側のグルーピング（2026-09-16 実測）
+
+| コンテナ | 中身 | 使えるか |
+|---|---|---|
+| `AllVideoGenres` | ARIB 第 1 階層のジャンル 8 つ（`VideoGenre00`〜） | ジャンル別の一覧・件数はレコーダーに聞ける |
+| `AllVideoDates` | 年ごと（`VideoYear2026` など） | 同上 |
+| `AllVideoTakes` | ハイビジョン画質 / モバイル画質（おでかけ転送用） | 転送済みかの判定 |
+| `AllVideoFolders` | **本体で手動で作ったグループ**。作っていなければ「グループなし」1 つに全件 | 番組単位のまとめは**出てこない** |
+
+**番組単位のまとめはレコーダーからは取れません。** 本体画面の「まとめ」に相当するものは DLNA にも XSRS にも無く、
+タイトルにグループを指す項目もありません（`xsrs-api.md` の全列挙）。名前ベースのグルーピングが必要なのはこのためです。
+
+`AllVideoFolders` 配下の item は `MK_<n>`、`AllVideos` 配下は `V_<n>` で、数値部分は同じ録画を指します。
+同じ録画が経路によって別の id で見える。`X_ConvertItemId` が未解明なのはこれと関係がありそうです。
+
+**サムネイルは全件同一です。** `IMAGE_VTN_TN_<n>.jpg` の URL は録画ごとに違いますが、6 件取って比べたところ
+サイズもハッシュも完全に一致しました（13035 バイト）。レコーダーが用意しているのは placeholder で、
+録画の内容は写っていません。一覧にサムネイルを出さない判断はこの確認に基づきます。
+
 その他: `GetSortCapabilities` は `dc:title,dc:date,upnp:genre,av:capturedDateTime`、`GetSearchCapabilities` は
 **空**（`Search` は使えない）。`X_HDLnkGetRecordDestinations` は `HDD` 1 つ。`X_GetDLNAUploadProfiles` は
 アップロード可能な 6 プロファイルを返します。`GetSystemUpdateID` は変更のたびに増える番号です。
