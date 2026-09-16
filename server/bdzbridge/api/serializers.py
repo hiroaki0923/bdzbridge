@@ -16,7 +16,8 @@ from . import schemas as S
 
 
 def _genres(pairs) -> list[S.Genre]:
-    return [S.Genre(level1=a, level2=b, label=codes.GENRE_LABEL.get(a, "不明")) for a, b in pairs]
+    return [S.Genre(level1=a, level2=b, label=codes.GENRE_LABEL.get(a, "不明"), label2=codes.sub_genre(a, b))
+            for a, b in pairs]
 
 
 def _genres_from_code(code: int | None) -> list[S.Genre]:

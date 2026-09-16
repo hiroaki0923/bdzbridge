@@ -24,6 +24,14 @@ final class CodesVectorTests: XCTestCase {
 
         let genres = Dictionary(uniqueKeysWithValues: Codes.genreLabel.map { ("0x" + String($0.key, radix: 16), $0.value) })
         XCTAssertEqual(genres, vectors.dictionary("genre_label") as? [String: String])
+        let subGenres = Dictionary(uniqueKeysWithValues: Codes.subGenreLabel.map { level1, subs in
+            ("0x" + String(level1, radix: 16),
+             Dictionary(uniqueKeysWithValues: subs.map { ("0x" + String($0.key, radix: 16), $0.value) }))
+        })
+        XCTAssertEqual(subGenres, vectors.dictionary("sub_genre_label") as? [String: [String: String]])
+        XCTAssertEqual(Codes.subGenre(level1: 5, level2: 0), "クイズ")
+        XCTAssertNil(Codes.subGenre(level1: 5, level2: nil), "a whole genre has no sub-genre name")
+        XCTAssertNil(Codes.subGenre(level1: 3, level2: 0xD), "a code the standard does not use")
 
         let symbols = Dictionary(uniqueKeysWithValues: Arib.symbols.map {
             (String(format: "U+%04X", $0.key.value), $0.value)

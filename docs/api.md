@@ -487,6 +487,7 @@ Stop after the item being processed; what is done stays done.
 - `repeats`: dict[str, string]
 - `broadcastings`: dict[str, string]
 - `genres`: dict[str, string] （省略可） — ARIB level-1 genre code → label
+- `sub_genres`: dict[str, dict[str, string]] （省略可） — ARIB level-1 genre code → sub-genre code → label
 
 ### Channel
 
@@ -526,6 +527,7 @@ Stop after the item being processed; what is done stays done.
 - `level1`: integer
 - `level2`: integer | null — None stands for the whole level-1 genre, as a recorder condition can
 - `label`: string
+- `label2`: string | null （省略可） — the sub-genre's name; absent for a whole genre or an unused code
 
 ### Reservation
 

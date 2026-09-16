@@ -107,33 +107,37 @@ struct RecorderRuleRow: View {
     }
 }
 
-/// The form for a new condition. Keywords go in one field, separated by 、 or spaces, up to five, as the
-/// recorder's own screen allows.
+/// The form for a new condition. Keywords are rows rather than one comma-separated field: the recorder holds
+/// five of them and two exclusions, so they are a list, and a list is what iOS puts on screen.
 struct RecorderRuleSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var keywords = ""
-    @State private var excluded = ""
+    @State private var keywords: [Word] = [Word()]
+    @State private var excluded: [Word] = []
     @State private var logic = "OR"
     @State private var genreLevel1 = -1   // -1: no genre
+    @State private var genreLevel2 = -1   // -1: the whole level-1 genre
     @State private var broadcastingScope = "ALL"
     @State private var timeScope = "ALL"
     @AppStorage("defaultQuality") private var quality = "LSR"
     @State private var failure: String?
 
-    private var words: [String] { split(keywords) }
-    private var excludedWords: [String] { split(excluded) }
+    /// A row of the list needs an identity of its own; the text alone would reorder rows as it is typed.
+    struct Word: Identifiable {
+        let id = UUID()
+        var text = ""
+    }
 
-    private func split(_ text: String) -> [String] {
-        text.split(whereSeparator: { "、,\u{3000} \n".contains($0) })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+    private var words: [String] { keywords.map(\.text).map(clean).filter { !$0.isEmpty } }
+    private var excludedWords: [String] { excluded.map(\.text).map(clean).filter { !$0.isEmpty } }
+    private func clean(_ text: String) -> String { text.trimmingCharacters(in: .whitespaces) }
+
+    private var subGenres: [Int] {
+        genreLevel1 < 0 ? [] : (Codes.subGenreLabel[genreLevel1]?.keys.sorted() ?? [])
     }
 
     private var problem: String? {
         if words.isEmpty && genreLevel1 < 0 { return "キーワードかジャンルを指定してください" }
-        if words.count > 5 { return "キーワードは 5 つまでです" }
-        if excludedWords.count > 2 { return "除外ワードは 2 つまでです" }
         return nil
     }
 
@@ -141,20 +145,56 @@ struct RecorderRuleSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("キーワード（最大 5 つ、「、」区切り）", text: $keywords)
-                    TextField("除外ワード（最大 2 つ）", text: $excluded)
-                    Picker("検索方法", selection: $logic) {
-                        Text("いずれかのキーワードを含む").tag("OR")
-                        Text("すべてのキーワードを含む").tag("AND")
+                    ForEach($keywords) { $word in
+                        TextField("キーワード", text: $word.text)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
                     }
+                    .onDelete { keywords.remove(atOffsets: $0) }
+                    if keywords.count < 5 {
+                        Button("キーワードを追加", systemImage: "plus") { keywords.append(Word()) }
+                    }
+                } header: {
+                    Text("キーワード")
                 } footer: {
-                    if let problem { Text(problem) }
+                    if let problem { Text(problem) } else { Text("番組名や番組内容に含まれる言葉です。5 つまで登録できます。") }
                 }
+
+                Section {
+                    ForEach($excluded) { $word in
+                        TextField("除外ワード", text: $word.text)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    .onDelete { excluded.remove(atOffsets: $0) }
+                    if excluded.count < 2 {
+                        Button("除外ワードを追加", systemImage: "plus") { excluded.append(Word()) }
+                    }
+                    if words.count > 1 {
+                        Picker("検索方法", selection: $logic) {
+                            Text("いずれかを含む").tag("OR")
+                            Text("すべてを含む").tag("AND")
+                        }
+                    }
+                } header: {
+                    Text("除外ワード")
+                } footer: {
+                    Text("この言葉を含む番組は録画しません。2 つまで登録できます。")
+                }
+
                 Section {
                     Picker("ジャンル", selection: $genreLevel1) {
                         Text("指定しない").tag(-1)
-                        ForEach(Codes.genreLabel.keys.sorted(), id: \.self) { level in
+                        ForEach(Codes.genreLabel.keys.sorted().filter { Codes.subGenreLabel[$0] != nil }, id: \.self) { level in
                             Text(Codes.genreLabel[level] ?? "").tag(level)
+                        }
+                    }
+                    if !subGenres.isEmpty {
+                        Picker("サブジャンル", selection: $genreLevel2) {
+                            Text("すべて").tag(-1)
+                            ForEach(subGenres, id: \.self) { level2 in
+                                Text(Codes.subGenre(level1: genreLevel1, level2: level2) ?? "").tag(level2)
+                            }
                         }
                     }
                     Picker("放送", selection: $broadcastingScope) {
@@ -177,10 +217,14 @@ struct RecorderRuleSheet: View {
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
                     }
+                } header: {
+                    Text("絞り込み")
                 } footer: {
                     Text("対象チャンネルの指定はレコーダー本体でのみ設定できます。条件の名前はレコーダーが自動で付けます。")
                 }
             }
+            // a genre's sub-genres are its own, so the choice cannot survive a change of genre
+            .onChange(of: genreLevel1) { genreLevel2 = -1 }
             .navigationTitle("条件を追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -190,6 +234,7 @@ struct RecorderRuleSheet: View {
                         Task {
                             let request = RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic,
                                                               genreLevel1: genreLevel1 < 0 ? nil : genreLevel1,
+                                                              genreLevel2: genreLevel2 < 0 ? nil : genreLevel2,
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
                                                               qualityCode: Codes.quality[quality] ?? 240)
                             if await model.addRecorderRule(request) {

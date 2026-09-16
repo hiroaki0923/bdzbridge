@@ -221,6 +221,8 @@ def codes_vectors() -> dict:
         "broadcasting": codes.BROADCASTING, "broadcasting_label": codes.BROADCASTING_LABEL,
         "epg_files": codes.EPG_FILES, "logo_files": codes.LOGO_FILES,
         "quality": codes.QUALITY, "quality_elsewhere": codes.QUALITY_ELSEWHERE, "quality_label": codes.QUALITY_LABEL,
+        "sub_genre_label": {f"{k:#x}": {f"{k2:#x}": v2 for k2, v2 in v.items()}
+                            for k, v in codes.GENRE_LABEL2.items()},
         "rule_logic_label": codes.RULE_LOGIC_LABEL, "time_scope_label": codes.TIME_SCOPE_LABEL,
         "broadcasting_scope_label": codes.BROADCASTING_SCOPE_LABEL,
         "repeat": codes.REPEAT, "repeat_label": codes.REPEAT_LABEL, "weekday_repeat": codes.WEEKDAY_REPEAT,

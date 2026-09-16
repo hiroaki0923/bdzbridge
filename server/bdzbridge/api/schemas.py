@@ -28,6 +28,7 @@ class Genre(BaseModel):
     level1: int
     level2: int | None = Field(description="None stands for the whole level-1 genre, as a recorder condition can")
     label: str
+    label2: str | None = Field(None, description="the sub-genre's name; absent for a whole genre or an unused code")
 
 
 class Program(BaseModel):
@@ -378,3 +379,5 @@ class Defaults(BaseModel):
     repeats: dict[str, str]
     broadcastings: dict[str, str]
     genres: dict[int, str] = Field(default_factory=dict, description="ARIB level-1 genre code → label")
+    sub_genres: dict[int, dict[int, str]] = Field(default_factory=dict,
+                                                  description="ARIB level-1 genre code → sub-genre code → label")

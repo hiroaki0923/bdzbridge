@@ -123,5 +123,10 @@ public struct RecorderRule: Equatable, Sendable, Identifiable {
     public var logicLabel: String { Codes.ruleLogicLabel[logic] ?? logic }
     public var timeScopeLabel: String { Codes.timeScopeLabel[timeScope] ?? timeScope }
     public var broadcastingScopeLabel: String { Codes.broadcastingScopeLabel[broadcastingScope] ?? broadcastingScope }
-    public var genreLabel: String? { genreLevel1.flatMap { Codes.genreLabel[$0] } }
+    /// The genre as a reader sees it: the level-1 name, or "バラエティ / クイズ" when a sub-genre is set.
+    public var genreLabel: String? {
+        guard let level1 = genreLevel1, let name = Codes.genreLabel[level1] else { return nil }
+        guard let sub = Codes.subGenre(level1: level1, level2: genreLevel2) else { return name }
+        return "\(name) / \(sub)"
+    }
 }

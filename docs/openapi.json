@@ -2412,6 +2412,17 @@
       "type": "object",
       "title": "Genres",
       "description": "ARIB level-1 genre code → label"
+     },
+     "sub_genres": {
+      "additionalProperties": {
+       "additionalProperties": {
+        "type": "string"
+       },
+       "type": "object"
+      },
+      "type": "object",
+      "title": "Sub Genres",
+      "description": "ARIB level-1 genre code → sub-genre code → label"
      }
     },
     "type": "object",
@@ -2445,6 +2456,18 @@
      "label": {
       "type": "string",
       "title": "Label"
+     },
+     "label2": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label2",
+      "description": "the sub-genre's name; absent for a whole genre or an unused code"
      }
     },
     "type": "object",
