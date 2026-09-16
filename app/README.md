@@ -65,36 +65,18 @@ reads them as its own options.
 
 ## TestFlight
 
-Two ways up. Either works; neither needs the other.
+Two scripts, each documented in its own header, and nothing about Apple's websites here:
 
-### From this Mac
+- `scripts/testflight.sh` archives, signs and uploads from a Mac. It reads the team from
+  `Signing.local.xcconfig` and an App Store Connect API key from `TestFlight.local.env`, both gitignored,
+  and uses the minute of the upload as the build number.
+- `ci_scripts/ci_post_clone.sh` is what Xcode Cloud needs, and it has to sit at the root of the repository:
+  it installs XcodeGen, regenerates the project from `project.yml` so a cloud build matches the definition,
+  and writes `Signing.local.xcconfig` from the workflow's `DEVELOPMENT_TEAM` and `CI_BUILD_NUMBER`.
 
-`scripts/testflight.sh` archives a Release build, signs it automatically and uploads it. It reads
-`Signing.local.xcconfig` for the team and `TestFlight.local.env` (gitignored too) for an App Store Connect
-API key — `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH` to the `.p8`. The build number is the minute of the
-upload. App Store Connect has to know the app already: an app record for `jp.hiroaki.bdbridge`, the key
-(a role that can manage certificates — Admin or App Manager), and an internal testing group with the
-testers in it, which is then handed each build as it is processed. `ITSAppUsesNonExemptEncryption` in
-`project.yml` answers the export question that would otherwise hold every build. Archiving from Xcode instead
-(Product > Archive, then Distribute App) needs no API key, but the build number has to be raised by hand: App
-Store Connect refuses a number it has already seen.
-
-### From Xcode Cloud
-
-`ci_scripts/ci_post_clone.sh`, at the root of the repository, installs XcodeGen and regenerates the project
-from `project.yml` after the clone, so that a cloud build matches the definition rather than whatever was last
-committed, and writes the `Signing.local.xcconfig` that is gitignored here. The directory has to be at the
-root: a copy beside the Xcode project is reported as "Post-Clone script not found". The workflow has to set `DEVELOPMENT_TEAM` to the
-team identifier; Xcode Cloud manages the certificates and profiles itself, so nothing else is needed and no
-key is kept on any machine. The build number comes from `CI_BUILD_NUMBER`, which Xcode Cloud counts up, so
-nothing has to be edited between builds -- `Signing.xcconfig` holds 1 for a build made here, and the file the
-script writes wins because an xcconfig takes its last definition. If a cloud number ever collides with one
-already uploaded from a Mac, raise the next build number in the workflow rather than editing `project.yml`. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store
-Connect and point it at `app/BDBridge.xcodeproj`. The action has to be **Archive**, with its deployment
-preparation set to *TestFlight (Internal Testing Only)*, and a post-action of *TestFlight Internal Testing*
-naming a tester group. A Build action compiles and tests and delivers nothing: its builds appear in Xcode
-Cloud and never in TestFlight, which looks like a build that cannot be selected there.
-
+`ITSAppUsesNonExemptEncryption` in `project.yml` is what keeps every upload from stopping to ask about
+export compliance. The build number comes from the xcconfig rather than `project.yml`, because a setting on
+the target would outrank it: `Signing.xcconfig` holds 1, and whatever writes the included file wins.
 
 ## Driving it without tapping through it
 
