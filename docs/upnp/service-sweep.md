@@ -203,8 +203,8 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 - `X_InputRemoteKey` の `RemoteKey` — **総当たりしていません。** ボタンを押す操作なので読み取り専用の枠を
   出ます。キャプチャか、公式アプリの挙動からしか埋まりません（PC 版は呼んでいないので、スマホ版だけが手がかり）。
 - `X_GetRecordScheduleFileSize`、`X_HDLnkGetRecordContainerID`、`X_ConvertItemId` 以外の `Elements` 引数、
-  および書き込み系（`CreateObject`、`X_CreateNextRecordSchedule`、`X_RegisterRemoteDevice`、
-  `X_CreatePrefRecSetting` 系）— 未検証。
+  および書き込み系（`CreateObject`、`X_CreateNextRecordSchedule`、`X_RegisterRemoteDevice`）— 未検証。
+  `X_CreatePrefRecSetting` 系の 3 つは確定しました（`xsrs-api.md`）。
 - `Browse` の `ObjectID` — 上位 3 階層は歩きました（`0` → `VideoRoot` → 5 つ、`AllVideoTuners` → 3 波）。
   その下は未踏。
 

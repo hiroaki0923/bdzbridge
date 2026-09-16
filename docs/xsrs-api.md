@@ -130,7 +130,8 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 ## おまかせ・まる録の条件（X_PvrControl）
 
 レコーダー本体の「おまかせ・まる録」の条件は `X_GetPrefRecSettingList` で読めて、`X_CreatePrefRecSetting` /
-`X_UpdatePrefRecSetting` / `X_DeletePrefRecSetting` で書けます（読み出しのみ実測、書き込みは未検証）。
+`X_UpdatePrefRecSetting` / `X_DeletePrefRecSetting` で書けます。**4 つすべて実機で確認しました**（作成した条件は
+確認後に削除）。
 
 **`Filter` は効きます。** 録画一覧・予約一覧の `Filter` は無視されますが、ここは違います。受け付けるのは
 `*`、空、`desiredQualityMode`、`recordDestinationID`、`searchSetting` の 5 つだけで、ほかはすべて **803**。
@@ -218,17 +219,61 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 `ALL` と `NIGHT` は実機で確認しました。残り 3 つは `MORNING` / `AFTERNOON` / `MIDNIGHT` あたりでしょうが、
 **推測です**。
 
+### 条件を作る・変える・消す
+
+| アクション | 引数 | 返り |
+|---|---|---|
+| `X_CreatePrefRecSetting` | `Elements`、`Format`（空） | `SearchSettingID` |
+| `X_UpdatePrefRecSetting` | `Elements`、`Format`（空）、`SearchSettingID` | 新しい `SearchSettingID` |
+| `X_DeletePrefRecSetting` | `SearchSettingID` | — |
+
+`Elements` は一覧と同じ形です。作成では `object` に `id` 属性を付けず（予約の `<item id="">` とは違い、属性
+そのものを省く）、変更では**現在の id を `object` に書き、`SearchSettingID` 引数にも同じ値を渡します**。
+実際に通った作成の `Elements`:
+
+```xml
+<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
+  <object type="SEARCH">
+    <desiredQualityMode>220</desiredQualityMode>
+    <recordDestinationID>HDD</recordDestinationID>
+    <searchSetting type="MULTIPLE" logic="OR">
+      <name>（何を書いてもレコーダーが付け直します）</name>
+      <keyword>キーワード</keyword>
+      <timeScope>ALL</timeScope>
+      <broadcastTypeScope>ALL</broadcastTypeScope>
+    </searchSetting>
+  </object>
+</xsrs>
+```
+
+書き込みで分かったこと。
+
+- **変更は id を振り直します。** `X_UpdatePrefRecSetting` の応答に**新しい** `SearchSettingID` が入って返って
+  きました（`0x00006707` → `0x00007706`）。本体で編集したときと同じ挙動で、API 側からも確認できたことになります。
+  返ってきた値を使うこと。
+- **他の条件を作ったり消したりしても、既存の条件の id は変わりません。** 振り直されるのはその条件自身を
+  変更したときだけです。
+- **`name` は無視されます。** 送った文字列ではなく、レコーダーがキーワードとジャンルから組み直します
+  （`ブリッジ変更試験` と `0x30` を送ったら `ブリッジ変更試験/国内ドラマ` が返りました。level2 の名前まで
+  知っているので、こちらのジャンル表より細かい）。
+- **`desiredQualityModeForAdvanced` はレコーダーが足します。** `broadcastTypeScope` を `ALL` にしたときだけ
+  応答に現れ（値は `100` = DR）、`TRD` だけのときは出ませんでした。4K 放送用の画質で、本体の画面が放送波ごとに
+  画質を持つのと符合します。送らなくても既定値で埋まります。
+- **要素の順序は送ったとおりに保たれます。** 本体で作った条件は `genreID` が `keyword` より前でしたが、
+  こちらが後ろで送ったものはそのまま後ろで返ってきました。順序は受理の条件ではないようです。
+
 **チャンネルの指定は読めません。** 本体でこの条件のチャンネルを 1 局（地上デジタルの 1 波）に絞った状態でも、
 `presetID` はどの `Filter` でも出てきません。公式 PC クライアントは `presetID` を複数読む作りになっているので
 要素自体は規格にありますが、この機種はこのアクションで返しません。
 
 これは書き込みのときに危険です。**読んだ条件をそのまま `X_UpdatePrefRecSetting` で書き戻すと、見えていない
-チャンネルの絞り込みを消してしまう**と考えるべきです。新規に作る（`X_CreatePrefRecSetting`）ぶんには影響
-ありませんが、既存の条件の変更は、本体でやってもらうか、消える可能性を承知の上でやるかのどちらかです。
+チャンネルの絞り込みを消してしまう**と考えるべきです（確認はしていません。人が本体で設定した条件を壊す
+実験なので避けました）。新規に作るぶんには影響がないので、**変更していいのは自分が作った条件だけ**と考えるのが
+安全です。本体で作られた条件は、読んで見せるのはよく、書き戻さないこと。
 
 **まだ分からないもの**: `timeScope` の朝・昼・深夜の綴り、`object` の `type` は `SEARCH` 以外に何があるか、
-`searchSetting` の `type="MULTIPLE"` の他の値、1 台に登録できる条件の数、書き込み系 3 アクションの `Elements` の
-形（一覧と同じ形かどうか）。
+`searchSetting` の `type="MULTIPLE"` の他の値、1 台に登録できる条件の数、`presetID` を**送った**ときに効くのか
+（読めないだけで書けるのかもしれません）。
 
 `X_GetPrefRecSettingList` が 0 件でも `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
 この一覧に載るのは「おまかせ・まる録」の条件だけで、新番組おまかせ録画などの単発設定は別の仕組みです。
