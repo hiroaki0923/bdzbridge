@@ -47,9 +47,9 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(bodies.count, 2)
         XCTAssertTrue(bodies[0].contains("<StartingIndex>0</StartingIndex>"))
         XCTAssertTrue(bodies[1].contains("<StartingIndex>2</StartingIndex>"))
-        // the exact criteria syntax, escaped as the SOAP body carries it: a criteria the recorder cannot
-        // parse matches everything instead of failing, so a typo here would go unnoticed
-        XCTAssertTrue(bodies[0].contains("<SearchCriteria>recordDestinationID = &quot;HDD&quot;</SearchCriteria>"))
+        // no criteria, as the official client sends for the internal disk; the recorder answers a
+        // criteria it cannot parse with everything, so a filter here could never be seen to fail
+        XCTAssertTrue(bodies[0].contains("<SearchCriteria></SearchCriteria>"))
     }
 
     func testAFaultBecomesAnErrorThatNamesTheCode() async throws {

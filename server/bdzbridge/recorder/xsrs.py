@@ -24,10 +24,10 @@ _CLIENT_HEADERS = {
 }
 
 
-# The criteria syntax is `field = "value"`, and it has to be exact: the recorder answers 860/861 to a field
-# it cannot search on, but a *value* it cannot parse silently matches everything rather than failing
-# (docs/upnp/service-sweep.md). Written wrongly, this filter quietly does nothing.
-_DESTINATION_HDD = 'recordDestinationID = "HDD"'
+# The official client sends no SearchCriteria for the internal disk, and `recordDestinationID="USBHDD"`
+# (no spaces, quoted) only when listing a USB one. A value the recorder cannot parse silently matches
+# everything rather than failing (docs/upnp/service-sweep.md), so an HDD filter was never observable.
+_DESTINATION_HDD = ""
 
 
 # Codes seen on a BDZ-FBT4100. The full list with what produces each one is in docs/xsrs-api.md.
