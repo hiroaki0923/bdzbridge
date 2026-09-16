@@ -5,6 +5,10 @@
 - `RecorderApp/` — the app itself: SwiftUI, five tabs, no server in the middle.
 - `project.yml` — the Xcode project is generated from this by XcodeGen and is **not** committed.
 
+The app is called **BD Bridge**. The Xcode target is still `RecorderApp`, which is what the scheme and the
+commands below use; `scripts/icon.swift` draws the icon into the asset catalogue and is the only place the
+artwork exists, so run it after changing the drawing.
+
 ## Build and run
 
 ```

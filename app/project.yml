@@ -1,8 +1,8 @@
 # XcodeGen definition for the iOS app. The project file itself is generated and not committed:
 #   brew install xcodegen && cd app && xcodegen generate
 #
-# The product name and bundle identifier below are working values. The store name has not been decided yet;
-# when it is, change CFBundleDisplayName and PRODUCT_BUNDLE_IDENTIFIER here and regenerate.
+# The app is called BD Bridge. The Xcode target keeps its original name, RecorderApp, because the scheme and
+# the archive paths are wired to it; only the display name and the bundle identifier below face the reader.
 name: RecorderApp
 options:
   bundleIdPrefix: jp.hiroaki
@@ -32,6 +32,7 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
     # DEVELOPMENT_TEAM lives here and not above, because a build setting outranks an xcconfig:
     # Signing.xcconfig reads the gitignored Signing.local.xcconfig, which holds the team identifier.
@@ -41,7 +42,7 @@ targets:
     info:
       path: RecorderApp/Info.plist
       properties:
-        CFBundleDisplayName: 番組表
+        CFBundleDisplayName: BD Bridge
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
