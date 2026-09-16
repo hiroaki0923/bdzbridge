@@ -54,7 +54,7 @@ struct WelcomeView: View {
                 if !model.found.isEmpty {
                     Section("見つかったレコーダー") {
                         ForEach(model.found, id: \.host) { recorder in
-                            Button { Task { await model.use(recorder) } } label: { FoundRecorderRow(recorder: recorder) }
+                            Button { Task { await take(recorder) } } label: { FoundRecorderRow(recorder: recorder) }
                                 .buttonStyle(.plain)
                         }
                     }
@@ -67,7 +67,10 @@ struct WelcomeView: View {
                             .keyboardType(.numbersAndPunctuation)
                         Button("このアドレスに接続") {
                             model.host = typedHost.trimmingCharacters(in: .whitespaces)
-                            Task { await model.connect() }
+                            Task {
+                                await model.connect()
+                                if model.connected { dismiss() }
+                            }
                         }
                         .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
                     } else {
@@ -85,11 +88,20 @@ struct WelcomeView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("あとで設定") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    // opened again from the settings there is nothing to put off, only a screen to leave
+                    Button(model.host.isEmpty ? "あとで設定" : "閉じる") { dismiss() }
+                }
             }
-            // the recorder answering is the end of the tutorial; nothing to read after that
-            .onChange(of: model.connected) { if model.connected { dismiss() } }
         }
+    }
+
+    /// Choosing a recorder ends the tutorial as soon as it answers. Watching `connected` flip would miss the
+    /// case where the screen was opened from the settings with a recorder already on the line, so the
+    /// leaving is tied to the tap that did it.
+    private func take(_ recorder: RecorderDescription) async {
+        await model.use(recorder)
+        if model.connected { dismiss() }
     }
 
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
