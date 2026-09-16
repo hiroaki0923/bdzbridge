@@ -33,6 +33,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Xcode's General tab reads the category from this build setting rather than from the Info.plist, and
+        # shows None without it. With GENERATE_INFOPLIST_FILE off it changes nothing in the build, so the same
+        # answer is written in both places; the category a shopper sees is the one set in App Store Connect.
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.entertainment
         CODE_SIGN_STYLE: Automatic
     # DEVELOPMENT_TEAM lives here and not above, because a build setting outranks an xcconfig:
     # Signing.xcconfig reads the gitignored Signing.local.xcconfig, which holds the team identifier.
