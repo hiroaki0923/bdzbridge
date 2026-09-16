@@ -47,6 +47,9 @@ final class AppModel {
     /// Set when the recorder answered nothing at all rather than answering with an error.
     private(set) var unreachable = false
     private(set) var problem: String?
+    /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
+    /// also type it, for a recorder that has never been reached from this phone.
+    private(set) var mac: String?
 
     private var store: GuideStore?
     private var client: RecorderClient?
@@ -61,6 +64,7 @@ final class AppModel {
         let midnight = calendar.startOfDay(for: Date())
         days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
+        mac = UserDefaults.standard.string(forKey: Self.macKey)
         day = days.first ?? Date()
     }
 
@@ -152,10 +156,7 @@ final class AppModel {
             firmware = try await client.firmwareVersion()
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once.
-            if let settings = try? await client.networkSettings(),
-               let mac = WakeOnLan.normalise(settings.mac) {
-                UserDefaults.standard.set(mac, forKey: Self.macKey)
-            }
+            if let settings = try? await client.networkSettings() { remember(mac: settings.mac) }
             let capacity = try await client.recordDestinationInfo()
             storage = (capacity.freeBytes, capacity.totalBytes)
             unreachable = false
@@ -173,8 +174,7 @@ final class AppModel {
     /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     @discardableResult
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
-        guard let client = client ?? self.client, unreachable, canWake,
-              let mac = UserDefaults.standard.string(forKey: Self.macKey),
+        guard let client = client ?? self.client, unreachable, let mac,
               WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0
         else { return false }
         // Nothing is wrong yet, so nothing should be on screen saying there is: the failed probe that got
@@ -189,9 +189,22 @@ final class AppModel {
         return false
     }
 
-    /// True once the recorder has told us its MAC, which is what a magic packet needs. Until then there is
-    /// nothing to send: the address cannot be guessed and iOS will not read the ARP table.
-    var canWake: Bool { UserDefaults.standard.string(forKey: Self.macKey) != nil }
+    /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
+    /// the address cannot be guessed and iOS will not read the ARP table.
+    var canWake: Bool { mac != nil }
+
+    /// Keeps a MAC for waking the recorder. Anything that is not one is ignored rather than stored, so a
+    /// half-typed address never replaces a good one.
+    func remember(mac text: String) {
+        guard let normalised = WakeOnLan.normalise(text) else { return }
+        mac = normalised
+        UserDefaults.standard.set(normalised, forKey: Self.macKey)
+    }
+
+    func forgetMac() {
+        mac = nil
+        UserDefaults.standard.removeObject(forKey: Self.macKey)
+    }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
     /// rebuild is behind what the recorder would hand over now.

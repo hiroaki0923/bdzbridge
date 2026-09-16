@@ -4,11 +4,12 @@ import SwiftUI
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
     @State private var typedHost = ""
+    @State private var typedMac = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("レコーダー") {
+                Section {
                     TextField("192.168.1.10", text: $typedHost)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -24,6 +25,20 @@ struct SettingsScreen: View {
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
 
+                    LabeledContent("MAC アドレス") {
+                        TextField("つながると控えます", text: $typedMac)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.asciiCapable)
+                            .onSubmit {
+                                let typed = typedMac.trimmingCharacters(in: .whitespaces)
+                                if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
+                                typedMac = model.mac ?? ""
+                            }
+                    }
+                    .onChange(of: model.mac, initial: true) { typedMac = model.mac ?? "" }
+
 
                     if let scanning = model.scanning {
                         VStack(alignment: .leading, spacing: 4) {
@@ -37,6 +52,10 @@ struct SettingsScreen: View {
                                          total: Double(max(1, scanning.total)))
                         }
                     }
+                } header: {
+                    Text("レコーダー")
+                } footer: {
+                    Text("MAC アドレスは寝ているレコーダーを起こすのに使います。つながったときに自動で控えるので、普段は入力しなくて構いません。")
                 }
 
                 if !model.found.isEmpty {
