@@ -145,15 +145,18 @@ final class AppModel {
         // The first ask is a short one. A recorder that has left the network does not refuse the
         // connection, it says nothing, so a patient timeout means half a minute of silence before anything
         // can be done about it — and that silence looked like the waking never happened.
-        var reached = await attach(client, timeout: RecorderClient.probeTimeout)
+        var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached { reached = await wakeAndAttach(client) }
         if reached { await refreshGuideIfStale() }
     }
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
     /// is the only case worth sending a magic packet for.
+    /// `quiet` keeps a failure off the screen. A probe that is about to be answered with a magic packet has
+    /// not failed at anything the reader should be told about, and saying so for the five seconds before the
+    /// waking starts reads as a fault that then mysteriously heals.
     private func attach(_ client: RecorderClient, what: String = "接続中",
-                        timeout: TimeInterval? = nil) async -> Bool {
+                        timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
         busy = what
         defer { busy = nil }
         do {
@@ -174,7 +177,7 @@ final class AppModel {
         } catch {
             let recorderError = error as? RecorderError
             unreachable = recorderError?.unreachable ?? false
-            problem = recorderError?.explanation ?? String(describing: error)
+            if !quiet { problem = recorderError?.explanation ?? String(describing: error) }
             return false
         }
     }
@@ -186,13 +189,14 @@ final class AppModel {
         guard let client = client ?? self.client, unreachable, let mac,
               WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0
         else { return false }
-        // Nothing is wrong yet, so nothing should be on screen saying there is: the failed probe that got
-        // us here left its explanation behind, and waking is the answer to it rather than another fault.
+        // Nothing is wrong yet, so nothing should be on screen saying there is. The probe that got us here
+        // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
+        // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
         for _ in 0..<8 {
             try? await Task.sleep(for: .seconds(2))
             if await attach(client, what: "レコーダーを起動しています",
-                            timeout: RecorderClient.probeTimeout) { return true }
+                            timeout: RecorderClient.probeTimeout, quiet: true) { return true }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
