@@ -60,9 +60,14 @@ async def port_open(host: str, port: int, timeout: float = 2.0) -> bool:
 
 
 async def wake(host: str, mac: str, port: int = 64220, wait: float = 25.0) -> bool:
-    """Send magic packets (also to the host's own /24 broadcast) and wait until `port` answers."""
+    """Send magic packets and wait until `port` answers.
+
+    They go to the limited broadcast, the host's own /24 broadcast, and the host itself: a directed packet
+    wakes the recorder too (measured), and is the one that survives a router when the gateway still knows
+    the MAC.
+    """
     subnet = ".".join(host.split(".")[:3]) + ".255" if host.count(".") == 3 else "255.255.255.255"
-    send_magic(mac, ("255.255.255.255", subnet))
+    send_magic(mac, ("255.255.255.255", subnet, host))
     deadline = asyncio.get_running_loop().time() + wait
     while asyncio.get_running_loop().time() < deadline:
         if await port_open(host, port):
