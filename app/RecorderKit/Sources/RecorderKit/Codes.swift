@@ -24,13 +24,15 @@ public enum Codes {
         "cs4k": "EPG_ADVCSDLOGO_FILE.dat",
     ]
 
-    /// `desiredQualityMode` (録画モード).
+    /// `desiredQualityMode` (録画モード): what this recorder offers.
     public static let quality: [String: Int] = [
         "DR": 100, "XR": 210, "XSR": 220, "SR": 230, "LSR": 240, "LR": 250, "ER": 260, "EER": 270,
     ]
+    /// Modes other generations report: 3倍 on early machines, AVC for dubbed titles. Decoded, never offered.
+    public static let qualityElsewhere: [String: Int] = ["3x": 101, "AVC": 500]
     public static let qualityLabel: [String: String] = [
         "DR": "DR(高画質)", "XR": "XR", "XSR": "XSR", "SR": "SR(標準)", "LSR": "LSR", "LR": "LR", "ER": "ER",
-        "EER": "EER(長時間)",
+        "EER": "EER(長時間)", "3x": "3倍", "AVC": "AVC",
     ]
 
     /// `scheduledConditionID` (毎回録画).
@@ -71,7 +73,7 @@ public enum Codes {
     }
 
     public static func quality(code: Int) -> String? {
-        quality.first { $0.value == code }?.key
+        (quality.first { $0.value == code } ?? qualityElsewhere.first { $0.value == code })?.key
     }
 
     public static func repeatName(code: String) -> String? {

@@ -185,8 +185,9 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 - `X_PlayControlTitle` の `Operation` — `play` / `pause` / `stop`（小文字）は実証済み。早送りや次章送りに
   相当する値があるかは不明。
 - `X_PowerControl` の `Operation` — `on` は実証済み（`PowerOn` `On` は不可）。切る側の値は未検証。
-- 観測から作った表（`desiredQualityMode`、`scheduledConditionID`、`markingID`、`mediaRemainAlertID`、
-  `powerstatus`、`playstatus`）— いずれも実機で見えた値だけ。網羅の保証はありません。
+- 観測から作った表（`scheduledConditionID`、`markingID`、`mediaRemainAlertID`、`powerstatus`、`playstatus`）—
+  いずれも実機で見えた値だけ。網羅の保証はありません。`desiredQualityMode` は公式クライアントの表で埋まりました
+  （`xsrs-api.md`）。
 
 ### まだ分からないもの
 

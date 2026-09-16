@@ -87,7 +87,7 @@ async def recorder_power(request: Request):
 async def defaults(request: Request):
     """Default quality and repeat plus the label tables the web app uses (qualities, repeats, broadcasting types, genres)."""
     s = bridge_of(request).settings
-    return S.Defaults(quality=s.default_quality, repeat=s.default_repeat, qualities=codes.QUALITY_LABEL,
+    return S.Defaults(quality=s.default_quality, repeat=s.default_repeat, qualities={k: codes.QUALITY_LABEL[k] for k in codes.QUALITY},
                       repeats=codes.REPEAT_LABEL, broadcastings=codes.BROADCASTING_LABEL, genres=codes.GENRE_LABEL)
 
 @router.post("/epg/refresh", response_model=dict)

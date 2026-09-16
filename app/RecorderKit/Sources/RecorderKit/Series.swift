@@ -4,8 +4,9 @@ import Foundation
 ///
 /// The recorder never says which reservation produced a recording, so episodes of one programme can only be
 /// recognised from their names: broadcast marks are dropped, the text is cut at the first episode marker
-/// (第３話, ＃１２, （３５）, 後編 …) or, failing that, at the first subtitle separator, and what is left is
-/// normalised into a key. Ported from the server; docs/port/series.json pins down every case.
+/// (第３話, ＃１２, （３５）, 後編, and for sport 第３戦, １０日目, 決勝 …) or, failing that, at the first subtitle
+/// separator, and what is left is normalised into a key. Ported from the server; docs/port/series.json pins
+/// down every case.
 public enum Series {
     /// The part of a title that names the programme, for showing to the reader.
     public static func name(_ title: String) -> String {
@@ -16,6 +17,10 @@ public enum Series {
             // a title that begins with its episode number names nothing else, so it is kept whole
             if episode.lowerBound != text.startIndex {
                 text = String(text[text.startIndex..<episode.lowerBound])
+                // ▽ and ▼ introduce a subtitle; what sits between it and the number is not the name either
+                if let topic = firstRange(of: topics, in: text) {
+                    text = String(text[text.startIndex..<topic.lowerBound])
+                }
             }
         } else {
             let pieces = split(text, by: separators)
@@ -80,17 +85,21 @@ public enum Series {
     ]
 
     private static let privateUse = pattern("[\u{E000}-\u{F8FF}]")
-    private static let marks = pattern(#"\[(?:字|解|再|新|終|デ|二|多|SS|映|生|手|4K|HDR|5\.1|7\.1|22\.2|3D|2K|8K)\]"#)
+    private static let marks = pattern(
+        #"\[(?:字|解|再|新|終|デ|二|多|SS|映|生|手|4K|HDR|5\.1|7\.1|22\.2|3D|2K|8K)\]"#
+        + "|[［【＜（](?:字|解|再|新|終|初|デ|二|多|双|映|生|手|吹|声|無料|無|料|鍵|天|交|販|演|他|前|後|HV|SD|SS|PPV|MV|W|[SBNPＳＢＮＰ])[］】＞）]")
     private static let episodeMarker = pattern(
         "(?:"
-        + "第\\s*[0-9０-９〇一二三四五六七八九十百]+\\s*(?:話|回|夜|章|部|集|弾|幕|日目|週)"
-        + "|[#＃]\\s*[0-9０-９]+"
+        + "第\\s*[0-9０-９〇一二三四五六七八九十百]+\\s*(?:話|回|夜|章|部|集|弾|幕|箱|日目|日|週|戦)"
+        + "|[#＃♯]\\s*[0-9０-９]+"
         + "|[（(]\\s*[0-9０-９]+\\s*[)）]"
-        + "|(?<![0-9０-９])[0-9０-９]{1,3}\\s*(?:話|回目?)(?![0-9０-９])"
-        + "|(?<![a-zA-Z])(?:ep|episode|season)(?![a-zA-Z])|シーズン|前編|後編|総集編|最終回"
+        + "|(?<![0-9０-９])[0-9０-９]{1,3}\\s*(?:話|回戦|回目?|日目)(?![0-9０-９])"
+        + "|(?<![a-zA-Z])(?:ep|episode|season)(?![a-zA-Z])|シーズン|前[編篇]|後[編篇]|総集[編篇]|最終[回話戦節日]"
+        + "|初戦|初回|初日(?!の出)|開幕戦|千秋楽|準々決勝|準決勝|決勝"
         + ")",
         caseInsensitive: true)
     private static let separators = pattern("[\u{3000}▽▼▲△◆◇■□●○★☆※…：／｜～〜]")
+    private static let topics = pattern("[▽▼]")
     private static let trailing = pattern(#"[\s\#(spaceIdeographic)\-－‐–—・･、,，。．.「『【〔（(\[]+$"#)
     private static let anyWhitespace = pattern(#"\s+"#)
     private static let allSpaces = pattern("[\\s\u{3000}]+")

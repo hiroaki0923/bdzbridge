@@ -56,6 +56,9 @@ SERIES_TITLES = [
     "＃１２　いきなり話数で始まる", "日曜劇場「SAMPLE」 第1話", "サンプルニュース　あさの放送[字]", "サンプルニュース　あさの放送",
     "ドラマＡ　第３話[再]", "ドラマA 第3話", "ドラマＡ　第４話", "大河ドラマ「架空記」（３６）",
     "映画「サンプル物語」", "連続テレビ小説　空、晴れる（１２１）第２５週「空」", "３分サンプル料理", "",
+    "サンプル野球　第３戦　架空対架空", "大相撲サンプル場所　１０日目", "サンプル選手権　決勝", "サンプル杯　準決勝　第２試合",
+    "サンプルの秘密　その３", "【HV】サンプル紀行＜再＞", "サンプル劇場（後）", "サンプル初日の出中継", "サンプル講座　初回スペシャル",
+    "サンプルゴルフ女子▼架空杯争奪第４戦", "サンプル台所　Ｓｅａｓｏｎ２[終]▼最終話「南瓜」",
 ]
 SUMMARIES = ["（再放送）あらすじ　本文", "あらすじ本文[再]", "", "ドラマ[字]の　あらすじ。"]
 
@@ -214,7 +217,7 @@ def codes_vectors() -> dict:
     return {
         "broadcasting": codes.BROADCASTING, "broadcasting_label": codes.BROADCASTING_LABEL,
         "epg_files": codes.EPG_FILES, "logo_files": codes.LOGO_FILES,
-        "quality": codes.QUALITY, "quality_label": codes.QUALITY_LABEL,
+        "quality": codes.QUALITY, "quality_elsewhere": codes.QUALITY_ELSEWHERE, "quality_label": codes.QUALITY_LABEL,
         "repeat": codes.REPEAT, "repeat_label": codes.REPEAT_LABEL, "weekday_repeat": codes.WEEKDAY_REPEAT,
         "genre_label": {f"{k:#x}": v for k, v in codes.GENRE_LABEL.items()},
         "arib_symbols": {f"U+{ord(k):04X}": v for k, v in ARIB_SYMBOLS.items()},

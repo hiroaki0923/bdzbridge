@@ -12,6 +12,8 @@ final class CodesVectorTests: XCTestCase {
         XCTAssertEqual(Codes.epgFiles, vectors.dictionary("epg_files") as? [String: String])
         XCTAssertEqual(Codes.logoFiles, vectors.dictionary("logo_files") as? [String: String])
         XCTAssertEqual(Codes.quality, vectors.dictionary("quality") as? [String: Int])
+        XCTAssertEqual(Codes.qualityElsewhere, vectors.dictionary("quality_elsewhere") as? [String: Int])
+        XCTAssertEqual(Codes.quality(code: 101), "3x")
         XCTAssertEqual(Codes.qualityLabel, vectors.dictionary("quality_label") as? [String: String])
         XCTAssertEqual(Codes.repeatCodes, vectors.dictionary("repeat") as? [String: String])
         XCTAssertEqual(Codes.repeatLabel, vectors.dictionary("repeat_label") as? [String: String])

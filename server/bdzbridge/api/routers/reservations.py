@@ -112,7 +112,7 @@ async def reservation_update(request: Request, reservation_id: str, req: S.Reser
             el = build_update_elements(reservation_id, title=req.title or current.title, start=start,
                                        duration_sec=req.duration_sec or current.duration_sec,
                                        repeat_code=codes.REPEAT[repeat], broadcasting_type=current.broadcasting_type,
-                                       service_id=current.service_id, quality_code=codes.QUALITY[quality],
+                                       service_id=current.service_id, quality_code=codes.QUALITY_CODE[quality],
                                        event_id=current.event_id)
             await rec.xsrs.update_reservation(el)
             updated = next((r for r in await rec.xsrs.list_reservations() if r.id == reservation_id), None)

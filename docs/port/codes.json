@@ -37,6 +37,10 @@
   "ER": 260,
   "EER": 270
  },
+ "quality_elsewhere": {
+  "3x": 101,
+  "AVC": 500
+ },
  "quality_label": {
   "DR": "DR(高画質)",
   "XR": "XR",
@@ -45,7 +49,9 @@
   "LSR": "LSR",
   "LR": "LR",
   "ER": "ER",
-  "EER": "EER(長時間)"
+  "EER": "EER(長時間)",
+  "3x": "3倍",
+  "AVC": "AVC"
  },
  "repeat": {
   "none": "1",

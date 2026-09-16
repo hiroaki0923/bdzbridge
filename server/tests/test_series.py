@@ -39,6 +39,20 @@ def test_series_key_normalises_width_and_case():
     ("サンプル高校講座　数学Ⅰ　２次不等式[字]", "サンプル高校講座"),
     ("サンプルぷしゅ", "サンプルぷしゅ"),
     ("＃１２　いきなり話数で始まる", "＃１２　いきなり話数で始まる"),
+    # sport and events number their instalments differently
+    ("サンプル野球　第３戦　架空対架空", "サンプル野球"),
+    ("大相撲サンプル場所　１０日目", "大相撲サンプル場所"),
+    ("サンプル選手権　決勝", "サンプル選手権"),
+    ("サンプル杯　準決勝　第２試合", "サンプル杯"),
+    ("サンプルの秘密　その３", "サンプルの秘密"),
+    ("サンプル講座　初回スペシャル", "サンプル講座"),
+    ("サンプル初日の出中継", "サンプル初日の出中継"),  # 初日 is an episode word, 初日の出 is not
+    # full-width marks, as broadcasters write them
+    ("【HV】サンプル紀行＜再＞", "サンプル紀行"),
+    ("サンプル劇場（後）", "サンプル劇場"),
+    # a ▼ subtitle sitting before the episode number is not part of the name either
+    ("サンプルゴルフ女子▼架空杯争奪第４戦", "サンプルゴルフ女子"),
+    ("サンプル台所　Ｓｅａｓｏｎ２[終]▼最終話「南瓜」", "サンプル台所　Ｓｅａｓｏｎ２"),
 ])
 def test_series_name_on_real_titles(title, name):
     assert series_name(title) == name

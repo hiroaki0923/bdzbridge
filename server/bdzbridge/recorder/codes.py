@@ -28,9 +28,15 @@ LOGO_FILES = {
 }
 
 # desiredQualityMode (録画モード)
+# desiredQualityMode (録画モード): what this recorder offers, in menu order. The API accepts these names.
 QUALITY = {"DR": 100, "XR": 210, "XSR": 220, "SR": 230, "LSR": 240, "LR": 250, "ER": 260, "EER": 270}
-QUALITY_BY_CODE = {v: k for k, v in QUALITY.items()}
-QUALITY_LABEL = {"DR": "DR(高画質)", "XR": "XR", "XSR": "XSR", "SR": "SR(標準)", "LSR": "LSR", "LR": "LR", "ER": "ER", "EER": "EER(長時間)"}
+# Modes other generations report, from the official client's table: 3倍 on early machines, AVC for dubbed
+# titles. Decoded when a recorder sends them, never offered, because this recorder has no such mode.
+QUALITY_ELSEWHERE = {"3x": 101, "AVC": 500}
+QUALITY_CODE = {**QUALITY, **QUALITY_ELSEWHERE}
+QUALITY_BY_CODE = {v: k for k, v in QUALITY_CODE.items()}
+QUALITY_LABEL = {"DR": "DR(高画質)", "XR": "XR", "XSR": "XSR", "SR": "SR(標準)", "LSR": "LSR", "LR": "LR", "ER": "ER", "EER": "EER(長時間)",
+                 "3x": "3倍", "AVC": "AVC"}
 
 # scheduledConditionID (毎回録画)
 REPEAT = {
