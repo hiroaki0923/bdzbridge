@@ -51,6 +51,16 @@ xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge
 A device takes the same launch arguments a simulator does, but they have to come after `--` or devicectl
 reads them as its own options.
 
+## TestFlight
+
+`scripts/testflight.sh` archives a Release build, signs it automatically and uploads it. It reads
+`Signing.local.xcconfig` for the team and `TestFlight.local.env` (gitignored too) for an App Store Connect
+API key — `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH` to the `.p8`. The build number is the minute of the
+upload. App Store Connect has to know the app already: an app record for `jp.hiroaki.bdbridge`, the key
+(a role that can manage certificates — Admin or App Manager), and an internal testing group with the
+testers in it, which is then handed each build as it is processed. `ITSAppUsesNonExemptEncryption` in
+`project.yml` answers the export question that would otherwise hold every build.
+
 
 ## Driving it without tapping through it
 

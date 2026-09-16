@@ -19,6 +19,8 @@ key.properties
 app/RecorderApp.xcodeproj/
 app/RecorderApp/Info.plist
 app/Signing.local.xcconfig
+app/TestFlight.local.env
+app/build/
 .build/
 .swiftpm/
 DerivedData/
