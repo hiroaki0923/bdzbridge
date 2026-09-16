@@ -11,28 +11,13 @@ struct SettingsScreen: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("192.168.1.10", text: $typedHost)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.numbersAndPunctuation)
-                    // Connecting happens by itself at launch and after a scan, so a button is only for an
-                    // address typed by hand, or for trying the saved one again after it failed.
-                    if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
-                        Button("このアドレスに接続") {
-                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
-                            Task { await model.connect() }
-                        }
-                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
-                    } else if !model.connected, !model.host.isEmpty {
-                        Button("再接続") { Task { await model.connect() } }
-                            .disabled(model.busy != nil)
+                    LabeledContent("IP アドレス") {
+                        TextField("192.168.1.10", text: $typedHost)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.numbersAndPunctuation)
                     }
-
-                    Button("レコーダーを探す") {
-                        Task { await model.scanForRecorders() }
-                    }
-                    .disabled(model.scanning != nil || model.busy != nil)
-
                     LabeledContent("MAC アドレス") {
                         TextField("接続時に自動で記録", text: $typedMac)
                             .multilineTextAlignment(.trailing)
@@ -49,8 +34,29 @@ struct SettingsScreen: View {
                     .onChange(of: model.mac, initial: true) {
                         if let mac = model.mac, WakeOnLan.normalise(typedMac) != mac { typedMac = mac }
                     }
+                    // Connecting happens by itself at launch and after a scan, so a button is only for an
+                    // address typed by hand, or for trying the saved one again after it failed.
+                    if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
+                        Button("このアドレスに接続") {
+                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
+                            Task { await model.connect() }
+                        }
+                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                    } else if !model.connected, !model.host.isEmpty {
+                        Button("再接続") { Task { await model.connect() } }
+                            .disabled(model.busy != nil)
+                    }
+                } header: {
+                    Text("レコーダー")
+                } footer: {
+                    Text("MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。")
+                }
 
-
+                Section {
+                    Button("レコーダーを探す") {
+                        Task { await model.scanForRecorders() }
+                    }
+                    .disabled(model.scanning != nil || model.busy != nil)
                     if let scanning = model.scanning {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
@@ -63,10 +69,8 @@ struct SettingsScreen: View {
                                          total: Double(max(1, scanning.total)))
                         }
                     }
-                } header: {
-                    Text("レコーダー")
                 } footer: {
-                    Text("MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。")
+                    Text("同じ Wi-Fi 上のレコーダーを探します。見つかったものを選ぶと、そのレコーダーに切り替わります。")
                 }
 
                 if !model.found.isEmpty {
