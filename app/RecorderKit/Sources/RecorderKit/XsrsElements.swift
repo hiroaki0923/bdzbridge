@@ -12,6 +12,10 @@ public struct ReservationRequest: Equatable, Sendable {
     public var qualityCode: Int
     public var eventID: Int?
 
+    /// When the programme ends. A reservation is worth sending until then: the recorder records what is left
+    /// of a programme already on air, which is better than dropping it.
+    public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
+
     public init(title: String, start: Date, durationSec: Int, repeatCode: String, broadcastingType: Int,
                 serviceID: Int, qualityCode: Int, eventID: Int? = nil) {
         self.title = title

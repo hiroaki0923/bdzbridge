@@ -61,6 +61,14 @@ final class PendingReservationTests: XCTestCase {
         XCTAssertNil(back.first?.problem, "and can be cleared for a retry")
     }
 
+    /// What the flush uses to decide whether a queued reservation is still worth sending.
+    func testAReservationIsWorthSendingUntilTheProgrammeEnds() {
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let request = request(start: start)
+        XCTAssertEqual(request.end, start.addingTimeInterval(3600))
+        XCTAssertGreaterThan(request.end, start, "a programme on air has not finished")
+    }
+
     func testRemovingOneLeavesTheOthers() async throws {
         let store = try store()
         let first = PendingReservation(request: request(eventID: 1), serviceName: "サンプルテレビ")

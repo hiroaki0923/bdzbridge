@@ -177,9 +177,9 @@ The guide is on the phone and the recorder is not, so a reservation made away fr
 It is kept instead: the programme, the quality and the repeat exactly as asked for, in the phone's own
 database, and shown on the reservations tab under 送信待ち where it can be cancelled. The next time the
 recorder answers -- a launch at home, a pull on the reservations list, the overnight refresh -- what is
-waiting is sent. A programme whose start has passed is dropped rather than sent, since the recorder cannot
-record the past, and one the recorder refuses keeps its reason on the row rather than being retried
-silently for ever.
+waiting is sent. A programme that has already finished is dropped rather than sent; one that is
+on air is still sent, since the recorder records what is left of it. A reservation the recorder refuses
+keeps its reason on the row rather than being retried silently for ever.
 
 Only silence is queued. A recorder that answers and says no has said something worth reading, so that is
 shown as it always was.

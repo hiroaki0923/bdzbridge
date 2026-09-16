@@ -767,8 +767,8 @@ final class AppModel {
     }
 
     /// Sends what has been waiting. Called whenever the recorder has just answered, so it runs on a launch at
-    /// home and after the overnight refresh; a programme that has already started is dropped rather than sent,
-    /// since the recorder cannot record the past.
+    /// home and after the overnight refresh. Only a programme that has already finished is dropped: one that
+    /// is on air can still be recorded from where it has got to, which beats losing it.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store else { return 0 }
@@ -776,7 +776,7 @@ final class AppModel {
         guard !pending.isEmpty else { return 0 }
         var sent = 0
         for waiting in pending {
-            if waiting.request.start < Date() {
+            if waiting.request.end < Date() {
                 try? await store.removePending(waiting.id)
                 continue
             }
