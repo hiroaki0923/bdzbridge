@@ -1,9 +1,10 @@
 # XcodeGen definition for the iOS app. The project file itself is generated and not committed:
 #   brew install xcodegen && cd app && xcodegen generate
 #
-# The app is called BD Bridge. The Xcode target keeps its original name, RecorderApp, because the scheme and
-# the archive paths are wired to it; only the display name and the bundle identifier below face the reader.
-name: RecorderApp
+# The app is called BD Bridge. The target is BDBridge without the space, so that the product, the scheme and
+# the archive are one word on a command line; the space belongs to CFBundleDisplayName, which is what a
+# reader sees.
+name: BDBridge
 options:
   bundleIdPrefix: jp.hiroaki
   deploymentTarget:
@@ -16,11 +17,11 @@ packages:
     path: RecorderKit
 
 targets:
-  RecorderApp:
+  BDBridge:
     type: application
     platform: iOS
     sources:
-      - path: RecorderApp
+      - path: BDBridge
     dependencies:
       - package: RecorderKit
         product: RecorderKit
@@ -40,9 +41,12 @@ targets:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
     info:
-      path: RecorderApp/Info.plist
+      path: BDBridge/Info.plist
       properties:
         CFBundleDisplayName: BD Bridge
+        # Xcode's General tab reads this, and the store wants a category too -- the one chosen in App Store
+        # Connect is what a shopper sees; this is the same answer in the build.
+        LSApplicationCategoryType: public.app-category.entertainment
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}

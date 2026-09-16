@@ -2,19 +2,19 @@
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
-- `RecorderApp/` — the app itself: SwiftUI, five tabs, no server in the middle.
+- `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle.
 - `project.yml` — the Xcode project is generated from this by XcodeGen and is **not** committed.
 
-The app is called **BD Bridge**. The Xcode target is still `RecorderApp`, which is what the scheme and the
-commands below use; `scripts/icon.swift` draws the icon into the asset catalogue and is the only place the
-artwork exists, so run it after changing the drawing.
+The app is called **BD Bridge**; the target, the scheme and the product are `BDBridge` without the space, so
+that a command line only ever needs one word. `scripts/icon.swift` draws the icon into the asset catalogue and
+is the only place the artwork exists, so run it after changing the drawing.
 
 ## Build and run
 
 ```
 brew install xcodegen
 cd app && xcodegen generate
-open RecorderApp.xcodeproj
+open BDBridge.xcodeproj
 ```
 
 The product name and bundle identifier in `project.yml` are working values; the store name has not been
@@ -52,7 +52,7 @@ Once installed:
 
 ```
 xcrun devicectl list devices
-xcrun devicectl device install app --device <udid> <path to RecorderApp.app>
+xcrun devicectl device install app --device <udid> <path to BDBridge.app>
 xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge
 ```
 

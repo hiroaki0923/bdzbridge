@@ -56,7 +56,7 @@ same ones from the Python server to see that both agree.
 
 ## What is not here
 
-The app itself is in `app/RecorderApp`, beside this package and depending on it. Everything with a screen
+The app itself is in `app/BDBridge`, beside this package and depending on it. Everything with a screen
 lives there; everything that talks to a recorder or decodes one of its files lives here.
 
 Keyword auto-reservation is still only on the server side, which is the right place for it: it has to run

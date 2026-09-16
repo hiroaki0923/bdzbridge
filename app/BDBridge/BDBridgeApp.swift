@@ -2,7 +2,7 @@ import RecorderKit
 import SwiftUI
 
 @main
-struct RecorderApp: App {
+struct BDBridgeApp: App {
     @State private var model = AppModel()
 
     init() {

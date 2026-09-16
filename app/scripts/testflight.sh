@@ -19,9 +19,9 @@ build=$(date +%Y%m%d%H%M)
 auth="-allowProvisioningUpdates -authenticationKeyPath $ASC_KEY_PATH -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"
 
 xcodegen generate -q
-rm -rf build/RecorderApp.xcarchive build/export
-xcodebuild -project RecorderApp.xcodeproj -scheme RecorderApp -configuration Release \
-    -destination 'generic/platform=iOS' -archivePath build/RecorderApp.xcarchive \
+rm -rf build/BDBridge.xcarchive build/export
+xcodebuild -project BDBridge.xcodeproj -scheme BDBridge -configuration Release \
+    -destination 'generic/platform=iOS' -archivePath build/BDBridge.xcarchive \
     CURRENT_PROJECT_VERSION="$build" $auth archive -quiet
 
 cat > build/ExportOptions.plist <<PLIST
@@ -35,6 +35,6 @@ cat > build/ExportOptions.plist <<PLIST
   <key>uploadSymbols</key><true/>
 </dict></plist>
 PLIST
-xcodebuild -exportArchive -archivePath build/RecorderApp.xcarchive \
+xcodebuild -exportArchive -archivePath build/BDBridge.xcarchive \
     -exportOptionsPlist build/ExportOptions.plist -exportPath build/export $auth
 echo "build $build uploaded; TestFlight lists it once App Store Connect has processed it (usually minutes)"

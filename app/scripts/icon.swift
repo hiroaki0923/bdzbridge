@@ -1,6 +1,6 @@
 // Draws the app icon. Run it after changing anything here:
 //   cd app && swift scripts/icon.swift
-// It writes RecorderApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png, which is committed, so this only
+// It writes BDBridge/Assets.xcassets/AppIcon.appiconset/AppIcon.png, which is committed, so this only
 // has to run when the drawing changes. AppKit is used rather than a design tool so the icon stays in the
 // repository as code.
 //
@@ -11,7 +11,7 @@ import AppKit
 let side: CGFloat = 1024
 let out = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent()
-    .appendingPathComponent("RecorderApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+    .appendingPathComponent("BDBridge/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
 
 func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     CGColor(red: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,

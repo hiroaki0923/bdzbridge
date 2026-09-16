@@ -23,7 +23,7 @@ server/   FastAPI サーバー ── web/  PWA      ─┘
 docs/     レコーダーの仕様（観察に基づく）と移植ガイド
 ```
 
-- `app/` — iOS アプリ。`app/RecorderKit` がレコーダーと話す層（プロトコル、番組表ファイルのデコーダ、HTTP クライアント、端末内キャッシュ）で、UI を持たず単体でテストできます。`app/RecorderApp` が画面。Xcode プロジェクトは `app/project.yml` から XcodeGen で生成し、コミットしていません。詳しくは `app/README.md`。
+- `app/` — iOS アプリ。`app/RecorderKit` がレコーダーと話す層（プロトコル、番組表ファイルのデコーダ、HTTP クライアント、端末内キャッシュ）で、UI を持たず単体でテストできます。`app/BDBridge` が画面。Xcode プロジェクトは `app/project.yml` から XcodeGen で生成し、コミットしていません。詳しくは `app/README.md`。
 - `server/` — FastAPI サーバー（`bdzbridge` パッケージ）。API と PWA の配信、番組表のキャッシュ、レコーダー探索、キーワード自動予約。
 - `web/` — Vite + Svelte 5 の PWA。`/api/v1` を同一オリジンで使います。
 - `docs/` — 予約 API（`xsrs-api.md`）と番組表ファイル形式（`epg-format.md`）の仕様、レコーダーが実際に何を答えるかの実測（`upnp/service-sweep.md`）、HTTP API リファレンス（`api.md`）、移植ガイド（`porting.md`）と言語非依存の検証ベクタ（`port/`）。
@@ -41,7 +41,7 @@ docs/     レコーダーの仕様（観察に基づく）と移植ガイド
 
 ```
 brew install xcodegen
-cd app && xcodegen generate && open RecorderApp.xcodeproj
+cd app && xcodegen generate && open BDBridge.xcodeproj
 ```
 
 予約タブの右上からレコーダー本体の「おまかせ・まる録」（キーワード自動録画）を登録・削除できます。レコーダー自身が
