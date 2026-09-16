@@ -194,8 +194,9 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 - **`name` はレコーダーが組み立てます。** ジャンルとキーワードを `/` でつないだもので、条件を足すたびに
   `サンプル` → `クイズ/サンプル` → `クイズ/サンプル/テスト` と変わりました。表示名として読むだけにして、
   識別子として使わないこと。
-- **`broadcastTypeScope` は文字列コード**で、地上デジタルは `TRD`、BS は `BSD`（どちらも実測）。番組表ファイル名の
-  綴り（`BS`）とは違ったので、CS と 4K の綴りは推測せず未確認としておきます。
+- **`broadcastTypeScope` は文字列コード**で、地上デジタル `TRD`、BS `BSD`、110度CS `CSD`（いずれも実測）。
+  番組表ファイル名の綴り（`EPG_BSEPG_FILE.dat` の `BS`）とは違い、こちらは末尾に `D` が付きます。4K の綴りは
+  ファイル名が `ADVBSD` / `ADVCSD` なので同じかもしれませんが、**未確認**です。
 
 要素は本体の設定画面の項目に対応します。左が取説（2021 年 4K モデルの使いかたマニュアル）の呼び名です。
 
@@ -206,7 +207,7 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 | キーワード検索方法 | `searchSetting` の `logic` 属性 | 「いずれかのキーワードを含む」= `OR`、「すべてのキーワードを含む」= `AND` |
 | ジャンル | `genreID`（複数可、`type` 属性つき） | 16 進。`type="2"` で `0x50`（level1 と level2）、`type="3"` で `0x5*`（level1 だけ、下位はすべて）。下記 |
 | 時間帯 | `timeScope` | 5 択。指定なしは `ALL` |
-| 放送 | `broadcastTypeScope` | 地上放送は `TRD`、BS は `BSD`（CS と 4K は未確認）。詳細設定に入る前に選ぶ |
+| 放送 | `broadcastTypeScope` | `TRD` / `BSD` / `CSD`（4K は未確認）。詳細設定に入る前に選ぶ |
 | 対象チャンネル | `presetID`（複数可） | **この機種は返しません。** 下記 |
 | 録画モード(地上/BS/CS) | `desiredQualityMode` | `object` 直下。上の録画モード表と同じ値 |
 | 録画モード(BS4K/CS4K) | `desiredQualityModeForAdvanced` | 同じ。送らなければ `100`（DR）で埋まる |
@@ -219,11 +220,11 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 |---|---|---|
 | すべての時間帯 | | `ALL`（実測） |
 | 朝 | 5 時 − 12 時 | `MORNING`（実測） |
-| 昼 | 11 時 − 6 時 | 未確認 |
+| 昼 | 11 時 − 6 時 | `AFTERNOON`（実測） |
 | 夜 | 5 時 − 12 時 | `NIGHT`（実測） |
 | 深夜 | 11 時 − 5 時 | 未確認 |
 
-`ALL`、`MORNING`、`NIGHT` は実機で確認しました。昼と深夜は未確認です。
+`ALL`、`MORNING`、`AFTERNOON`、`NIGHT` は実機で確認しました。深夜だけ未確認です。
 
 ### 条件を作る・変える・消す
 
@@ -312,7 +313,7 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 LAN から作った条件は、本体の画面でもそのまま条件として見えます。キーワード・時間帯・検索方法・放送・録画先・
 録画モードのすべてが送ったとおりに表示されることを実機で確認しました。
 
-**まだ分からないもの**: `timeScope` の昼・深夜の綴り、`broadcastTypeScope` の CS・4K の綴り、`object` の `type` は `SEARCH` 以外に何があるか、
+**まだ分からないもの**: `timeScope` の深夜の綴り、`broadcastTypeScope` の 4K の綴り、`object` の `type` は `SEARCH` 以外に何があるか、
 `searchSetting` の `type="MULTIPLE"` の他の値、1 台に登録できる条件の数。
 
 `X_GetPrefRecSettingList` が 0 件でも `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
