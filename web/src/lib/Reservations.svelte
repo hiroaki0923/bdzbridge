@@ -147,8 +147,8 @@
       <div class="field"><span>除外ワード</span><input bind:value={recForm.excluded} placeholder="最大 2 つ" /></div>
       <div class="field"><span>検索方法</span><select bind:value={recForm.logic}><option value="OR">いずれかのキーワードを含む</option><option value="AND">すべてのキーワードを含む</option></select></div>
       <div class="field"><span>ジャンル</span><select bind:value={recForm.genre}><option value="">指定しない</option>{#each Object.entries(app.defaults?.genres ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
-      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option><option value="CSD">CS放送</option></select></div>
-      <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="MORNING">朝</option><option value="AFTERNOON">昼</option><option value="NIGHT">夜</option></select></div>
+      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option><option value="CSD">CS放送</option><option value="ADVBSD">BS4K放送</option><option value="ADVCSD">CS4K放送</option></select></div>
+      <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="MORNING">朝</option><option value="AFTERNOON">昼</option><option value="NIGHT">夜</option><option value="MIDNIGHT">深夜</option></select></div>
       <div class="field"><span>録画モード</span><select bind:value={recForm.quality}><option value="">既定（{app.defaults?.quality ?? 'LSR'}）</option>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
       <button class="btn" type="submit" disabled={recBusy}>{recBusy ? '登録中…' : '本体に登録'}</button>
     </form>

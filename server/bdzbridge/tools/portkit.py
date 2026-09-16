@@ -291,6 +291,11 @@ def xsrs_vectors() -> dict:
         '<object type="SEARCH" id="0x00021703"><searchSetting type="MULTIPLE" logic="OR"><name>バラエティ</name>'
         '<genreID type="3">0x5*</genreID><timeScope>MORNING</timeScope><broadcastTypeScope>BSD</broadcastTypeScope>'
         '</searchSetting></object>'
+        # a 4K-only condition: the recorder sends the 4K quality and no ordinary one
+        '<object type="SEARCH" id="0x0002470e"><desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced>'
+        '<recordDestinationID>HDD</recordDestinationID><searchSetting type="MULTIPLE" logic="OR"><name>サンプル語</name>'
+        '<keyword>サンプル語</keyword><timeScope>MIDNIGHT</timeScope><broadcastTypeScope>ADVBSD</broadcastTypeScope>'
+        '</searchSetting></object>'
     )
     rule_list = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rule_objects}</xsrs>'
     rule_cases = [
@@ -302,6 +307,8 @@ def xsrs_vectors() -> dict:
         {"name": "a whole genre and no keyword, the recorder's starred form",
          "input": {"keywords": [], "genre_level1": 5, "time_scope": "MORNING", "broadcasting_scope": "BSD",
                    "quality_code": 220}},
+        {"name": "a 4K wave, whose quality goes in the Advanced element instead",
+         "input": {"keywords": ["x"], "time_scope": "MIDNIGHT", "broadcasting_scope": "ADVBSD", "quality_code": 220}},
     ]
     for c in rule_cases:
         c["elements"] = build_recorder_rule_elements(**c["input"])

@@ -658,8 +658,8 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `logic`: "OR" | "AND" （省略可、既定 `"OR"`）
 - `genre_level1`: integer | null （省略可） — ARIB level-1 genre; alone it means the whole genre
 - `genre_level2`: integer | null （省略可） — the sub-genre within level1
-- `time_scope`: string （省略可、既定 `"ALL"`） — ALL or NIGHT are known; others are passed through
-- `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL or TRD are known; others are passed through
+- `time_scope`: string （省略可、既定 `"ALL"`） — ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT
+- `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 
 ### MonitorResult

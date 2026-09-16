@@ -59,11 +59,14 @@ public enum Codes {
     /// おまかせ・まる録 vocabularies seen on a real recorder; anything else is shown as it is.
     public static let ruleLogicLabel: [String: String] = ["OR": "いずれかのキーワードを含む", "AND": "すべてのキーワードを含む"]
     public static let timeScopeLabel: [String: String] = [
-        "ALL": "すべての時間帯", "MORNING": "朝", "AFTERNOON": "昼", "NIGHT": "夜",
+        "ALL": "すべての時間帯", "MORNING": "朝", "AFTERNOON": "昼", "NIGHT": "夜", "MIDNIGHT": "深夜",
     ]
     public static let broadcastingScopeLabel: [String: String] = [
         "ALL": "すべての放送", "TRD": "地上放送", "BSD": "BS放送", "CSD": "CS放送",
+        "ADVBSD": "BS4K放送", "ADVCSD": "CS4K放送",
     ]
+    /// The 4K waves, whose recording quality lives in its own element on a condition.
+    public static let advancedScopes = ["ADVBSD", "ADVCSD"]
 
     public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
     public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]

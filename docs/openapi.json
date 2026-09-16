@@ -3187,14 +3187,14 @@
       "type": "string",
       "maxLength": 16,
       "title": "Time Scope",
-      "description": "ALL or NIGHT are known; others are passed through",
+      "description": "ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT",
       "default": "ALL"
      },
      "broadcasting_scope": {
       "type": "string",
       "maxLength": 16,
       "title": "Broadcasting Scope",
-      "description": "ALL or TRD are known; others are passed through",
+      "description": "ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder",
       "default": "ALL"
      },
      "quality": {

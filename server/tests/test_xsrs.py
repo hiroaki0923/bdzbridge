@@ -123,3 +123,21 @@ def test_a_whole_genre_is_the_recorders_starred_form():
     assert r.time_scope == "MORNING" and r.broadcasting_scope == "BSD"
     assert '<genreID type="3">0x5*</genreID>' in build_recorder_rule_elements(keywords=[], genre_level1=5, quality_code=220)
     assert '<genreID type="2">0x50</genreID>' in build_recorder_rule_elements(keywords=[], genre_level1=5, genre_level2=0, quality_code=220)
+
+
+def test_a_4k_condition_puts_its_quality_in_the_advanced_element():
+    # the recorder keeps a quality per wave and drops desiredQualityMode for a 4K-only condition (measured)
+    assert '<desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced>' in build_recorder_rule_elements(
+        keywords=["x"], broadcasting_scope="ADVBSD", quality_code=220)
+    assert '<desiredQualityMode>220</desiredQualityMode>' in build_recorder_rule_elements(
+        keywords=["x"], broadcasting_scope="BSD", quality_code=220)
+    # what the box wrote for a BS4K condition at 深夜: no ordinary quality at all
+    obj = ET.fromstring('<object type="SEARCH" id="0x0002470e">'
+                        '<desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced>'
+                        '<recordDestinationID>HDD</recordDestinationID>'
+                        '<searchSetting type="MULTIPLE" logic="OR"><name>x</name><genreID type="3">0x5*</genreID>'
+                        '<timeScope>MIDNIGHT</timeScope><broadcastTypeScope>ADVBSD</broadcastTypeScope>'
+                        '</searchSetting></object>')
+    r = parse_recorder_rule(obj)
+    assert r.quality_code is None and r.quality_code_4k == 100
+    assert r.time_scope == "MIDNIGHT" and r.broadcasting_scope == "ADVBSD"

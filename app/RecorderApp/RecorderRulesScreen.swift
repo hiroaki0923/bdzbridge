@@ -162,12 +162,15 @@ struct RecorderRuleSheet: View {
                         Text("地上放送").tag("TRD")
                         Text("BS放送").tag("BSD")
                         Text("CS放送").tag("CSD")
+                        Text("BS4K放送").tag("ADVBSD")
+                        Text("CS4K放送").tag("ADVCSD")
                     }
                     Picker("時間帯", selection: $timeScope) {
                         Text("すべての時間帯").tag("ALL")
                         Text("朝").tag("MORNING")
                         Text("昼").tag("AFTERNOON")
                         Text("夜").tag("NIGHT")
+                        Text("深夜").tag("MIDNIGHT")
                     }
                     Picker("録画モード", selection: $quality) {
                         ForEach(Codes.qualityOrder, id: \.self) { code in

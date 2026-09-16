@@ -1,7 +1,7 @@
 {
  "recorder_rules": {
   "note": "X_GetPrefRecSettingList with Filter \"*\" (an empty Filter drops the quality and the destination). The channel narrowing the recorder's screen offers is never reported and is dropped when sent; there is no update, only create and delete.",
-  "list_result": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\" id=\"0x0000470f\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"AND\"><name>クイズ/サンプル/テスト</name><genreID type=\"2\">0x50</genreID><keyword>サンプル</keyword><keyword>テスト</keyword><excludeKeyword>ダミー</excludeKeyword><timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x0000570b\"><desiredQualityMode>220</desiredQualityMode><desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル語</name><keyword>サンプル語</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x00021703\"><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>バラエティ</name><genreID type=\"3\">0x5*</genreID><timeScope>MORNING</timeScope><broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object></xsrs>",
+  "list_result": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\" id=\"0x0000470f\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"AND\"><name>クイズ/サンプル/テスト</name><genreID type=\"2\">0x50</genreID><keyword>サンプル</keyword><keyword>テスト</keyword><excludeKeyword>ダミー</excludeKeyword><timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x0000570b\"><desiredQualityMode>220</desiredQualityMode><desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル語</name><keyword>サンプル語</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x00021703\"><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>バラエティ</name><genreID type=\"3\">0x5*</genreID><timeScope>MORNING</timeScope><broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object><object type=\"SEARCH\" id=\"0x0002470e\"><desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル語</name><keyword>サンプル語</keyword><timeScope>MIDNIGHT</timeScope><broadcastTypeScope>ADVBSD</broadcastTypeScope></searchSetting></object></xsrs>",
   "parsed": [
    {
     "id": "0x0000470f",
@@ -51,6 +51,22 @@
     "quality_code": null,
     "quality_code_4k": null,
     "destination": "HDD"
+   },
+   {
+    "id": "0x0002470e",
+    "name": "サンプル語",
+    "keywords": [
+     "サンプル語"
+    ],
+    "excluded": [],
+    "logic": "OR",
+    "genre_level1": null,
+    "genre_level2": null,
+    "time_scope": "MIDNIGHT",
+    "broadcasting_scope": "ADVBSD",
+    "quality_code": null,
+    "quality_code_4k": 100,
+    "destination": "HDD"
    }
   ],
   "create_elements": [
@@ -93,6 +109,18 @@
      "quality_code": 220
     },
     "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name></name><genreID type=\"3\">0x5*</genreID><timeScope>MORNING</timeScope><broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object></xsrs>"
+   },
+   {
+    "name": "a 4K wave, whose quality goes in the Advanced element instead",
+    "input": {
+     "keywords": [
+      "x"
+     ],
+     "time_scope": "MIDNIGHT",
+     "broadcasting_scope": "ADVBSD",
+     "quality_code": 220
+    },
+    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>x</name><keyword>x</keyword><timeScope>MIDNIGHT</timeScope><broadcastTypeScope>ADVBSD</broadcastTypeScope></searchSetting></object></xsrs>"
    }
   ]
  },

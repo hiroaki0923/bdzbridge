@@ -254,10 +254,10 @@ class RecorderRule:
     logic: str                   # OR: any keyword matches; AND: all of them
     genre_level1: int | None     # ARIB level-1 genre; on the wire as hex, 0x50 (type="2") or 0x5* (type="3")
     genre_level2: int | None     # the sub-genre; None means the whole level-1 genre, the 0x5* form
-    time_scope: str              # ALL, MORNING, NIGHT, ...
-    broadcasting_scope: str      # ALL, TRD, BSD, ...
-    quality_code: int | None     # 録画モード(地上/BS/CS); the recorder only sends it for Filter "*"
-    quality_code_4k: int | None  # 録画モード(BS4K/CS4K); the recorder fills it in, and omits it for a one-wave scope
+    time_scope: str              # ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT
+    broadcasting_scope: str      # ALL, TRD, BSD, CSD, ADVBSD, ADVCSD
+    quality_code: int | None     # 録画モード(地上/BS/CS); only sent for Filter "*", and only if the scope covers those
+    quality_code_4k: int | None  # 録画モード(BS4K/CS4K); likewise, and the recorder defaults it to 100 (DR)
     destination: str
 
 
@@ -310,6 +310,10 @@ def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
     )
 
 
+#: broadcastTypeScope values for the 4K waves, whose quality lives in its own element
+ADVANCED_SCOPES = ("ADVBSD", "ADVCSD")
+
+
 def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | tuple[str, ...] = (), logic: str = "OR",
                                  genre_level1: int | None = None, genre_level2: int | None = None,
                                  time_scope: str = "ALL", broadcasting_scope: str = "ALL",
@@ -326,9 +330,13 @@ def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | t
         genre = f'<genreID type="3">{genre_level1:#x}*</genreID>'
     else:
         genre = f'<genreID type="2">{genre_level1 * 16 + genre_level2:#x}</genreID>'
+    # The recorder keeps a quality per wave and reads only the one the scope covers: for a 4K-only condition
+    # desiredQualityMode is dropped, so the chosen quality has to go in the Advanced element instead.
+    quality_element = ("desiredQualityModeForAdvanced" if broadcasting_scope in ADVANCED_SCOPES
+                       else "desiredQualityMode")
     return (
         f'<xsrs xmlns="{XSRS_NS}"><object type="SEARCH">'
-        f"<desiredQualityMode>{quality_code}</desiredQualityMode>"
+        f"<{quality_element}>{quality_code}</{quality_element}>"
         f"<recordDestinationID>{destination}</recordDestinationID>"
         f'<searchSetting type="MULTIPLE" logic="{logic}">'
         f"<name>{esc(keywords[0]) if keywords else ''}</name>{genre}"

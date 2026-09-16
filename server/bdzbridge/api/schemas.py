@@ -272,8 +272,8 @@ class RecorderRuleCreate(BaseModel):
     logic: RuleLogic = "OR"
     genre_level1: int | None = Field(None, ge=0, le=0xF, description="ARIB level-1 genre; alone it means the whole genre")
     genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
-    time_scope: str = Field("ALL", max_length=16, description="ALL or NIGHT are known; others are passed through")
-    broadcasting_scope: str = Field("ALL", max_length=16, description="ALL or TRD are known; others are passed through")
+    time_scope: str = Field("ALL", max_length=16, description="ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT")
+    broadcasting_scope: str = Field("ALL", max_length=16, description="ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder")
     quality: Quality | None = None
 
     @field_validator("keywords", "excluded")

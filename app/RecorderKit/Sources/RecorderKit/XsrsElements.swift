@@ -69,8 +69,12 @@ public enum XsrsElements {
         }
         let words = request.keywords.map { "<keyword>\(Soap.escape($0, quotes: false))</keyword>" }.joined()
         let excluded = request.excluded.map { "<excludeKeyword>\(Soap.escape($0, quotes: false))</excludeKeyword>" }.joined()
+        // The recorder keeps a quality per wave and reads only the one the scope covers: for a 4K-only
+        // condition desiredQualityMode is dropped, so the chosen quality goes in the Advanced element.
+        let qualityElement = Codes.advancedScopes.contains(request.broadcastingScope)
+            ? "desiredQualityModeForAdvanced" : "desiredQualityMode"
         return "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"><object type=\"SEARCH\">"
-            + "<desiredQualityMode>\(request.qualityCode)</desiredQualityMode>"
+            + "<\(qualityElement)>\(request.qualityCode)</\(qualityElement)>"
             + "<recordDestinationID>\(request.destination)</recordDestinationID>"
             + "<searchSetting type=\"MULTIPLE\" logic=\"\(request.logic)\">"
             + "<name>\(Soap.escape(request.keywords.first ?? "", quotes: false))</name>" + genre + words + excluded

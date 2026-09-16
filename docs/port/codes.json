@@ -61,13 +61,16 @@
   "ALL": "すべての時間帯",
   "MORNING": "朝",
   "AFTERNOON": "昼",
-  "NIGHT": "夜"
+  "NIGHT": "夜",
+  "MIDNIGHT": "深夜"
  },
  "broadcasting_scope_label": {
   "ALL": "すべての放送",
   "TRD": "地上放送",
   "BSD": "BS放送",
-  "CSD": "CS放送"
+  "CSD": "CS放送",
+  "ADVBSD": "BS4K放送",
+  "ADVCSD": "CS4K放送"
  },
  "repeat": {
   "none": "1",
