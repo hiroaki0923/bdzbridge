@@ -132,7 +132,12 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 レコーダー本体の「おまかせ・まる録」の条件は `X_GetPrefRecSettingList` で読めて、`X_CreatePrefRecSetting` /
 `X_UpdatePrefRecSetting` / `X_DeletePrefRecSetting` で書けます（読み出しのみ実測、書き込みは未検証）。
 
-キーワードだけを登録した状態と、そこにジャンルと放送波を足した状態の実機の応答:
+**`Filter` は効きます。** 録画一覧・予約一覧の `Filter` は無視されますが、ここは違います。受け付けるのは
+`*`、空、`desiredQualityMode`、`recordDestinationID`、`searchSetting` の 5 つだけで、ほかはすべて **803**。
+空と `searchSetting` は同じ答え（条件の中身だけ）で、`desiredQualityMode` と `recordDestinationID` を足したいときは
+その名前か `*` を渡します。**`*` を渡すこと**、でないと画質と録画先が黙って落ちます。
+
+キーワードだけを登録した状態と、そこにジャンル・放送波・画質を足した状態の実機の応答（後者は `Filter` に `*`）:
 
 ```xml
 <xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
@@ -150,6 +155,8 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 ```xml
 <xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
   <object type="SEARCH" id="0x00003701">
+    <desiredQualityMode>220</desiredQualityMode>
+    <recordDestinationID>HDD</recordDestinationID>
     <searchSetting type="MULTIPLE" logic="OR">
       <name>クイズ/サンプル</name>
       <genreID type="2">0x50</genreID>
@@ -190,10 +197,17 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 | 画質（録画モード） | `desiredQualityMode` | `object` 直下。上の録画モード表と同じ値 |
 | 録画先 | `recordDestinationID` | `object` 直下 |
 
+**チャンネルの指定は読めません。** 本体でこの条件のチャンネルを 1 局（地上デジタルの 1 波）に絞った状態でも、
+`presetID` はどの `Filter` でも出てきません。公式 PC クライアントは `presetID` を複数読む作りになっているので
+要素自体は規格にありますが、この機種はこのアクションで返しません。
+
+これは書き込みのときに危険です。**読んだ条件をそのまま `X_UpdatePrefRecSetting` で書き戻すと、見えていない
+チャンネルの絞り込みを消してしまう**と考えるべきです。新規に作る（`X_CreatePrefRecSetting`）ぶんには影響
+ありませんが、既存の条件の変更は、本体でやってもらうか、消える可能性を承知の上でやるかのどちらかです。
+
 **まだ分からないもの**: `timeScope` に `ALL` 以外を入れたときの書式（時間帯を指定しても `ALL` のままでした）、
-`presetID` の実体（チャンネルを指定していないため一度も出ていない）、`desiredQualityMode` と
-`recordDestinationID` が既定値のときに出ないのかどうか、`object` の `type` は `SEARCH` 以外に何があるか、
-`searchSetting` の `type="MULTIPLE"` と `logic="OR"` の他の値、1 台に登録できる条件の数。
+`object` の `type` は `SEARCH` 以外に何があるか、`searchSetting` の `type="MULTIPLE"` と `logic="OR"` の他の値、
+1 台に登録できる条件の数、書き込み系 3 アクションの `Elements` の形（一覧と同じ形かどうか）。
 
 `X_GetPrefRecSettingList` が 0 件でも `reservationCreatorID` が `1100`（レコーダー自身）の予約は存在します。
 この一覧に載るのは「おまかせ・まる録」の条件だけで、新番組おまかせ録画などの単発設定は別の仕組みです。

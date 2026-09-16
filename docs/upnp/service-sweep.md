@@ -196,7 +196,8 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
   対応」は、公式クライアントもビット演算（ID の下 8 桁の 16 進を十進に）で求めていて、このアクションは呼んで
   いません。本ソフトの求め方は公式と同じで、置き換える理由はなくなりました。
 - `X_GetTitleInfoExt` / `X_GetRecordScheduleInfoExt` / `X_GetPrefRecSettingList` の `Format` — 空なら通り、
-  `*` `1` `2` `xsrs` は **803**。語彙不明。
+  `*` `1` `2` `xsrs` は **803**。語彙不明。公式クライアントも空しか渡しません。
+  （`X_GetPrefRecSettingList` の `Filter` のほうは語彙が確定しました。`xsrs-api.md`）
 - `X_GetLiveChList` の `SkipChannel` — `0` `1` `*` 空 `true` `false` すべて 0 件でしたが、**レコーダーが待機中で
   ライブが無い状態での測定**なので結論になりません。電源が入っているときに再測定が必要。
 - `X_InputRemoteKey` の `RemoteKey` — **総当たりしていません。** ボタンを押す操作なので読み取り専用の枠を
@@ -251,7 +252,7 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 | `X_ChkWlanOdekakeUsability` | `recordDestinationID` | 何を渡しても `WlanOdekakeUsable` |
 | `X_HDLnkGetRecordDestinationInfo` | `RecordDestinationID` | 何を渡しても HDD の情報 |
 | `X_HDLnkGetRecordContainerID` | `Elements` | 何を渡しても `0` |
-| `X_GetTitleList` / `X_GetRecordScheduleList` | `Filter` | 返るバイト数が常に同一 |
+| `X_GetTitleList` / `X_GetRecordScheduleList` | `Filter` | 返るバイト数が常に同一（`X_GetPrefRecSettingList` の `Filter` は逆に効く。`xsrs-api.md`） |
 
 `X_HDLnkGetRecordDestinationInfo` は属性で `totalCapacity` `availableCapacity` `dtcpSupport="1"`
 `allowedTypes="HDD"` `recordable="1"` を返します。空き容量はこれが一次情報です。
