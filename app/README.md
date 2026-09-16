@@ -89,8 +89,11 @@ team identifier; Xcode Cloud manages the certificates and profiles itself, so no
 key is kept on any machine. The build number comes from `CI_BUILD_NUMBER`, which Xcode Cloud counts up, so
 nothing has to be edited between builds -- `Signing.xcconfig` holds 1 for a build made here, and the file the
 script writes wins because an xcconfig takes its last definition. If a cloud number ever collides with one
-already uploaded from a Mac, raise the next build number in the workflow rather than editing `project.yml`. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store Connect,
-point it at `app/BDBridge.xcodeproj`, and give it an archive action that distributes to internal testers.
+already uploaded from a Mac, raise the next build number in the workflow rather than editing `project.yml`. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store
+Connect and point it at `app/BDBridge.xcodeproj`. The action has to be **Archive**, with its deployment
+preparation set to *TestFlight (Internal Testing Only)*, and a post-action of *TestFlight Internal Testing*
+naming a tester group. A Build action compiles and tests and delivers nothing: its builds appear in Xcode
+Cloud and never in TestFlight, which looks like a build that cannot be selected there.
 
 
 ## Driving it without tapping through it
