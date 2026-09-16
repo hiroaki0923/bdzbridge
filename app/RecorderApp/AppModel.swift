@@ -111,8 +111,14 @@ final class AppModel {
             return
         }
         scanning = (0, hosts.count)
+        // a recorder shows up the moment it answers, so the reader can take it while the rest of the
+        // subnet is still being tried
         found = await Discovery.scan(hosts: hosts, progress: { done, total in
             Task { @MainActor in self.scanning = (done, total) }
+        }, found: { recorder in
+            Task { @MainActor in
+                if !self.found.contains(where: { $0.host == recorder.host }) { self.found.append(recorder) }
+            }
         })
         scanning = nil
         if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークに接続されているか確認してください。" }

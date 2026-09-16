@@ -49,6 +49,26 @@ final class DiscoveryScanTests: XCTestCase {
         XCTAssertEqual(asked, hosts.count)
     }
 
+    /// A request the session never gives up on must not hold the whole scan: seen on an iPhone, stuck at
+    /// its last address.
+    func testAProbeThatNeverAnswersStillEnds() async throws {
+        let description = try Vectors.load("description.json").string("description_xml")
+        let transport = StubTransport { request, _ in
+            if request.url.host == "192.0.2.9" {
+                try await Task.sleep(for: .seconds(60))   // cancelled by the deadline, never by itself
+            }
+            return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+        }
+        let started = Date()
+        let handedOver = HandedOver()
+        let found = await Discovery.scan(hosts: ["192.0.2.9", "192.0.2.10"], transport: transport, timeout: 0.2,
+                                         found: { recorder in Task { await handedOver.add(recorder.host) } })
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the sleep, ends the probe")
+        XCTAssertEqual(found.map(\.host), ["192.0.2.10"])
+        let hosts = await handedOver.hosts
+        XCTAssertEqual(hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
+    }
+
     func testThisDeviceReportsItsOwnInterfaces() {
         // whatever the machine running the tests happens to have, an address and a mask should parse
         for interface in LocalNetwork.interfaces() {
@@ -65,4 +85,10 @@ private final class Counter: @unchecked Sendable {
 
     func bump(_ to: Int) { lock.withLock { value = max(value, to) } }
     var highest: Int { lock.withLock { value } }
+}
+
+/// What the scan handed over while it was still running, gathered where a @Sendable closure may write.
+private actor HandedOver {
+    private(set) var hosts: [String] = []
+    func add(_ host: String) { hosts.append(host) }
 }

@@ -14,7 +14,8 @@ public enum Discovery {
     /// than they look: 253 addresses take about six seconds on a home network.
     public static func scan(hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
                             port: Int = Upnp.port, timeout: TimeInterval = 1.2, atOnce: Int = 48,
-                            progress: (@Sendable (Int, Int) -> Void)? = nil) async -> [RecorderDescription] {
+                            progress: (@Sendable (Int, Int) -> Void)? = nil,
+                            found onFound: (@Sendable (RecorderDescription) -> Void)? = nil) async -> [RecorderDescription] {
         guard !hosts.isEmpty else { return [] }
         var found: [RecorderDescription] = []
         var done = 0
@@ -33,7 +34,10 @@ public enum Discovery {
             for await candidate in group {
                 done += 1
                 progress?(done, hosts.count)
-                if let candidate { found.append(candidate) }
+                if let candidate {
+                    found.append(candidate)
+                    onFound?(candidate)
+                }
                 add()
             }
         }
@@ -41,13 +45,29 @@ public enum Discovery {
     }
 
     /// One address: a recorder, or nothing.
+    ///
+    /// The request's own timeout is not the only clock. On an iPhone a scan was seen stop at its last
+    /// address and stay there, which means one request outlived the timeout it was given; whatever the
+    /// session was waiting for, a scan must end, so the probe is also raced against a deadline of its own
+    /// and gives up when that passes.
     public static func probe(_ host: String, transport: any HTTPTransport = URLSessionTransport(),
                              port: Int = Upnp.port, timeout: TimeInterval = 1.5) async -> RecorderDescription? {
         let location = "http://\(host):\(port)/description.xml"
-        guard let url = URL(string: location),
-              let response = try? await transport.send(HTTPRequest(url: url, timeout: timeout)),
-              response.statusCode == 200 else { return nil }
-        return parseDescription(response.text, host: host, port: port, location: location, via: "scan")
+        guard let url = URL(string: location) else { return nil }
+        return await withTaskGroup(of: RecorderDescription?.self) { group in
+            group.addTask {
+                guard let response = try? await transport.send(HTTPRequest(url: url, timeout: timeout)),
+                      response.statusCode == 200 else { return nil }
+                return parseDescription(response.text, host: host, port: port, location: location, via: "scan")
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(timeout + 1))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Reads a candidate's `description.xml`. Returns nil for anything that is not a Sony recorder with the
