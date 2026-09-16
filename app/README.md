@@ -61,13 +61,28 @@ reads them as its own options.
 
 ## TestFlight
 
+Two ways up. Either works; neither needs the other.
+
+### From this Mac
+
 `scripts/testflight.sh` archives a Release build, signs it automatically and uploads it. It reads
 `Signing.local.xcconfig` for the team and `TestFlight.local.env` (gitignored too) for an App Store Connect
 API key — `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH` to the `.p8`. The build number is the minute of the
 upload. App Store Connect has to know the app already: an app record for `jp.hiroaki.bdbridge`, the key
 (a role that can manage certificates — Admin or App Manager), and an internal testing group with the
 testers in it, which is then handed each build as it is processed. `ITSAppUsesNonExemptEncryption` in
-`project.yml` answers the export question that would otherwise hold every build.
+`project.yml` answers the export question that would otherwise hold every build. Archiving from Xcode instead
+(Product > Archive, then Distribute App) needs no API key, but the build number has to be raised by hand: App
+Store Connect refuses a number it has already seen.
+
+### From Xcode Cloud
+
+`ci_scripts/ci_post_clone.sh` is what makes this repository buildable there: the Xcode project is generated
+from `project.yml` and not committed, so the script installs XcodeGen and generates it after the clone, and
+writes the `Signing.local.xcconfig` that is gitignored here. The workflow has to set `DEVELOPMENT_TEAM` to the
+team identifier; Xcode Cloud manages the certificates and profiles itself, so nothing else is needed and no
+key is kept on any machine. Set the workflow up in Xcode (Product > Xcode Cloud) or in App Store Connect,
+point it at `app/BDBridge.xcodeproj`, and give it an archive action that distributes to internal testers.
 
 
 ## Driving it without tapping through it
