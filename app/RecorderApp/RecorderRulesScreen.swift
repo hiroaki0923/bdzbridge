@@ -128,6 +128,10 @@ struct RecorderRuleSheet: View {
         var text = ""
     }
 
+    private func remove(_ id: Word.ID, from list: inout [Word]) {
+        list.removeAll { $0.id == id }
+    }
+
     private var words: [String] { keywords.map(\.text).map(clean).filter { !$0.isEmpty } }
     private var excludedWords: [String] { excluded.map(\.text).map(clean).filter { !$0.isEmpty } }
     private func clean(_ text: String) -> String { text.trimmingCharacters(in: .whitespaces) }
@@ -146,9 +150,8 @@ struct RecorderRuleSheet: View {
             Form {
                 Section {
                     ForEach($keywords) { $word in
-                        TextField("キーワード", text: $word.text)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                        WordRow(placeholder: "キーワード", text: $word.text,
+                                remove: keywords.count > 1 ? { remove(word.id, from: &keywords) } : nil)
                     }
                     .onDelete { keywords.remove(atOffsets: $0) }
                     if keywords.count < 5 {
@@ -162,9 +165,8 @@ struct RecorderRuleSheet: View {
 
                 Section {
                     ForEach($excluded) { $word in
-                        TextField("除外ワード", text: $word.text)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                        WordRow(placeholder: "除外ワード", text: $word.text,
+                                remove: { remove(word.id, from: &excluded) })
                     }
                     .onDelete { excluded.remove(atOffsets: $0) }
                     if excluded.count < 2 {
@@ -252,6 +254,30 @@ struct RecorderRuleSheet: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(failure ?? "")
+            }
+        }
+    }
+}
+
+/// One word of a condition. The remove button is there because a swipe has to compete with the text field's
+/// own handling of a horizontal drag, which makes it a poor way to offer the only means of deleting a row.
+struct WordRow: View {
+    let placeholder: String
+    @Binding var text: String
+    /// nil when this row cannot go: the last keyword of a condition that has no genre.
+    let remove: (() -> Void)?
+
+    var body: some View {
+        HStack {
+            TextField(placeholder, text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if let remove {
+                Button(role: .destructive, action: remove) {
+                    Image(systemName: "minus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("この行を削除")
             }
         }
     }
