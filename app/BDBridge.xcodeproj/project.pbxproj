@@ -1,0 +1,422 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E69E6BE470039076D6A3C271 /* TitleSheet.swift */; };
+		0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1279E749BC680BAC08A88565 /* AppModel.swift */; };
+		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
+		25AE7746562A9F4C4EEFAE17 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */; };
+		494934848327D87696DFD86F /* RecorderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0B5AB2BB705A18FEF4855A1E /* RecorderKit */; };
+		4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */; };
+		792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707BB81A9C87370E84230350 /* ReservationSheet.swift */; };
+		7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */; };
+		8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */; };
+		9D285EC3CAB8B0E9FA779BA2 /* SearchScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */; };
+		A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */; };
+		C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58160E6F634978F81AD1D797 /* DuplicatesView.swift */; };
+		CA5A0155CBF1C4D187148CE1 /* JobBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86F6D78C94327F25C742A7A /* JobBarView.swift */; };
+		E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6328D6F84094C9B14A5C500 /* GuideGridView.swift */; };
+		EE0A45F94B0B6419C3D312A6 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C50D9578B5D62CFBB300399 /* WelcomeView.swift */; };
+		F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */; };
+		F7C1814CBF1895E025BD04D1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 320A5AF47092867E2DBFE5F0 /* Assets.xcassets */; };
+		FE5A9FB3F054286E80D406BB /* ReservationsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchScreen.swift; sourceTree = "<group>"; };
+		1279E749BC680BAC08A88565 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderRulesScreen.swift; sourceTree = "<group>"; };
+		259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationsScreen.swift; sourceTree = "<group>"; };
+		320A5AF47092867E2DBFE5F0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWork.swift; sourceTree = "<group>"; };
+		58160E6F634978F81AD1D797 /* DuplicatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatesView.swift; sourceTree = "<group>"; };
+		5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BDBridgeApp.swift; sourceTree = "<group>"; };
+		6C50D9578B5D62CFBB300399 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		707BB81A9C87370E84230350 /* ReservationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationSheet.swift; sourceTree = "<group>"; };
+		A483A42044BA0ED0BA176891 /* GuideScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideScreen.swift; sourceTree = "<group>"; };
+		BE7AA725FC70192085455980 /* BDBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BDBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C6328D6F84094C9B14A5C500 /* GuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideGridView.swift; sourceTree = "<group>"; };
+		CA7ECF4C1A153A99F6259F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D86F6D78C94327F25C742A7A /* JobBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobBarView.swift; sourceTree = "<group>"; };
+		DCE17E7D5D88F5B7797F639F /* RecorderKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecorderKit; path = RecorderKit; sourceTree = SOURCE_ROOT; };
+		E69E6BE470039076D6A3C271 /* TitleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleSheet.swift; sourceTree = "<group>"; };
+		E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsScreen.swift; sourceTree = "<group>"; };
+		EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramSheet.swift; sourceTree = "<group>"; };
+		"TEMP_583B21C2-8DD8-42D0-91EC-D389B4931AB5" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E562314D864ABFEAEF48119B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				494934848327D87696DFD86F /* RecorderKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5B1562A3E57964F0865923D8 /* BDBridge */ = {
+			isa = PBXGroup;
+			children = (
+				1279E749BC680BAC08A88565 /* AppModel.swift */,
+				320A5AF47092867E2DBFE5F0 /* Assets.xcassets */,
+				386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */,
+				5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */,
+				58160E6F634978F81AD1D797 /* DuplicatesView.swift */,
+				C6328D6F84094C9B14A5C500 /* GuideGridView.swift */,
+				A483A42044BA0ED0BA176891 /* GuideScreen.swift */,
+				CA7ECF4C1A153A99F6259F45 /* Info.plist */,
+				D86F6D78C94327F25C742A7A /* JobBarView.swift */,
+				EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */,
+				18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */,
+				E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */,
+				707BB81A9C87370E84230350 /* ReservationSheet.swift */,
+				259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */,
+				1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */,
+				140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */,
+				E69E6BE470039076D6A3C271 /* TitleSheet.swift */,
+				6C50D9578B5D62CFBB300399 /* WelcomeView.swift */,
+			);
+			path = BDBridge;
+			sourceTree = "<group>";
+		};
+		778AC710C9354BC4AAFA7639 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				DCE17E7D5D88F5B7797F639F /* RecorderKit */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		9963B533BD40C8FC50258665 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BE7AA725FC70192085455980 /* BDBridge.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF9ED223BA536CB4FC26BC79 = {
+			isa = PBXGroup;
+			children = (
+				5B1562A3E57964F0865923D8 /* BDBridge */,
+				778AC710C9354BC4AAFA7639 /* Packages */,
+				9963B533BD40C8FC50258665 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		"TEMP_EFFFC711-5977-47A6-9D11-EA7C20EDFD04" /* app */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_583B21C2-8DD8-42D0-91EC-D389B4931AB5" /* Signing.xcconfig */,
+			);
+			path = app;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D8A9962A19B4D1E87D4A6025 /* BDBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0646D00FBF618BDA665F7072 /* Build configuration list for PBXNativeTarget "BDBridge" */;
+			buildPhases = (
+				3EB217724D328C3BD5F4B63D /* Sources */,
+				85101E4EE3973C99C209B503 /* Resources */,
+				E562314D864ABFEAEF48119B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BDBridge;
+			packageProductDependencies = (
+				0B5AB2BB705A18FEF4855A1E /* RecorderKit */,
+			);
+			productName = BDBridge;
+			productReference = BE7AA725FC70192085455980 /* BDBridge.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		203E82B939A149948647072A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					D8A9962A19B4D1E87D4A6025 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B33111423F76C70FA0B1848D /* Build configuration list for PBXProject "BDBridge" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = FF9ED223BA536CB4FC26BC79;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B5D615D64E9A1A91ED98D1AF /* XCLocalSwiftPackageReference "RecorderKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 9963B533BD40C8FC50258665 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D8A9962A19B4D1E87D4A6025 /* BDBridge */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		85101E4EE3973C99C209B503 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7C1814CBF1895E025BD04D1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3EB217724D328C3BD5F4B63D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */,
+				8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */,
+				7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */,
+				C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */,
+				E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */,
+				17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */,
+				CA5A0155CBF1C4D187148CE1 /* JobBarView.swift in Sources */,
+				F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */,
+				A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */,
+				4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */,
+				792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */,
+				FE5A9FB3F054286E80D406BB /* ReservationsScreen.swift in Sources */,
+				9D285EC3CAB8B0E9FA779BA2 /* SearchScreen.swift in Sources */,
+				25AE7746562A9F4C4EEFAE17 /* SettingsScreen.swift in Sources */,
+				05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */,
+				EE0A45F94B0B6419C3D312A6 /* WelcomeView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		4F49730056773410B5EA4D11 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_583B21C2-8DD8-42D0-91EC-D389B4931AB5" /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BDBridge/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = jp.hiroaki.bdbridge;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		67C32DA268C1294D403AB60D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A9F2CEDF28D90673C3FB8AF6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_583B21C2-8DD8-42D0-91EC-D389B4931AB5" /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BDBridge/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = jp.hiroaki.bdbridge;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B45DFF193C0B9BDED279D8EF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0646D00FBF618BDA665F7072 /* Build configuration list for PBXNativeTarget "BDBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A9F2CEDF28D90673C3FB8AF6 /* Debug */,
+				4F49730056773410B5EA4D11 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B33111423F76C70FA0B1848D /* Build configuration list for PBXProject "BDBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				67C32DA268C1294D403AB60D /* Debug */,
+				B45DFF193C0B9BDED279D8EF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B5D615D64E9A1A91ED98D1AF /* XCLocalSwiftPackageReference "RecorderKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = RecorderKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0B5AB2BB705A18FEF4855A1E /* RecorderKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RecorderKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 203E82B939A149948647072A /* Project object */;
+}
