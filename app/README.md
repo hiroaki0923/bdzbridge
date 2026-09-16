@@ -40,7 +40,11 @@ has not been tried.
 2. On the phone, Settings > Privacy & Security > Developer Mode, then let it restart.
 3. `xcodegen generate`, open the project, pick the phone, and run it once from Xcode. That first run is
    what registers the device and asks for the certificate; after it, the command line below works.
-4. The phone has to be on the same Wi-Fi as the recorder. iOS asks for the local network the first time
+4. **The first connection needs the recorder awake.** Waking it takes its MAC address, and the recorder is
+   the only place an iOS app can learn that from, so a phone that has never reached it has nothing to send
+   a magic packet to. After the first connection the address is kept and the app wakes it by itself.
+   Somebody who knows the MAC can type it on the settings screen instead and skip the wait.
+5. The phone has to be on the same Wi-Fi as the recorder. iOS asks for the local network the first time
    the app looks for it, and refusing leaves the app with nothing to talk to (Settings > the app > Local
    Network puts it back).
 

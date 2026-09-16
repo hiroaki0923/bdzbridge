@@ -31,13 +31,16 @@ struct SettingsScreen: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.asciiCapable)
-                            .onSubmit {
-                                let typed = typedMac.trimmingCharacters(in: .whitespaces)
-                                if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
-                                typedMac = model.mac ?? ""
-                            }
                     }
-                    .onChange(of: model.mac, initial: true) { typedMac = model.mac ?? "" }
+                    // Kept as the reader types rather than on the return key, because the next thing they do
+                    // is tap 接続する, and a MAC that was only half committed cannot wake anything.
+                    .onChange(of: typedMac) {
+                        let typed = typedMac.trimmingCharacters(in: .whitespaces)
+                        if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
+                    }
+                    .onChange(of: model.mac, initial: true) {
+                        if let mac = model.mac, WakeOnLan.normalise(typedMac) != mac { typedMac = mac }
+                    }
 
 
                     if let scanning = model.scanning {
