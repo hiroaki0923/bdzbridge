@@ -154,33 +154,39 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 
 ```xml
 <xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">
-  <object type="SEARCH" id="0x00003701">
+  <object type="SEARCH" id="0x0000470f">
     <desiredQualityMode>220</desiredQualityMode>
     <recordDestinationID>HDD</recordDestinationID>
-    <searchSetting type="MULTIPLE" logic="OR">
-      <name>クイズ/サンプル</name>
+    <searchSetting type="MULTIPLE" logic="AND">
+      <name>クイズ/サンプル/テスト</name>
       <genreID type="2">0x50</genreID>
       <keyword>サンプル</keyword>
-      <timeScope>ALL</timeScope>
+      <keyword>テスト</keyword>
+      <excludeKeyword>ダミー</excludeKeyword>
+      <timeScope>NIGHT</timeScope>
       <broadcastTypeScope>TRD</broadcastTypeScope>
     </searchSetting>
   </object>
 </xsrs>
 ```
 
+要素の順序は `name`、`genreID`、`keyword`（複数）、`excludeKeyword`（複数）、`timeScope`、`broadcastTypeScope` で
+一定でした。`desiredQualityMode` と `recordDestinationID` は `searchSetting` より前、`object` の直下です。
+
 `object` の `id` が `X_DeletePrefRecSetting` と `X_UpdatePrefRecSetting` の `SearchSettingID` です。
 指定していない項目は要素ごと出てきません（1 つめの例に `genreID` が無いのはそのため）。
 
 分かったことが 3 つあります。
 
-- **`id` は条件を変えると振り直されます。** 上の 2 つは同じ 1 件の条件を編集した前後で、`0x00001702` から
-  `0x00003701` に変わりました。おまかせ予約の ID と同じ性質なので、**控えた `SearchSettingID` を後で使うのは
-  危険**です。削除・変更の直前に一覧を取り直すこと。
+- **`id` は条件を変えると振り直されます。** 同じ 1 件の条件を 2 回編集しただけで `0x00001702` →
+  `0x00003701` → `0x0000470f` と変わりました。おまかせ予約の ID と同じ性質なので、**控えた
+  `SearchSettingID` を後で使うのは危険**です。削除・変更の直前に一覧を取り直すこと。
 - **`genreID` は 16 進です。** 値の作り方は予約の `genreID` と同じ（level1×16＋level2）ですが、予約は十進
   （`48`）、ここは `0x` 付きの 16 進（`0x50`）で書かれます。同じ名前の項目で表記が違う点に注意。`0x50` は
   level1=5（バラエティ）level2=0（クイズ）で、本体が付けた表示名「クイズ/サンプル」と一致しました。
-- **`name` はレコーダーが組み立てます。** 条件を足すと `クイズ/サンプル` のように、こちらが入れていない文字列に
-  変わりました。表示名として読むだけにして、識別子として使わないこと。
+- **`name` はレコーダーが組み立てます。** ジャンルとキーワードを `/` でつないだもので、条件を足すたびに
+  `サンプル` → `クイズ/サンプル` → `クイズ/サンプル/テスト` と変わりました。表示名として読むだけにして、
+  識別子として使わないこと。
 - **`broadcastTypeScope` は文字列コード**で、地上デジタルは `TRD`。番組表ファイル名（`EPG_TRDEPG_FILE.dat`）と
   同じ綴りなので、BS は `BS`、110度CS は `CS`、4K は `ADVBSD` / `ADVCSD` と推測できますが未確認です。
 
@@ -201,13 +207,16 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 本体の「時間帯」は任意の範囲ではなく、次の 5 つから選ぶものでした（境界は画面の表記のまま。意図的に重なって
 います）。`ALL` 以外を送るときの綴りは未確認です。
 
-| 画面 | 時刻 |
-|---|---|
-| すべての時間帯 | `ALL` |
-| 朝 | 5 時 − 12 時 |
-| 昼 | 11 時 − 6 時 |
-| 夜 | 5 時 − 12 時 |
-| 深夜 | 11 時 − 5 時 |
+| 画面 | 時刻 | 値 |
+|---|---|---|
+| すべての時間帯 | | `ALL`（実測） |
+| 朝 | 5 時 − 12 時 | 未確認 |
+| 昼 | 11 時 − 6 時 | 未確認 |
+| 夜 | 5 時 − 12 時 | `NIGHT`（実測） |
+| 深夜 | 11 時 − 5 時 | 未確認 |
+
+`ALL` と `NIGHT` は実機で確認しました。残り 3 つは `MORNING` / `AFTERNOON` / `MIDNIGHT` あたりでしょうが、
+**推測です**。
 
 **チャンネルの指定は読めません。** 本体でこの条件のチャンネルを 1 局（地上デジタルの 1 波）に絞った状態でも、
 `presetID` はどの `Filter` でも出てきません。公式 PC クライアントは `presetID` を複数読む作りになっているので
@@ -217,7 +226,7 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 チャンネルの絞り込みを消してしまう**と考えるべきです。新規に作る（`X_CreatePrefRecSetting`）ぶんには影響
 ありませんが、既存の条件の変更は、本体でやってもらうか、消える可能性を承知の上でやるかのどちらかです。
 
-**まだ分からないもの**: `timeScope` の `ALL` 以外の綴り、`object` の `type` は `SEARCH` 以外に何があるか、
+**まだ分からないもの**: `timeScope` の朝・昼・深夜の綴り、`object` の `type` は `SEARCH` 以外に何があるか、
 `searchSetting` の `type="MULTIPLE"` の他の値、1 台に登録できる条件の数、書き込み系 3 アクションの `Elements` の
 形（一覧と同じ形かどうか）。
 
