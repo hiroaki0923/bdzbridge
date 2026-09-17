@@ -138,11 +138,15 @@ struct GuideScreen: View {
 
     @ViewBuilder
     private var list: some View {
-        if let problem = model.problem {
-            ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle",
-                                   description: Text(problem))
-        } else if shown.isEmpty {
-            if model.connected {
+        // A guide that is in the cache is shown whatever the recorder is doing. It is the whole reason the
+        // cache exists: away from home the recorder cannot be reached, and a programme can still be read
+        // and still be reserved -- the reservation waits in the queue. An error in place of the guide left
+        // nothing to do but go home.
+        if shown.isEmpty {
+            if let problem = model.problem {
+                ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle",
+                                       description: Text(problem))
+            } else if model.connected {
                 ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
                                        description: Text("右上の更新ボタンでレコーダーから取得できます"))
             } else {

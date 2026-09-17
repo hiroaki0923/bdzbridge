@@ -99,17 +99,35 @@ struct RecorderActivityBar: View {
 
     var body: some View {
         if let busy = model.busy {
-            HStack(spacing: 8) {
+            strip {
                 ProgressView().controlSize(.small)
                 Text(busy).font(.footnote)
                 Spacer()
             }
+        } else if model.gaveUp {
+            // The app has stopped trying, and says so rather than leaving a quiet failure to be guessed at
+            // from lists that never fill. Trying again is the reader's to ask for: on this network the
+            // answer will be the same, and asking costs half a minute of waking a recorder that is not
+            // there. It asks by itself only when the network changes.
+            strip {
+                Image(systemName: "wifi.exclamationmark").font(.footnote)
+                Text("レコーダーに接続していません").font(.footnote)
+                Spacer()
+                Button("再接続") { Task { await model.connect() } }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
+        }
+    }
+
+    private func strip(@ViewBuilder _ content: () -> some View) -> some View {
+        HStack(spacing: 8) { content() }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(.bar)
             .overlay(alignment: .bottom) { Divider() }
             .transition(.move(edge: .top).combined(with: .opacity))
-        }
     }
 }
 

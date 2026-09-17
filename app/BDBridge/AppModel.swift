@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import RecorderKit
 import SwiftUI
 
@@ -42,6 +43,17 @@ final class AppModel {
     private(set) var found: [RecorderDescription] = []
     private(set) var scanning: (done: Int, total: Int)?
     private(set) var busy: String?
+    /// Set while the app is only waiting for the recorder to come back from a magic packet. Nothing is
+    /// being written and nothing is being read, so the screens leave alive what they can: a reservation
+    /// made during these seconds goes to the queue, which is what the queue is for.
+    private(set) var waking = false
+    /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
+    /// until either the network this device is on changes or the reader asks for it, because the answer
+    /// will be the same and each ask costs a timeout: the client serialises its requests, so a screen full
+    /// of lists wanting to load turns into minutes of a spinner saying the wrong thing.
+    private(set) var gaveUp = false
+    /// The network we were on when we last tried. A different one is worth another try by itself.
+    private var triedOn: String?
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     private(set) var needsPower = false
     /// Set when the recorder answered nothing at all rather than answering with an error.
@@ -60,6 +72,10 @@ final class AppModel {
     private var store: GuideStore?
     private var client: RecorderClient?
     private var starting: Task<Void, Never>?
+    private var pathMonitor: NWPathMonitor?
+    /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
+    /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
+    private var connecting = false
 
     private static let hostKey = "recorderHost"
     private static let macKey = "recorderMac"
@@ -75,6 +91,18 @@ final class AppModel {
     }
 
     var connected: Bool { info != nil }
+
+    /// True while something is going on that a second request would only get in the way of. Waking is not
+    /// one of them, on purpose -- see `waking`.
+    var working: Bool { busy != nil && !waking }
+
+    /// True while there is no point asking the recorder anything: either nothing has been set up, or the
+    /// last ask got silence. Every list guards on it, so that going out of range costs one timeout rather
+    /// than one per screen.
+    var offline: Bool { client == nil || unreachable }
+
+    /// Whether this device is on a different network from the one the last attempt was made on.
+    var networkChanged: Bool { LocalNetwork.signature() != triedOn }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
@@ -102,9 +130,25 @@ final class AppModel {
             store = try GuideStore(path: try Storage.guidePath())
             await reloadFromCache()
             if !host.isEmpty { await connect() }
+            // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
+            // soon as it starts, and that would be a second connect racing the first.
+            watchNetwork()
         } catch {
             problem = "番組表の保存領域を開けませんでした: \(error)"
         }
+    }
+
+    /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
+    /// than that -- an interface going up on its own account, a route changing -- so the decision is left to
+    /// the addresses this device holds, which is what actually says whether the recorder might be nearby.
+    private func watchNetwork() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { _ in
+            Task { @MainActor [weak self] in await self?.networkChangedWhileOpen() }
+        }
+        monitor.start(queue: .global(qos: .utility))
     }
 
     /// Looks through the subnet this device is on for a recorder. One short request per address, so the
@@ -143,7 +187,9 @@ final class AppModel {
     /// happens here rather than as a button — the address came from the recorder itself, the packet costs
     /// nothing, and the reader only wanted to see their guide.
     func connect() async {
-        guard !host.isEmpty else { return }
+        guard !host.isEmpty, !connecting else { return }
+        connecting = true
+        defer { connecting = false }
         let client = RecorderClient(host: host)
         self.client = client
         // The first ask is a short one. A recorder that has left the network does not refuse the
@@ -154,8 +200,13 @@ final class AppModel {
         // that is awake ignores it. Waiting for the failure first is what made this look like a fault
         // followed by a retry.
         sendMagicPacket()
+        triedOn = LocalNetwork.signature()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached { reached = await wakeAndAttach(client) }
+        // Trying again by itself would only spend another half-minute arriving at the same silence. The
+        // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
+        // network asks again without being told to.
+        gaveUp = !reached
         if reached { await refreshGuideIfStale() }
     }
 
@@ -169,8 +220,11 @@ final class AppModel {
     /// clearing it per attempt made every button bound to `busy` flicker once a second while waking.
     private func attach(_ client: RecorderClient, what: String? = "接続中",
                         timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
+        // Whatever was being said is put back rather than cleared: this can run inside the waking, which
+        // goes on for the better part of a minute and should not lose its line on the screen.
+        let previous = busy
         if let what { busy = what }
-        defer { if what != nil { busy = nil } }
+        defer { if what != nil { busy = previous } }
         do {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
@@ -190,6 +244,10 @@ final class AppModel {
         } catch {
             let recorderError = error as? RecorderError
             unreachable = recorderError?.unreachable ?? false
+            // Nothing answered, so we are not connected, whatever a description read earlier says. Leaving
+            // it standing is what had the screens asking a recorder that was not there, one 30-second
+            // timeout at a time.
+            if unreachable { info = nil }
             if !quiet { problem = recorderError?.explanation ?? String(describing: error) }
             return false
         }
@@ -211,20 +269,29 @@ final class AppModel {
         // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
-        // Said once for the whole waking, not per attempt: the screens disable what they must while this is
-        // set, and a value that comes and goes every second makes buttons blink.
-        busy = "レコーダーを起動しています"
-        defer { busy = nil }
-        // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet. Looking every second with a
-        // two-second timeout catches that within a second or so of it happening, over about half a minute.
-        for _ in 0..<20 {
+        waking = true
+        let previous = busy
+        let started = Date()
+        defer { waking = false; busy = previous }
+        // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet, so half a minute is
+        // generous. Bounded by the clock rather than by a count of attempts, so that the line on screen and
+        // the wait behind it are the same length -- and the line says how long it has been, because a
+        // spinner that has been going for twenty seconds is otherwise indistinguishable from a hung one.
+        while Date().timeIntervalSince(started) < Self.wakeLimit {
+            busy = "レコーダーを起動しています（\(Int(Date().timeIntervalSince(started))) 秒）"
+            // Only the identity, and only for two seconds: asking for everything is what the attach below
+            // is for, and it is worth doing once, after the recorder has proved it is listening.
+            if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil {
+                return await attach(client, what: "接続中", timeout: RecorderClient.probeTimeout)
+            }
             try? await Task.sleep(for: .seconds(1))
-            if await attach(client, what: nil,
-                            timeout: RecorderClient.wakeProbeTimeout, quiet: true) { return true }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
     }
+
+    /// How long to wait for a recorder to come back from a magic packet before leaving it alone.
+    private static let wakeLimit: TimeInterval = 30
 
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
     /// the address cannot be guessed and iOS will not read the ARP table.
@@ -272,7 +339,7 @@ final class AppModel {
 
     /// Downloads every broadcasting type the recorder has and replaces the cache.
     func refreshGuide() async {
-        guard let client, let store else { return }
+        guard let client, let store, !unreachable else { return }
         await run("番組表を取得中") {
             try await GuideRefresh.run(client: client, store: store) { broadcasting in
                 self.busy = "番組表を取得中 (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
@@ -283,7 +350,7 @@ final class AppModel {
 
     func loadReservations() async {
         await start()
-        guard let client else { return }
+        guard let client, !unreachable else { return }
         await run("予約一覧を取得中") {
             self.reservations = try await client.reservations()
             self.reservationsByProgram = Dictionary(
@@ -304,7 +371,7 @@ final class AppModel {
 
     func loadRecorderRules() async {
         await start()
-        guard let client else { return }
+        guard let client, !unreachable else { return }
         await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
     }
 
@@ -524,7 +591,7 @@ final class AppModel {
     /// The load itself. Anything called from `begin()` has to use this: going through `loadTitles` would wait
     /// on the very start-up task it is already running inside.
     private func loadTitlesNow(force: Bool) async {
-        guard let client, force || !titlesLoaded else { return }
+        guard let client, !unreachable, force || !titlesLoaded else { return }
         await run("録画一覧を取得中") {
             self.titles = try await client.allTitles()
             self.titlesLoaded = true
@@ -722,9 +789,8 @@ final class AppModel {
     /// it also proves the payload is one the recorder accepts, without recording anything.
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String) async -> [Reservation]? {
         await start()
-        guard let client, let request = request(for: program, quality: quality, repeating: repeating) else {
-            return nil
-        }
+        guard let client, !unreachable,
+              let request = request(for: program, quality: quality, repeating: repeating) else { return nil }
         do {
             return try await client.conflicts(elements: XsrsElements.create(request))
         } catch let error as RecorderError {
@@ -744,12 +810,15 @@ final class AppModel {
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
         guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
-        guard let client else {
+        // Known to be away: queue it now rather than spending a timeout finding out again. Thirty seconds
+        // of a spinner before "送信待ちにしました" reads as a failure that was then made the best of.
+        guard let client, !offline else {
             await queue(request, serviceName: program.serviceName)
             return true
         }
+        let previous = busy
         busy = "予約を登録中"
-        defer { busy = nil }
+        defer { busy = previous }
         do {
             _ = try await client.createReservation(request)
             problem = nil
@@ -773,6 +842,17 @@ final class AppModel {
     func returnedToForeground() async {
         guard !host.isEmpty, busy == nil else { return }
         if connected, let lastAnswered, Date().timeIntervalSince(lastAnswered) < 60 { return }
+        // Already tried on this very network and got nowhere. Coming back to the app is not news, and
+        // spending half a minute waking a recorder that is not there -- every time -- is what made the app
+        // look as though it never stopped searching.
+        if gaveUp, !networkChanged { return }
+        await connect()
+    }
+
+    /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
+    /// over. That is the one thing that makes another attempt worth making without being asked.
+    func networkChangedWhileOpen() async {
+        guard !host.isEmpty, busy == nil, !connected, networkChanged else { return }
         await connect()
     }
 
@@ -812,8 +892,11 @@ final class AppModel {
     func flushPending() async -> Int {
         guard let client, let store else { return 0 }
         await loadPending()
-        guard !pending.isEmpty else { return 0 }
+        guard !pending.isEmpty, !unreachable else { return 0 }
+        let previous = busy
+        busy = "送信待ちの予約を登録中"
         let outcome = await PendingQueue.flush(client: client, store: store)
+        busy = previous
         await loadPending()
         if !outcome.sent.isEmpty { await loadReservations() }
         return outcome.sent.count
@@ -842,8 +925,9 @@ final class AppModel {
                                          durationSec: target.durationSec, repeatCode: repeatCode,
                                          broadcastingType: target.broadcastingType, serviceID: target.serviceID,
                                          qualityCode: qualityCode, eventID: target.eventID)
+        let previous = busy
         busy = "予約を変更中"
-        defer { busy = nil }
+        defer { busy = previous }
         do {
             try await client.updateReservation(id: target.id, request)
         } catch let error as RecorderError where error.unknownReservation {
@@ -876,21 +960,22 @@ final class AppModel {
             return false
         }
         guard let client else { return false }
+        let previous = busy
         busy = "予約を削除中"
         do {
             try await client.deleteReservation(id: target.id)
         } catch let error as RecorderError where error.unknownReservation {
             // the list we just read was itself out of date, which is what happens when reading it failed
-            busy = nil
+            busy = previous
             await loadReservations()  // first, because a successful read clears `problem`
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
         } catch {
-            busy = nil
+            busy = previous
             problem = (error as? RecorderError)?.explanation ?? String(describing: error)
             return false
         }
-        busy = nil
+        busy = previous
         problem = nil
         reservations.removeAll { $0.id == target.id }
         await loadReservations()
@@ -989,6 +1074,7 @@ final class AppModel {
     /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
     @discardableResult
     private func run(_ what: String, _ work: () async throws -> Void) async -> Bool {
+        let previous = busy
         busy = what
         var failed = false
         do {
@@ -1001,7 +1087,7 @@ final class AppModel {
             problem = String(describing: error)
             failed = true
         }
-        busy = nil
+        busy = previous
         return !failed
     }
 

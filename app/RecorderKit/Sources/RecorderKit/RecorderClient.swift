@@ -12,6 +12,10 @@ public actor RecorderClient {
     private let transport: any HTTPTransport
     private let queue = SerialQueue()
     private var streamPortConfirmed: Bool
+    /// Whether the DLNA tree has already been walked looking for the port. A tree that gives nothing away
+    /// leaves `streamPortConfirmed` false, and asking again for every one of the eight guide files would
+    /// cost eight fruitless walks, so it is asked once per client and the default stands after that.
+    private var streamPortTried = false
 
     private static let soapTimeout: TimeInterval = 30
     private static let fileTimeout: TimeInterval = 120
@@ -37,6 +41,12 @@ public actor RecorderClient {
     // MARK: - identity
 
     /// Reads `description.xml`, which is also how a candidate found by a scan is confirmed to be a recorder.
+    ///
+    /// One request, and a short `timeout` really does bound it: finding the port the guide files are served
+    /// on used to happen here, and that is a walk of up to eight SOAP browses which the timeout given here
+    /// never reached. On a recorder that had just woken -- or over a VPN -- a probe meant to cost two seconds
+    /// cost minutes, which is what made waking look as though it had hung. The walk now happens where its
+    /// answer is needed, in `guideFile`.
     @discardableResult
     public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
         -> RecorderDescription {
@@ -48,7 +58,6 @@ public actor RecorderClient {
                                                          via: via)
         else { throw RecorderError.notARecorder(host: host) }
         info = described
-        if !streamPortConfirmed { _ = try? await detectStreamPort() }
         return described
     }
 
@@ -293,6 +302,12 @@ public actor RecorderClient {
 
     private func guideFile(named name: String) async throws -> Data? {
         if let info, !info.epgCapable { return nil }
+        // The port is 60151 on every recorder seen so far, but it is asked for rather than assumed -- here,
+        // where a guide file is actually wanted, and not on the way in.
+        if !streamPortConfirmed, !streamPortTried {
+            streamPortTried = true
+            _ = try? await detectStreamPort()
+        }
         let response = try await send(HTTPRequest(url: guideFileURL(named: name), timeout: Self.fileTimeout))
         switch response.statusCode {
         case 200: return response.body

@@ -33,7 +33,10 @@ struct ReservationsScreen: View {
     var body: some View {
         NavigationStack {
             Group {
-                if !model.connected {
+                // Away from home there is still something to show: what the recorder said last time, and
+                // above all what is waiting to be sent to it. Hiding the queue behind a connection is
+                // hiding it exactly when it is in use.
+                if !model.connected, model.reservations.isEmpty, model.pending.isEmpty {
                     NoRecorderView(icon: "clock")
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
@@ -87,13 +90,22 @@ struct ReservationsScreen: View {
                     .disabled(!model.connected)
                 }
             }
+            // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
+            // the app has given up on.
             .refreshable {
-                await model.loadReservations()
-                await model.flushPending()
+                if model.offline {
+                    await model.connect()
+                } else {
+                    await model.loadReservations()
+                    await model.flushPending()
+                }
             }
             .task(id: model.connected) {
-                await model.loadReservations()
+                // The queue is on this device and costs nothing to read, so it is read first: behind the
+                // reservations it would have waited out a timeout before appearing, which looked like a
+                // queue that had swallowed the reservation.
                 await model.loadPending()
+                await model.loadReservations()
             }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would

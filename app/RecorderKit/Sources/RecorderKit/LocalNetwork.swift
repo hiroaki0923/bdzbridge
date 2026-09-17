@@ -32,6 +32,14 @@ public enum LocalNetwork {
         return found
     }
 
+    /// A short description of the network this device is on at this moment: every interface that is up,
+    /// with the address and mask it holds. Joining another Wi-Fi, falling back to cellular or bringing a VPN
+    /// up all change it, and sitting still does not -- which is what makes it a fair thing to decide by
+    /// whether reaching a recorder that did not answer is worth trying again.
+    public static func signature() -> String {
+        interfaces().map { "\($0.name)=\($0.address)/\($0.netmask)" }.sorted().joined(separator: ",")
+    }
+
     /// Every host on the same subnet as `interface`, without the network and broadcast addresses or the
     /// device itself. A mask wider than `maxHosts` allows is narrowed to the addresses nearest this device,
     /// so a /16 does not turn into sixty-five thousand requests.

@@ -80,8 +80,12 @@ struct ProgramSheet: View {
                             }
                         }
                         conflictRow
+                        // Alive even while the recorder is being woken, and alive while it cannot be
+                        // reached at all: a reservation made now goes to the queue and is sent when the
+                        // recorder next answers. A disabled button is the app refusing to take the one
+                        // thing it can still do.
                         Button("録画予約する") { ask = .reserve }
-                            .disabled(model.busy != nil)
+                            .disabled(model.working)
                     }
                 }
 
@@ -138,7 +142,10 @@ struct ProgramSheet: View {
                 case .reserve:
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "\(Codes.qualityLabel[quality] ?? quality) · "
-                         + "\(Codes.repeatLabel[repeating] ?? repeating)\nレコーダーに予約を登録します。")
+                         + "\(Codes.repeatLabel[repeating] ?? repeating)\n"
+                         + (model.offline
+                            ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
+                            : "レコーダーに予約を登録します。"))
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "レコーダーから削除されます。")
@@ -159,7 +166,8 @@ struct ProgramSheet: View {
         case .cancel: "この予約を取り消しますか？"
         case .failed: "エラー"
         case .queued: "送信待ちにしました"
-        case .reserve, nil: "この番組を録画予約しますか？"
+        case .reserve: model.offline ? "この番組を送信待ちにしますか？" : "この番組を録画予約しますか？"
+        case nil: "この番組を録画予約しますか？"
         }
     }
 

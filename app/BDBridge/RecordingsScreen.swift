@@ -76,7 +76,12 @@ struct RecordingsScreen: View {
             }
             .task(id: model.connected) { await model.loadTitles() }
             // pulling down reads the list again from the recorder; not while a bulk job is walking it
-            .refreshable { if !model.jobRunning { await model.loadTitles(force: true) } }
+            // Pulling down while the app has given up on the recorder is the reader asking for another go
+            // at it, which is the same thing the strip's 再接続 does.
+            .refreshable {
+                guard !model.jobRunning else { return }
+                if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
+            }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .sheet(item: $openedGroup) { group in
                 GroupSheet(group: group) { opened = $0 }

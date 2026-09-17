@@ -120,7 +120,9 @@ final class RecorderClientTests: XCTestCase {
         let transport = StubTransport { _, index in
             index == 0 ? HTTPResponse(statusCode: 200, body: Data([0x01, 0x02])) : HTTPResponse(statusCode: 416)
         }
-        let client = RecorderClient(host: Stub.host, transport: transport)
+        // The port is given, so nothing goes looking for it: this test is about the path, and the looking
+        // has a test of its own.
+        let client = RecorderClient(host: Stub.host, transport: transport, streamPort: 60151)
 
         let terrestrial = try await client.epgFile("td")
         let missing = try await client.epgFile("bs4k")
@@ -130,6 +132,35 @@ final class RecorderClientTests: XCTestCase {
         let urls = await transport.requests.map(\.url.absoluteString)
         XCTAssertEqual(urls.first, "http://192.0.2.10:60151//EPG_TRDEPG_FILE.dat")
         XCTAssertEqual(urls.last, "http://192.0.2.10:60151//EPG_ADVBSDEPG_FILE.dat")
+    }
+
+    /// The port the guide files are served on is looked for when a guide file is wanted, not on the way in:
+    /// `describe` is what the app probes with while waking a recorder, and a walk of the DLNA tree behind it
+    /// made a two-second probe take minutes. Asked once, whatever the tree says.
+    func testTheStreamPortIsLookedForOnTheFirstGuideFileAndNotOnDescribe() async throws {
+        let description = try Vectors.load("description.json").string("description_xml")
+        let transport = StubTransport { request, _ in
+            if request.url.path == "/description.xml" {
+                return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+            }
+            if request.url.path.hasPrefix("/DMSContentDirectory") {
+                return Stub.soap("Browse", result: Stub.didl(resourcePort: 60152))
+            }
+            return HTTPResponse(statusCode: 200, body: Data([0x01]))
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        _ = try await client.describe()
+        let afterDescribe = await transport.requests.map(\.url.absoluteString)
+        XCTAssertEqual(afterDescribe, ["http://192.0.2.10:64220/description.xml"],
+                       "describing a recorder is one request")
+
+        _ = try await client.epgFile("td")
+        _ = try await client.epgFile("bs")
+        let paths = await transport.requests.map(\.url.absoluteString)
+        XCTAssertEqual(paths.filter { $0.contains("DMSContentDirectory") }.count, 1,
+                       "the tree is walked once per client, not once per file")
+        XCTAssertEqual(paths.last, "http://192.0.2.10:60152//EPG_BSEPG_FILE.dat")
     }
 
     func testStreamPortIsTakenFromTheDlnaTree() async throws {
