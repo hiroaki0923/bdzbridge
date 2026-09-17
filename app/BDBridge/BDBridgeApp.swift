@@ -104,7 +104,7 @@ struct RecorderActivityBar: View {
                 Text(busy).font(.footnote)
                 Spacer()
             }
-        } else if model.demo {
+        } else if model.demo, DemoData.banner {
             // Said on every screen, because everything on them is invented and a reader who forgets that
             // would take the free space, the recordings and the reservations for their own.
             strip {

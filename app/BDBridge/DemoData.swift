@@ -25,6 +25,15 @@ enum DemoData {
 
     static var on: Bool { UserDefaults.standard.bool(forKey: key) }
 
+    /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
+    /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
+    /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder, and where a strip
+    /// about the demo would be a strip about something the buyer is not getting.
+    static var banner: Bool {
+        UserDefaults.standard.object(forKey: "demoBanner") == nil
+            || UserDefaults.standard.bool(forKey: "demoBanner")
+    }
+
     /// Remembers the real recorder, if there is one, and turns the demo on.
     static func turnOn(realHost: String, realMac: String?) {
         let defaults = UserDefaults.standard

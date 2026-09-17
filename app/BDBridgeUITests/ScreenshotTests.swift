@@ -82,7 +82,8 @@ final class ScreenshotTests: XCTestCase {
     private func shot(_ name: String, arguments: [String],
                       prepare: (XCUIApplication) throws -> Void) throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-demoData", "1"] + arguments
+        // The demo's own strip is off here: these are pictures of the app as it looks with a recorder.
+        app.launchArguments = ["-demoData", "1", "-demoBanner", "0"] + arguments
         app.launch()
         try prepare(app)
         // The lists animate in, and a shot taken on the first frame catches them half drawn.
