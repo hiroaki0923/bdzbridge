@@ -4,10 +4,20 @@ import RecorderKit
 
 /// Where the guide cache lives, so the screens and the background run open the same file.
 enum Storage {
-    static func guidePath() throws -> String {
+    /// The demo keeps its invented programmes in a database of its own, so that trying it leaves nothing
+    /// behind in the cache of a real recorder -- and so that leaving it is a matter of deleting one file.
+    static func guidePath(demo: Bool = DemoData.on) throws -> String {
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                     appropriateFor: nil, create: true)
-        return directory.appendingPathComponent("guide.sqlite3").path
+        return directory.appendingPathComponent(demo ? "guide-demo.sqlite3" : "guide.sqlite3").path
+    }
+
+    static func removeDemoGuide() {
+        guard let path = try? guidePath(demo: true) else { return }
+        // SQLite leaves a write-ahead log and a shared-memory file beside the database
+        for suffix in ["", "-wal", "-shm"] {
+            try? FileManager.default.removeItem(atPath: path + suffix)
+        }
     }
 }
 
@@ -100,6 +110,8 @@ enum BackgroundWork {
     /// Whatever is waiting in the queue goes out while the recorder is up, and the reader is told.
     @discardableResult
     static func refreshNow() async -> Bool {
+        // Nothing to fetch and nobody to wake while the demo is on the screen.
+        guard !DemoData.on else { return false }
         guard let host = UserDefaults.standard.string(forKey: "recorderHost"), !host.isEmpty else { return false }
         do {
             let store = try GuideStore(path: try Storage.guidePath())

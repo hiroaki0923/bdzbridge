@@ -1,21 +1,48 @@
-#if DEBUG
 import Foundation
 import RecorderKit
 
 /// A recorder made of canned answers, and a guide full of invented programmes.
 ///
-/// This is how the App Store screenshots are taken. The screens show what is on the recorder's disk and what
-/// it is going to record, which on a real box is a list of what somebody watches, where they live and what
-/// they pay for. None of that belongs in a shop window, so everything here is made up: the stations, the
-/// programmes, the recordings, the keyword conditions, the address and the MAC.
+/// Two jobs. It is how the App Store screenshots are taken -- the screens show what is on the recorder's
+/// disk and what it is going to record, which on a real box is a list of what somebody watches, where they
+/// live and what they pay for, and none of that belongs in a shop window. And it is what the tutorial offers
+/// to anyone who has not got a recorder to hand: the reviewer who has to judge this app, and the reader
+/// deciding whether it is worth setting up.
 ///
 /// It is not a mock of the app. The answers are the XML a BDZ-FBT4100 really sends, parsed by the same code
-/// that parses the real thing, so what the screenshots show is the app working -- with invented data.
+/// that parses the real thing, and `DemoRecorder` remembers what is done to it, so a reservation made here
+/// really does turn up in the list. Everything in it is invented: the stations, the programmes, the
+/// recordings, the keyword conditions, the address and the MAC.
 ///
-/// `#if DEBUG`, so none of it is in the build that goes to the store. Turned on with `-demoData 1` on the
-/// command line (see app/scripts/screenshots).
+/// The guide it writes goes in a database of its own, so that trying the demo leaves nothing behind in the
+/// cache of a real recorder.
 enum DemoData {
-    static let enabled = UserDefaults.standard.bool(forKey: "demoData")
+    /// Also the name of the launch argument (`-demoData 1`), which is how the screenshots turn it on.
+    static let key = "demoData"
+    /// Where the real recorder's address is kept while the demo has the screen.
+    private static let savedHostKey = "hostBeforeDemo"
+    private static let savedMacKey = "macBeforeDemo"
+
+    static var on: Bool { UserDefaults.standard.bool(forKey: key) }
+
+    /// Remembers the real recorder, if there is one, and turns the demo on.
+    static func turnOn(realHost: String, realMac: String?) {
+        let defaults = UserDefaults.standard
+        defaults.set(realHost, forKey: savedHostKey)
+        defaults.set(realMac ?? "", forKey: savedMacKey)
+        defaults.set(true, forKey: key)
+    }
+
+    /// Turns the demo off and hands back the recorder that was there before it, if any.
+    static func turnOff() -> (host: String, mac: String?) {
+        let defaults = UserDefaults.standard
+        let host = defaults.string(forKey: savedHostKey) ?? ""
+        let mac = defaults.string(forKey: savedMacKey) ?? ""
+        defaults.removeObject(forKey: savedHostKey)
+        defaults.removeObject(forKey: savedMacKey)
+        defaults.set(false, forKey: key)
+        return (host, mac.isEmpty ? nil : mac)
+    }
 
     static let host = "192.0.2.63"          // reserved for documentation (RFC 5737): never a real host
     static let mac = "f8:4e:17:00:00:00"    // Sony's OUI, the rest zeroed, as everywhere else in this repo
@@ -267,33 +294,33 @@ enum DemoData {
         at(hhmm, dayOffset: dayOffset)
     }
 
-    static var reservationsXml: String {
-        var xml = "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">"
-        xml += reservation(id: "0x00000000000a9431", title: "サンプルニュース",
+    static var reservationItems: [String] {
+        var xml: [String] = []
+        xml.append(reservation(id: "0x00000000000a9431", title: "サンプルニュース",
                            start: Date().addingTimeInterval(-20 * 60), minutes: 60, service: 1024,
-                           eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800)
-        xml += reservation(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話",
+                           eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800))
+        xml.append(reservation(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話",
                            start: moment("20:00"), minutes: 45, service: 1024, eventID: 0x3798,
-                           quality: 220, genre: 48, repeatCode: weekly(moment("20:00")), size: 2900)
-        xml += reservation(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶",
+                           quality: 220, genre: 48, repeatCode: weekly(moment("20:00")), size: 2900))
+        xml.append(reservation(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶",
                            start: moment("21:00"), minutes: 60, service: 1024, eventID: 0x379a,
-                           quality: 100, genre: 128, size: 5900)
-        xml += reservation(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）",
+                           quality: 100, genre: 128, size: 5900))
+        xml.append(reservation(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）",
                            start: moment("16:00", dayOffset: 1), minutes: 120, service: 1048,
                            eventID: 0x37b2, quality: 240, genre: 112,
-                           repeatCode: weekly(moment("16:00", dayOffset: 1)), size: 1600)
-        xml += reservation(id: "0x00000000000a9435", title: "ひなたスポーツ特集",
+                           repeatCode: weekly(moment("16:00", dayOffset: 1)), size: 1600))
+        xml.append(reservation(id: "0x00000000000a9435", title: "ひなたスポーツ特集",
                            start: moment("18:00", dayOffset: 1), minutes: 120, service: 1064,
-                           eventID: 0x37c0, quality: 220, genre: 16, conflict: true, size: 4200)
+                           eventID: 0x37c0, quality: 220, genre: 16, conflict: true, size: 4200))
         // The recorder's own おまかせ・まる録 puts reservations in the same list, under its own creator id.
-        xml += reservation(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集",
+        xml.append(reservation(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集",
                            start: moment("22:30"), minutes: 60, service: 1024, eventID: 0x379e,
-                           quality: 220, genre: 64, creator: "1000", size: 2700)
-        xml += reservation(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」",
+                           quality: 220, genre: 64, creator: "1000", size: 2700))
+        xml.append(reservation(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」",
                            start: moment("20:00", dayOffset: 2), minutes: 120, service: 2048,
                            broadcastingType: 3, eventID: 0x37d4, quality: 220, genre: 96,
-                           creator: "1000", size: 7400)
-        return xml + "</xsrs>"
+                           creator: "1000", size: 7400))
+        return xml
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -325,51 +352,51 @@ enum DemoData {
 
     // MARK: - what is on the disk
 
-    static var titlesXml: String {
-        var xml = "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">"
-        xml += title(0x8001, "サンプル劇場「ひかりの街」第４話", moment("20:00", dayOffset: -1), 45, 1024,
-                     quality: 220, genre: 48, size: 2884, isNew: true)
-        xml += title(0x8002, "サンプル劇場「ひかりの街」第３話", moment("20:00", dayOffset: -8), 45, 1024,
-                     quality: 220, genre: 48, size: 2901, protected: true, resume: 0)
-        xml += title(0x8003, "サンプル劇場「ひかりの街」第２話", moment("20:00", dayOffset: -15), 45, 1024,
-                     quality: 220, genre: 48, size: 2877, resume: 1_240)
-        xml += title(0x8004, "サンプル劇場「ひかりの街」第１話", moment("20:00", dayOffset: -22), 60, 1024,
-                     quality: 220, genre: 48, size: 3810, resume: 0)
-        xml += title(0x8005, "みほんドキュメント　海の記憶", moment("21:00", dayOffset: -2), 60, 1024,
-                     quality: 100, genre: 128, size: 11_640, isNew: true)
-        xml += title(0x8006, "サンプルアニメ　空色パズル（６）", moment("16:00", dayOffset: -2), 120, 1048,
-                     quality: 240, genre: 112, size: 1_562, isNew: true)
-        xml += title(0x8007, "サンプルアニメ　空色パズル（５）", moment("16:00", dayOffset: -9), 120, 1048,
-                     quality: 240, genre: 112, size: 1_548, resume: 0)
-        xml += title(0x8008, "サンプル映画劇場「遠い灯台」", moment("19:00", dayOffset: -3), 120, 1048,
-                     quality: 220, genre: 96, size: 7_420, resume: 3_600)
-        xml += title(0x8009, "ひなたスポーツ特集　サンプルリーグ第１２節", moment("18:00", dayOffset: -4),
-                     120, 1064, quality: 220, genre: 16, size: 6_180, isNew: true)
-        xml += title(0x800a, "サンプル音楽館　夏の特集", moment("22:30", dayOffset: -5), 60, 1024,
-                     quality: 220, genre: 64, size: 2_640, resume: 0)
-        xml += title(0x800b, "BSサンプル劇場「星空紀行」", moment("20:00", dayOffset: -6), 120, 2048,
-                     broadcastingType: 3, quality: 220, genre: 96, size: 7_380, isNew: true)
-        xml += title(0x800c, "みほんクラシック館", moment("21:00", dayOffset: -7), 60, 1032,
-                     quality: 100, genre: 65, size: 10_920, resume: 0)
-        xml += title(0x800d, "サンプルクイズ王", moment("18:00", dayOffset: -7), 60, 1040,
-                     quality: 240, genre: 81, size: 890, isNew: true)
-        xml += title(0x800e, "みほん自然紀行", moment("18:00", dayOffset: -10), 120, 1032,
-                     quality: 220, genre: 130, size: 5_940, resume: 2_400)
-        xml += title(0x800f, "サンプル旅番組「各駅停車」", moment("10:00", dayOffset: -11), 120, 1048,
-                     quality: 240, genre: 177, size: 1_720, resume: 0)
-        xml += title(0x8010, "サンプルアニメ　空色パズル（４）", moment("16:00", dayOffset: -16), 120, 1048,
-                     quality: 240, genre: 112, size: 1_551, resume: 0)
-        xml += title(0x8011, "サンプルアニメ　空色パズル（３）", moment("16:00", dayOffset: -23), 120, 1048,
-                     quality: 240, genre: 112, size: 1_544, resume: 0)
-        xml += title(0x8012, "みほんドキュメント　川の記憶", moment("21:00", dayOffset: -9), 60, 1024,
-                     quality: 100, genre: 128, size: 11_580, resume: 900)
-        xml += title(0x8013, "みほんドキュメント　町の記憶", moment("21:00", dayOffset: -16), 60, 1024,
-                     quality: 100, genre: 128, size: 11_610, resume: 0)
-        xml += title(0x8014, "ひなたスポーツ特集　サンプルリーグ第１１節", moment("18:00", dayOffset: -11),
-                     120, 1064, quality: 220, genre: 16, size: 6_120, resume: 0)
-        xml += title(0x8015, "ひなたスポーツ特集　サンプルリーグ第１０節", moment("18:00", dayOffset: -18),
-                     120, 1064, quality: 220, genre: 16, size: 6_090, resume: 0)
-        return xml + "</xsrs>"
+    static var titleItems: [String] {
+        var xml: [String] = []
+        xml.append(title(0x8001, "サンプル劇場「ひかりの街」第４話", moment("20:00", dayOffset: -1), 45, 1024,
+                     quality: 220, genre: 48, size: 2884, isNew: true))
+        xml.append(title(0x8002, "サンプル劇場「ひかりの街」第３話", moment("20:00", dayOffset: -8), 45, 1024,
+                     quality: 220, genre: 48, size: 2901, protected: true, resume: 0))
+        xml.append(title(0x8003, "サンプル劇場「ひかりの街」第２話", moment("20:00", dayOffset: -15), 45, 1024,
+                     quality: 220, genre: 48, size: 2877, resume: 1_240))
+        xml.append(title(0x8004, "サンプル劇場「ひかりの街」第１話", moment("20:00", dayOffset: -22), 60, 1024,
+                     quality: 220, genre: 48, size: 3810, resume: 0))
+        xml.append(title(0x8005, "みほんドキュメント　海の記憶", moment("21:00", dayOffset: -2), 60, 1024,
+                     quality: 100, genre: 128, size: 11_640, isNew: true))
+        xml.append(title(0x8006, "サンプルアニメ　空色パズル（６）", moment("16:00", dayOffset: -2), 120, 1048,
+                     quality: 240, genre: 112, size: 1_562, isNew: true))
+        xml.append(title(0x8007, "サンプルアニメ　空色パズル（５）", moment("16:00", dayOffset: -9), 120, 1048,
+                     quality: 240, genre: 112, size: 1_548, resume: 0))
+        xml.append(title(0x8008, "サンプル映画劇場「遠い灯台」", moment("19:00", dayOffset: -3), 120, 1048,
+                     quality: 220, genre: 96, size: 7_420, resume: 3_600))
+        xml.append(title(0x8009, "ひなたスポーツ特集　サンプルリーグ第１２節", moment("18:00", dayOffset: -4),
+                     120, 1064, quality: 220, genre: 16, size: 6_180, isNew: true))
+        xml.append(title(0x800a, "サンプル音楽館　夏の特集", moment("22:30", dayOffset: -5), 60, 1024,
+                     quality: 220, genre: 64, size: 2_640, resume: 0))
+        xml.append(title(0x800b, "BSサンプル劇場「星空紀行」", moment("20:00", dayOffset: -6), 120, 2048,
+                     broadcastingType: 3, quality: 220, genre: 96, size: 7_380, isNew: true))
+        xml.append(title(0x800c, "みほんクラシック館", moment("21:00", dayOffset: -7), 60, 1032,
+                     quality: 100, genre: 65, size: 10_920, resume: 0))
+        xml.append(title(0x800d, "サンプルクイズ王", moment("18:00", dayOffset: -7), 60, 1040,
+                     quality: 240, genre: 81, size: 890, isNew: true))
+        xml.append(title(0x800e, "みほん自然紀行", moment("18:00", dayOffset: -10), 120, 1032,
+                     quality: 220, genre: 130, size: 5_940, resume: 2_400))
+        xml.append(title(0x800f, "サンプル旅番組「各駅停車」", moment("10:00", dayOffset: -11), 120, 1048,
+                     quality: 240, genre: 177, size: 1_720, resume: 0))
+        xml.append(title(0x8010, "サンプルアニメ　空色パズル（４）", moment("16:00", dayOffset: -16), 120, 1048,
+                     quality: 240, genre: 112, size: 1_551, resume: 0))
+        xml.append(title(0x8011, "サンプルアニメ　空色パズル（３）", moment("16:00", dayOffset: -23), 120, 1048,
+                     quality: 240, genre: 112, size: 1_544, resume: 0))
+        xml.append(title(0x8012, "みほんドキュメント　川の記憶", moment("21:00", dayOffset: -9), 60, 1024,
+                     quality: 100, genre: 128, size: 11_580, resume: 900))
+        xml.append(title(0x8013, "みほんドキュメント　町の記憶", moment("21:00", dayOffset: -16), 60, 1024,
+                     quality: 100, genre: 128, size: 11_610, resume: 0))
+        xml.append(title(0x8014, "ひなたスポーツ特集　サンプルリーグ第１１節", moment("18:00", dayOffset: -11),
+                     120, 1064, quality: 220, genre: 16, size: 6_120, resume: 0))
+        xml.append(title(0x8015, "ひなたスポーツ特集　サンプルリーグ第１０節", moment("18:00", dayOffset: -18),
+                     120, 1064, quality: 220, genre: 16, size: 6_090, resume: 0))
+        return xml
     }
 
     private static func title(_ number: Int, _ name: String, _ start: Date, _ minutes: Int, _ service: Int,
@@ -398,26 +425,117 @@ enum DemoData {
 
     // MARK: - the recorder's own keyword conditions
 
-    static let rulesXml = """
-        <xsrs xmlns="\(Upnp.xsrsMetadataNamespace)">\
+    static let ruleObjects: [String] = [
+        """
         <object type="SEARCH" id="0x0000470f"><desiredQualityMode>220</desiredQualityMode>\
         <recordDestinationID>HDD</recordDestinationID>\
         <searchSetting type="MULTIPLE" logic="OR"><name>サンプル劇場</name>\
         <genreID type="2">0x30</genreID><keyword>サンプル劇場</keyword><keyword>ひかりの街</keyword>\
         <excludeKeyword>再放送</excludeKeyword>\
-        <timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object>\
-        <object type="SEARCH" id="0x0000570b"><desiredQualityMode>226</desiredQualityMode>\
+        <timeScope>NIGHT</timeScope><broadcastTypeScope>TRD</broadcastTypeScope></searchSetting></object>
+        """,
+        """
+        <object type="SEARCH" id="0x0000570b"><desiredQualityMode>240</desiredQualityMode>\
         <recordDestinationID>HDD</recordDestinationID>\
         <searchSetting type="MULTIPLE" logic="OR"><name>空色パズル</name>\
         <genreID type="3">0x7*</genreID><keyword>空色パズル</keyword>\
-        <timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object>\
+        <timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object>
+        """,
+        """
         <object type="SEARCH" id="0x00021703"><desiredQualityMode>100</desiredQualityMode>\
         <recordDestinationID>HDD</recordDestinationID>\
         <searchSetting type="MULTIPLE" logic="AND"><name>みほん/紀行</name>\
         <genreID type="2">0x82</genreID><keyword>みほん</keyword><keyword>紀行</keyword>\
-        <timeScope>ALL</timeScope><broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object>\
-        </xsrs>
-        """
+        <timeScope>ALL</timeScope><broadcastTypeScope>BSD</broadcastTypeScope></searchSetting></object>
+        """,
+    ]
+
+    // MARK: - keeping a list, so that what the reader does to the demo sticks
+
+    /// What the recorder wraps a list in.
+    static func wrap(_ items: [String]) -> String {
+        "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">" + items.joined() + "</xsrs>"
+    }
+
+    /// Roughly how much of the disk is taken by things this demo does not list (other recordings, the
+    /// recorder's own overhead), so that the free space moves with what is deleted but does not start at
+    /// the whole disk.
+    static let otherUseBytes = 1_400_000_000_000
+
+    /// The `id` attribute of the element a fragment starts with.
+    static func id(in xml: String) -> String {
+        guard let quote = xml.range(of: "id=\"") else { return "" }
+        return String(xml[quote.upperBound...].prefix { $0 != "\"" })
+    }
+
+    static func sizeMB(in item: String) -> Int {
+        Int((try? XmlNode.parse(item))?.childText("recordSize") ?? "") ?? 0
+    }
+
+    /// A list item for a reservation the app has just made, built out of the very XML it sent. A recorder
+    /// answers the list with fields of its own added to what it was given, and so does this.
+    static func reservationItem(fromElements elements: String, id newID: String) -> String {
+        guard let item = element("item", in: elements) else { return "" }
+        var made = setting(id: newID, in: item)
+        if !made.contains("<genreID") { made = adding("<genreID type=\"2\">0</genreID>", to: made) }
+        if !made.contains("<conflictID") { made = adding("<conflictID>0</conflictID>", to: made) }
+        if !made.contains("<reservationCreatorID") {
+            made = adding("<reservationCreatorID>2200</reservationCreatorID>", to: made)
+        }
+        if !made.contains("<recordingFlag") { made = adding("<recordingFlag>0</recordingFlag>", to: made) }
+        if !made.contains("<recordSize") {
+            made = adding("<recordSize>\(estimatedSizeMB(of: made))</recordSize>", to: made)
+        }
+        return made
+    }
+
+    static func ruleObject(fromElements elements: String, id newID: String) -> String {
+        guard let object = element("object", in: elements) else { return "" }
+        return setting(id: newID, in: object)
+    }
+
+    /// Applies a title update -- a rename, a protect, a watched flag -- to the item in the list.
+    static func patch(_ item: String, with elements: String) -> String {
+        var patched = item
+        for name in ["title", "titleProtectFlag", "titleNewFlag"] {
+            if let value = (try? XmlNode.parse(elements))?.firstDescendantText(name) {
+                patched = replacing(name, with: value, in: patched)
+            }
+        }
+        return patched
+    }
+
+    /// What the recorder would put in `recordSize`: DR keeps the broadcast stream, the rest are re-encoded.
+    private static func estimatedSizeMB(of item: String) -> Int {
+        let node = try? XmlNode.parse(item)
+        let seconds = Int(node?.childText("scheduledDuration") ?? "") ?? 3600
+        let quality = Int(node?.childText("desiredQualityMode") ?? "") ?? 220
+        return seconds / 60 * (quality == 100 ? 190 : 60)
+    }
+
+    /// The first `<name …>…</name>` of a fragment, attributes and all.
+    private static func element(_ name: String, in xml: String) -> String? {
+        guard let open = xml.range(of: "<\(name)"), let close = xml.range(of: "</\(name)>") else { return nil }
+        return String(xml[open.lowerBound..<close.upperBound])
+    }
+
+    private static func setting(id: String, in element: String) -> String {
+        guard let quote = element.range(of: "id=\"") else { return element }
+        let rest = element[quote.upperBound...]
+        let end = rest.firstIndex(of: "\"") ?? rest.endIndex
+        return element.replacingCharacters(in: quote.upperBound..<end, with: id)
+    }
+
+    private static func adding(_ field: String, to element: String) -> String {
+        guard let close = element.range(of: "</", options: .backwards) else { return element }
+        return element.replacingCharacters(in: close.lowerBound..<close.lowerBound, with: field)
+    }
+
+    private static func replacing(_ name: String, with value: String, in element: String) -> String {
+        guard let open = element.range(of: "<\(name)>"), let close = element.range(of: "</\(name)>"),
+              open.upperBound <= close.lowerBound else { return element }
+        return element.replacingCharacters(in: open.upperBound..<close.lowerBound, with: value)
+    }
 
     // MARK: - the box itself
 
@@ -443,38 +561,93 @@ enum DemoData {
         """
 }
 
-/// Answers the recorder's requests from `DemoData`, without a network.
+
+/// A recorder that is not there: it answers the app's requests out of `DemoData`, and remembers what is done
+/// to it.
 ///
-/// It dispatches on the SOAP action, the way the recorder's own services do. Writes are accepted and
-/// forgotten: the screenshots read, and a demo that remembered a deletion would need a recorder to delete
-/// from.
-struct DemoTransport: HTTPTransport {
+/// The remembering is the point. A demo where "録画予約する" says yes and the reservation never appears in the
+/// list is a demo that looks broken, and the person it has to convince may be an App Store reviewer with no
+/// recorder to compare against. So a reservation made here is added to the list, a changed one is changed, a
+/// deleted one goes, and the same for recordings and for the keyword conditions.
+///
+/// It is an actor because the app's client sends from wherever it likes, and this holds state.
+actor DemoRecorder: HTTPTransport {
+    private var reservations = DemoData.reservationItems
+    private var titles = DemoData.titleItems
+    private var rules = DemoData.ruleObjects
+    private var nextID = 0xaf00
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        // Slow enough that the screens are not caught mid-layout, fast enough not to wait about.
-        try? await Task.sleep(for: .milliseconds(80))
+        // Slow enough to look like a recorder on the far side of a room, fast enough not to wait about.
+        try? await Task.sleep(for: .milliseconds(120))
 
         if request.url.path == "/description.xml" {
             return HTTPResponse(statusCode: 200, body: Data(DemoData.descriptionXml.utf8))
         }
         guard request.method == "POST" else {
-            // A guide file: there is none, and the cache was filled directly. 404 is what a recorder that
-            // has not built its files yet answers, and the app treats it as nothing to fetch.
+            // A guide file: there is none. The cache was filled directly, and 404 is what a recorder that
+            // has not built its files yet answers, which the app reads as nothing to fetch.
             return HTTPResponse(statusCode: 404)
         }
 
+        let body = (try? XmlNode.parse(request.body ?? Data()))
+        func argument(_ name: String) -> String {
+            body?.firstDescendantText(name) ?? ""
+        }
+
         switch action(of: request) {
+        // MARK: reservations
         case "X_GetRecordScheduleList":
-            return soap(result: DemoData.reservationsXml, totalMatches: 7)
-        case "X_GetTitleList":
-            return soap(result: DemoData.titlesXml, totalMatches: 21)
+            return soap(result: DemoData.wrap(reservations), totalMatches: reservations.count)
         case "X_GetConflictList":
             return soap(result: "")
-        case "X_GetPrefRecSettingList":
-            return soap(result: DemoData.rulesXml)
+        case "X_CreateRecordSchedule":
+            let id = takeID()
+            reservations.append(DemoData.reservationItem(fromElements: argument("Elements"), id: id))
+            return soap(inner: "<RecordScheduleID>\(id)</RecordScheduleID>")
+        case "X_UpdateRecordSchedule":
+            let elements = argument("Elements")
+            let id = DemoData.id(in: elements)
+            reservations.removeAll { DemoData.id(in: $0) == id }
+            reservations.append(DemoData.reservationItem(fromElements: elements, id: id))
+            return soap(inner: "")
+        case "X_DeleteRecordSchedule":
+            let id = argument("RecordScheduleID")
+            reservations.removeAll { DemoData.id(in: $0) == id }
+            return soap(inner: "")
+
+        // MARK: recordings
+        case "X_GetTitleList":
+            return soap(result: DemoData.wrap(titles), totalMatches: titles.count)
+        case "X_DeleteTitle":
+            let id = argument("TitleID")
+            titles.removeAll { DemoData.id(in: $0) == id }
+            return soap(inner: "")
+        case "X_UpdateTitle":
+            let elements = argument("Elements")
+            let id = DemoData.id(in: elements)
+            if let index = titles.firstIndex(where: { DemoData.id(in: $0) == id }) {
+                titles[index] = DemoData.patch(titles[index], with: elements)
+            }
+            return soap(inner: "")
         case "X_GetTitleDetail":
             return soap(result: "<detail><summary>これはサンプルの番組情報です。"
                         + "実在の番組・人物とは関係ありません。</summary>"
                         + "<detail1>出演　サンプル太郎、みほん花子</detail1></detail>")
+
+        // MARK: the recorder's own keyword conditions
+        case "X_GetPrefRecSettingList":
+            return soap(result: DemoData.wrap(rules))
+        case "X_CreatePrefRecSetting":
+            let id = String(format: "0x%08x", takeNumber())
+            rules.append(DemoData.ruleObject(fromElements: argument("Elements"), id: id))
+            return soap(inner: "<SearchSettingID>\(id)</SearchSettingID>")
+        case "X_DeletePrefRecSetting":
+            let id = argument("SearchSettingID")
+            rules.removeAll { DemoData.id(in: $0) == id }
+            return soap(inner: "")
+
+        // MARK: the box itself
         case "X_GetFirmwareVersion":
             return soap(result: "<firmware><version>\(DemoData.firmware)</version></firmware>")
         case "X_GetPrivateIp":
@@ -487,22 +660,35 @@ struct DemoTransport: HTTPTransport {
             return soap(result: "<power><powerstatus>on</powerstatus></power>")
         case "X_HDLnkGetRecordDestinationInfo":
             let info = "<recordDestinationInfo totalCapacity=\"\(DemoData.totalBytes)\" "
-                + "availableCapacity=\"\(DemoData.freeBytes)\" />"
+                + "availableCapacity=\"\(free)\" />"
             return soap(result: info, element: "RecordDestinationInfo")
-        case "X_CreateRecordSchedule":
-            return soap(inner: "<RecordScheduleID>0x00000000000affff</RecordScheduleID>")
-        case "X_CreatePrefRecSetting":
-            return soap(inner: "<SearchSettingID>0x0000ffff</SearchSettingID>")
         default:
-            // Updates, deletions, playback: accepted, and nothing to say about them.
+            // Playback on a television that is not there, and anything else: accepted, nothing to say.
             return soap(inner: "")
         }
+    }
+
+    /// The free space, which grows as recordings are deleted here, because a demo that deletes six hours of
+    /// television and reports the same free space as before is telling a small lie.
+    private var free: Int {
+        let used = titles.reduce(0) { $0 + DemoData.sizeMB(in: $1) }
+        return max(0, DemoData.totalBytes - used * 1_000_000 - DemoData.otherUseBytes)
+    }
+
+    private func takeID() -> String {
+        String(format: "0x%016x", takeNumber())
+    }
+
+    private func takeNumber() -> Int {
+        nextID += 1
+        return nextID
     }
 
     /// The action, from the `SOAPAction` header the client sends.
     private func action(of request: HTTPRequest) -> String {
         let header = request.headers.first { $0.key.lowercased() == "soapaction" }?.value ?? ""
-        return String(header.split(separator: "#").last ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+        return String(header.split(separator: "#").last ?? "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
     }
 
     private func soap(result: String, totalMatches: Int? = nil, element: String = "Result") -> HTTPResponse {
@@ -517,4 +703,3 @@ struct DemoTransport: HTTPTransport {
         return HTTPResponse(statusCode: 200, body: Data(body.utf8))
     }
 }
-#endif

@@ -73,6 +73,9 @@ final class AppModel {
     private var client: RecorderClient?
     private var starting: Task<Void, Never>?
     private var pathMonitor: NWPathMonitor?
+    /// Kept for as long as the demo lasts, because it holds what the reader has done to it: a reservation
+    /// made in the demo has to still be there after a reconnect.
+    private var demoRecorder: DemoRecorder?
     /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
     /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
     private var connecting = false
@@ -87,15 +90,17 @@ final class AppModel {
         days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         mac = UserDefaults.standard.string(forKey: Self.macKey)
-        #if DEBUG
         // Here rather than in `begin()`: the first screen decides whether to show the tutorial by looking at
         // whether a recorder is set, and it looks before `begin()` has run.
-        if DemoData.enabled { host = DemoData.host; mac = DemoData.mac }
-        #endif
+        if DemoData.on { host = DemoData.host; mac = DemoData.mac }
         day = days.first ?? Date()
     }
 
     var connected: Bool { info != nil }
+
+    /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
+    /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
+    var demo: Bool { DemoData.on }
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
     /// one of them, on purpose -- see `waking`.
@@ -133,10 +138,9 @@ final class AppModel {
         guard store == nil else { return }
         do {
             store = try GuideStore(path: try Storage.guidePath())
-            #if DEBUG
-            // Invented programmes, for the App Store screenshots. See DemoData.
-            if DemoData.enabled, let store { try? await DemoData.seed(store: store) }
-            #endif
+            // Invented programmes: for the screenshots, and for anyone without a recorder to hand. See
+            // DemoData.
+            if DemoData.on, let store { try? await DemoData.seed(store: store) }
             await reloadFromCache()
             if !host.isEmpty { await connect() }
             // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
@@ -158,6 +162,59 @@ final class AppModel {
             Task { @MainActor [weak self] in await self?.networkChangedWhileOpen() }
         }
         monitor.start(queue: .global(qos: .utility))
+    }
+
+    // MARK: - the demo
+
+    /// Shows the invented recorder. Offered in the tutorial, because the first thing the app asks for is a
+    /// recorder on the network, and not everyone has one to hand when they are deciding whether this is
+    /// worth setting up -- the reviewer who has to judge it least of all.
+    func enterDemo() async {
+        guard !demo else { return }
+        DemoData.turnOn(realHost: host, realMac: mac)
+        await openStore()
+        host = DemoData.host
+        remember(mac: DemoData.mac)
+        await connect()
+    }
+
+    /// Puts back whatever was there before, and takes the demo's guide with it: the invented programmes live
+    /// in their own database, which is deleted here rather than left to be mistaken for a real one.
+    func leaveDemo() async {
+        guard demo else { return }
+        let before = DemoData.turnOff()
+        demoRecorder = nil
+        Storage.removeDemoGuide()
+        host = before.host
+        if let mac = before.mac { remember(mac: mac) } else { forgetMac() }
+        await openStore()
+        if !host.isEmpty { await connect() }
+    }
+
+    /// Opens the cache that belongs to whichever recorder is in play now, and forgets everything the other
+    /// one said.
+    private func openStore() async {
+        info = nil
+        firmware = ""
+        storage = nil
+        client = nil
+        reservations = []
+        reservationsByProgram = [:]
+        titles = []
+        titlesLoaded = false
+        recorderRules = []
+        pending = []
+        duplicates = []
+        problem = nil
+        unreachable = false
+        gaveUp = false
+        found = []
+        store = (try? Storage.guidePath()).flatMap { try? GuideStore(path: $0) }
+        if let store {
+            if demo { try? await DemoData.seed(store: store) }
+            await reloadFromCache()
+            await loadPending()
+        }
     }
 
     /// Looks through the subnet this device is on for a recorder. One short request per address, so the
@@ -199,12 +256,14 @@ final class AppModel {
         guard !host.isEmpty, !connecting else { return }
         connecting = true
         defer { connecting = false }
-        #if DEBUG
-        let client = DemoData.enabled ? RecorderClient(host: host, transport: DemoTransport())
-                                      : RecorderClient(host: host)
-        #else
-        let client = RecorderClient(host: host)
-        #endif
+        let client: RecorderClient
+        if DemoData.on {
+            let recorder = demoRecorder ?? DemoRecorder()
+            demoRecorder = recorder
+            client = RecorderClient(host: host, transport: recorder)
+        } else {
+            client = RecorderClient(host: host)
+        }
         self.client = client
         // The first ask is a short one. A recorder that has left the network does not refuse the
         // connection, it says nothing, so a patient timeout means half a minute of silence before anything
@@ -271,9 +330,7 @@ final class AppModel {
     /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
     private func sendMagicPacket() {
-        #if DEBUG
-        if DemoData.enabled { return }   // nothing to wake, and a simulator should not shout on the LAN
-        #endif
+        if DemoData.on { return }   // nothing to wake, and no reason to shout on somebody's LAN
         guard let mac else { return }
         _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
     }

@@ -104,6 +104,18 @@ struct RecorderActivityBar: View {
                 Text(busy).font(.footnote)
                 Spacer()
             }
+        } else if model.demo {
+            // Said on every screen, because everything on them is invented and a reader who forgets that
+            // would take the free space, the recordings and the reservations for their own.
+            strip {
+                Image(systemName: "theatermasks").font(.footnote)
+                Text("サンプルデータを表示しています").font(.footnote)
+                Spacer()
+                Button("終了") { Task { await model.leaveDemo() } }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
         } else if model.gaveUp {
             // The app has stopped trying, and says so rather than leaving a quiet failure to be guessed at
             // from lists that never fill. Trying again is the reader's to ask for: on this network the

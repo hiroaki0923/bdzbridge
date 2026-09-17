@@ -24,9 +24,18 @@ open BDBridge.xcodeproj
 
 ## Screenshots for the store
 
-`scripts/screenshots/capture.sh <simulator udid>` takes them, on a recorder made of canned answers and a
-guide of invented programmes (`BDBridge/DemoData.swift`, `#if DEBUG`, turned on with `-demoData 1`). No
-recorder, no real programmes, nobody's recordings. See `scripts/screenshots/README.md`.
+`scripts/screenshots/capture.sh <simulator udid>` takes them, on the same demo the tutorial offers
+(`BDBridge/DemoData.swift`, turned on in the app or with `-demoData 1`). No recorder, no real programmes,
+nobody's recordings. See `scripts/screenshots/README.md`.
+
+## The demo
+
+`DemoRecorder` answers the app's requests out of `DemoData` with the XML a BDZ-FBT4100 really sends, and
+remembers what is done to it, so a reservation made in the demo turns up in the list. It is in the shipped
+build, offered at the end of the tutorial and in the settings, because the first thing the app asks for is a
+recorder on the network and not everybody has one to hand — an App Store reviewer least of all. Its guide
+goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back;
+`BDBridgeUITests/DemoModeTests` is there to keep that true.
 
 ## On a real iPhone
 

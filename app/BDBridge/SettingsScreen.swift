@@ -53,6 +53,21 @@ struct SettingsScreen: View {
                 }
 
                 Section {
+                    if model.demo {
+                        Button("サンプルデータを終了する", role: .destructive) {
+                            Task { await model.leaveDemo() }
+                        }
+                    } else {
+                        Button("サンプルデータで試す") { Task { await model.enterDemo() } }
+                    }
+                } footer: {
+                    Text(model.demo
+                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表は削除され、"
+                           + "元のレコーダーの設定に戻ります。"
+                         : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
+                }
+
+                Section {
                     Button("レコーダーを探す") {
                         Task { await model.scanForRecorders() }
                     }

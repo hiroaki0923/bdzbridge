@@ -79,6 +79,18 @@ struct WelcomeView: View {
                 } footer: {
                     Text("見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。")
                 }
+                Section {
+                    Button("サンプルデータで試す") {
+                        Task {
+                            await model.enterDemo()
+                            dismiss()
+                        }
+                    }
+                    .disabled(model.busy != nil)
+                } footer: {
+                    Text("レコーダーが無くても、架空の番組表と録画一覧でアプリの動きを確かめられます。"
+                         + "実在の放送局・番組ではありません。いつでも設定から終了できます。")
+                }
                 if let busy = model.busy {
                     Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
                 }
