@@ -1895,7 +1895,7 @@
      "titles"
     ],
     "summary": "Title Delete",
-    "description": "Delete a recording. This is final; the recorder refuses protected titles.",
+    "description": "Delete a recording. This is final; the recorder refuses protected titles and ones being recorded.",
     "operationId": "title_delete_api_v1_titles__title_id__delete",
     "security": [
      {
@@ -2900,6 +2900,12 @@
      "is_new": {
       "type": "boolean",
       "title": "Is New"
+     },
+     "recording": {
+      "type": "boolean",
+      "title": "Recording",
+      "description": "the recorder is still writing to this one; it refuses to delete it",
+      "default": false
      },
      "destination": {
       "type": "string",

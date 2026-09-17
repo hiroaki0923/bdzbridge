@@ -201,7 +201,11 @@ extension View {
     func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let title, title.protected {
+            if title?.recording == true {
+                // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
+                // says 録画中, which is the answer to why there is no button here.
+                EmptyView()
+            } else if let title, title.protected {
                 // `role: .destructive` would animate the row away as it is swiped, before there is an
                 // answer, and it stays away when the answer is no. The colour is all that is wanted.
                 Button("保護解除") { unprotect() }.tint(.orange)
@@ -221,6 +225,9 @@ struct TitleRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if title.protected { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary) }
+                if title.recording {
+                    Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+                }
                 Text(title.title).font(.subheadline).lineLimit(2)
             }
             HStack(spacing: 6) {
@@ -349,7 +356,8 @@ struct GroupSheet: View {
                 switch shown {
                 case .bulk:
                     Button("\(chosen.count) 件を削除する", role: .destructive) {
-                        model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
+                        model.startBulk(.delete,
+                                        ids: chosen.filter { !$0.protected && !$0.recording }.map(\.id))
                         selecting = false
                         selected = []
                     }
@@ -369,7 +377,7 @@ struct GroupSheet: View {
             } message: { shown in
                 switch shown {
                 case .bulk:
-                    Text(String(format: "合計 %.1fGB。保護された録画は削除されません。\n"
+                    Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
                                 + "レコーダーから削除され、元に戻せません。", chosenGB))
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
                 case .failed(let reason): Text(reason)
@@ -416,8 +424,8 @@ struct GroupSheet: View {
 
     private var selectionBar: some View {
         HStack {
-            Button("保護以外をすべて選択") {
-                selected = Set(members.filter { !$0.protected }.map(\.id))
+            Button("削除できるものをすべて選択") {
+                selected = Set(members.filter { !$0.protected && !$0.recording }.map(\.id))
             }
             Button("選択解除") { selected = [] }
             Spacer()

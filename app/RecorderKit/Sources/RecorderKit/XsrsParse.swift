@@ -85,6 +85,7 @@ public enum XsrsParse {
             qualityCode: Int(item.childText("desiredQualityMode", default: "0")) ?? 0,
             protected: item.childText("titleProtectFlag", default: "0") == "1",
             isNew: item.childText("titleNewFlag", default: "0") == "1",
+            recording: item.childText("recordingFlag", default: "0") == "1",
             destination: item.childText("recordDestinationID", default: "HDD"),
             sizeMB: size.isEmpty ? nil : Int(size),
             genreCode: genreCode(item),

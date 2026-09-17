@@ -20,7 +20,7 @@ public struct DuplicateSet: Sendable, Identifiable {
     /// In broadcast order, so the one to keep is normally the first.
     public var items: [RecordedTitle]
     public var keep: String
-    /// Everything but the one to keep, minus anything protected.
+    /// Everything but the one to keep, minus anything the recorder will not delete.
     public var suggestDelete: [String]
     /// Why each recording is kept or offered up, by id.
     public var reasons: [String: String]
@@ -80,13 +80,14 @@ public enum Duplicates {
         return stableSorted(found) { $0.sizeMB > $1.sizeMB }
     }
 
-    /// Which copy to keep: one that is protected, then one that is partway through, then the better recording
-    /// mode, then the earlier broadcast.
+    /// Which copy to keep: one the recorder will not part with (protected, or still being recorded), then
+    /// one that is partway through, then the better recording mode, then the earlier broadcast.
     static func set(_ members: [RecordedTitle], confidence: DuplicateSet.Confidence) -> DuplicateSet {
         let members = stableSorted(members) { $0.start < $1.start }
 
         func rank(_ title: RecordedTitle) -> (Int, Int, Int, Date) {
-            (title.protected ? 0 : 1, (title.resumeSec ?? 0) > 0 ? 0 : 1, quality(title), title.start)
+            (title.protected || title.recording ? 0 : 1, (title.resumeSec ?? 0) > 0 ? 0 : 1,
+             quality(title), title.start)
         }
         let keep = members.min { rank($0) < rank($1) } ?? members[0]
         let others = members.filter { $0.id != keep.id }
@@ -96,6 +97,8 @@ public enum Duplicates {
             if title.id == keep.id {
                 if title.protected {
                     reasons[title.id] = "保護中"
+                } else if title.recording {
+                    reasons[title.id] = "録画中"
                 } else if (title.resumeSec ?? 0) > 0 {
                     reasons[title.id] = "視聴途中"
                 } else if others.allSatisfy({ title.start < $0.start }) {
@@ -107,6 +110,8 @@ public enum Duplicates {
                 }
             } else if title.protected {
                 reasons[title.id] = "保護中"
+            } else if title.recording {
+                reasons[title.id] = "録画中"
             } else if title.start > keep.start {
                 reasons[title.id] = "後の放送"
             } else if quality(title) > quality(keep) {
@@ -119,7 +124,9 @@ public enum Duplicates {
         return DuplicateSet(title: members[0].title, confidence: confidence,
                             sizeMB: members.reduce(0) { $0 + ($1.sizeMB ?? 0) }, items: members,
                             keep: keep.id,
-                            suggestDelete: members.filter { $0.id != keep.id && !$0.protected }.map(\.id),
+                            suggestDelete: members.filter {
+                                $0.id != keep.id && !$0.protected && !$0.recording
+                            }.map(\.id),
                             reasons: reasons)
     }
 

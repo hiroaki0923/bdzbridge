@@ -115,6 +115,7 @@ class RecordedTitle(BaseModel):
     quality: str
     protected: bool
     is_new: bool
+    recording: bool = Field(default=False, description="the recorder is still writing to this one; it refuses to delete it")
     destination: str
     size_mb: int | None
     dlna_id: str = Field(description="the title's DLNA object id on the recorder")

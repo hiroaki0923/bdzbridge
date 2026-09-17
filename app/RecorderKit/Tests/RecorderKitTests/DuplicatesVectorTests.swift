@@ -13,7 +13,8 @@ final class DuplicatesVectorTests: XCTestCase {
                 id: row.string("id"), title: row.string("title"),
                 start: RecorderTime.parse(row.string("start"))!, durationSec: row.int("duration_sec") ?? 0,
                 broadcastingType: 2, serviceID: 1024, qualityCode: row.int("quality_code") ?? 230,
-                protected: row.bool("protected"), isNew: row.bool("is_new"), destination: "HDD",
+                protected: row.bool("protected"), isNew: row.bool("is_new"),
+                recording: row.bool("recording"), destination: "HDD",
                 sizeMB: row.int("size_mb"), genreCode: 48, lastPlayed: nil, resumeSec: row.int("resume_sec")))
             summaries[row.string("id")] = row.string("summary")
         }

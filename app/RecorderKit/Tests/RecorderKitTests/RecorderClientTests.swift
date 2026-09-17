@@ -252,13 +252,28 @@ extension RecorderClientTests {
     }
 }
 
-/// The decisions a bulk run makes about each recording. The recorder's two traps are the point: it refuses a
-/// protected recording, and it answers success for one it no longer has.
+/// The decisions a bulk run makes about each recording. The recorder's traps are the point: it refuses a
+/// protected recording, it refuses one it is still writing to, and it answers success for one it no longer
+/// has.
 final class BulkWorkTests: XCTestCase {
-    private func title(id: String = "0x1", protected: Bool = false) -> RecordedTitle {
+    private func title(id: String = "0x1", protected: Bool = false,
+                       recording: Bool = false) -> RecordedTitle {
         RecordedTitle(id: id, title: "t", start: Date(), durationSec: 1800, broadcastingType: 2,
                       serviceID: 1024, qualityCode: 230, protected: protected, isNew: true,
-                      destination: "HDD", sizeMB: 1000, genreCode: 48, lastPlayed: nil, resumeSec: nil)
+                      recording: recording, destination: "HDD", sizeMB: 1000, genreCode: 48,
+                      lastPlayed: nil, resumeSec: nil)
+    }
+
+    /// A recording in progress: the recorder answers a bare HTTP 500, so nothing is sent at all.
+    func testARecordingInProgressIsSkippedWithoutAskingTheRecorder() async throws {
+        let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        let outcome = await client.deleteIfPresent(title(recording: true))
+
+        XCTAssertEqual(outcome, .skipped(reason: "録画中です"))
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 0, "a recording in progress should not be sent to the recorder at all")
     }
 
     func testAProtectedRecordingIsSkippedWithoutAskingTheRecorder() async throws {

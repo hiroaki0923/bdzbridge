@@ -363,6 +363,10 @@ enum DemoData {
 
     static var titleItems: [String] {
         var xml: [String] = []
+        // The one being written to now, which is why it cannot be deleted. It is the same programme as the
+        // reservation marked 録画中, because that is how it looks on a real recorder.
+        xml.append(title(0x8000, "サンプルニュース", Date().addingTimeInterval(-20 * 60), 60, 1024,
+                         quality: 230, genre: 0, size: 760, isNew: true, recording: true))
         xml.append(title(0x8001, "サンプル劇場「ひかりの街」第４話", moment("20:00", dayOffset: -1), 45, 1024,
                      quality: 220, genre: 48, size: 2884, isNew: true))
         xml.append(title(0x8002, "サンプル劇場「ひかりの街」第３話", moment("20:00", dayOffset: -8), 45, 1024,
@@ -410,7 +414,8 @@ enum DemoData {
 
     private static func title(_ number: Int, _ name: String, _ start: Date, _ minutes: Int, _ service: Int,
                               broadcastingType: Int = 2, quality: Int, genre: Int, size: Int,
-                              protected: Bool = false, isNew: Bool = false, resume: Int? = nil) -> String {
+                              protected: Bool = false, isNew: Bool = false, resume: Int? = nil,
+                              recording: Bool = false) -> String {
         let played: String
         if let resume {
             played = "<lastPlaybackTime resumePoint=\"\(resume)\">"
@@ -428,6 +433,7 @@ enum DemoData {
             + "<genreID type=\"2\">\(genre)</genreID>"
             + "<titleProtectFlag>\(protected ? 1 : 0)</titleProtectFlag>"
             + "<titleNewFlag>\(isNew ? 1 : 0)</titleNewFlag>"
+            + "<recordingFlag>\(recording ? 1 : 0)</recordingFlag>"
             + "<recordDestinationID>HDD</recordDestinationID>"
             + "<recordSize>\(size)</recordSize>" + played + "</item>"
     }

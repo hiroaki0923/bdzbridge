@@ -138,6 +138,7 @@ def _sample_titles() -> list[XTitle]:
 def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
     """Copies of one broadcast, and what the recorder says each of them is about.
 
+    0xf1/0xf2 are the same programme twice, the second still being recorded, which is the copy kept.
     0xd1/0xd2/0xd3 are the same episode three times: the first two share their programme text, the third has
     a different one and so is a set of its own. 0xd4 has the same title but runs half an hour longer, so it is
     not a copy at all. 0xe1/0xe2 have no text, which leaves only the title and the length to go on.
@@ -160,6 +161,11 @@ def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
         title("0xd4", "刑事サンプル（４８）「幻の宝石」", timedelta(days=21), duration=5400),
         title("0xe1", "名もなき番組", timedelta(days=1), duration=1800, size_mb=500),
         title("0xe2", "名もなき番組", timedelta(days=2), duration=1800, size_mb=500),
+        # the same programme twice more, the second still being recorded: the recorder refuses to delete
+        # one in progress, so it is the copy to keep and is never offered up
+        title("0xf1", "サンプル特番「今夜の生放送」", timedelta(days=3), duration=1800, size_mb=900),
+        title("0xf2", "サンプル特番「今夜の生放送」", timedelta(days=10), duration=1800, size_mb=900,
+              recording=True),
     ]
     summaries = {
         "0xd1": "架空市警のサンプル警部が挑む。",
@@ -168,6 +174,8 @@ def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
         "0xd4": "拡大版のあらすじ。",
         "0xe1": "",
         "0xe2": "",
+        "0xf1": "生放送のサンプル。",
+        "0xf2": "生放送のサンプル。",
     }
     return titles, summaries
 
@@ -186,8 +194,8 @@ def duplicates_vectors() -> dict:
                 "programme text splits them further. reasons say why each recording is kept or offered up.",
         "titles": [{"id": t.id, "title": t.title, "start": t.start.isoformat(),
                     "duration_sec": t.duration_sec, "quality_code": t.quality_code, "protected": t.protected,
-                    "is_new": t.is_new, "resume_sec": t.resume_sec, "size_mb": t.size_mb,
-                    "summary": summaries[t.id]} for t in titles],
+                    "is_new": t.is_new, "recording": t.recording, "resume_sec": t.resume_sec,
+                    "size_mb": t.size_mb, "summary": summaries[t.id]} for t in titles],
         "candidates": [[t.id for t in group] for group in candidates],
         "sets": [set_dict(s) for s in duplicate_sets(candidates, summaries)],
     }

@@ -727,6 +727,12 @@ final class AppModel {
     @discardableResult
     func delete(_ title: RecordedTitle) async -> Bool {
         await start()
+        // The recorder answers a bare HTTP 500 for a recording it is still writing to, which on screen
+        // reads as a fault in the app. The screens do not offer it, but a row can be a few minutes old.
+        if title.recording {
+            problem = "録画中のため削除できません。番組が終わるまでお待ちください。"
+            return false
+        }
         guard let client else { return false }
         return await run("削除中") {
             try await client.deleteTitle(id: title.id)

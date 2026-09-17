@@ -65,7 +65,7 @@ def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
     return S.RecordedTitle(id=t.id, title=t.title, start=t.start, duration_sec=t.duration_sec, broadcasting=bt,
                            service_id=t.service_id, service_name=name,
                            quality=codes.QUALITY_BY_CODE.get(t.quality_code, str(t.quality_code)), protected=t.protected,
-                           is_new=t.is_new, destination=t.destination, size_mb=t.size_mb,
+                           is_new=t.is_new, recording=t.recording, destination=t.destination, size_mb=t.size_mb,
                            dlna_id=RecorderClient.cds_id(t.id, t.destination), genres=_genres_from_code(t.genre_code),
                            series=series_key(t.title), last_played=t.last_played, resume_sec=t.resume_sec,
                            watch_state="unwatched" if t.is_new else ("partway" if (t.resume_sec or 0) > 0 else "watched"))

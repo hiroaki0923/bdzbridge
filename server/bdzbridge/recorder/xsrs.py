@@ -89,6 +89,9 @@ class RecordedTitle:
     is_new: bool
     destination: str
     size_mb: int | None
+    # The recorder is writing to this one now. It lists a recording from the moment it starts, and refuses to
+    # delete one in progress -- with a bare HTTP 500, which says nothing to anybody.
+    recording: bool = False
     genre_code: int | None = None
     last_played: datetime | None = None  # lastPlaybackTime
     resume_sec: int | None = None        # its resumePoint attribute: where playback stopped
@@ -231,6 +234,7 @@ def parse_title(item: ET.Element) -> RecordedTitle:
         quality_code=int(_text(item, "desiredQualityMode", "0")),
         protected=_text(item, "titleProtectFlag", "0") == "1",
         is_new=_text(item, "titleNewFlag", "0") == "1",
+        recording=_text(item, "recordingFlag", "0") == "1",
         destination=_text(item, "recordDestinationID", "HDD"),
         size_mb=int(_text(item, "recordSize")) if _text(item, "recordSize") else None,
         genre_code=_genre_code(item),
