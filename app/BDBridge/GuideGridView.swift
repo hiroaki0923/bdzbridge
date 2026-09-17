@@ -356,6 +356,11 @@ private struct ProgramBlock: View {
             .padding(.top, 2)
             .offset(y: labelOffset)
             .frame(width: width, height: height, alignment: .topLeading)
+            // The whole block, not the words in it. A frame draws nothing, and a tap lands on a plain
+            // button only where its label actually draws, so a short title in a two-hour block left most
+            // of the block dead -- and the part that looks most like the programme, the coloured area
+            // under it, was the part that did nothing.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background(alignment: .top) {
