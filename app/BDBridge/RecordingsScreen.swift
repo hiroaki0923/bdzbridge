@@ -9,9 +9,27 @@ struct RecordingsScreen: View {
     @AppStorage("recordingsMode") private var mode = "list"
     @State private var opened: RecordedTitle?
     @State private var openedGroup: TitleGroup?
+    /// The row swiped, by id rather than by value: the recording is read back out of the model when the
+    /// dialog asks, so a delete can only ever be sent for a row the list still holds.
+    @State private var removing: String?
+    @State private var failure: String?
 
     private var grouped: Bool { mode == "groups" }
     private var duplicating: Bool { mode == "dups" }
+
+    /// One alert does both jobs, because two on the same view is not something SwiftUI promises to honour.
+    private enum Shown {
+        case confirm(RecordedTitle)
+        case failed(String)
+    }
+
+    private var shown: Shown? {
+        if let failure { return .failed(failure) }
+        if let id = removing, let title = model.titles.first(where: { $0.id == id }) {
+            return .confirm(title)
+        }
+        return nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -86,7 +104,42 @@ struct RecordingsScreen: View {
             .sheet(item: $openedGroup) { group in
                 GroupSheet(group: group) { opened = $0 }
             }
+            .alert(shownTitle,
+                   isPresented: Binding(get: { shown != nil },
+                                        set: { if !$0 { removing = nil; failure = nil } }),
+                   presenting: shown) { shown in
+                switch shown {
+                case .confirm(let title):
+                    Button("削除する", role: .destructive) {
+                        Task {
+                            if await !model.delete(title) {
+                                failure = model.problem ?? "レコーダーがエラーを返しました"
+                            }
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                case .failed:
+                    Button("OK", role: .cancel) {}
+                }
+            } message: { shown in
+                switch shown {
+                case .confirm(let title): Text(Self.deleteMessage(title))
+                case .failed(let reason): Text(reason)
+                }
+            }
         }
+    }
+
+    private var shownTitle: String {
+        if case .failed = shown { return "エラー" }
+        return "この録画を削除しますか？"
+    }
+
+    /// What is about to go, and how much of the disk it gives back. Said in full because there is no undo.
+    static func deleteMessage(_ title: RecordedTitle) -> String {
+        var lines = [title.title, Format.dateTime.string(from: title.start)]
+        if let size = title.sizeMB { lines.append(String(format: "%.1f GB", Double(size) / 1024)) }
+        return lines.joined(separator: "\n") + "\nレコーダーから削除され、元に戻せません。"
     }
 
     private var filtering: Bool {
@@ -128,9 +181,33 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
+                .titleSwipe(title, ask: { removing = title.id },
+                            unprotect: { Task { await model.setProtected(title, false) } })
             }
             .listStyle(.plain)
             .overlay { if model.shownTitles.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+        }
+    }
+}
+
+extension View {
+    /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
+    /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
+    ///
+    /// A protected recording cannot be deleted at all; the recorder refuses it. So rather than offering a
+    /// button that can only fail, the swipe offers the thing that has to happen first, and deleting is one
+    /// more swipe away.
+    /// `title` is nil where the row should not be swipeable at all.
+    func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
+                    unprotect: @escaping () -> Void) -> some View {
+        swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let title, title.protected {
+                // `role: .destructive` would animate the row away as it is swiped, before there is an
+                // answer, and it stays away when the answer is no. The colour is all that is wanted.
+                Button("保護解除") { unprotect() }.tint(.orange)
+            } else if title != nil {
+                Button("削除") { ask() }.tint(.red)
+            }
         }
     }
 }
@@ -209,6 +286,23 @@ struct GroupSheet: View {
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmingDelete = false
+    /// The row swiped, by id, read back out of the model when the dialog asks.
+    @State private var removing: String?
+    @State private var failure: String?
+
+    /// One alert for all three jobs. Two on a view is not something SwiftUI promises to honour, and this
+    /// one has a bulk delete, a single delete and a failure to report.
+    private enum Shown {
+        case bulk
+        case one(RecordedTitle)
+        case failed(String)
+    }
+
+    private var shown: Shown? {
+        if let failure { return .failed(failure) }
+        if let id = removing, let title = members.first(where: { $0.id == id }) { return .one(title) }
+        return confirmingDelete ? .bulk : nil
+    }
 
     private var members: [RecordedTitle] { model.members(of: group) }
     private var chosen: [RecordedTitle] { members.filter { selected.contains($0.id) } }
@@ -247,17 +341,48 @@ struct GroupSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
-            .alert("選択した \(chosen.count) 件を削除しますか？", isPresented: $confirmingDelete) {
-                Button("\(chosen.count) 件を削除する", role: .destructive) {
-                    model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
-                    selecting = false
-                    selected = []
+            .alert(shownTitle,
+                   isPresented: Binding(get: { shown != nil },
+                                        set: { if !$0 { confirmingDelete = false; removing = nil
+                                                        failure = nil } }),
+                   presenting: shown) { shown in
+                switch shown {
+                case .bulk:
+                    Button("\(chosen.count) 件を削除する", role: .destructive) {
+                        model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
+                        selecting = false
+                        selected = []
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                case .one(let title):
+                    Button("削除する", role: .destructive) {
+                        Task {
+                            if await !model.delete(title) {
+                                failure = model.problem ?? "レコーダーがエラーを返しました"
+                            }
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                case .failed:
+                    Button("OK", role: .cancel) {}
                 }
-                Button("キャンセル", role: .cancel) {}
-            } message: {
-                Text(String(format: "合計 %.1fGB。保護された録画は削除されません。\n"
-                            + "レコーダーから削除され、元に戻せません。", chosenGB))
+            } message: { shown in
+                switch shown {
+                case .bulk:
+                    Text(String(format: "合計 %.1fGB。保護された録画は削除されません。\n"
+                                + "レコーダーから削除され、元に戻せません。", chosenGB))
+                case .one(let title): Text(RecordingsScreen.deleteMessage(title))
+                case .failed(let reason): Text(reason)
+                }
             }
+        }
+    }
+
+    private var shownTitle: String {
+        switch shown {
+        case .bulk: "選択した \(chosen.count) 件を削除しますか？"
+        case .failed: "エラー"
+        case .one, nil: "この録画を削除しますか？"
         }
     }
 
@@ -282,6 +407,9 @@ struct GroupSheet: View {
                 .rowHitArea()
             }
             .buttonStyle(.plain)
+            // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
+            .titleSwipe(selecting ? nil : title, ask: { removing = title.id },
+                        unprotect: { Task { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
     }
