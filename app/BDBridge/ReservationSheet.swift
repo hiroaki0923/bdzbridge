@@ -14,6 +14,21 @@ struct ReservationSheet: View {
     @State private var failure: String?
     @State private var program: GuideProgramRow?
     @State private var done = false
+    /// What the pickers hold, seeded from the recorder and compared against it to know whether to offer 変更.
+    @State private var quality = ""
+    @State private var repeating = ""
+    @State private var saved = false
+
+    private var past: Bool { reservation.end <= Date() }
+
+    /// A weekly repeat has to fall on the programme's own weekday, so that is the only weekly one offered.
+    private var repeatOptions: [String] {
+        ["none", "title", "daily", Codes.weekdayRepeat(for: reservation.start), "mon-fri", "mon-sat"]
+    }
+
+    private var changed: Bool {
+        quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,9 +38,22 @@ struct ReservationSheet: View {
                     LabeledContent("放送", value: model.channelName(for: reservation))
                     LabeledContent("開始", value: Format.dateTime.string(from: reservation.start))
                     LabeledContent("長さ", value: Format.duration(reservation.durationSec))
-                    LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
-                                   ?? reservation.qualityName ?? "-")
-                    LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+                    if past || reservation.recording {
+                        LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
+                                       ?? reservation.qualityName ?? "-")
+                        LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+                    } else {
+                        Picker("録画モード", selection: $quality) {
+                            ForEach(Codes.qualityOrder, id: \.self) { code in
+                                Text(Codes.qualityLabel[code] ?? code).tag(code)
+                            }
+                        }
+                        Picker("毎回録画", selection: $repeating) {
+                            ForEach(repeatOptions, id: \.self) { key in
+                                Text(Codes.repeatLabel[key] ?? key).tag(key)
+                            }
+                        }
+                    }
                     if reservation.eventID != nil {
                         LabeledContent("番組追従", value: "時間が変わっても追いかけます")
                     }
@@ -56,6 +84,22 @@ struct ReservationSheet: View {
                     Section("詳細") { Text(program.extended) }
                 }
 
+                if changed {
+                    Section {
+                        Button("変更をレコーダーに送る") {
+                            Task {
+                                saved = await model.update(reservation, quality: quality, repeating: repeating)
+                                if !saved { failure = model.problem ?? "レコーダーがエラーを返しました" }
+                            }
+                        }
+                        .disabled(model.busy != nil)
+                    } footer: {
+                        Text(reservation.eventID != nil
+                             ? "番組追従はそのままです。"
+                             : "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。")
+                    }
+                }
+
                 Section {
                     Button("予約を取り消す", role: .destructive) { confirming = true }
                         .disabled(model.busy != nil)
@@ -68,7 +112,12 @@ struct ReservationSheet: View {
             .navigationTitle("予約")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
-            .task { program = await model.program(for: reservation) }
+            .task {
+                quality = reservation.qualityName ?? Codes.qualityOrder.first ?? "LSR"
+                repeating = reservation.repeatName ?? "none"
+                program = await model.program(for: reservation)
+            }
+            .onChange(of: saved) { if $1 { dismiss() } }
             // One alert, because two on the same view is not something SwiftUI promises to honour, and
             // asking and reporting never happen at once. The red line further up the sheet was missed.
             .alert(failure == nil ? "この予約を取り消しますか？" : "エラー",

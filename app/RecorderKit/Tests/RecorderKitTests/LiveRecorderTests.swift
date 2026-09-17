@@ -193,6 +193,58 @@ extension LiveRecorderTests {
 }
 
 extension LiveRecorderTests {
+    /// **Writes to the recorder.** Creates a reservation for a programme a few hours out, changes its
+    /// quality, checks the change took, and deletes it again -- the only way to know the update payload is
+    /// one the recorder accepts, since a conflict check cannot exercise it. Skipped unless RECORDER_WRITE is
+    /// set as well as RECORDER_HOST, and it cleans up even when an assertion fails.
+    func testCreatingChangingAndDeletingAReservation() async throws {
+        guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
+            throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
+        }
+        let client = try liveClient()
+        _ = try await client.describe()
+        guard let services = try await client.guide("td") else { throw XCTSkip("no terrestrial channels") }
+
+        let soon = Date().addingTimeInterval(4 * 3600)
+        let program = try XCTUnwrap(services
+            .flatMap { $0.programs.filter { !$0.isReference && $0.start > soon && !$0.title.isEmpty } }
+            .sorted { $0.start < $1.start }.first, "the guide should reach a few hours ahead")
+
+        func request(_ quality: String) -> ReservationRequest {
+            ReservationRequest(title: program.title, start: program.start, durationSec: program.durationSec,
+                               repeatCode: Codes.repeatCodes["none"]!, broadcastingType: Codes.broadcasting["td"]!,
+                               serviceID: program.serviceID, qualityCode: Codes.quality[quality]!,
+                               eventID: program.eventID)
+        }
+        func mine() async throws -> Reservation? {
+            try await client.reservations().first {
+                $0.serviceID == program.serviceID && $0.start == program.start
+            }
+        }
+
+        let id = try await client.createReservation(request("LSR"))
+        print("created \(id) for \(RecorderTime.format(program.start))")
+        do {
+            let found = try await mine()
+            let made = try XCTUnwrap(found, "the reservation should be in the list")
+            XCTAssertEqual(made.qualityName, "LSR")
+
+            try await client.updateReservation(id: made.id, request("SR"))
+            let after = try await mine()
+            let changed = try XCTUnwrap(after, "it should still be there after the change")
+            XCTAssertEqual(changed.qualityName, "SR", "the recorder took the new quality")
+            XCTAssertEqual(changed.eventID, program.eventID, "and it still follows the programme")
+        } catch {
+            if let left = try? await mine() { try? await client.deleteReservation(id: left.id) }
+            throw error
+        }
+        let remaining = try await mine()
+        let left = try XCTUnwrap(remaining)
+        try await client.deleteReservation(id: left.id)
+        let gone = try await mine()
+        XCTAssertNil(gone, "and it is off the recorder again")
+    }
+
     /// The app marks a programme as reserved by matching broadcasting type, service and programme id, so this
     /// checks that the recorder really does describe both sides the same way. Read-only.
     func testReservationsMatchProgrammesInTheGuide() async throws {

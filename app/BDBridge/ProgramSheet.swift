@@ -29,6 +29,8 @@ struct ProgramSheet: View {
     }
     @State private var ask: Ask?
     @State private var done = false
+    /// The reservation whose own sheet is open for changing it.
+    @State private var editing: Reservation?
 
     private var reservation: Reservation? { model.reservation(for: program) }
     private var past: Bool { program.end <= Date() }
@@ -57,6 +59,11 @@ struct ProgramSheet: View {
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+                        // Changing it happens on the reservation's own sheet rather than here, so there is
+                        // one place that does it and one set of pickers to keep right.
+                        if !reservation.recording {
+                            Button("予約を変更する") { editing = reservation }
+                        }
                         Button("予約を取り消す", role: .destructive) { ask = .cancel(reservation) }
                             .disabled(model.busy != nil)
                     }
@@ -92,6 +99,7 @@ struct ProgramSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
             .task(id: taskKey) { await check() }
+            .sheet(item: $editing) { ReservationSheet(reservation: $0) }
             .alert(askTitle, isPresented: Binding(get: { ask != nil },
                                                   set: { if !$0 { ask = nil } }),
                    presenting: ask) { asked in

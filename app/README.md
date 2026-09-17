@@ -171,6 +171,16 @@ Tapping the guide tab while it is already showing goes to what is on at this min
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
 
+### Changing a reservation
+
+Quality and repeat can be changed on a reservation the recorder already holds, from its own sheet -- the
+guide's sheet sends you there rather than growing a second set of pickers. Everything else goes back
+unchanged, the programme id included, so a reservation that follows its programme goes on following it. A
+recording in progress and a programme already over are shown but not editable.
+
+The reservation is found again by channel and start time before the change is sent, because the recorder
+renumbers the reservations its own automatic recording made, in blocks; the same reason a deletion does it.
+
 ### Coming back to the app
 
 The recorder leaves the network after a quarter of an hour or so, which is shorter than the time an app

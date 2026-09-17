@@ -837,6 +837,43 @@ final class AppModel {
     /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
     /// is left on screen rather than being reloaded away.
     @discardableResult
+    /// Changes the quality or the repeat of a reservation the recorder already holds.
+    ///
+    /// Found again by what it is rather than by the id in hand, for the same reason a deletion is: the
+    /// recorder renumbers its own automatic reservations in blocks. The request keeps everything else,
+    /// including the programme id, so a reservation that follows its programme goes on following it.
+    func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
+        await start()
+        guard client != nil else { return false }
+        await loadReservations()
+        guard let target = current(reservation) else {
+            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+            return false
+        }
+        guard let client,
+              let qualityCode = Codes.quality[quality],
+              let repeatCode = Codes.repeatCodes[repeating] else { return false }
+        let request = ReservationRequest(title: target.title, start: target.start,
+                                         durationSec: target.durationSec, repeatCode: repeatCode,
+                                         broadcastingType: target.broadcastingType, serviceID: target.serviceID,
+                                         qualityCode: qualityCode, eventID: target.eventID)
+        busy = "予約を変更中"
+        defer { busy = nil }
+        do {
+            try await client.updateReservation(id: target.id, request)
+        } catch let error as RecorderError where error.unknownReservation {
+            await loadReservations()
+            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+            return false
+        } catch {
+            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            return false
+        }
+        problem = nil
+        await loadReservations()
+        return true
+    }
+
     /// Deletes one reservation, by what it is rather than by the id the app happens to be holding.
     ///
     /// The recorder rewrites the ids of the reservations its own automatic recording made — the whole block
