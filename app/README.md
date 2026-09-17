@@ -171,6 +171,14 @@ Tapping the guide tab while it is already showing goes to what is on at this min
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
 
+### Coming back to the app
+
+The recorder leaves the network after a quarter of an hour or so, which is shorter than the time an app
+spends in the background between glances. So returning to the front checks again rather than trusting what
+was true when the app was last looked at: if the recorder has gone, the magic packet goes out and the screens
+fill in when it answers, and anything queued goes with it. A check within a minute of the last answer is
+skipped, so flicking between apps does not send a packet each time.
+
 ### Reservations made away from home
 
 The guide is on the phone and the recorder is not, so a reservation made away from home has nowhere to go.

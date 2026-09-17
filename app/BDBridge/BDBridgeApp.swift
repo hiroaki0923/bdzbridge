@@ -20,6 +20,7 @@ struct BDBridgeApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     /// `-startTab reservations` on the command line opens that tab, which is how the screens are checked in a
     /// simulator without tapping through them.
     @State private var tab = UserDefaults.standard.string(forKey: "startTab") ?? "guide"
@@ -56,6 +57,9 @@ struct RootView: View {
         .task {
             welcoming = model.host.isEmpty
             await model.start()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.returnedToForeground() } }
         }
         .fullScreenCover(isPresented: $welcoming) { WelcomeView() }
     }

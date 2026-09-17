@@ -53,6 +53,10 @@ final class AppModel {
     /// also type it, for a recorder that has never been reached from this phone.
     private(set) var mac: String?
 
+    /// When the recorder last answered. Coming back to the app checks again, but not on every flick between
+    /// apps: without this a glance at something else and back would send a magic packet each time.
+    private var lastAnswered: Date?
+
     private var store: GuideStore?
     private var client: RecorderClient?
     private var starting: Task<Void, Never>?
@@ -177,6 +181,7 @@ final class AppModel {
             storage = (capacity.freeBytes, capacity.totalBytes)
             unreachable = false
             problem = nil
+            lastAnswered = Date()
             await flushPending()
             return true
         } catch {
@@ -753,6 +758,15 @@ final class AppModel {
             problem = String(describing: error)
             return false
         }
+    }
+
+    /// The app has come back to the front. The recorder may have gone to sleep while it was away -- a
+    /// BDZ-FBT4100 leaves the network after a quarter of an hour or so -- and the screens would otherwise
+    /// show what was true when the app was last looked at. Connecting again also sends anything queued.
+    func returnedToForeground() async {
+        guard !host.isEmpty, busy == nil else { return }
+        if connected, let lastAnswered, Date().timeIntervalSince(lastAnswered) < 60 { return }
+        await connect()
     }
 
     // MARK: - reservations waiting for the recorder
