@@ -26,8 +26,7 @@ open BDBridge.xcodeproj
 
 `scripts/screenshots/capture.sh <simulator udid>` takes them, on a recorder made of canned answers and a
 guide of invented programmes (`BDBridge/DemoData.swift`, `#if DEBUG`, turned on with `-demoData 1`). No
-recorder, no real programmes, nobody's recordings. See `scripts/screenshots/README.md`, and
-`docs/app-store-description.md` for the listing text.
+recorder, no real programmes, nobody's recordings. See `scripts/screenshots/README.md`.
 
 ## On a real iPhone
 
