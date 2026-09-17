@@ -94,3 +94,80 @@ final class PendingReservationTests: XCTestCase {
         XCTAssertEqual(kept.map(\.id), [pending.id])
     }
 }
+
+/// The rules the flush follows, which the app and the overnight run share.
+final class PendingQueueTests: XCTestCase {
+    private func store() throws -> GuideStore {
+        try GuideStore(path: FileManager.default.temporaryDirectory
+            .appendingPathComponent("flush-\(UUID().uuidString).sqlite3").path)
+    }
+
+    private func pending(_ title: String, eventID: Int, start: Date) -> PendingReservation {
+        PendingReservation(request: ReservationRequest(title: title, start: start, durationSec: 3600,
+                                                       repeatCode: "1", broadcastingType: 2, serviceID: 0x428,
+                                                       qualityCode: 240, eventID: eventID),
+                           serviceName: "サンプルテレビ")
+    }
+
+    /// One that is over, one on air, one still to come: the first goes, the other two are sent.
+    func testWhatIsSentAndWhatIsDropped() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let over = pending("終わった番組", eventID: 1, start: now.addingTimeInterval(-7200))
+        let onAir = pending("放送中の番組", eventID: 2, start: now.addingTimeInterval(-600))
+        let later = pending("これからの番組", eventID: 3, start: now.addingTimeInterval(3600))
+        for one in [over, onAir, later] { try await store.queue(one) }
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["放送中の番組", "これからの番組"])
+        XCTAssertEqual(outcome.expired.map(\.request.title), ["終わった番組"])
+        XCTAssertTrue(outcome.refused.isEmpty)
+        let left = try await store.pendingReservations()
+        XCTAssertTrue(left.isEmpty, "nothing waits after a flush that reached the recorder")
+    }
+
+    /// A recorder that answers and refuses: the reservation stays, with the reason on it.
+    func testARefusedReservationKeepsItsReason() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        try await store.queue(pending("受信できない局の番組", eventID: 1, start: now.addingTimeInterval(3600)))
+
+        let transport = StubTransport(always: Stub.fault("831"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertTrue(outcome.sent.isEmpty)
+        XCTAssertEqual(outcome.refused.count, 1)
+        XCTAssertFalse(outcome.interrupted)
+        let left = try await store.pendingReservations()
+        XCTAssertEqual(left.count, 1, "it is still waiting")
+        XCTAssertTrue(left.first?.problem?.contains("831") ?? false, "with what the recorder said")
+    }
+
+    /// A recorder that goes away part way leaves the rest alone rather than marking them refused.
+    func testTheRestStayQueuedWhenTheRecorderGoesAway() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        for (i, title) in ["一番目", "二番目"].enumerated() {
+            try await store.queue(pending(title, eventID: i + 1, start: now.addingTimeInterval(3600)))
+        }
+        let transport = StubTransport { _, index in
+            if index == 0 {
+                return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
+            }
+            throw RecorderError.transport("the recorder went away")
+        }
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.count, 1)
+        XCTAssertTrue(outcome.interrupted)
+        let left = try await store.pendingReservations()
+        XCTAssertEqual(left.count, 1)
+        XCTAssertNil(left.first?.problem, "not refused: it was never asked")
+    }
+}

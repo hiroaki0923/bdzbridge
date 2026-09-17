@@ -94,18 +94,42 @@ enum BackgroundWork {
 
     /// The work itself, with no screen behind it: the address comes from what the app saved, and the cache is
     /// opened directly.
+    ///
+    /// The recorder is asleep most of the time -- measured over twelve hours, it was answering for a quarter
+    /// of it -- so this wakes it rather than giving up, which is what it used to do at two in the morning.
+    /// Whatever is waiting in the queue goes out while the recorder is up, and the reader is told.
     @discardableResult
     static func refreshNow() async -> Bool {
         guard let host = UserDefaults.standard.string(forKey: "recorderHost"), !host.isEmpty else { return false }
         do {
             let store = try GuideStore(path: try Storage.guidePath())
             let client = RecorderClient(host: host)
-            _ = try await client.describe()
+            guard await reach(client, at: host) else { return false }
+
+            let outcome = await PendingQueue.flush(client: client, store: store)
+            await Notify.queueFlushed(outcome)
+            if let capacity = try? await client.recordDestinationInfo() {
+                await Notify.lowSpace(freeBytes: capacity.freeBytes, totalBytes: capacity.totalBytes)
+            }
+
             let stored = try await GuideRefresh.run(client: client, store: store)
             UserDefaults.standard.set(RecorderTime.format(Date()), forKey: lastRefreshKey)
             return stored > 0
         } catch {
             return false
         }
+    }
+
+    /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
+    /// the recorder; without one there is nothing to send and nothing to wait for.
+    private static func reach(_ client: RecorderClient, at host: String) async -> Bool {
+        if (try? await client.describe(timeout: RecorderClient.probeTimeout)) != nil { return true }
+        guard let mac = UserDefaults.standard.string(forKey: "recorderMac"),
+              WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else { return false }
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .seconds(1))
+            if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil { return true }
+        }
+        return false
     }
 }

@@ -181,6 +181,14 @@ recording in progress and a programme already over are shown but not editable.
 The reservation is found again by channel and start time before the change is sent, because the recorder
 renumbers the reservations its own automatic recording made, in blocks; the same reason a deletion does it.
 
+### Notifications
+
+Three things happen with nobody looking at the app, so they are the three it can notify about: the
+reservations that were waiting have gone to the recorder, some of them were refused or their programmes had
+finished, and the disk is filling up. Permission is asked the first time a reservation is queued, which is
+when any of it starts to matter; before that the app asks for nothing. The low-space warning is said once
+per fall below the line, not once a night.
+
 ### Coming back to the app
 
 The recorder leaves the network after a quarter of an hour or so, which is shorter than the time an app
@@ -196,7 +204,8 @@ The guide is on the phone and the recorder is not, so a reservation made away fr
 It is kept instead: the programme, the quality and the repeat exactly as asked for, in the phone's own
 database, and shown on the reservations tab under 送信待ち where it can be cancelled. The next time the
 recorder answers -- a launch at home, a pull on the reservations list, the overnight refresh -- what is
-waiting is sent. A programme that has already finished is dropped rather than sent; one that is
+waiting is sent, by one set of rules in `RecorderKit/PendingQueue.swift` that the screens and the overnight
+run share. A programme that has already finished is dropped rather than sent; one that is
 on air is still sent, since the recorder records what is left of it. A reservation the recorder refuses
 keeps its reason on the row rather than being retried silently for ever.
 
@@ -205,5 +214,5 @@ shown as it always was.
 
 ## What is missing
 
-Finding the recorder over SSDP, which would be quicker than looking through the subnet but needs an
-entitlement from Apple.
+Finding the recorder over SSDP. It needs a multicast entitlement from Apple, and the scan it would replace
+looks through the subnet in about seven seconds, so it has not been worth asking for.

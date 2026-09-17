@@ -782,6 +782,9 @@ final class AppModel {
     private func queue(_ request: ReservationRequest, serviceName: String) async {
         guard let store else { return }
         let waiting = PendingReservation(request: request, serviceName: serviceName)
+        // The reader learns that this was finally sent through a notification, and a queued reservation is
+        // the first moment that means anything, so this is where the asking belongs.
+        await Notify.askIfNeeded()
         do {
             try await store.queue(waiting)
             pending = try await store.pendingReservations()
@@ -803,35 +806,17 @@ final class AppModel {
         await loadPending()
     }
 
-    /// Sends what has been waiting. Called whenever the recorder has just answered, so it runs on a launch at
-    /// home and after the overnight refresh. Only a programme that has already finished is dropped: one that
-    /// is on air can still be recorded from where it has got to, which beats losing it.
+    /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
+    /// Called whenever the recorder has just answered.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store else { return 0 }
         await loadPending()
         guard !pending.isEmpty else { return 0 }
-        var sent = 0
-        for waiting in pending {
-            if waiting.request.end < Date() {
-                try? await store.removePending(waiting.id)
-                continue
-            }
-            do {
-                _ = try await client.createReservation(waiting.request)
-                try? await store.removePending(waiting.id)
-                sent += 1
-            } catch let error as RecorderError where error.unreachable {
-                break                                   // it went away again; the rest keep waiting
-            } catch let error as RecorderError {
-                try? await store.setPendingProblem(waiting.id, error.explanation)
-            } catch {
-                try? await store.setPendingProblem(waiting.id, String(describing: error))
-            }
-        }
+        let outcome = await PendingQueue.flush(client: client, store: store)
         await loadPending()
-        if sent > 0 { await loadReservations() }
-        return sent
+        if !outcome.sent.isEmpty { await loadReservations() }
+        return outcome.sent.count
     }
 
     /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
