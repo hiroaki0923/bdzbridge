@@ -184,7 +184,8 @@ renumbers the reservations its own automatic recording made, in blocks; the same
 ### Coming back to the app
 
 The recorder leaves the network after a quarter of an hour or so, which is shorter than the time an app
-spends in the background between glances. So returning to the front checks again rather than trusting what
+spends in the background between glances -- measured over twelve hours it was answering for a quarter of the
+time, in a dozen stretches (`docs/porting.md`). So returning to the front checks again rather than trusting what
 was true when the app was last looked at: if the recorder has gone, the magic packet goes out and the screens
 fill in when it answers, and anything queued goes with it. A check within a minute of the last answer is
 skipped, so flicking between apps does not send a packet each time.
