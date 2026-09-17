@@ -87,6 +87,11 @@ final class AppModel {
         days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         mac = UserDefaults.standard.string(forKey: Self.macKey)
+        #if DEBUG
+        // Here rather than in `begin()`: the first screen decides whether to show the tutorial by looking at
+        // whether a recorder is set, and it looks before `begin()` has run.
+        if DemoData.enabled { host = DemoData.host; mac = DemoData.mac }
+        #endif
         day = days.first ?? Date()
     }
 
@@ -128,6 +133,10 @@ final class AppModel {
         guard store == nil else { return }
         do {
             store = try GuideStore(path: try Storage.guidePath())
+            #if DEBUG
+            // Invented programmes, for the App Store screenshots. See DemoData.
+            if DemoData.enabled, let store { try? await DemoData.seed(store: store) }
+            #endif
             await reloadFromCache()
             if !host.isEmpty { await connect() }
             // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
@@ -190,7 +199,12 @@ final class AppModel {
         guard !host.isEmpty, !connecting else { return }
         connecting = true
         defer { connecting = false }
+        #if DEBUG
+        let client = DemoData.enabled ? RecorderClient(host: host, transport: DemoTransport())
+                                      : RecorderClient(host: host)
+        #else
         let client = RecorderClient(host: host)
+        #endif
         self.client = client
         // The first ask is a short one. A recorder that has left the network does not refuse the
         // connection, it says nothing, so a patient timeout means half a minute of silence before anything
@@ -257,6 +271,9 @@ final class AppModel {
     /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
     private func sendMagicPacket() {
+        #if DEBUG
+        if DemoData.enabled { return }   // nothing to wake, and a simulator should not shout on the LAN
+        #endif
         guard let mac else { return }
         _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
     }

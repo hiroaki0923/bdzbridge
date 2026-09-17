@@ -68,3 +68,42 @@ targets:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
           - jp.hiroaki.bdbridge.guideRefresh
+
+  # Only the App Store screenshots live here, and they skip themselves unless BDBRIDGE_SHOTS is set. See
+  # app/scripts/screenshots.
+  BDBridgeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: BDBridgeUITests
+    dependencies:
+      - target: BDBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge.uitests
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+
+# Spelled out rather than left to Xcode, so that `xcodebuild test -only-testing:BDBridgeUITests` finds the
+# tests through the same scheme Xcode Cloud archives.
+schemes:
+  BDBridge:
+    build:
+      targets:
+        BDBridge: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BDBridgeUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

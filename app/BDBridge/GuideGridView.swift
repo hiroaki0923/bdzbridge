@@ -267,6 +267,9 @@ struct GuideGridView: View {
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
+        // A plus and a minus with nothing else to go on are read out as "plus" and "minus", which says
+        // nothing about what they do to the guide.
+        .accessibilityLabel(factor > 1 ? "表示を拡大" : "表示を縮小")
     }
 
     // MARK: - geometry

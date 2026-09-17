@@ -37,6 +37,25 @@ public struct GuideProgram: Sendable, Hashable, Identifiable {
     public var referenceServiceID: Int?
     public var referenceEventID: Int?
 
+    /// Normally these come out of `Epg.decode`. The initialiser is public so that a port -- or a demo, or a
+    /// test -- can build a guide without a recorder and a binary EPG file to decode.
+    public init(serviceID: Int, eventID: Int, start: Date, end: Date, title: String, summary: String = "",
+                extended: String = "", genres: [Genre] = [], copyControl: Int = 0, parentalRating: Int = 0,
+                referenceServiceID: Int? = nil, referenceEventID: Int? = nil) {
+        self.serviceID = serviceID
+        self.eventID = eventID
+        self.start = start
+        self.end = end
+        self.title = title
+        self.summary = summary
+        self.extended = extended
+        self.genres = genres
+        self.copyControl = copyControl
+        self.parentalRating = parentalRating
+        self.referenceServiceID = referenceServiceID
+        self.referenceEventID = referenceEventID
+    }
+
     public var id: String { "\(serviceID)-\(eventID)-\(Int(start.timeIntervalSince1970))" }
     public var isReference: Bool { referenceEventID != nil }
     public var durationSec: Int { Int(end.timeIntervalSince(start)) }
@@ -47,6 +66,12 @@ public struct GuideService: Sendable, Equatable {
     public var serviceID: Int
     public var name: String
     public var programs: [GuideProgram]
+
+    public init(serviceID: Int, name: String, programs: [GuideProgram]) {
+        self.serviceID = serviceID
+        self.name = name
+        self.programs = programs
+    }
 }
 
 public enum GuideError: Error, Equatable, Sendable {
