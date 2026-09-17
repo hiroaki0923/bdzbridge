@@ -24,6 +24,7 @@ struct GuideScreen: View {
                     list
                 }
             }
+            .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // what the screen is showing: the broadcasting type and the channel on the left, the day in

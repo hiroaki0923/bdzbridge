@@ -164,10 +164,13 @@ final class AppModel {
     /// `quiet` keeps a failure off the screen. A probe that is about to be answered with a magic packet has
     /// not failed at anything the reader should be told about, and saying so for the five seconds before the
     /// waking starts reads as a fault that then mysteriously heals.
-    private func attach(_ client: RecorderClient, what: String = "接続中",
+    ///
+    /// `what` is nil for a probe inside a sequence that has already said what it is doing. Setting and
+    /// clearing it per attempt made every button bound to `busy` flicker once a second while waking.
+    private func attach(_ client: RecorderClient, what: String? = "接続中",
                         timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
-        busy = what
-        defer { busy = nil }
+        if let what { busy = what }
+        defer { if what != nil { busy = nil } }
         do {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
@@ -208,11 +211,15 @@ final class AppModel {
         // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
+        // Said once for the whole waking, not per attempt: the screens disable what they must while this is
+        // set, and a value that comes and goes every second makes buttons blink.
+        busy = "レコーダーを起動しています"
+        defer { busy = nil }
         // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet. Looking every second with a
         // two-second timeout catches that within a second or so of it happening, over about half a minute.
         for _ in 0..<20 {
             try? await Task.sleep(for: .seconds(1))
-            if await attach(client, what: "レコーダーを起動しています",
+            if await attach(client, what: nil,
                             timeout: RecorderClient.wakeProbeTimeout, quiet: true) { return true }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"

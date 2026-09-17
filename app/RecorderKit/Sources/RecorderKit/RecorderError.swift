@@ -30,13 +30,24 @@ public enum RecorderError: Error, Equatable, Sendable {
             case .some(let code): "レコーダーがエラーを返しました (\(code): \(action), HTTP \(status))"
             case nil: "レコーダーが HTTP \(status) を返しました (\(action))"
             }
-        case .transport(let detail): "レコーダーに接続できませんでした: \(detail)"
+        case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確認してください"
         case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
         case .guideFileMissing(let name, let status):
             "レコーダーから番組表ファイルを取得できませんでした (HTTP \(status): \(name))。"
                 + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
+        }
+    }
+
+    /// The same thing with whatever the network layer said, for a log. `explanation` leaves it out: a
+    /// URLSession error printed in full is several hundred characters of domains and codes, and putting that
+    /// on screen tells the reader nothing and hides the sentence that does.
+    public var detail: String {
+        switch self {
+        case .transport(let detail): "\(explanation) (\(detail))"
+        case .soap(_, _, _, let body): "\(explanation) \(body.prefix(200))"
+        default: explanation
         }
     }
 

@@ -91,6 +91,37 @@ struct SheetCloseButton: View {
 /// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
 /// phone is away from home. Sending someone to Settings to correct an address that is already right is
 /// worse than saying nothing.
+/// What the app is doing with the recorder, on whatever screen the reader is looking at. Waking takes the
+/// better part of ten seconds and the screens otherwise sit there looking broken, so it says so; it appears
+/// only while something is under way and slides out when it is done.
+struct RecorderActivityBar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let busy = model.busy {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(busy).font(.footnote)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+extension View {
+    /// Puts the activity strip above a screen's content, inside its navigation stack.
+    func recorderActivity() -> some View {
+        safeAreaInset(edge: .top, spacing: 0) {
+            RecorderActivityBar().animation(.default, value: true)
+        }
+    }
+}
+
 struct NoRecorderView: View {
     let icon: String
     @Environment(AppModel.self) private var model
@@ -107,6 +138,15 @@ struct NoRecorderView: View {
                     .buttonStyle(.borderedProminent)
             }
             .sheet(isPresented: $welcoming) { WelcomeView() }
+        } else if let busy = model.busy {
+            // While the app is working on it, this is not a failure and should not read as one
+            ContentUnavailableView {
+                Label(busy, systemImage: icon)
+            } description: {
+                Text("レコーダーが起きるまで数秒かかります")
+            } actions: {
+                ProgressView()
+            }
         } else {
             ContentUnavailableView {
                 Label("レコーダーに接続できません", systemImage: icon)
@@ -117,7 +157,6 @@ struct NoRecorderView: View {
                 // there is nothing here about waking: trying again is the whole of it.
                 Button("再接続") { Task { await model.connect() } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.busy != nil)
             }
         }
     }

@@ -47,6 +47,7 @@ struct ReservationsScreen: View {
                     }
                 }
             }
+            .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {

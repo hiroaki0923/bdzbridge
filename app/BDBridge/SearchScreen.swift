@@ -88,6 +88,7 @@ struct SearchScreen: View {
                     results
                 }
             }
+            .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {

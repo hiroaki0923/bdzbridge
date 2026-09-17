@@ -19,6 +19,7 @@ struct RecordingsScreen: View {
                 JobBarView()
                 content
             }
+            .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
