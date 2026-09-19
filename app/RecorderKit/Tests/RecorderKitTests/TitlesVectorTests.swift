@@ -11,7 +11,7 @@ final class TitlesVectorTests: XCTestCase {
                           start: RecorderTime.parse(row.string("start"))!,
                           durationSec: row.int("duration_sec") ?? 0, broadcastingType: 2, serviceID: 1024,
                           qualityCode: 230, protected: row.bool("protected"), isNew: row.bool("is_new"),
-                          destination: "HDD", sizeMB: row.int("size_mb"), genreCode: row.int("genre_code"),
+                          recording: row.bool("recording"), destination: "HDD", sizeMB: row.int("size_mb"), genreCode: row.int("genre_code"),
                           lastPlayed: nil, resumeSec: row.int("resume_sec"))
         }
         return (titles, vectors)

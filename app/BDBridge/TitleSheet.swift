@@ -29,7 +29,7 @@ struct TitleSheet: View {
                     if let quality = current.qualityName {
                         LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
                     }
-                    LabeledContent("視聴状態", value: viewing)
+                    LabeledContent("視聴状態", value: current.recording ? "録画中" : viewing)
                     if let genre = current.genre?.label {
                         LabeledContent("ジャンル", value: genre)
                     }
@@ -74,8 +74,12 @@ struct TitleSheet: View {
                         }))
                     .disabled(model.busy != nil)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(current.protected || model.busy != nil)
-                    if current.protected {
+                        .disabled(current.protected || current.recording || model.busy != nil)
+                    if current.recording {
+                        Text("録画中のため削除できません。番組が終わるまでお待ちください。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if current.protected {
                         Text("保護されているため削除できません。先に保護を解除してください。")
                             .font(.caption)
                             .foregroundStyle(.secondary)

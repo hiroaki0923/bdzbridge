@@ -146,8 +146,14 @@ async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
 
 @router.delete("/titles/{title_id}", status_code=204)
 async def title_delete(request: Request, title_id: str):
-    """Delete a recording. This is final; the recorder refuses protected titles."""
-    rec = bridge_of(request).require_recorder()
+    """Delete a recording. This is final; the recorder refuses protected titles and ones being recorded."""
+    b = bridge_of(request)
+    rec = b.require_recorder()
+    # A recording in progress is refused with a bare HTTP 500 and no error code, which tells a client
+    # nothing. The list is already in hand, so say it here instead.
+    known = {t.id: t for t in await svc.all_titles(b)}
+    if title_id in known and known[title_id].recording:
+        raise HTTPException(409, "録画中のため削除できません")
     try:
         async with rec.lock:
             # the recorder answers success for ids it does not know, so make sure the title exists first

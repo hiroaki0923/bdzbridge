@@ -28,7 +28,7 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 | `X_DeleteRecordSchedule` | RecordScheduleID | 予約削除 |
 | `X_GetConflictList` | Elements | 作成前の競合確認。重なる既存予約の item を返す（無ければ空） |
 | `X_GetTitleList` | SearchCriteria（例 `recordDestinationID=HDD`）, … | 録画済みタイトル一覧 |
-| `X_DeleteTitle` | TitleID | 録画済みタイトルの削除（保護中は失敗） |
+| `X_DeleteTitle` | TitleID | 録画済みタイトルの削除（保護中・録画中は失敗） |
 | `X_UpdateTitle` | Elements | 録画済みタイトルの変更。`<item id="…">` に変更したい要素だけを入れる: `title`, `titleProtectFlag`（0/1、保護）, `titleNewFlag`, `markingID` |
 | `X_DeleteTitle` / `X_UpdateTitle` | TitleID / Elements | 録画済みタイトルの削除・更新（本プロジェクト未使用） |
 
@@ -371,6 +371,12 @@ LAN から作った条件は、本体の画面でもそのまま条件として�
 
 「レコーダーが番組単位のまとめを持っているなら、名前からの推測は不要になるはず」という問いに答えるため、
 タイトルが持つ項目を全部列挙しました（2026-09-16、BDZ-FBT4100）。
+
+**`recordingFlag` は録画中を意味します。** 録画は始まった時点で一覧に現れ、そのタイトルを
+`X_DeleteTitle` しようとすると **errorCode の無い HTTP 500** が返ります（「保護中」の 820 のような
+手がかりは無い）。したがって削除の前にこのフラグを見ること。実機（BDZ-FBT4100）では完了した
+タイトルが `0` であることを確認済みで、録画中に `1` になるところは未観測です — 予約一覧側の
+同名フラグと同じ意味だと解釈しています。
 
 `X_GetTitleList` の item（17 項目）:
 `desiredQualityMode` `genreID` `lastPlaybackTime` `markingID` `portableRecordFile` `recordDestinationID`

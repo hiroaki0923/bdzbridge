@@ -123,7 +123,7 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
 
 async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
     """Delete recordings one by one (each takes the recorder a few seconds).
-    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected and unknown ids are skipped."""
+    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected, in-progress and unknown ids are skipped."""
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
@@ -133,6 +133,8 @@ async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
                 job.result["skipped"].append({"id": tid, "reason": "not found"})
             elif t.protected:
                 job.result["skipped"].append({"id": tid, "reason": "protected"})
+            elif t.recording:
+                job.result["skipped"].append({"id": tid, "reason": "recording"})
             else:
                 try:
                     async with rec.lock:
@@ -150,7 +152,7 @@ def duplicate_set(store: Store | None, members: list[XTitle], confidence: str) -
 
     def rank(t: XTitle):  # smaller is better to keep
         quality = 0 if t.quality_code == 100 else t.quality_code  # DR first, then the AVC modes in order
-        return (not t.protected, (t.resume_sec or 0) == 0, quality, t.start)
+        return (not t.protected and not t.recording, (t.resume_sec or 0) == 0, quality, t.start)
     keep = min(members, key=rank)
     others = [m for m in members if m.id != keep.id]
     quality = lambda t: 0 if t.quality_code == 100 else t.quality_code
@@ -159,6 +161,8 @@ def duplicate_set(store: Store | None, members: list[XTitle], confidence: str) -
         if t.id == keep.id:
             if t.protected:
                 reasons[t.id] = "保護中"
+            elif t.recording:
+                reasons[t.id] = "録画中"
             elif (t.resume_sec or 0) > 0:
                 reasons[t.id] = "視聴途中"
             elif all(t.start < o.start for o in others):
@@ -169,6 +173,8 @@ def duplicate_set(store: Store | None, members: list[XTitle], confidence: str) -
                 reasons[t.id] = "同じ内容"
         elif t.protected:
             reasons[t.id] = "保護中"
+        elif t.recording:
+            reasons[t.id] = "録画中"
         elif t.start > keep.start:
             reasons[t.id] = "後の放送"
         elif quality(t) > quality(keep):
@@ -178,7 +184,9 @@ def duplicate_set(store: Store | None, members: list[XTitle], confidence: str) -
     return {"title": members[0].title, "confidence": confidence,
             "size_mb": sum(t.size_mb or 0 for t in members),
             "items": [title_out(t, store).model_dump(mode="json") for t in members],
-            "keep": keep.id, "suggest_delete": [t.id for t in members if t.id != keep.id and not t.protected], "reasons": reasons}
+            "keep": keep.id,
+            "suggest_delete": [t.id for t in members if t.id != keep.id and not t.protected and not t.recording],
+            "reasons": reasons}
 
 async def groups(bridge: Bridge, genre: int | None = None) -> list[S.TitleGroup]:
     """Recorded titles grouped into programmes by their names, newest group first."""

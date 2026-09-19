@@ -60,6 +60,9 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     public var qualityCode: Int
     public var protected: Bool
     public var isNew: Bool
+    /// The recorder is writing to this one now. It lists a recording from the moment it starts, and refuses
+    /// to delete one in progress -- with an HTTP 500 and no error code, which says nothing to anybody.
+    public var recording: Bool
     public var destination: String
     public var sizeMB: Int?
     public var genreCode: Int?

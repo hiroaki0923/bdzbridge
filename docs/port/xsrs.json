@@ -234,6 +234,7 @@
     "is_new": false,
     "destination": "HDD",
     "size_mb": 2048,
+    "recording": false,
     "genre_code": 168,
     "last_played": "2026-09-14T01:03:50+09:00",
     "resume_sec": 13
@@ -253,6 +254,7 @@
     "is_new": false,
     "destination": "HDD",
     "size_mb": null,
+    "recording": false,
     "genre_code": null,
     "last_played": null,
     "resume_sec": 0

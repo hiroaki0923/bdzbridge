@@ -12,7 +12,7 @@
 <button class="item" onclick={() => onopen(t)}>
   <span class="time">{fmtDate(t.start)}<br /><span class="muted">{fmtTime(t.start)}</span></span>
   <span>
-    {#if t.protected}<span class="lock" title="保護中" aria-label="保護中">🔒</span>{/if}{#if t.is_new}<span class="mark now">NEW</span>{/if}<span class="title">{t.title}</span>
+    {#if t.protected}<span class="lock" title="保護中" aria-label="保護中">🔒</span>{/if}{#if t.recording}<span class="mark">録画中</span>{:else if t.is_new}<span class="mark now">NEW</span>{/if}<span class="title">{t.title}</span>
     <div class="sub">{facts}</div>
   </span>
 </button>

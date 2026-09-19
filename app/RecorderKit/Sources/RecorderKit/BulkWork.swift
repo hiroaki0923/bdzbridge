@@ -20,6 +20,9 @@ public extension RecorderClient {
     /// means it went away on its own and there is nothing to report as an error.
     func deleteIfPresent(_ title: RecordedTitle) async -> ItemOutcome {
         if title.protected { return .skipped(reason: "保護されています") }
+        // The recorder answers a bare HTTP 500 for one it is still writing to, which reads as a fault in the
+        // app rather than as the one thing it is: wait until the programme has finished.
+        if title.recording { return .skipped(reason: "録画中です") }
 
         do {
             _ = try await titleDetail(id: title.id)

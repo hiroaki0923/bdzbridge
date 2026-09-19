@@ -182,6 +182,7 @@
     "quality_code": 230,
     "protected": false,
     "is_new": true,
+    "recording": false,
     "resume_sec": null,
     "size_mb": 2000,
     "summary": "架空市警のサンプル警部が挑む。"
@@ -194,6 +195,7 @@
     "quality_code": 240,
     "protected": false,
     "is_new": false,
+    "recording": false,
     "resume_sec": 300,
     "size_mb": 2000,
     "summary": "（再放送）架空市警のサンプル警部が挑む。"
@@ -206,6 +208,7 @@
     "quality_code": 230,
     "protected": true,
     "is_new": true,
+    "recording": false,
     "resume_sec": null,
     "size_mb": 2000,
     "summary": "まったく別のあらすじ。"
@@ -218,6 +221,7 @@
     "quality_code": 230,
     "protected": false,
     "is_new": true,
+    "recording": false,
     "resume_sec": null,
     "size_mb": 2000,
     "summary": "拡大版のあらすじ。"
@@ -230,6 +234,7 @@
     "quality_code": 230,
     "protected": false,
     "is_new": true,
+    "recording": false,
     "resume_sec": null,
     "size_mb": 500,
     "summary": ""
@@ -242,9 +247,36 @@
     "quality_code": 230,
     "protected": false,
     "is_new": true,
+    "recording": false,
     "resume_sec": null,
     "size_mb": 500,
     "summary": ""
+   },
+   {
+    "id": "0xf1",
+    "title": "サンプル特番「今夜の生放送」",
+    "start": "2026-09-04T21:00:00+09:00",
+    "duration_sec": 1800,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": false,
+    "resume_sec": null,
+    "size_mb": 900,
+    "summary": "生放送のサンプル。"
+   },
+   {
+    "id": "0xf2",
+    "title": "サンプル特番「今夜の生放送」",
+    "start": "2026-09-11T21:00:00+09:00",
+    "duration_sec": 1800,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": true,
+    "resume_sec": null,
+    "size_mb": 900,
+    "summary": "生放送のサンプル。"
    }
   ],
   "candidates": [
@@ -256,6 +288,10 @@
    [
     "0xe1",
     "0xe2"
+   ],
+   [
+    "0xf1",
+    "0xf2"
    ]
   ],
   "sets": [
@@ -274,6 +310,23 @@
     "items": [
      "0xd1",
      "0xd2"
+    ]
+   },
+   {
+    "title": "サンプル特番「今夜の生放送」",
+    "confidence": "high",
+    "size_mb": 1800,
+    "keep": "0xf2",
+    "suggest_delete": [
+     "0xf1"
+    ],
+    "reasons": {
+     "0xf1": "同じ内容",
+     "0xf2": "録画中"
+    },
+    "items": [
+     "0xf1",
+     "0xf2"
     ]
    },
    {

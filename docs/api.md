@@ -381,7 +381,7 @@ Protect / unprotect a recording, clear its NEW mark, or rename it.
 
 ### DELETE /titles/{title_id}
 
-Delete a recording. This is final; the recorder refuses protected titles.
+Delete a recording. This is final; the recorder refuses protected titles and ones being recorded.
 
 パラメータ:
 - `title_id` (path): string
@@ -692,6 +692,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `quality`: string
 - `protected`: boolean
 - `is_new`: boolean
+- `recording`: boolean （省略可、既定 `false`） — the recorder is still writing to this one; it refuses to delete it
 - `destination`: string
 - `size_mb`: integer | null
 - `dlna_id`: string — the title's DLNA object id on the recorder

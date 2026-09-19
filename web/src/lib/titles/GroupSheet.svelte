@@ -20,7 +20,8 @@
   const pickedIds = $derived(Object.keys(picked).filter((id) => picked[id]))
   const pickedSize = $derived(members.filter((m) => picked[m.id]).reduce((s, m) => s + (m.size_mb ?? 0), 0))
   const totalSize = $derived(members.reduce((s, m) => s + (m.size_mb ?? 0), 0))
-  function pickAll(on) { const p = {}; for (const m of members) if (!m.protected) p[m.id] = on; picked = p }
+  // Neither a protected recording nor one still being written to can be deleted, so neither is ticked
+  function pickAll(on) { const p = {}; for (const m of members) if (!m.protected && !m.recording) p[m.id] = on; picked = p }
   const setProgress = (p) => (progress = p)
   async function cancel() {
     if (!progress?.id) return
