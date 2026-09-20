@@ -303,32 +303,70 @@ enum DemoData {
         at(hhmm, dayOffset: dayOffset)
     }
 
+    /// Every station, of every broadcasting type, for looking a programme up by name.
+    static var stations: [Station] { terrestrial + satellite }
+
+    /// One programme of the invented guide, found by the name it was given in the schedule: its id, when it
+    /// is on, how long it runs and its genre. **Reservations are built from this.** A reservation that
+    /// points at an id the guide does not have is one the guide cannot mark as reserved, which is how the
+    /// first screenshots came out with nothing marked.
+    static func slot(_ title: String, at serviceID: Int,
+                     dayOffset: Int = 0) -> (eventID: Int, start: Date, minutes: Int, genre: Int)? {
+        guard let station = stations.first(where: { $0.serviceID == serviceID }),
+              let index = station.schedule.firstIndex(where: { $0.title == title }) else { return nil }
+        let slot = station.schedule[index]
+        return (1000 + dayOffset * 100 + index, at(slot.at, dayOffset: dayOffset), slot.minutes,
+                slot.level1 * 16 + slot.level2)
+    }
+
+    /// One reservation to build out of the guide. When it is on, how long it runs, its genre and its
+    /// programme id all come from the programme itself, so the two lists cannot drift apart.
+    private struct Booked {
+        var id: String
+        var title: String
+        var station: Int
+        var dayOffset = 0
+        var broadcastingType = 2
+        var quality: Int
+        var weekly = false
+        var conflict = false
+        var creator = "2200"
+        var size: Int
+    }
+
+    private static let booked = [
+        Booked(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話", station: 1024,
+               quality: 220, weekly: true, size: 2900),
+        Booked(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶", station: 1024,
+               quality: 100, size: 5900),
+        // the recorder's own おまかせ・まる録 puts its reservations in the same list, under its own id
+        Booked(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集", station: 1024,
+               quality: 220, creator: "1000", size: 2700),
+        Booked(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）", station: 1048,
+               dayOffset: 1, quality: 240, weekly: true, size: 1600),
+        Booked(id: "0x00000000000a9435", title: "ひなたスポーツ特集", station: 1064,
+               dayOffset: 1, quality: 220, conflict: true, size: 4200),
+        Booked(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」", station: 2048,
+               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1000", size: 7400),
+    ]
+
     static var reservationItems: [String] {
-        var xml: [String] = []
-        xml.append(reservation(id: "0x00000000000a9431", title: "サンプルニュース",
-                           start: Date().addingTimeInterval(-20 * 60), minutes: 60, service: 1024,
-                           eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800))
-        xml.append(reservation(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話",
-                           start: moment("20:00"), minutes: 45, service: 1024, eventID: 0x3798,
-                           quality: 220, genre: 48, repeatCode: weekly(moment("20:00")), size: 2900))
-        xml.append(reservation(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶",
-                           start: moment("21:00"), minutes: 60, service: 1024, eventID: 0x379a,
-                           quality: 100, genre: 128, size: 5900))
-        xml.append(reservation(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）",
-                           start: moment("16:00", dayOffset: 1), minutes: 120, service: 1048,
-                           eventID: 0x37b2, quality: 240, genre: 112,
-                           repeatCode: weekly(moment("16:00", dayOffset: 1)), size: 1600))
-        xml.append(reservation(id: "0x00000000000a9435", title: "ひなたスポーツ特集",
-                           start: moment("18:00", dayOffset: 1), minutes: 120, service: 1064,
-                           eventID: 0x37c0, quality: 220, genre: 16, conflict: true, size: 4200))
-        // The recorder's own おまかせ・まる録 puts reservations in the same list, under its own creator id.
-        xml.append(reservation(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集",
-                           start: moment("22:30"), minutes: 60, service: 1024, eventID: 0x379e,
-                           quality: 220, genre: 64, creator: "1000", size: 2700))
-        xml.append(reservation(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」",
-                           start: moment("20:00", dayOffset: 2), minutes: 120, service: 2048,
-                           broadcastingType: 3, eventID: 0x37d4, quality: 220, genre: 96,
-                           creator: "1000", size: 7400))
+        // The one being recorded now. It is the only one with no programme behind it: it started twenty
+        // minutes ago, which is a time rather than a slot in the guide.
+        var xml = [reservation(id: "0x00000000000a9431", title: "サンプルニュース",
+                               start: Date().addingTimeInterval(-20 * 60), minutes: 60, service: 1024,
+                               eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800)]
+        for booked in booked {
+            guard let found = slot(booked.title, at: booked.station, dayOffset: booked.dayOffset) else {
+                continue
+            }
+            xml.append(reservation(id: booked.id, title: booked.title, start: found.start,
+                                   minutes: found.minutes, service: booked.station,
+                                   broadcastingType: booked.broadcastingType, eventID: found.eventID,
+                                   quality: booked.quality, genre: found.genre,
+                                   repeatCode: booked.weekly ? weekly(found.start) : "1",
+                                   conflict: booked.conflict, creator: booked.creator, size: booked.size))
+        }
         return xml
     }
 

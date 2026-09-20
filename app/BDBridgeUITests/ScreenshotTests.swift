@@ -23,16 +23,18 @@ final class ScreenshotTests: XCTestCase {
                       "set BDBRIDGE_SHOTS to take the App Store screenshots")
 
         // 1. The guide as a grid: time down, channels across, genres in colour, reservations marked.
-        try shot("01_guide_grid", arguments: ["-startTab", "guide", "-guideMode", "grid"]) { app in
+        //    Opened at seven in the evening rather than at whatever time the shot is taken, so the picture
+        //    is of an evening's television and not of the small hours. Nothing is tapped here: tapping the
+        //    zoom button once landed on the programme behind it and the "guide" shot came out as a
+        //    programme sheet.
+        try shot("01_guide_grid",
+                 arguments: ["-startTab", "guide", "-guideMode", "grid", "-guideOpenAt", "19:00"]) { app in
             self.waitFor(app.staticTexts["サンプルテレビ"], "01_guide_grid")
-            // One step out, so a couple of hours either side of now are in the picture rather than one.
-            let out = app.buttons["表示を縮小"]
-            if out.waitForExistence(timeout: 10) { out.tap() }
         }
 
         // 2. One programme, and what a reservation of it would be. Reached through the search, which is the
         //    one route to a named programme that does not depend on the time of day.
-        try shot("02_program", arguments: ["-startTab", "search"]) { app in
+        try shot("02_program", arguments: ["-startTab", "search"], sheet: true) { app in
             let field = app.searchFields.firstMatch
             XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
             field.tap()
@@ -79,7 +81,7 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// Launches the app on the demo recorder, lets the caller get the screen ready, and attaches the picture.
-    private func shot(_ name: String, arguments: [String],
+    private func shot(_ name: String, arguments: [String], sheet: Bool = false,
                       prepare: (XCUIApplication) throws -> Void) throws {
         let app = XCUIApplication()
         // The demo's own strip is off here: these are pictures of the app as it looks with a recorder.
@@ -88,6 +90,11 @@ final class ScreenshotTests: XCTestCase {
         try prepare(app)
         // The lists animate in, and a shot taken on the first frame catches them half drawn.
         Thread.sleep(forTimeInterval: 1.2)
+        // A stray tap can leave a sheet over the screen that was meant to be photographed, and the shot
+        // still gets filed under the name of the screen it was supposed to be. Every sheet here closes with
+        // the same round button, so its absence is the check.
+        XCTAssertEqual(app.buttons["閉じる"].exists, sheet,
+                       sheet ? "\(name): the sheet was not open" : "\(name): a sheet was over the screen")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
