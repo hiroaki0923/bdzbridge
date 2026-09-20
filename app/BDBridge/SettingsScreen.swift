@@ -7,6 +7,15 @@ struct SettingsScreen: View {
     @State private var typedMac = ""
     @State private var showingGuide = false
 
+    /// What the store calls the version, and the build behind it: `0.2 (12)`. The build number comes from
+    /// Xcode Cloud, so it is the only thing that tells two TestFlight builds of one version apart.
+    private static var version: String {
+        let info = Bundle.main.infoDictionary
+        let release = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(release) (\(build))"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -137,6 +146,14 @@ struct SettingsScreen: View {
 
                 Section {
                     Button("セットアップ手順を見る") { showingGuide = true }
+                }
+
+                Section("このアプリ") {
+                    // Which build is on the phone is the first question behind "is that the one with the
+                    // fix?", and TestFlight hands out several builds of one version. Selectable, so it can
+                    // be copied into a report rather than read off a screen.
+                    LabeledContent("バージョン", value: Self.version)
+                        .textSelection(.enabled)
                 }
 
                 if let busy = model.busy {
