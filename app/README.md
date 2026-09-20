@@ -22,6 +22,18 @@ cd app && xcodegen generate
 open BDBridge.xcodeproj
 ```
 
+## The privacy manifest
+
+`BDBridge/PrivacyInfo.xcprivacy` declares that nothing is collected and nothing is tracked, and names the
+one required-reason API in either target: `UserDefaults`, reason `CA92.1` (a defaults database only this app
+can see). If another such API is ever used -- file timestamps, disk space, system boot time, the active
+keyboard -- it has to be added there.
+
+**Do not put comments in it.** Apple's validator refuses a manifest that is not well-formed XML, with
+`ITMS-91056` and a rejected build, and a comment containing `--` is not well-formed. `plutil -lint` accepts
+such a file happily; the pre-commit hook parses it strictly instead. Whatever wants explaining goes here or
+in `docs/privacy.md`.
+
 ## Screenshots for the store
 
 `scripts/screenshots/capture.sh <simulator udid>` takes them, on the same demo the tutorial offers

@@ -17,6 +17,17 @@ if git diff --cached --name-only | grep -q '^server/bdzbridge/'; then
   git add docs/api.md docs/openapi.json docs/port
 fi
 
+# A privacy manifest that Apple rejects looks fine to `plutil -lint`: it accepts XML that a strict parser
+# will not, and an invalid manifest costs a whole review round trip (ITMS-91056 -- ours had "--" inside an
+# XML comment, which XML does not allow). Python's parser is the strict one.
+for manifest in $(git diff --cached --name-only --diff-filter=AM | grep '\.xcprivacy$' || true); do
+  if ! python3 -c "import plistlib,sys;plistlib.loads(open(sys.argv[1],'rb').read())" "$manifest" 2>/dev/null; then
+    echo "pre-commit: $manifest is not well-formed; Apple will refuse the build (ITMS-91056)" >&2
+    python3 -c "import plistlib,sys;plistlib.loads(open(sys.argv[1],'rb').read())" "$manifest" 2>&1 | tail -2 >&2
+    exit 1
+  fi
+done
+
 # The Xcode project is generated from app/project.yml and committed all the same, because Xcode Cloud has to
 # find a project in the repository before any script of ours runs (see app/README.md). So the two have to
 # agree. Generating elsewhere and comparing does not work -- XcodeGen writes paths relative to wherever it
