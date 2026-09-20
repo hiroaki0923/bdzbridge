@@ -17,6 +17,21 @@ if git diff --cached --name-only | grep -q '^server/bdzbridge/'; then
   git add docs/api.md docs/openapi.json docs/port
 fi
 
+# The Xcode project is generated from app/project.yml and committed all the same, because Xcode Cloud has to
+# find a project in the repository before any script of ours runs (see app/README.md). So the two have to
+# agree. Generating elsewhere and comparing does not work -- XcodeGen writes paths relative to wherever it
+# put the project -- so this regenerates in place, compares, and puts the file back when it matches.
+# One group's identifier is random on every run, which is why the comparison ignores those lines.
+if git diff --cached --name-only | grep -q '^app/' && command -v xcodegen >/dev/null 2>&1; then
+  (cd app && xcodegen generate >/dev/null 2>&1) || true
+  if ! git diff --ignore-matching-lines=TEMP_ --quiet -- app/BDBridge.xcodeproj app/BDBridge/Info.plist; then
+    echo "pre-commit: app/BDBridge.xcodeproj no longer matches app/project.yml" >&2
+    echo "  it has just been regenerated in your working tree; check it and 'git add app/BDBridge.xcodeproj app/BDBridge/Info.plist'" >&2
+    exit 1
+  fi
+  git checkout -- app/BDBridge.xcodeproj app/BDBridge/Info.plist
+fi
+
 # RecorderKit is checked against docs/port, so run it whenever either side moves. Drop this block if it makes
 # commits too slow; `cd app/RecorderKit && swift test` is the same check by hand.
 if git diff --cached --name-only | grep -qE '^(app/|docs/port/)' && command -v swift >/dev/null 2>&1; then
