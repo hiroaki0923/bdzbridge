@@ -280,7 +280,14 @@ final class AppModel {
         // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
         // network asks again without being told to.
         gaveUp = !reached
-        if reached { await refreshGuideIfStale() }
+        if reached {
+            // Before the guide, because the guide marks what is already set to record and the marks come
+            // from this list. Reading it only when the reservations screen appeared meant that opening the
+            // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
+            // been to the other tab and back.
+            await loadReservations()
+            await refreshGuideIfStale()
+        }
     }
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which

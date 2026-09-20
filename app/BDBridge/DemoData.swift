@@ -1,5 +1,6 @@
 import Foundation
 import RecorderKit
+import UIKit
 
 /// A recorder made of canned answers, and a guide full of invented programmes.
 ///
@@ -66,6 +67,9 @@ enum DemoData {
     struct Station {
         var serviceID: Int
         var name: String
+        /// The two characters on the invented logo. Spelled out rather than taken from the name, because
+        /// three of the stations begin with the same two.
+        var logo: String
         var schedule: [Slot]
     }
 
@@ -91,7 +95,7 @@ enum DemoData {
     }
 
     static let terrestrial: [Station] = [
-        Station(serviceID: 1024, name: "サンプルテレビ", schedule: [
+        Station(serviceID: 1024, name: "サンプルテレビ", logo: "サン", schedule: [
             Slot("04:00", 60, "早朝サンプル便り", 0, 1),
             Slot("05:00", 90, "あさのサンプル", 2, 0, "暮らしと天気の情報番組。"),
             Slot("06:30", 30, "サンプル体操", 10, 2),
@@ -117,7 +121,7 @@ enum DemoData {
             Slot("02:30", 60, "サンプルアーカイブ深夜", 8, 1),
             Slot("03:30", 30, "サンプル気象情報", 0, 5),
         ]),
-        Station(serviceID: 1032, name: "サンプル教育", schedule: [
+        Station(serviceID: 1032, name: "サンプル教育", logo: "教育", schedule: [
             Slot("04:00", 120, "サンプル語学　入門", 10, 1),
             Slot("06:00", 60, "みほんのりか", 10, 1),
             Slot("07:00", 60, "こどもみほん", 7, 0),
@@ -137,7 +141,7 @@ enum DemoData {
             Slot("02:00", 60, "サンプル手話ニュース", 11, 0),
             Slot("03:00", 60, "みほん音楽の時間", 4, 1),
         ]),
-        Station(serviceID: 1040, name: "みほんテレビ", schedule: [
+        Station(serviceID: 1040, name: "みほんテレビ", logo: "みほ", schedule: [
             Slot("04:00", 90, "みほん早朝便", 0, 1),
             Slot("05:30", 150, "みほんモーニングショー", 2, 0),
             Slot("08:00", 120, "サンプルワイド", 2, 1),
@@ -155,7 +159,7 @@ enum DemoData {
             Slot("02:00", 60, "みほんアーカイブ", 8, 1),
             Slot("03:00", 60, "みほん早朝ニュース", 0, 0),
         ]),
-        Station(serviceID: 1048, name: "テレビみほん", schedule: [
+        Station(serviceID: 1048, name: "テレビみほん", logo: "テレ", schedule: [
             Slot("04:00", 120, "テレビみほん朝の顔", 2, 0),
             Slot("06:00", 120, "サンプル経済ニュース", 0, 1),
             Slot("08:00", 120, "みほんグルメ紀行", 11, 0),
@@ -175,7 +179,7 @@ enum DemoData {
             Slot("02:00", 60, "サンプル通販", 2, 4),
             Slot("03:00", 60, "みほん経済ニュース", 0, 1),
         ]),
-        Station(serviceID: 1056, name: "サンプル放送", schedule: [
+        Station(serviceID: 1056, name: "サンプル放送", logo: "放送", schedule: [
             Slot("04:00", 120, "サンプル放送　朝一番", 0, 1),
             Slot("06:00", 180, "みほんスタジオ", 2, 0),
             Slot("09:00", 180, "サンプルショッピング", 2, 4),
@@ -190,7 +194,7 @@ enum DemoData {
             Slot("02:00", 60, "みほん歌謡アワー", 4, 2),
             Slot("03:00", 60, "サンプル放送　朝の準備", 0, 1),
         ]),
-        Station(serviceID: 1064, name: "ひなたテレビ", schedule: [
+        Station(serviceID: 1064, name: "ひなたテレビ", logo: "ひな", schedule: [
             Slot("04:00", 180, "ひなた早朝サンプル", 0, 1),
             Slot("07:00", 120, "ひなたモーニング", 2, 0),
             Slot("09:00", 180, "サンプル再放送タイム", 3, 0),
@@ -208,7 +212,7 @@ enum DemoData {
     ]
 
     static let satellite: [Station] = [
-        Station(serviceID: 2048, name: "サンプルBS", schedule: [
+        Station(serviceID: 2048, name: "サンプルBS", logo: "サＢ", schedule: [
             Slot("04:00", 180, "BSサンプル早朝紀行", 11, 1),
             Slot("07:00", 180, "サンプルBSニュース", 0, 0),
             Slot("10:00", 180, "BS名画サンプル", 6, 0),
@@ -223,7 +227,7 @@ enum DemoData {
             Slot("02:00", 60, "サンプルBS音楽夜話", 4, 1),
             Slot("03:00", 60, "BSサンプル朝の紀行", 11, 1),
         ]),
-        Station(serviceID: 2056, name: "みほんBS", schedule: [
+        Station(serviceID: 2056, name: "みほんBS", logo: "みＢ", schedule: [
             Slot("04:00", 240, "みほんBS朝の紀行", 11, 1),
             Slot("08:00", 240, "みほんBSドラマ再放送", 3, 0),
             Slot("12:00", 240, "みほんBS通販", 2, 4),
@@ -235,7 +239,7 @@ enum DemoData {
             Slot("01:00", 60, "みほんBS深夜劇場", 6, 1),
             Slot("02:00", 120, "みほんBS通販", 2, 4),
         ]),
-        Station(serviceID: 2064, name: "BSみほん", schedule: [
+        Station(serviceID: 2064, name: "BSみほん", logo: "Ｂみ", schedule: [
             Slot("04:00", 240, "BSみほん朝の音楽", 4, 1),
             Slot("08:00", 240, "BSみほん紀行", 11, 1),
             Slot("12:00", 240, "BSみほん映画館", 6, 0),
@@ -266,6 +270,47 @@ enum DemoData {
                                              programs: programs))
             }
             _ = try await store.replace(services, broadcasting: broadcasting)
+            try await store.replaceLogos(await logos(for: stations), broadcasting: broadcasting)
+        }
+    }
+
+    /// Invented station logos: a coloured tile with the first two characters of the name. A real recorder
+    /// hands over the broadcasters' own logos, which are theirs and do not belong in a shop window, but a
+    /// guide with nothing in the logo column does not look like the app either.
+    @MainActor
+    private static func logos(for stations: [Station]) -> [(serviceID: Int, channelNo: Int, png: Data)] {
+        stations.enumerated().compactMap { index, station in
+            guard let png = tile(station.logo, colour: tileColours[index % tileColours.count]) else {
+                return nil
+            }
+            return (station.serviceID, index + 1, png)
+        }
+    }
+
+    private static let tileColours: [UIColor] = [
+        UIColor(red: 0.20, green: 0.44, blue: 0.80, alpha: 1),
+        UIColor(red: 0.16, green: 0.58, blue: 0.42, alpha: 1),
+        UIColor(red: 0.84, green: 0.36, blue: 0.24, alpha: 1),
+        UIColor(red: 0.45, green: 0.32, blue: 0.70, alpha: 1),
+        UIColor(red: 0.84, green: 0.60, blue: 0.16, alpha: 1),
+        UIColor(red: 0.24, green: 0.55, blue: 0.62, alpha: 1),
+    ]
+
+    @MainActor
+    private static func tile(_ text: String, colour: UIColor) -> Data? {
+        let size = CGSize(width: 64, height: 36)
+        return UIGraphicsImageRenderer(size: size).pngData { context in
+            colour.setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6).fill()
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+                .foregroundColor: UIColor.white,
+            ]
+            let bounds = (text as NSString).size(withAttributes: attributes)
+            (text as NSString).draw(at: CGPoint(x: (size.width - bounds.width) / 2,
+                                                y: (size.height - bounds.height) / 2),
+                                    withAttributes: attributes)
+            _ = context
         }
     }
 
@@ -303,32 +348,70 @@ enum DemoData {
         at(hhmm, dayOffset: dayOffset)
     }
 
+    /// Every station, of every broadcasting type, for looking a programme up by name.
+    static var stations: [Station] { terrestrial + satellite }
+
+    /// One programme of the invented guide, found by the name it was given in the schedule: its id, when it
+    /// is on, how long it runs and its genre. **Reservations are built from this.** A reservation that
+    /// points at an id the guide does not have is one the guide cannot mark as reserved, which is how the
+    /// first screenshots came out with nothing marked.
+    static func slot(_ title: String, at serviceID: Int,
+                     dayOffset: Int = 0) -> (eventID: Int, start: Date, minutes: Int, genre: Int)? {
+        guard let station = stations.first(where: { $0.serviceID == serviceID }),
+              let index = station.schedule.firstIndex(where: { $0.title == title }) else { return nil }
+        let slot = station.schedule[index]
+        return (1000 + dayOffset * 100 + index, at(slot.at, dayOffset: dayOffset), slot.minutes,
+                slot.level1 * 16 + slot.level2)
+    }
+
+    /// One reservation to build out of the guide. When it is on, how long it runs, its genre and its
+    /// programme id all come from the programme itself, so the two lists cannot drift apart.
+    private struct Booked {
+        var id: String
+        var title: String
+        var station: Int
+        var dayOffset = 0
+        var broadcastingType = 2
+        var quality: Int
+        var weekly = false
+        var conflict = false
+        var creator = "2200"
+        var size: Int
+    }
+
+    private static let booked = [
+        Booked(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話", station: 1024,
+               quality: 220, weekly: true, size: 2900),
+        Booked(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶", station: 1024,
+               quality: 100, size: 5900),
+        // the recorder's own おまかせ・まる録 puts its reservations in the same list, under its own id
+        Booked(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集", station: 1024,
+               quality: 220, creator: "1000", size: 2700),
+        Booked(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）", station: 1048,
+               dayOffset: 1, quality: 240, weekly: true, size: 1600),
+        Booked(id: "0x00000000000a9435", title: "ひなたスポーツ特集", station: 1064,
+               dayOffset: 1, quality: 220, conflict: true, size: 4200),
+        Booked(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」", station: 2048,
+               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1000", size: 7400),
+    ]
+
     static var reservationItems: [String] {
-        var xml: [String] = []
-        xml.append(reservation(id: "0x00000000000a9431", title: "サンプルニュース",
-                           start: Date().addingTimeInterval(-20 * 60), minutes: 60, service: 1024,
-                           eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800))
-        xml.append(reservation(id: "0x00000000000a9432", title: "サンプル劇場「ひかりの街」第５話",
-                           start: moment("20:00"), minutes: 45, service: 1024, eventID: 0x3798,
-                           quality: 220, genre: 48, repeatCode: weekly(moment("20:00")), size: 2900))
-        xml.append(reservation(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶",
-                           start: moment("21:00"), minutes: 60, service: 1024, eventID: 0x379a,
-                           quality: 100, genre: 128, size: 5900))
-        xml.append(reservation(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）",
-                           start: moment("16:00", dayOffset: 1), minutes: 120, service: 1048,
-                           eventID: 0x37b2, quality: 240, genre: 112,
-                           repeatCode: weekly(moment("16:00", dayOffset: 1)), size: 1600))
-        xml.append(reservation(id: "0x00000000000a9435", title: "ひなたスポーツ特集",
-                           start: moment("18:00", dayOffset: 1), minutes: 120, service: 1064,
-                           eventID: 0x37c0, quality: 220, genre: 16, conflict: true, size: 4200))
-        // The recorder's own おまかせ・まる録 puts reservations in the same list, under its own creator id.
-        xml.append(reservation(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集",
-                           start: moment("22:30"), minutes: 60, service: 1024, eventID: 0x379e,
-                           quality: 220, genre: 64, creator: "1000", size: 2700))
-        xml.append(reservation(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」",
-                           start: moment("20:00", dayOffset: 2), minutes: 120, service: 2048,
-                           broadcastingType: 3, eventID: 0x37d4, quality: 220, genre: 96,
-                           creator: "1000", size: 7400))
+        // The one being recorded now. It is the only one with no programme behind it: it started twenty
+        // minutes ago, which is a time rather than a slot in the guide.
+        var xml = [reservation(id: "0x00000000000a9431", title: "サンプルニュース",
+                               start: Date().addingTimeInterval(-20 * 60), minutes: 60, service: 1024,
+                               eventID: 0x3721, quality: 230, genre: 0, recording: true, size: 3800)]
+        for booked in booked {
+            guard let found = slot(booked.title, at: booked.station, dayOffset: booked.dayOffset) else {
+                continue
+            }
+            xml.append(reservation(id: booked.id, title: booked.title, start: found.start,
+                                   minutes: found.minutes, service: booked.station,
+                                   broadcastingType: booked.broadcastingType, eventID: found.eventID,
+                                   quality: booked.quality, genre: found.genre,
+                                   repeatCode: booked.weekly ? weekly(found.start) : "1",
+                                   conflict: booked.conflict, creator: booked.creator, size: booked.size))
+        }
         return xml
     }
 

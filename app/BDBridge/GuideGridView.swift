@@ -17,6 +17,10 @@ struct GuideGridView: View {
     let onSelect: (GuideProgramRow) -> Void
 
     @AppStorage("gridPointsPerMinute") private var pointsPerMinute = 3.0
+    /// The time of day to open at instead of now, as `HH:mm`. Nothing in the app writes it; it is passed on
+    /// the command line (`-guideOpenAt 19:00`) so that the store screenshots land on the evening whatever
+    /// time of day they are taken. See app/scripts/screenshots.
+    @AppStorage("guideOpenAt") private var openAt = ""
     @State private var offset = CGPoint.zero
     @State private var viewport = CGSize.zero
     @State private var pinchStart: Double?
@@ -126,7 +130,7 @@ struct GuideGridView: View {
             // content to be laid out, since there is nothing to scroll to before that
             .task(id: dayKey) {
                 try? await Task.sleep(for: .milliseconds(120))
-                show(minute: showsNow ? nowMinutes : 0, with: scroller)
+                show(minute: openingMinute, with: scroller)
             }
             // A day that is already today does not change, so the task above does not run again. The wait
             // is for the tab bar's own scroll to the top, which cannot be declined (see GuideScreen).
@@ -139,6 +143,11 @@ struct GuideGridView: View {
                 }
             }
         }
+    }
+
+    /// Where the grid opens: the current time, or the top of the day when another day is showing.
+    private var openingMinute: Double {
+        GuideClock.minuteOfBroadcastDay(openAt) ?? (showsNow ? nowMinutes : 0)
     }
 
     /// Puts a minute of the day at the top of the screen, aiming high enough that the quarter hour before
@@ -403,5 +412,19 @@ private struct ProgramBlock: View {
         case 11: Color(red: 0.00, green: 0.78, blue: 0.75)
         default: Color(.separator)
         }
+    }
+}
+
+
+/// Where the guide opens.
+enum GuideClock {
+    /// `"19:00"` as minutes from the start of a broadcast day, which begins at 04:00; anything before four
+    /// in the morning belongs to the end of that day. nil for anything that is not a time, which is the
+    /// ordinary case -- only the store screenshots set this.
+    static func minuteOfBroadcastDay(_ text: String) -> Double? {
+        let parts = text.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        let fromDayStart = Double(parts[0] * 60 + parts[1] - 4 * 60)
+        return fromDayStart >= 0 ? fromDayStart : fromDayStart + 24 * 60
     }
 }
