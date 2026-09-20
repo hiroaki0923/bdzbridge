@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */; };
 		05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E69E6BE470039076D6A3C271 /* TitleSheet.swift */; };
 		0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1279E749BC680BAC08A88565 /* AppModel.swift */; };
 		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
@@ -64,6 +65,7 @@
 		BE7AA725FC70192085455980 /* BDBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BDBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6328D6F84094C9B14A5C500 /* GuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideGridView.swift; sourceTree = "<group>"; };
 		CA7ECF4C1A153A99F6259F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisclaimerView.swift; sourceTree = "<group>"; };
 		D86F6D78C94327F25C742A7A /* JobBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobBarView.swift; sourceTree = "<group>"; };
 		DCE17E7D5D88F5B7797F639F /* RecorderKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecorderKit; path = RecorderKit; sourceTree = SOURCE_ROOT; };
 		E69E6BE470039076D6A3C271 /* TitleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleSheet.swift; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 				386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */,
 				5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */,
 				83E965F5A7D72F5934B73195 /* DemoData.swift */,
+				D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */,
 				58160E6F634978F81AD1D797 /* DuplicatesView.swift */,
 				C6328D6F84094C9B14A5C500 /* GuideGridView.swift */,
 				A483A42044BA0ED0BA176891 /* GuideScreen.swift */,
@@ -149,7 +152,7 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_BEE751E2-A9F0-406D-AD30-1EC124ECE3AF" /* app */ = {
+		"TEMP_B9B1DF7E-7BB4-463A-B609-80C230C78598" /* app */ = {
 			isa = PBXGroup;
 			children = (
 				2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */,
@@ -268,6 +271,7 @@
 				8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */,
 				7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */,
 				D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */,
+				02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */,
 				C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */,
 				E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */,
 				17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */,
