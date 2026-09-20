@@ -7,6 +7,10 @@
 name: BDBridge
 options:
   bundleIdPrefix: jp.hiroaki
+  # Every word in this app is Japanese, and it talks to recorders sold in Japan. Without this the project
+  # takes Xcode's default of English, the built Info.plist says CFBundleDevelopmentRegion=en, and the App
+  # Store lists the app's language as English -- which is not true of a single screen.
+  developmentLanguage: ja
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -47,6 +51,10 @@ targets:
       path: BDBridge/Info.plist
       properties:
         CFBundleDisplayName: BD Bridge
+        # Said outright as well as through the development region, so that what the store lists does not
+        # depend on how a build setting resolves.
+        CFBundleLocalizations:
+          - ja
         # Xcode's General tab reads this, and the store wants a category too -- the one chosen in App Store
         # Connect is what a shopper sees; this is the same answer in the build.
         LSApplicationCategoryType: public.app-category.entertainment
