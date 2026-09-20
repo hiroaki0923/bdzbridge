@@ -55,9 +55,12 @@ public enum Codes {
         0xE: "拡張", 0xF: "その他",
     ]
 
-    /// ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre. Verified against the
-    /// names the recorder composes for a condition; codes the standard leaves unused are absent, and the
-    /// recorder composes nothing for them either.
+    /// ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre.
+    ///
+    /// Checked entry by entry against ARIB STD-B10 version 5.13-E1, Annex H (2026-09-20): every one of the
+    /// 104 codes the standard names is here and says the same thing. It also matches what the recorder
+    /// does -- codes the standard leaves unused are absent here, and the recorder composes nothing for them
+    /// either.
     public static let subGenreLabel: [Int: [Int: String]] = [
         0x0: [0x0: "定時・総合", 0x1: "天気", 0x2: "特集・ドキュメント", 0x3: "政治・国会", 0x4: "経済・市況", 0x5: "海外・国際", 0x6: "解説", 0x7: "討論・会談", 0x8: "報道特番", 0x9: "ローカル・地域", 0xA: "交通", 0xF: "その他"],
         0x1: [0x0: "スポーツニュース", 0x1: "野球", 0x2: "サッカー", 0x3: "ゴルフ", 0x4: "その他の球技", 0x5: "相撲・格闘技", 0x6: "オリンピック・国際大会", 0x7: "マラソン・陸上・水泳", 0x8: "モータースポーツ", 0x9: "マリン・ウィンタースポーツ", 0xA: "競馬・公営競技", 0xF: "その他"],
@@ -71,6 +74,9 @@ public enum Codes {
         0x9: [0x0: "現代劇・新劇", 0x1: "ミュージカル", 0x2: "ダンス・バレエ", 0x3: "落語・演芸", 0x4: "歌舞伎・古典", 0xF: "その他"],
         0xA: [0x0: "旅・釣り・アウトドア", 0x1: "園芸・ペット・手芸", 0x2: "音楽・美術・工芸", 0x3: "囲碁・将棋", 0x4: "麻雀・パチンコ", 0x5: "車・オートバイ", 0x6: "コンピュータ・TVゲーム", 0x7: "会話・語学", 0x8: "幼児・小学生", 0x9: "中学生・高校生", 0xA: "大学生・受験", 0xB: "生涯教育・資格", 0xC: "教育問題", 0xF: "その他"],
         0xB: [0x0: "高齢者", 0x1: "障害者", 0x2: "社会福祉", 0x3: "ボランティア", 0x4: "手話", 0x5: "文字(字幕)", 0x6: "音声解説", 0xF: "その他"],
+        // The extension area: the sub-genre says which kind of broadcast the user_nibble after it belongs
+        // to. Not a genre anybody watches -- it is here so that the table is the whole table.
+        0xE: [0x0: "BS/地上デジタル放送用番組付属情報", 0x1: "広帯域CSデジタル放送用拡張", 0x3: "サーバー型番組付属情報", 0x4: "IP放送用番組付属情報"],
     ]
 
     /// The sub-genre's name, or nil for a whole-genre condition or a code the standard does not use.

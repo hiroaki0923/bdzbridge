@@ -61,9 +61,15 @@ GENRE_LABEL = {
     0xE: "拡張", 0xF: "その他",
 }
 
-# ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre. Verified against the names the
-# recorder composes for a condition: all twelve level-1 genres and twenty-four sampled sub-genres matched, and a
-# code the standard leaves unused (0x3d) makes the recorder compose nothing at all.
+# ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre.
+#
+# Checked entry by entry against ARIB STD-B10 version 5.13-E1, Annex H (2026-09-20): every one of the 104
+# codes the standard names is here and says the same thing. It also matches what the recorder does -- all
+# twelve level-1 genres and twenty-four sampled sub-genres came back in the names it composes for a
+# condition, and a code the standard leaves unused (0x3d) makes it compose nothing at all.
+#
+# 0xE is the extension area, where the sub-genre says which kind of broadcast the user_nibble that follows
+# belongs to. It is not a genre anybody watches; it is here so that the table is the whole table.
 GENRE_LABEL2 = {
     0x0: {0x0: "定時・総合", 0x1: "天気", 0x2: "特集・ドキュメント", 0x3: "政治・国会", 0x4: "経済・市況",
           0x5: "海外・国際", 0x6: "解説", 0x7: "討論・会談", 0x8: "報道特番", 0x9: "ローカル・地域",
@@ -93,6 +99,8 @@ GENRE_LABEL2 = {
           0xC: "教育問題", 0xF: "その他"},
     0xB: {0x0: "高齢者", 0x1: "障害者", 0x2: "社会福祉", 0x3: "ボランティア", 0x4: "手話", 0x5: "文字(字幕)",
           0x6: "音声解説", 0xF: "その他"},
+    0xE: {0x0: "BS/地上デジタル放送用番組付属情報", 0x1: "広帯域CSデジタル放送用拡張",
+          0x3: "サーバー型番組付属情報", 0x4: "IP放送用番組付属情報"},
 }
 
 
