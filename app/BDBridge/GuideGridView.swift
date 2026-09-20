@@ -147,16 +147,7 @@ struct GuideGridView: View {
 
     /// Where the grid opens: the current time, or the top of the day when another day is showing.
     private var openingMinute: Double {
-        minute(ofDay: openAt) ?? (showsNow ? nowMinutes : 0)
-    }
-
-    /// `"19:00"` as minutes from the start of the broadcast day, which is 04:00. Anything before four in the
-    /// morning belongs to the end of that day.
-    private func minute(ofDay text: String) -> Double? {
-        let parts = text.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
-        let fromDayStart = Double(parts[0] * 60 + parts[1] - 4 * 60)
-        return fromDayStart >= 0 ? fromDayStart : fromDayStart + dayMinutes
+        GuideClock.minuteOfBroadcastDay(openAt) ?? (showsNow ? nowMinutes : 0)
     }
 
     /// Puts a minute of the day at the top of the screen, aiming high enough that the quarter hour before
@@ -421,5 +412,19 @@ private struct ProgramBlock: View {
         case 11: Color(red: 0.00, green: 0.78, blue: 0.75)
         default: Color(.separator)
         }
+    }
+}
+
+
+/// Where the guide opens.
+enum GuideClock {
+    /// `"19:00"` as minutes from the start of a broadcast day, which begins at 04:00; anything before four
+    /// in the morning belongs to the end of that day. nil for anything that is not a time, which is the
+    /// ordinary case -- only the store screenshots set this.
+    static func minuteOfBroadcastDay(_ text: String) -> Double? {
+        let parts = text.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        let fromDayStart = Double(parts[0] * 60 + parts[1] - 4 * 60)
+        return fromDayStart >= 0 ? fromDayStart : fromDayStart + 24 * 60
     }
 }

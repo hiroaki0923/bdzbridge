@@ -4,6 +4,9 @@ import SwiftUI
 struct GuideScreen: View {
     @Environment(AppModel.self) private var model
     @AppStorage("guideMode") private var mode = "list"
+    /// The time of day the guide should open at instead of now, as `HH:mm`. Nothing in the app writes it;
+    /// the store screenshots pass it on the command line. See `GuideClock`.
+    @AppStorage("guideOpenAt") private var openAt = ""
     @State private var tapped: GuideProgramRow?
 
     private var grid: Bool { mode == "grid" }
@@ -163,6 +166,14 @@ struct GuideScreen: View {
                     .buttonStyle(.plain)
                 }
                 .listStyle(.plain)
+                // Open where the grid opens: at what is on now. A list of a whole broadcast day starts at
+                // four in the morning, and at nine at night that is seventeen hours of scrolling before
+                // anything worth reading.
+                .task(id: openingKey) {
+                    try? await Task.sleep(for: .milliseconds(120))
+                    guard let target = opening else { return }
+                    withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                }
                 // The tab bar's own answer to a tap on the tab already showing is the top of the list, and
                 // there is no declining it: `UIScrollView.scrollsToTop` is honoured for the status bar but
                 // not for a tab, and the scroll view here belongs to SwiftUI, so it cannot be replaced with
@@ -187,6 +198,20 @@ struct GuideScreen: View {
     }
 
     private var shown: [GuideProgramRow] { model.filteredPrograms }
+
+    /// Rerun the opening scroll when the day, the broadcasting type or the channel changes -- and when the
+    /// programmes themselves arrive, which on a cold start is after the list is already on screen.
+    private var openingKey: String {
+        "\(model.broadcasting)-\(model.day.timeIntervalSince1970)-\(model.serviceFilter ?? -1)-\(shown.count)"
+    }
+
+    /// What to put at the top: what is on now, or, on another day, the first programme of it. A pinned time
+    /// wins, which is how the store screenshots land on the evening.
+    private var opening: GuideProgramRow? {
+        guard let minute = GuideClock.minuteOfBroadcastDay(openAt) else { return onAirOrNext }
+        let moment = GuideStore.dayRange(containing: model.day).start.addingTimeInterval(minute * 60)
+        return shown.first { $0.end > moment } ?? onAirOrNext
+    }
 
     private func logo(for serviceID: Int) -> Data? {
         model.channels.first { $0.serviceID == serviceID }?.logo

@@ -32,9 +32,16 @@ final class ScreenshotTests: XCTestCase {
             self.waitFor(app.staticTexts["サンプルテレビ"], "01_guide_grid")
         }
 
-        // 2. One programme, and what a reservation of it would be. Reached through the search, which is the
+        // 2. The same guide as a list, which is the other way the screen is read: logos, genres, what is
+        //    already set to record, and the description under each programme.
+        try shot("02_guide_list",
+                 arguments: ["-startTab", "guide", "-guideMode", "list", "-guideOpenAt", "19:00"]) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "02_guide_list")
+        }
+
+        // 3. One programme, and what a reservation of it would be. Reached through the search, which is the
         //    one route to a named programme that does not depend on the time of day.
-        try shot("02_program", arguments: ["-startTab", "search"], sheet: true) { app in
+        try shot("03_program", arguments: ["-startTab", "search"], sheet: true) { app in
             let field = app.searchFields.firstMatch
             XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
             field.tap()
@@ -49,23 +56,23 @@ final class ScreenshotTests: XCTestCase {
             _ = app.staticTexts["重複する予約はありません"].waitForExistence(timeout: 20)
         }
 
-        // 3. What the recorder is going to record, the recorder's own おまかせ reservations among them.
-        try shot("03_reservations", arguments: ["-startTab", "reservations"]) { app in
-            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "03_reservations")
+        // 4. What the recorder is going to record, the recorder's own おまかせ reservations among them.
+        try shot("04_reservations", arguments: ["-startTab", "reservations"]) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "04_reservations")
         }
 
-        // 4. What is on the disk, with the free space in the title bar.
-        try shot("04_recordings", arguments: ["-startTab", "recordings", "-recordingsMode", "list"]) { app in
-            self.waitFor(app.staticTexts.matching(labelContains("空色パズル")).firstMatch, "04_recordings")
+        // 5. What is on the disk, with the free space in the title bar.
+        try shot("05_recordings", arguments: ["-startTab", "recordings", "-recordingsMode", "list"]) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("空色パズル")).firstMatch, "05_recordings")
         }
 
-        // 5. The same recordings gathered into programmes.
-        try shot("05_groups", arguments: ["-startTab", "recordings", "-recordingsMode", "groups"]) { app in
-            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "05_groups")
+        // 6. The same recordings gathered into programmes.
+        try shot("06_groups", arguments: ["-startTab", "recordings", "-recordingsMode", "groups"]) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "06_groups")
         }
 
-        // 6. The recorder's own keyword recording, which the app can read and write.
-        try shot("06_rules", arguments: ["-startTab", "reservations"]) { app in
+        // 7. The recorder's own keyword recording, which the app can read and write.
+        try shot("07_rules", arguments: ["-startTab", "reservations"]) { app in
             let rules = app.buttons["おまかせ・まる録"]
             XCTAssertTrue(rules.waitForExistence(timeout: 20), "the toolbar button never appeared")
             rules.tap()
