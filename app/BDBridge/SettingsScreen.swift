@@ -6,6 +6,7 @@ struct SettingsScreen: View {
     @State private var typedHost = ""
     @State private var typedMac = ""
     @State private var showingGuide = false
+    @State private var showingDisclaimer = false
 
     /// What the store calls the version, and the build behind it: `0.2 (12)`. The build number comes from
     /// Xcode Cloud, so it is the only thing that tells two TestFlight builds of one version apart.
@@ -149,6 +150,9 @@ struct SettingsScreen: View {
                 }
 
                 Section("このアプリ") {
+                    // Before the version, because it is the one thing in this section worth reading: what
+                    // this app writes to the recorder, it writes for real.
+                    Button("ご利用上の注意") { showingDisclaimer = true }
                     // Which build is on the phone is the first question behind "is that the one with the
                     // fix?", and TestFlight hands out several builds of one version. Selectable, so it can
                     // be copied into a report rather than read off a screen.
@@ -166,6 +170,7 @@ struct SettingsScreen: View {
             .navigationTitle("設定")
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
+            .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
         }
     }
 
