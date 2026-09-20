@@ -1,24 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  What this app does with data, in the form Apple asks for it.
-
-  Nothing is collected: there is no account, no analytics, no advertising, and no server of ours. Everything
-  the app keeps -- the recorder's address and MAC, the cached guide, display preferences, reservations
-  waiting to be sent -- stays on the device and goes when the app does. The only thing it talks to is the
-  reader's own recorder, on their own network.
-
-  The one required-reason API in the app is UserDefaults, which holds those preferences and that address.
-  CA92.1 is the reason for reading and writing a defaults database the app alone can see.
--->
 <plist version="1.0">
 <dict>
-	<key>NSPrivacyTracking</key>
-	<false/>
-	<key>NSPrivacyTrackingDomains</key>
-	<array/>
-	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
@@ -30,5 +13,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
 </dict>
 </plist>
