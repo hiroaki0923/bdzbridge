@@ -68,6 +68,12 @@ GET http://<recorder>:60151//EPG_TRDLOGO_FILE.dat     局ロゴ（BS/CS/ADVBSD/A
   24   u16 ref_service_id, 26 u16 ref_event_id     親サービスの番組を指す。番組名等は親側を引く
 ```
 
+ジャンルの符号は ARIB STD-B10 の content descriptor そのもの。大分類・中分類の対応表は同規格の
+**Annex H**（英訳版 version 5.13-E1 の 238〜246 ページ）にあり、`codes.py` の `GENRE_LABEL` /
+`GENRE_LABEL2` は 2026-09-20 に 1 項目ずつ突き合わせて一致を確認した（標準が名前を与えている
+104 個すべて）。標準が空けている符号は表にも入れていない。`0xE` は拡張領域で、中分類は放送の
+種別（BS/地上・広帯域CS・サーバー型・IP）を指し、そのあとの user_nibble の解釈を決める。
+
 ## 記号
 
 番組名に含まれる ARIB 追加記号は私用領域の文字で来る。番組表サイトの表記と突き合わせて確認した対応:
