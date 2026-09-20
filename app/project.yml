@@ -26,6 +26,11 @@ targets:
     platform: iOS
     sources:
       - path: BDBridge
+      # Listed so that the generated project gives it a stable identifier. A file that only appears under
+      # `configFiles` gets a fresh random one on every run, and seven lines of the committed project churn
+      # for no reason. `buildPhase: none` keeps it out of the build itself; it is an xcconfig.
+      - path: Signing.xcconfig
+        buildPhase: none
     dependencies:
       - package: RecorderKit
         product: RecorderKit
