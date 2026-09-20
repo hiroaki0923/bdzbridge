@@ -124,10 +124,10 @@ struct SettingsScreen: View {
                         }
                     }
                     if let refreshed = model.counts["td"]?.refreshed {
-                        LabeledContent("最終更新", value: refreshed)
+                        LabeledContent("最終更新", value: Self.readable(refreshed))
                     }
                     if let overnight = UserDefaults.standard.string(forKey: BackgroundWork.lastRefreshKey) {
-                        LabeledContent("最終自動更新", value: overnight)
+                        LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
                         Task { await model.refreshGuide() }
@@ -150,5 +150,11 @@ struct SettingsScreen: View {
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
         }
+    }
+
+    /// Both of these are stored the way the recorder writes a time, `2026-09-20T18:27:36+09:00`. Nobody
+    /// reads that; what they want to know is whether the guide is fresh.
+    private static func readable(_ stored: String) -> String {
+        RecorderTime.parse(stored).map { Format.when($0) } ?? stored
     }
 }

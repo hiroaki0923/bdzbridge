@@ -85,8 +85,6 @@ struct SheetCloseButton: View {
     }
 }
 
-/// Formatters live here because building one is not free and these are used down long lists.
-@MainActor
 /// What to say when there is no recorder to talk to. Two situations that look the same to the code and need
 /// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
 /// phone is away from home. Sending someone to Settings to correct an address that is already right is
@@ -201,10 +199,23 @@ extension View {
     }
 }
 
+/// Formatters live here because building one is not free and these are used down long lists.
 enum Format {
     static let time: DateFormatter = formatter("HH:mm")
     static let day: DateFormatter = formatter("M/d(E)")
     static let dateTime: DateFormatter = formatter("M/d(E) HH:mm")
+
+    /// When something this app did last happened: "12分前" while it is recent, and the date and time once it
+    /// is older than a day.
+    ///
+    /// Broadcast times are always Japanese time -- the recorder is in Japan and records to a Japanese clock,
+    /// so a programme at 20:00 is at 20:00 wherever the reader is standing. These are not broadcast times
+    /// though; they are things that happened to this phone, and what matters about them is whether they
+    /// were recent, which is a question with no time zone in it at all.
+    static func when(_ date: Date, from now: Date = Date()) -> String {
+        guard now.timeIntervalSince(date) < 24 * 3600 else { return dateTime.string(from: date) }
+        return date.formatted(.relative(presentation: .named).locale(Locale(identifier: "ja_JP")))
+    }
 
     private static func formatter(_ pattern: String) -> DateFormatter {
         let formatter = DateFormatter()
