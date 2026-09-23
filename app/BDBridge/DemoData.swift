@@ -329,13 +329,17 @@ enum DemoData {
 
     /// A time of day on the broadcast day that began at the last 04:00. Anything before 04:00 belongs to the
     /// night at the end of that day, which is how the recorder's own guide reads.
+    ///
+    /// The same first day as the guide's day strip, which until four in the morning is yesterday's date.
+    /// Starting from the calendar date put the whole invented guide a day ahead of the strip between
+    /// midnight and four, and left the strip's first day, the one the guide opens on, empty.
     private static func at(_ hhmm: String, dayOffset: Int) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         let parts = hhmm.split(separator: ":").compactMap { Int($0) }
         let hour = parts.first ?? 0
         let minute = parts.count > 1 ? parts[1] : 0
-        let today = calendar.startOfDay(for: Date())
+        let today = GuideStore.broadcastDay(containing: Date())
         let base = hour < 4 ? calendar.date(byAdding: .day, value: 1, to: today)! : today
         let start = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: base)!
         return calendar.date(byAdding: .day, value: dayOffset, to: start)!
@@ -343,7 +347,7 @@ enum DemoData {
 
     // MARK: - what the recorder is going to record
 
-    /// Today's date at a time of day, for the reservations and the recordings.
+    /// A time of day on the broadcast day on air, for the reservations and the recordings.
     private static func moment(_ hhmm: String, dayOffset: Int = 0) -> Date {
         at(hhmm, dayOffset: dayOffset)
     }

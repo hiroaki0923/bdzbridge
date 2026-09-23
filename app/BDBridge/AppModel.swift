@@ -94,10 +94,8 @@ final class AppModel {
 
     init() {
         demo = DemoData.on
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = RecorderTime.timeZone
-        let midnight = calendar.startOfDay(for: Date())
-        days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
+        let days = GuideStore.broadcastDays()
+        self.days = days
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         mac = UserDefaults.standard.string(forKey: Self.macKey)
         // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
@@ -134,9 +132,43 @@ final class AppModel {
 
     /// Today, at this minute. Tapping the guide tab while already on it scrolls to the top of the day by
     /// itself, and the top of a broadcast day is four in the morning, which is nobody's idea of home.
+    ///
+    /// The programmes are read again when that changed the day. Moving the day alone put today's date over
+    /// whichever day had been open, and the grid, finding none of it on today, came up empty. The ask to
+    /// go to now waits for them, so that it is answered from the day it names.
     func goToNow() {
+        let before = day
+        followTheClock()
         day = days.first ?? Date()
-        nowRequests += 1
+        guard day != before else {
+            nowRequests += 1
+            return
+        }
+        Task {
+            await reloadFromCache()
+            nowRequests += 1
+        }
+    }
+
+    /// Moves the day strip on when the broadcast day on air is no longer its first. A process the system
+    /// kept alive overnight comes back to the days it worked out the evening before: it opened on
+    /// yesterday, going back to now went to yesterday, and the eighth day was out of reach. The day on screen
+    /// stays if it is still in the strip -- tomorrow, looked at last night, is today now -- and otherwise
+    /// goes to the first.
+    ///
+    /// Asked wherever the reader arrives -- the app starting, coming back to it, going back to now -- because
+    /// nothing says when four in the morning has passed: `significantTimeChangeNotification` comes at
+    /// midnight.
+    ///
+    /// Returns whether `day` moved, since the programmes on screen are then those of a day no longer shown.
+    @discardableResult
+    private func followTheClock() -> Bool {
+        let current = GuideStore.broadcastDays()
+        guard current.first != days.first else { return false }
+        days = current
+        guard !days.contains(day) else { return false }
+        day = days.first ?? day
+        return true
     }
 
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
@@ -150,7 +182,11 @@ final class AppModel {
     /// also lets a search, which needs nothing but the cache, answer at once rather than after half a
     /// minute of waking a recorder that is not there.
     func start() async {
+        // The days were worked out when the model was made, and a process the system started in the night
+        // for the overnight run is still here when the app is opened in the morning.
+        let moved = followTheClock()
         await openCache()
+        if moved { await reloadFromCache() }
         guard !launched, store != nil else { return }
         launched = true
         Task { await self.connectFirstTime() }
@@ -461,7 +497,13 @@ final class AppModel {
     /// the overnight run never got to would quietly stay a day behind. A cache that is already current
     /// costs nothing, which is what makes this safe on every launch.
     func refreshGuideIfStale() async {
-        guard connected, guideIsStale else { return }
+        guard connected else { return }
+        // Judged by what the cache holds now, not by what this model read from it last. The overnight run
+        // writes the cache without going through the model -- in this very process, when the app was kept
+        // alive behind it -- and deciding on the counts from the evening before fetched every broadcasting
+        // type again each morning. What it wrote goes on screen as well.
+        if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
+        guard guideIsStale else { return }
         await refreshGuide()
     }
 
@@ -978,6 +1020,9 @@ final class AppModel {
     /// BDZ-FBT4100 leaves the network after a quarter of an hour or so -- and the screens would otherwise
     /// show what was true when the app was last looked at. Connecting again also sends anything queued.
     func returnedToForeground() async {
+        // Before any of the reasons below not to connect: a day may have gone by while the app was away,
+        // with or without a recorder to ask.
+        if followTheClock() { await reloadFromCache() }
         guard !host.isEmpty, busy == nil else { return }
         if connected, let lastAnswered, Date().timeIntervalSince(lastAnswered) < 60 { return }
         // Already tried on this very network and got nowhere. Coming back to the app is not news, and
@@ -1191,9 +1236,10 @@ final class AppModel {
         return (try? await store.programs(since: Date(), query: query, limit: 300)) ?? []
     }
 
-    /// The eight days the recorder's guide covers, starting today. Fixed when the app opened: building them
-    /// from the current moment each time gives every chip a new identity and the day strip loses its place.
-    let days: [Date]
+    /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four
+    /// in the morning is yesterday's. Kept rather than worked out each time they are read, and replaced by
+    /// `followTheClock` only when that first day changes, so that the day strip keeps its chips and its place.
+    private(set) var days: [Date]
 
     /// What the list shows: the day, narrowed to one channel when the reader picked one.
     var filteredPrograms: [GuideProgramRow] {

@@ -371,8 +371,13 @@ public actor GuideStore {
 
     // MARK: - time
 
-    /// A broadcast day runs 04:00 to 04:00 in Japan, which is how the printed guides are laid out. The hour is
-    /// taken on the calendar day of `date`, so a moment just after midnight belongs to the day that is ending.
+    /// A broadcast day runs 04:00 to 04:00 in Japan, which is how the printed guides are laid out.
+    private static let dayStartHour = 4
+
+    /// The broadcast day named by the calendar date of `date`. The hour is taken on that date, so this
+    /// names a day rather than finding the one on air: a moment just after midnight gives the day that
+    /// starts at four that morning, not the one still going out. Pass a day from `broadcastDays`, which has
+    /// already allowed for that.
     public nonisolated func dayRange(containing date: Date) -> (start: Date, end: Date) {
         Self.dayRange(containing: date)
     }
@@ -381,11 +386,29 @@ public actor GuideStore {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         var components = calendar.dateComponents([.year, .month, .day], from: date)
-        components.hour = 4
+        components.hour = dayStartHour
         components.minute = 0
         components.second = 0
         let start = calendar.date(from: components) ?? date
         return (start, calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86400))
+    }
+
+    /// The broadcast day on air at `moment`, as midnight in Japan on the date it is named after, which is
+    /// what `dayRange` takes. Until four in the morning the programmes going out still belong to the day
+    /// before -- the late-night shows close the previous evening's guide -- so the date is read four hours
+    /// back. Taking the calendar date instead left what is on after midnight in no day at all.
+    public static func broadcastDay(containing moment: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        return calendar.startOfDay(for: moment.addingTimeInterval(-Double(dayStartHour) * 3600))
+    }
+
+    /// The days the recorder's guide covers, eight of them, starting with the broadcast day on air at `now`.
+    public static func broadcastDays(from now: Date = Date(), count: Int = 8) -> [Date] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let first = broadcastDay(containing: now)
+        return (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: first) }
     }
 
     // MARK: - rows

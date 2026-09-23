@@ -139,6 +139,29 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(next.map(\.eventID), [14800])
     }
 
+    /// The first day is the one on air, and until four in the morning that is yesterday's: a late-night
+    /// programme at half past midnight is on the previous day's guide, and has to be on a day in the strip.
+    func testTheDaysStartWithTheBroadcastDayOnAir() {
+        let cases = [
+            ("2026-09-23T00:30:00+09:00", "2026-09-22"),
+            ("2026-09-23T03:59:00+09:00", "2026-09-22"),
+            ("2026-09-23T04:00:00+09:00", "2026-09-23"),
+            ("2026-09-23T12:00:00+09:00", "2026-09-23"),
+        ]
+        for (now, first) in cases {
+            let moment = jst(now)
+            let days = GuideStore.broadcastDays(from: moment)
+            XCTAssertEqual(days.count, 8, now)
+            XCTAssertEqual(days.map(RecorderTime.format).first, "\(first)T00:00:00+09:00", now)
+            XCTAssertEqual(days.first, GuideStore.broadcastDay(containing: moment), now)
+            // and the day it names is the one that has this moment in it, which is what the guide shows
+            let range = GuideStore.dayRange(containing: days[0])
+            XCTAssertTrue(range.start <= moment && moment < range.end, now)
+            XCTAssertEqual(days.last.map { GuideStore.dayRange(containing: $0).end },
+                           range.start.addingTimeInterval(8 * 86400), "eight days on end, \(now)")
+        }
+    }
+
     func testNowOnAirTakesTheChannelOrderAndKeepsReferences() async throws {
         let store = try await loadedStore()
         let onAir = try await store.nowOnAir(broadcasting: "td", at: jst("2026-09-14T05:30:00+09:00"))

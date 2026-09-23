@@ -195,6 +195,9 @@ answering again. Nobody has to know their recorder left the network.
 Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
+The days follow the broadcast day rather than the calendar: until four in the morning the first of them
+is still yesterday's, whose late-night programmes are on air. Nothing announces four o'clock, so the
+days move on when the app starts, comes back to the front or is taken back to now.
 
 ### Changing a reservation
 
