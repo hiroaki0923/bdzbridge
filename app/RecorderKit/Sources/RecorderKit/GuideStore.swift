@@ -39,6 +39,37 @@ public struct GuideProgramRow: Sendable, Hashable, Identifiable {
     public var genre: Genre? { genres.first }
 }
 
+/// Which part of a programme a search found its words in. Results come best first: a programme named for
+/// what was looked for, then one whose description mentions it, then one that has it only in its details,
+/// which is where the cast is listed. With several words, a programme ranks by the one found furthest down.
+public enum SearchMatch: Int, Sendable, Comparable {
+    case title, summary, extended
+
+    public static func < (lhs: SearchMatch, rhs: SearchMatch) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public struct GuideSearchHit: Sendable, Hashable, Identifiable {
+    public var program: GuideProgramRow
+    public var match: SearchMatch
+    /// For a programme found only in its details, the words around what was found: the row shows the title
+    /// and the description, and neither would say why the programme is there.
+    public var snippet: Search.Snippet?
+
+    public var id: String { program.id }
+}
+
+public struct GuideSearchResults: Sendable, Hashable {
+    public var hits: [GuideSearchHit]
+    /// More programmes matched than were given back, so the reader should narrow the words rather than
+    /// take the list for all there is.
+    public var more: Bool
+
+    public init(hits: [GuideSearchHit] = [], more: Bool = false) {
+        self.hits = hits
+        self.more = more
+    }
+}
+
 public struct GuideCounts: Sendable, Equatable {
     public var channels: Int
     public var programs: Int
@@ -52,7 +83,15 @@ public struct GuideCounts: Sendable, Equatable {
 public actor GuideStore {
     static let currentSchemaVersion = "1"
 
+    /// What `programs.search_text` is made of. When that changes, a cache written the old way is brought up
+    /// to date where it is, by `updateSearchText`, rather than by a new schema version: that would throw the
+    /// guide away, and away from home it cannot be fetched again. 2 added the details, and separated the
+    /// fields so that a search can say which one it found its words in.
+    static let currentSearchTextVersion = "2"
+
     private let db: Sqlite
+    /// Set once the search text is known to be current, so that a search does not ask the database each time.
+    private var searchTextIsCurrent = false
 
     private static let schema = """
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -100,6 +139,9 @@ public actor GuideStore {
             try db.execute(Self.schema)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
                        [.text(schemaVersion)])
+            // Nothing is left to bring up to date, and what `replace` writes from here on is current.
+            try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('search_text_version', ?)",
+                       [.text(Self.currentSearchTextVersion)])
         }
         // The duplicate scan used to store a failed read as an empty text and never ask again, so an empty row
         // from before may be a failure rather than a recording with no text. They are thrown away once, and
@@ -131,7 +173,10 @@ public actor GuideStore {
                     .text(genres), .integer(program.copyControl), .integer(program.parentalRating),
                     SqlValue(program.referenceServiceID), SqlValue(program.referenceEventID),
                     // a reference carries no text of its own, so it is searched through its parent
-                    program.isReference ? .null : .text(Search.normalise("\(program.title) \(program.summary)")),
+                    program.isReference
+                        ? .null
+                        : .text(Search.text(title: program.title, summary: program.summary,
+                                            extended: program.extended)),
                 ])
             }
         }
@@ -148,6 +193,42 @@ public actor GuideStore {
                        [.text("epg_refreshed:\(broadcasting)"), .text(RecorderTime.format(now))])
             return programs.count
         }
+    }
+
+    /// Rewrites the search text of a cache written by an older build, once, from the text the cache already
+    /// holds, and returns how many programmes it rewrote. The app asks for this in the background as soon as
+    /// the cache is open, since a full guide takes a moment; a search asks as well, and waits for it, so that
+    /// it does not miss the details. A failure leaves the mark unset, and the next search tries again.
+    @discardableResult
+    public func updateSearchText() throws -> Int {
+        guard !searchTextIsCurrent else { return 0 }
+        let stored = try db.query("SELECT value FROM meta WHERE key='search_text_version'") { $0.string("value") }
+        if stored.first == Self.currentSearchTextVersion {
+            searchTextIsCurrent = true
+            return 0
+        }
+        var rewritten = 0
+        // A broadcasting type at a time, so that the whole guide's text is never held at once. Each read is
+        // inside its own write, so a refresh on another connection cannot slip in between the two.
+        let types = try db.query("SELECT DISTINCT bt FROM programs") { $0.string("bt") }
+        for broadcasting in types {
+            rewritten += try db.transaction {
+                let rows = try db.query("""
+                SELECT rowid AS row, title, description, extended FROM programs
+                WHERE bt=? AND ref_event_id IS NULL
+                """, [.text(broadcasting)]) { row -> [SqlValue] in
+                    [.text(Search.text(title: row.string("title"), summary: row.string("description"),
+                                       extended: row.string("extended"))),
+                     .integer(row.int("row"))]
+                }
+                try db.insertMany("UPDATE programs SET search_text=? WHERE rowid=?", rows)
+                return rows.count
+            }
+        }
+        try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('search_text_version', ?)",
+                   [.text(Self.currentSearchTextVersion)])
+        searchTextIsCurrent = true
+        return rewritten
     }
 
     public func replaceLogos(_ logos: [StationLogo], broadcasting: String) throws {
@@ -216,25 +297,28 @@ public actor GuideStore {
     // MARK: - programmes
 
     /// A sub-channel's reference event has only times of its own, so the text comes from the programme on the
-    /// parent service that it points at. That join is what the `r.` columns are for.
-    private static let selectPrograms = """
-    SELECT p.bt, p.service_id, c.name AS service_name, p.event_id, p.start, p.end,
-           COALESCE(NULLIF(p.title,''), r.title, '') AS title,
-           COALESCE(NULLIF(p.description,''), r.description, '') AS description,
-           COALESCE(NULLIF(p.extended,''), r.extended, '') AS extended,
-           COALESCE(NULLIF(p.genres,''), r.genres, '') AS genres,
-           COALESCE(p.copy_control, r.copy_control, 0) AS copy_control,
-           COALESCE(p.parental, r.parental, 0) AS parental,
-           p.ref_service_id, p.ref_event_id
-    FROM programs p
-    LEFT JOIN channels c ON c.bt=p.bt AND c.service_id=p.service_id
-    LEFT JOIN channel_prefs cp ON cp.bt=p.bt AND cp.service_id=p.service_id
-    LEFT JOIN programs r ON r.bt=p.bt AND r.service_id=p.ref_service_id AND r.event_id=p.ref_event_id
-    """
+    /// parent service that it points at. That join is what the `r.` columns are for. `extra` adds columns
+    /// after the programme's own.
+    private static func selectPrograms(adding extra: String = "") -> String {
+        """
+        SELECT p.bt, p.service_id, c.name AS service_name, p.event_id, p.start, p.end,
+               COALESCE(NULLIF(p.title,''), r.title, '') AS title,
+               COALESCE(NULLIF(p.description,''), r.description, '') AS description,
+               COALESCE(NULLIF(p.extended,''), r.extended, '') AS extended,
+               COALESCE(NULLIF(p.genres,''), r.genres, '') AS genres,
+               COALESCE(p.copy_control, r.copy_control, 0) AS copy_control,
+               COALESCE(p.parental, r.parental, 0) AS parental,
+               p.ref_service_id, p.ref_event_id\(extra)
+        FROM programs p
+        LEFT JOIN channels c ON c.bt=p.bt AND c.service_id=p.service_id
+        LEFT JOIN channel_prefs cp ON cp.bt=p.bt AND cp.service_id=p.service_id
+        LEFT JOIN programs r ON r.bt=p.bt AND r.service_id=p.ref_service_id AND r.event_id=p.ref_event_id
+        """
+    }
 
-    public func programs(broadcasting: String? = nil, serviceID: Int? = nil, since: Date? = nil,
-                         until: Date? = nil, query: String? = nil, includeReferences: Bool = false,
-                         includeHidden: Bool = false, limit: Int = 500, offset: Int = 0) throws -> [GuideProgramRow] {
+    /// The conditions every list of programmes can be narrowed by, as SQL and the values it binds, in order.
+    private static func filters(broadcasting: String?, serviceID: Int? = nil, since: Date?, until: Date? = nil,
+                                includeReferences: Bool, includeHidden: Bool) -> ([String], [SqlValue]) {
         var conditions: [String] = []
         var values: [SqlValue] = []
         if let broadcasting {
@@ -253,18 +337,82 @@ public actor GuideStore {
             conditions.append("p.start<?")
             values.append(.integer(Int(until.timeIntervalSince1970)))
         }
-        if let query, !query.isEmpty {
-            conditions.append("COALESCE(p.search_text, r.search_text, '') LIKE ?")
-            values.append(.text("%\(Search.normalise(query))%"))
-        }
         if !includeReferences { conditions.append("p.ref_event_id IS NULL") }
         if !includeHidden { conditions.append("COALESCE(cp.hidden, 0)=0") }
+        return (conditions, values)
+    }
 
-        var sql = Self.selectPrograms
+    public func programs(broadcasting: String? = nil, serviceID: Int? = nil, since: Date? = nil,
+                         until: Date? = nil, includeReferences: Bool = false,
+                         includeHidden: Bool = false, limit: Int = 500, offset: Int = 0) throws -> [GuideProgramRow] {
+        var (conditions, values) = Self.filters(broadcasting: broadcasting, serviceID: serviceID, since: since,
+                                                until: until, includeReferences: includeReferences,
+                                                includeHidden: includeHidden)
+        var sql = Self.selectPrograms()
         if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
         sql += " ORDER BY p.start, p.bt, p.service_id LIMIT ? OFFSET ?"
         values += [.integer(limit), .integer(offset)]
         return try db.query(sql, values, Self.row)
+    }
+
+    /// Programmes whose title, description or details hold every word of `query`, found in those three in
+    /// that order of preference and then by start time. At most `limit` of them; `more` says whether that
+    /// left any out, which is found by asking for one more than that.
+    ///
+    /// The ranking is done here rather than on the rows that come back, so that the limit keeps the best of
+    /// them: sorted by time alone, a common word would fill the list with the next two days' passing mentions
+    /// in the details, and leave out the programme named for it on the fifth day.
+    public func search(_ query: String, broadcasting: String? = nil, since: Date? = nil,
+                       includeReferences: Bool = false, includeHidden: Bool = false,
+                       limit: Int = 300) throws -> GuideSearchResults {
+        let terms = Search.terms(query)
+        guard !terms.isEmpty else { return GuideSearchResults() }
+        // If it cannot be done now -- another connection writing, say -- the search goes on: the old text
+        // still finds titles and descriptions, it only ranks everything as found in the details.
+        _ = try? updateSearchText()
+
+        // The search text is title, then summary, then details, with a different control character after
+        // each of the first two, so where a word is first found says which field it is in. instr is plain
+        // text, which is what the ranking wants; the LIKE that filters has its wildcards escaped instead.
+        let text = "COALESCE(p.search_text, r.search_text, '')"
+        let field = """
+        CASE WHEN instr(\(text), ?) < instr(\(text), char(30)) THEN 0 \
+        WHEN instr(\(text), ?) < instr(\(text), char(31)) THEN 1 ELSE 2 END
+        """
+        let fields = Array(repeating: field, count: terms.count)
+        let match = terms.count == 1 ? field : "max(\(fields.joined(separator: ", ")))"
+        var values = terms.flatMap { [SqlValue.text($0), .text($0)] }
+
+        var (conditions, filterValues) = Self.filters(broadcasting: broadcasting, since: since,
+                                                      includeReferences: includeReferences,
+                                                      includeHidden: includeHidden)
+        for term in terms {
+            conditions.append("\(text) LIKE ? ESCAPE '\\'")
+            filterValues.append(.text(Search.likePattern(term)))
+        }
+        values += filterValues
+        var sql = Self.selectPrograms(adding: ", \(match) AS match")
+        sql += " WHERE " + conditions.joined(separator: " AND ")
+        sql += " ORDER BY match, p.start, p.bt, p.service_id LIMIT ?"
+        values.append(.integer(limit + 1))
+
+        let rows = try db.query(sql, values) { row in
+            (program: Self.row(row), match: SearchMatch(rawValue: row.int("match")) ?? .extended)
+        }
+        let hits = rows.prefix(limit).map { row in
+            GuideSearchHit(program: row.program, match: row.match,
+                           snippet: row.match == .extended ? Self.snippet(for: terms, in: row.program) : nil)
+        }
+        return GuideSearchResults(hits: hits, more: rows.count > limit)
+    }
+
+    /// The words around the one that put a programme among the details-only results: the first word that is
+    /// in neither its title nor its description, and so has to be in the details.
+    private static func snippet(for terms: [String], in program: GuideProgramRow) -> Search.Snippet? {
+        let title = Search.normalise(program.title)
+        let summary = Search.normalise(program.summary)
+        let term = terms.first { !title.contains($0) && !summary.contains($0) } ?? terms[0]
+        return Search.snippet(of: term, in: program.extended)
     }
 
     /// Everything on one broadcast day for one broadcasting type, which is what a guide screen shows.
@@ -276,13 +424,13 @@ public actor GuideStore {
     }
 
     public func program(broadcasting: String, serviceID: Int, eventID: Int) throws -> GuideProgramRow? {
-        try db.query(Self.selectPrograms + " WHERE p.bt=? AND p.service_id=? AND p.event_id=? ORDER BY p.start LIMIT 1",
+        try db.query(Self.selectPrograms() + " WHERE p.bt=? AND p.service_id=? AND p.event_id=? ORDER BY p.start LIMIT 1",
                      [.text(broadcasting), .integer(serviceID), .integer(eventID)], Self.row).first
     }
 
     public func nowOnAir(broadcasting: String, at moment: Date = Date()) throws -> [GuideProgramRow] {
         let seconds = SqlValue.integer(Int(moment.timeIntervalSince1970))
-        return try db.query(Self.selectPrograms + " WHERE p.bt=? AND p.start<=? AND p.end>? ORDER BY c.sort",
+        return try db.query(Self.selectPrograms() + " WHERE p.bt=? AND p.start<=? AND p.end>? ORDER BY c.sort",
                             [.text(broadcasting), seconds, seconds], Self.row)
     }
 

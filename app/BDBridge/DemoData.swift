@@ -322,9 +322,19 @@ enum DemoData {
                             end: start.addingTimeInterval(TimeInterval(slot.minutes * 60)),
                             title: slot.title,
                             summary: slot.summary,
-                            extended: slot.summary.isEmpty ? "" : slot.summary + "\n（これはサンプルの番組情報です）",
+                            extended: details(of: slot),
                             genres: [Genre(level1: slot.level1, level2: slot.level2)],
                             copyControl: 2)
+    }
+
+    /// The details, laid out as a broadcaster's are: the description again, and for a drama the cast, which
+    /// is where a search by a name finds it. The names are invented, the same two a recording's text gives.
+    private static func details(of slot: Slot) -> String {
+        var lines: [String] = []
+        if !slot.summary.isEmpty { lines.append(slot.summary) }
+        if slot.level1 == 3 { lines.append("出演　サンプル太郎、みほん花子") }
+        guard !lines.isEmpty else { return "" }
+        return (lines + ["（これはサンプルの番組情報です）"]).joined(separator: "\n")
     }
 
     /// A time of day on the broadcast day that began at the last 04:00. Anything before 04:00 belongs to the

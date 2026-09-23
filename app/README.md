@@ -49,7 +49,8 @@ recorder on the network and not everybody has one to hand — an App Store revie
 goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back.
 Choosing a recorder from inside the demo — one a scan found, or an address typed in — ends it as well, and
 keeps the recorder chosen rather than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests`
-is there to keep both true.
+is there to keep both true. The demo's dramas list an invented cast in their details, the same two names a
+recording's text gives, so the search by a name can be tried without a recorder; the same tests do.
 
 ## On a real iPhone
 
@@ -174,10 +175,22 @@ the morning's eight days are current without opening the app or being at home. i
 never while the app is force-quit, Background App Refresh is off, or the battery is in Low Power Mode, and
 nothing breaks when a night is missed. The settings screen shows when it last succeeded.
 
-Searching, over any of three lists: programmes still to come, whose title or description contains the words,
-across every broadcasting type and all eight days; the reservations the recorder holds; and the recordings on
-its disk. The guide half reads the cache, so it works away from home. A result opens the same sheet its own
-screen would, and a programme that is already reserved says so.
+Searching, over any of three lists: programmes still to come, whose title, description or details contain the
+words, across every broadcasting type and all eight days; the reservations the recorder holds; and the
+recordings on its disk. The guide half reads the cache, so it works away from home. A result opens the same
+sheet its own screen would, and a programme that is already reserved says so. Words separated by a space
+must all be there, in any of the three lists.
+
+The details are where broadcasters list the cast, so a performer's name finds their programmes. The guide's
+results come named-for-it first -- title, then description, then details -- and by time within each, and the
+ordering is done in SQL so that the 300 kept are the best 300 rather than the next 300 to start; when more
+matched, the list says so at the top and asks for another word. A programme found only in its details has a
+line quoting them around the word found (詳細：…出演　…), since its title and description would not say why
+it is there. A cache written by an earlier build, whose search text had no details, is brought up to date in
+place once when the app opens it (`GuideStore.updateSearchText`, marked in `meta`), rather than by a new
+schema version, which would throw the guide away where it cannot be fetched again. The server's search is
+left as it was: its keyword auto-reservation rules match against the same column, and a name in the cast
+would start reserving programmes nobody asked for.
 
 Reservation and recording rows carry the station's logo, in the same place the guide's rows do, with the
 space held even where a station has none so that the names line up.

@@ -257,6 +257,9 @@ struct ProgramRowView: View {
     /// A reservation for it waiting on this phone for the recorder. Marked as well, since it is as much the
     /// reader's reservation as one the recorder holds; red when the recorder refused it.
     let pending: PendingReservation?
+    /// In the search results, for a programme found only in its details: the words found and a little on
+    /// either side, since neither the title nor the description says why it is there.
+    var snippet: Search.Snippet? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -289,8 +292,19 @@ struct ProgramRowView: View {
                 if !program.summary.isEmpty {
                     Text(program.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
+                if let snippet {
+                    Text(Self.detail(snippet)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// 詳細, as the programme's sheet heads the same text, and the words found set in the colour of the title.
+    private static func detail(_ snippet: Search.Snippet) -> AttributedString {
+        var found = AttributedString(snippet.match)
+        found.foregroundColor = .primary
+        found.inlinePresentationIntent = .stronglyEmphasized
+        return AttributedString("詳細：" + snippet.before) + found + AttributedString(snippet.after)
     }
 }

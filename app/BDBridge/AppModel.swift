@@ -256,6 +256,10 @@ final class AppModel {
             // DemoData.
             if DemoData.on, let store { try? await DemoData.seed(store: store) }
             await reloadFromCache()
+            // A guide cached by a build that searched only titles and descriptions is made searchable by its
+            // details here, once, in place: fetching it again would need the recorder. The guide is on
+            // screen by now, and a search made meanwhile waits for this rather than missing the cast.
+            if let store { Task { _ = try? await store.updateSearchText() } }
         } catch {
             problem = "番組表の保存領域を開けませんでした: \(error)"
         }
@@ -2000,12 +2004,14 @@ final class AppModel {
             .flatMap { channelLogos["\($0)-\(serviceID)"] }
     }
 
-    /// Programmes still to come whose title or description contains this, across every broadcasting type.
-    /// The search runs against the cache, so it works away from home too.
-    func search(_ query: String) async -> [GuideProgramRow] {
+    /// Programmes still to come with every word of this in their title, description or details, across every
+    /// broadcasting type: the ones named for it first. The search runs against the cache, so it works away
+    /// from home too. At most 300, which is more than anyone reads down; `more` says the words should be
+    /// narrowed, rather than letting the list pass for all there is.
+    func search(_ query: String) async -> GuideSearchResults {
         await start()
-        guard let store, query.trimmingCharacters(in: .whitespaces).count >= 1 else { return [] }
-        return (try? await store.programs(since: Date(), query: query, limit: 300)) ?? []
+        guard let store else { return GuideSearchResults() }
+        return (try? await store.search(query, since: Date(), limit: 300)) ?? GuideSearchResults()
     }
 
     /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four

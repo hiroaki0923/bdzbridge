@@ -3,7 +3,8 @@ import XCTest
 /// The demo is offered to people who have no recorder, and it has to leave nothing behind for the ones who
 /// then go and set a real one up. That is the promise worth a test: the invented guide lives in its own
 /// database, ending the demo deletes it and puts the previous recorder back, and choosing a recorder from
-/// inside the demo ends it too and keeps the one chosen.
+/// inside the demo ends it too and keeps the one chosen. Its invented guide is also what a screen that needs
+/// a guide is tried against, as the search by a name in the cast is below.
 final class DemoModeTests: XCTestCase {
     private static let demoHost = "192.0.2.63"
     private static let demoMac = "f8:4e:17:00:00:00"
@@ -73,6 +74,26 @@ final class DemoModeTests: XCTestCase {
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after a recorder was chosen")
         XCTAssertFalse(app.staticTexts["レコーダーが登録されていません"].exists,
                        "the recorder chosen was forgotten")
+    }
+
+    /// A name in the cast is only in a programme's details, which the guide's search now reads. The demo's
+    /// dramas list an invented cast there, so searching for one of the names finds them, and a result found
+    /// that way says so on its row, since neither its title nor its description would.
+    func testSearchingTheGuideByANameInTheCastSaysWhereItWasFound() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["検索"].tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("みほん花子")
+
+        let detail = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "詳細：")).firstMatch
+        XCTAssertTrue(detail.waitForExistence(timeout: 20), "no result said it was found in the details")
+        XCTAssertTrue(detail.label.contains("出演　サンプル太郎、みほん花子"), "the snippet was \(detail.label)")
+
+        endTheDemo(app)
     }
 
     // MARK: - steps
