@@ -50,12 +50,11 @@ public actor RecorderClient {
     @discardableResult
     public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
         -> RecorderDescription {
-        let response = try await send(HTTPRequest(url: url(port: upnpPort, path: "/description.xml"),
-                                                  timeout: timeout ?? Self.soapTimeout))
+        let location = try url(port: upnpPort, path: "/description.xml")
+        let response = try await send(HTTPRequest(url: location, timeout: timeout ?? Self.soapTimeout))
         guard response.statusCode == 200,
               let described = Discovery.parseDescription(response.text, host: host, port: upnpPort,
-                                                         location: url(port: upnpPort, path: "/description.xml").absoluteString,
-                                                         via: via)
+                                                         location: location.absoluteString, via: via)
         else { throw RecorderError.notARecorder(host: host) }
         info = described
         return described
@@ -296,8 +295,8 @@ public actor RecorderClient {
     }
 
     /// The path really does start with two slashes; the media server does not answer otherwise.
-    func guideFileURL(named name: String) -> URL {
-        URL(string: "http://\(host):\(streamPort)//\(name)")!
+    func guideFileURL(named name: String) throws -> URL {
+        try url(port: streamPort, path: "//\(name)")
     }
 
     private func guideFile(named name: String) async throws -> Data? {
@@ -308,7 +307,7 @@ public actor RecorderClient {
             streamPortTried = true
             _ = try? await detectStreamPort()
         }
-        let response = try await send(HTTPRequest(url: guideFileURL(named: name), timeout: Self.fileTimeout))
+        let response = try await send(HTTPRequest(url: try guideFileURL(named: name), timeout: Self.fileTimeout))
         switch response.statusCode {
         case 200: return response.body
         case 404, 416: return nil
@@ -320,8 +319,15 @@ public actor RecorderClient {
 
     // MARK: - plumbing
 
-    private func url(port: Int, path: String) -> URL {
-        URL(string: "http://\(host):\(port)\(path)")!
+    /// Throws rather than crashing on an address no URL can be made of. The address is saved as soon as it
+    /// is set and read again at every launch and by the overnight run, so a crash here was a crash for
+    /// good. Thrown before anything is sent, and not as silence: nothing was asked, so a magic packet would
+    /// answer nothing.
+    private func url(port: Int, path: String) throws -> URL {
+        guard let url = RecorderAddress.url(host: host, port: port, path: path) else {
+            throw RecorderError.badAddress(host: host)
+        }
+        return url
     }
 
     private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -333,7 +339,7 @@ public actor RecorderClient {
     /// `errorCode` in the body.
     private func call(_ controlPath: String, _ service: String, _ action: String,
                       _ arguments: [(String, String)] = []) async throws -> XmlNode {
-        let request = HTTPRequest(url: url(port: upnpPort, path: controlPath), method: "POST",
+        let request = HTTPRequest(url: try url(port: upnpPort, path: controlPath), method: "POST",
                                   headers: Soap.headers(service: service, action: action),
                                   body: Data(Soap.body(service: service, action: action, arguments: arguments).utf8),
                                   timeout: Self.soapTimeout)

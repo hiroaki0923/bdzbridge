@@ -365,7 +365,13 @@ final class AppModel {
             // it standing is what had the screens asking a recorder that was not there, one 30-second
             // timeout at a time.
             if unreachable { info = nil }
-            if !quiet { problem = recorderError?.explanation ?? String(describing: error) }
+            // Nor is a recorder there if the address is not an address. Leaving the last one's description
+            // standing would have the app look connected, to a recorder it is no longer set to.
+            if case .badAddress? = recorderError { info = nil }
+            // Quiet only keeps silence off the screen, because only silence is answered with a magic packet.
+            // Anything else -- an address that is not one, above all -- is where this ends, and without a
+            // word the reader would have nothing but a strip saying it is not connected.
+            if !quiet || !unreachable { problem = recorderError?.explanation ?? String(describing: error) }
             return false
         }
     }

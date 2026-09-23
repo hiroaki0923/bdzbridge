@@ -135,7 +135,13 @@ enum BackgroundWork {
     /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
     /// the recorder; without one there is nothing to send and nothing to wait for.
     private static func reach(_ client: RecorderClient, at host: String) async -> Bool {
-        if (try? await client.describe(timeout: RecorderClient.probeTimeout)) != nil { return true }
+        do {
+            try await client.describe(timeout: RecorderClient.probeTimeout)
+            return true
+        } catch RecorderError.badAddress {
+            // Nothing was asked, so waking the recorder would change nothing; the app says why on its screen.
+            return false
+        } catch {}
         guard let mac = UserDefaults.standard.string(forKey: "recorderMac"),
               WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else { return false }
         for _ in 0..<20 {

@@ -14,6 +14,9 @@ public enum RecorderError: Error, Equatable, Sendable {
     case notHTTP
     /// The recorder was reached but is not the one we expect.
     case notARecorder(host: String)
+    /// The saved address is not something a URL can be built on, so nothing was sent. Not `unreachable`:
+    /// the recorder was never asked, and waking it would not make the address any better.
+    case badAddress(host: String)
 
     /// What to put in front of the reader. Japanese, because this is the text the app shows; the code and
     /// the action stay in it so that a report of it can be looked up in docs/xsrs-api.md.
@@ -37,6 +40,9 @@ public enum RecorderError: Error, Equatable, Sendable {
                 + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
+        case .badAddress(let host):
+            "「\(host)」はレコーダーのアドレスとして使えません。"
+                + "設定の「IP アドレス」に、192.168.1.10 のような形で入力し直してください。"
         }
     }
 

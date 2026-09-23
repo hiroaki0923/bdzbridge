@@ -8,6 +8,9 @@ struct SettingsScreen: View {
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
 
+    /// The address field, tidied: what connecting would use.
+    private var tidied: RecorderAddress.Typed { RecorderAddress.tidy(typedHost) }
+
     /// What the store calls the version, and the build behind it: `0.2 (12)`. The build number comes from
     /// Xcode Cloud, so it is the only thing that tells two TestFlight builds of one version apart.
     private static var version: String {
@@ -28,6 +31,7 @@ struct SettingsScreen: View {
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                     }
+                    AddressNote(typed: tidied)
                     LabeledContent("MAC アドレス") {
                         TextField("接続時に自動で記録", text: $typedMac)
                             .multilineTextAlignment(.trailing)
@@ -45,13 +49,18 @@ struct SettingsScreen: View {
                         if let mac = model.mac, WakeOnLan.normalise(typedMac) != mac { typedMac = mac }
                     }
                     // Connecting happens by itself at launch and after a scan, so a button is only for an
-                    // address typed by hand, or for trying the saved one again after it failed.
-                    if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
+                    // address typed by hand, or for trying the saved one again after it failed. The field is
+                    // compared both as typed and tidied, because the saved address can be untidy itself: an
+                    // older version saved `192.168.1.10:64220` just as it was typed, and 再接続 would only
+                    // try that again.
+                    if tidied.host != model.host || typedHost != model.host {
                         Button("このアドレスに接続") {
-                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
+                            // the field shows what is saved, so that what was taken off can be seen to be gone
+                            typedHost = tidied.host
+                            model.host = tidied.host
                             Task { await model.connect() }
                         }
-                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                        .disabled(!RecorderAddress.isUsable(tidied.host) || model.busy != nil)
                     } else if !model.connected, !model.host.isEmpty {
                         Button("再接続") { Task { await model.connect() } }
                             .disabled(model.busy != nil)

@@ -175,7 +175,7 @@ final class RecorderClientTests: XCTestCase {
 
         let detected = try await client.detectStreamPort()
         let remembered = await client.streamPort
-        let fileURL = await client.guideFileURL(named: "x.dat")
+        let fileURL = try await client.guideFileURL(named: "x.dat")
         XCTAssertEqual(detected, 60152)
         XCTAssertEqual(remembered, 60152)
         XCTAssertEqual(fileURL.absoluteString, "http://192.0.2.10:60152//x.dat")

@@ -61,18 +61,22 @@ struct WelcomeView: View {
                 }
                 Section {
                     if typing {
+                        let typed = RecorderAddress.tidy(typedHost)
                         TextField("192.168.1.10", text: $typedHost)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
+                        AddressNote(typed: typed)
                         Button("このアドレスに接続") {
-                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
+                            // the field shows what is saved, so that what was taken off can be seen to be gone
+                            typedHost = typed.host
+                            model.host = typed.host
                             Task {
                                 await model.connect()
                                 if model.connected { dismiss() }
                             }
                         }
-                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                        .disabled(!RecorderAddress.isUsable(typed.host) || model.busy != nil)
                     } else {
                         Button("IP アドレスを直接入力") { typing = true }
                     }
@@ -128,6 +132,28 @@ struct WelcomeView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// What the address field says back about what was typed, under the field in both the tutorial and the
+/// settings. Tidying takes off only what is plainly not part of an address and does it without a word; a
+/// port is different, because somebody typed it on purpose, so it is said out loud that it will not be used.
+/// Nothing is said while the field is empty or the address is fine.
+struct AddressNote: View {
+    let typed: RecorderAddress.Typed
+
+    var body: some View {
+        if typed.host.isEmpty {
+            EmptyView()
+        } else if !RecorderAddress.isUsable(typed.host) {
+            Text("アドレスの形式が正しくありません。192.168.1.10 のような IP アドレスを入力してください。")
+                .font(.caption)
+                .foregroundStyle(.red)
+        } else if let port = typed.port {
+            Text("ポート番号は不要です。「:\(port)」は使わずに \(typed.host) に接続します。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
