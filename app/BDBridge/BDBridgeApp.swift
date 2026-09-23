@@ -88,7 +88,8 @@ struct RootView: View {
 }
 
 /// The grey circle a sheet is closed with. A word there would be one the system never uses; the word stays
-/// for anything reading the screen aloud.
+/// for anything reading the screen aloud. The identifier is for the screenshot tests, which check that no
+/// sheet is open and cannot go by the word: the system's own button beside an open search field says it too.
 struct SheetCloseButton: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -104,6 +105,7 @@ struct SheetCloseButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("閉じる")
+        .accessibilityIdentifier("sheet-close")
     }
 }
 

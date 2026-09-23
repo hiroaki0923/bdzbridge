@@ -36,10 +36,11 @@ final class ScreenshotTests: XCTestCase {
         }
 
         // 2. The same guide as a list, which is the other way the screen is read: logos, genres, what is
-        //    already set to record, and the description under each programme.
+        //    already set to record, and the description under each programme. What is at the top depends on
+        //    the hour (`evening`), so the wait is for any of the demo's programmes, not for one of them.
         try shot("02_guide_list",
                  arguments: ["-startTab", "guide", "-guideMode", "list"] + Self.evening) { app in
-            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "02_guide_list")
+            self.waitFor(app.staticTexts.matching(labelContains("サンプル")).firstMatch, "02_guide_list")
         }
 
         // 3. One programme, and what a reservation of it would be. Reached through the search, which is the
@@ -82,6 +83,18 @@ final class ScreenshotTests: XCTestCase {
             let condition = app.staticTexts.matching(labelContains("サンプル劇場")).firstMatch
             XCTAssertTrue(condition.waitForExistence(timeout: 20), "the conditions never loaded")
         }
+
+        // 8. The search finding a programme by a name in its cast, which only its details carry, and the row
+        //    saying where it was found. The return key puts the keyboard away; a picture of a keyboard over
+        //    the results would show nothing of them.
+        try shot("08_search", arguments: ["-startTab", "search"]) { app in
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+            field.tap()
+            field.typeText("みほん花子\n")
+            let found = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "詳細：")).firstMatch
+            XCTAssertTrue(found.waitForExistence(timeout: 20), "no result said it was found in the details")
+        }
     }
 
     // MARK: - plumbing
@@ -121,8 +134,9 @@ final class ScreenshotTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.2)
         // A stray tap can leave a sheet over the screen that was meant to be photographed, and the shot
         // still gets filed under the name of the screen it was supposed to be. Every sheet here closes with
-        // the same round button, so its absence is the check.
-        XCTAssertEqual(app.buttons["閉じる"].exists, sheet,
+        // the same round button, so its absence is the check -- by its identifier, since the button the
+        // system puts beside an open search field is called 閉じる as well.
+        XCTAssertEqual(app.buttons.matching(identifier: "sheet-close").firstMatch.exists, sheet,
                        sheet ? "\(name): the sheet was not open" : "\(name): a sheet was over the screen")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
