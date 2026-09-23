@@ -20,6 +20,17 @@ struct GuideScreen: View {
             VStack(spacing: 0) {
                 if nothingAndNoRecorder {
                     NoRecorderView(icon: "calendar")
+                } else if nothing, model.guideOnItsWay {
+                    // The first run lands here as soon as the recorder answers. Saying there was nothing for the
+                    // day, and pointing at a refresh button greyed out meanwhile, read as though the download
+                    // had come to nothing.
+                    ContentUnavailableView {
+                        Label("番組表を取得しています", systemImage: "calendar")
+                    } description: {
+                        Text("初回は少し時間がかかります")
+                    } actions: {
+                        ProgressView()
+                    }
                 } else if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
@@ -145,10 +156,15 @@ struct GuideScreen: View {
     /// Nothing for the day on screen, and no recorder to fetch it from. The list said エラー over whatever had
     /// failed last, with no button under it and nothing to do but find the settings, and the grid pointed to
     /// the refresh button, which is greyed out while not connected. `NoRecorderView` says what is wrong and
-    /// offers 再接続 and レコーダーを探す. The grid shows every channel whatever the list is narrowed to, so it
-    /// is judged by all of the day's programmes.
+    /// offers 再接続 and レコーダーを探す.
     private var nothingAndNoRecorder: Bool {
-        !model.connected && (grid ? model.programs : shown).isEmpty
+        !model.connected && nothing
+    }
+
+    /// Nothing for the day on screen. The grid shows every channel whatever the list is narrowed to, so it is
+    /// judged by all of the day's programmes.
+    private var nothing: Bool {
+        (grid ? model.programs : shown).isEmpty
     }
 
     @ViewBuilder

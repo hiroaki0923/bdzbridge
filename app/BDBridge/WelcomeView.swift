@@ -9,9 +9,9 @@ struct WelcomeView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var typing = false
     @State private var typedHost = ""
-    /// Set when a connect from here ran into the local network permission. The app connects by itself once
-    /// the reader allows it, and this screen then has nothing left to do, so it goes too.
-    @State private var awaitingAccess = false
+    /// The model's `timesAttached` when a recorder was chosen here, kept while that choice has yet to be
+    /// answered. See `take`.
+    @State private var chosenAt: Int?
 
     var body: some View {
         NavigationStack {
@@ -63,13 +63,23 @@ struct WelcomeView: View {
                     if let outcome = model.scanOutcome {
                         ScanOutcomeText(outcome: outcome)
                     }
+                    // The connect to a recorder chosen below, here for the same reason. Choosing one takes the
+                    // list it was chosen from away, so this is also the nearest place to where the tap was.
+                    if let busy = model.busy {
+                        HStack { ProgressView().controlSize(.small); Text(busy) }
+                    }
+                    if let problem = model.problem {
+                        Text(problem).foregroundStyle(.red).font(.callout)
+                    }
                 }
                 if !model.found.isEmpty {
                     Section("見つかったレコーダー") {
                         ForEach(model.found, id: \.host) { recorder in
-                            Button { Task { await take(recorder) } } label: { FoundRecorderRow(recorder: recorder) }
-                                .buttonStyle(.plain)
-                                .disabled(!model.canChangeRecorder)
+                            Button { Task { await take(recorder.host) } } label: {
+                                FoundRecorderRow(recorder: recorder)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!model.canChangeRecorder)
                         }
                     }
                 }
@@ -84,10 +94,7 @@ struct WelcomeView: View {
                         Button("このアドレスに接続") {
                             // the field shows what is saved, so that what was taken off can be seen to be gone
                             typedHost = typed.host
-                            Task {
-                                await model.adopt(host: typed.host)
-                                leaveIfConnected()
-                            }
+                            Task { await take(typed.host) }
                         }
                         .disabled(!RecorderAddress.isUsable(typed.host) || !model.canChangeRecorder)
                     } else {
@@ -108,18 +115,12 @@ struct WelcomeView: View {
                     Text("レコーダーが無くても、架空の番組表と録画一覧でアプリの動きを確かめられます。"
                          + "実在の放送局・番組ではありません。いつでも設定から終了できます。")
                 }
-                if let busy = model.busy {
-                    Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
-                }
-                if let problem = model.problem {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
-                }
             }
             .navigationBarTitleDisplayMode(.inline)
             // A scan waiting on the system's question must not outlive the screen that asked it.
             .onDisappear { model.stopScanning() }
-            .onChange(of: model.connected) {
-                if awaitingAccess, model.connected { dismiss() }
+            .onChange(of: model.timesAttached) {
+                if let chosenAt, model.timesAttached > chosenAt { dismiss() }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -130,22 +131,27 @@ struct WelcomeView: View {
         }
     }
 
-    /// Choosing a recorder ends the tutorial as soon as it answers. Watching `connected` flip would miss the
-    /// case where the screen was opened from the settings with a recorder already on the line, so the
-    /// leaving is tied to the tap that did it.
-    private func take(_ recorder: RecorderDescription) async {
-        await model.adopt(host: recorder.host)
-        leaveIfConnected()
-    }
-
-    /// Leaves once the recorder answers. A connect held up by the local network permission finishes later,
-    /// on its own, when the reader allows it; the screen waits for that rather than for another tap.
-    private func leaveIfConnected() {
-        if model.connected {
-            dismiss()
-        } else {
-            awaitingAccess = model.connectBlocked
-        }
+    /// Choosing a recorder ends the tutorial as soon as it answers, which is in the middle of the connect.
+    /// Waiting for the connect to return kept the tutorial up while it went on to read the reservations and
+    /// then the whole guide, every broadcasting type and its logos, with the row that was tapped gone and
+    /// nothing but a line on screen: on a first run, the longest wait in the app, spent on the one screen
+    /// that cannot show what is arriving. The screens behind it can, and say how the rest is going.
+    ///
+    /// The connect is not split to get there. Returning from it early would take its guard with it: the rest
+    /// would run with `connecting` off, and a second connect -- the network changing, the app coming back to
+    /// the front -- could start beside it with a client of its own. It says instead that it has reached the
+    /// recorder (`timesAttached`), and the screen goes on that. The count taken here tells that answer from a
+    /// connection that was already up, as it is when the tutorial is opened again from the settings, which
+    /// watching `connected` would miss.
+    ///
+    /// A connect held up by the local network permission answers later, on its own, when the reader allows
+    /// it; the screen waits for that rather than for another tap. Any other connect that returns without an
+    /// answer is over, and the choice with it.
+    private func take(_ host: String) async {
+        let before = model.timesAttached
+        chosenAt = before
+        await model.adopt(host: host)
+        if model.timesAttached == before, !model.connectBlocked { chosenAt = nil }
     }
 
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {

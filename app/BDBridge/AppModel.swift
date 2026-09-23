@@ -140,6 +140,11 @@ final class AppModel {
 
     var connected: Bool { info != nil }
 
+    /// Bumped each time a connect reaches the recorder (`attach`), which is before it goes on to read the
+    /// reservations and the guide. A count rather than a flag, so that a screen where a recorder has just been
+    /// chosen can tell the answer to that choice from a connection that was already up. See `WelcomeView`.
+    private(set) var timesAttached = 0
+
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
     ///
@@ -631,7 +636,9 @@ final class AppModel {
             await flushPending()
             // The recorder can go quiet in the middle of sending the queue, which leaves the app offline
             // like any other silence; a connect that ended there has not reached anything to show.
-            return !unreachable
+            guard !unreachable else { return false }
+            timesAttached += 1
+            return true
         } catch {
             let recorderError = error as? RecorderError
             unreachable = recorderError?.unreachable ?? false
@@ -884,6 +891,15 @@ final class AppModel {
         return newest < Self.lastRebuild()
     }
 
+    /// How many guide downloads are under way. A count, so that one ending does not say the other has.
+    private var guideDownloads = 0
+
+    /// Whether the guide is on its way: being downloaded, or about to be, by a connect that has reached the
+    /// recorder and found the cache behind -- it reads the reservations first (see `connect()`). An empty
+    /// guide says so then, rather than that there is nothing for the day. On the first run that is what the
+    /// reader sees as soon as the tutorial closes, for as long as the first broadcasting type takes.
+    var guideOnItsWay: Bool { guideDownloads > 0 || (connecting && connected && guideIsStale) }
+
     /// Fetching the guide is what connecting is for, so it happens without being asked: the first run
     /// otherwise lands on an empty guide with nothing to say that anything has to be fetched, and a cache
     /// the overnight run never got to would quietly stay a day behind. A cache that is already current
@@ -900,14 +916,21 @@ final class AppModel {
     }
 
     /// Downloads every broadcasting type the recorder has and replaces the cache.
+    ///
+    /// Each type goes on screen as soon as it is stored. Reading the cache only at the end left the first
+    /// run with an empty guide until BS, CS and BS4K had come in behind the terrestrial programmes it opens
+    /// on, which were there all along.
     func refreshGuide() async {
         guard let client, let store, !unreachable else { return }
+        guideDownloads += 1
+        defer { guideDownloads -= 1 }
         await run("番組表を取得中") { activity in
-            try await GuideRefresh.run(client: client, store: store) { broadcasting in
+            try await GuideRefresh.run(client: client, store: store, onType: { broadcasting in
                 let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
                 self.activities.update(activity, to: "番組表を取得中 (\(label))")
-            }
-            await self.reloadFromCache()
+            }, onStored: { _ in
+                await self.reloadFromCache()
+            })
         }
     }
 

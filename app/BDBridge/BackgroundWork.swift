@@ -27,10 +27,14 @@ enum GuideRefresh {
     static let broadcastingTypes = ["td", "bs", "cs", "bs4k"]
 
     /// Returns how many programmes were stored. A broadcasting type the recorder cannot receive is skipped.
+    ///
+    /// `onType` is called on the main actor as each broadcasting type starts, for the screen to say so, and
+    /// `onStored` once its programmes and logos are in the cache, for the screen to show them without waiting
+    /// for the rest.
     @discardableResult
-    /// `onType` is called on the main actor as each broadcasting type starts, for the screen to say so.
     static func run(client: RecorderClient, store: GuideStore,
-                    onType: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> Int {
+                    onType: (@MainActor @Sendable (String) -> Void)? = nil,
+                    onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async throws -> Int {
         var stored = 0
         for broadcasting in broadcastingTypes {
             await onType?(broadcasting)
@@ -39,6 +43,7 @@ enum GuideRefresh {
             if let logos = try? await client.logos(broadcasting) {
                 try await store.replaceLogos(logos, broadcasting: broadcasting)
             }
+            await onStored?(broadcasting)
         }
         return stored
     }

@@ -152,6 +152,11 @@ into the on-device cache, browsing a day's programmes as a list or as a time-by-
 logos and genres, opening a programme, and listing the reservations the recorder holds. Verified against a
 BDZ-FBT4100 from the simulator.
 
+Choosing a recorder in the tutorial closes it as soon as the recorder answers, not once its guide is in: the
+first guide is four broadcasting types and their logos, and takes a while. The guide screen says it is being fetched, and
+shows each broadcasting type as soon as it is stored, starting with the terrestrial one it opens on. This has
+not yet been seen with a real recorder.
+
 The grid mirrors the web app's: an hour ruler down the left and the channel names across the top, genre
 colours, the elapsed part of what is on air shaded up to a red line at the current time, and a time axis
 that pinches. Today opens at the current time, and pinching keeps the hour under the fingers where it is.
