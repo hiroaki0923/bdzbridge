@@ -409,6 +409,47 @@ final class BulkWorkTests: XCTestCase {
         XCTAssertEqual(sent, 2, "asked once and deleted once, and nothing sent again")
     }
 
+    /// The duplicate scan keeps what it reads for good, so only an answer counts as read -- an empty text
+    /// included, since some recordings come with none.
+    func testTheTextIsReadAndAnEmptyOneIsAnAnswer() async throws {
+        let described = RecorderClient(host: Stub.host, transport: StubTransport(always:
+            Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")))
+        let read = try await described.summary(of: "0x1")
+        XCTAssertEqual(read, .read("あらすじ"))
+
+        let bare = RecorderClient(host: Stub.host,
+                                  transport: StubTransport(always: Stub.soap("X_GetTitleDetail", result: "<detail/>")))
+        let empty = try await bare.summary(of: "0x1")
+        XCTAssertEqual(empty, .read(""))
+    }
+
+    func testARecordingTheRecorderNoLongerHasIsGoneRatherThanRead() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("820")))
+        let outcome = try await client.summary(of: "0x1")
+        XCTAssertEqual(outcome, .gone)
+    }
+
+    /// A refusal is not a text. Kept as an empty one, it would be the same as every other failure's and make
+    /// copies of recordings that are nothing alike.
+    func testARefusedReadIsAFailureRatherThanAnEmptyText() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("402")))
+        let outcome = try await client.summary(of: "0x1")
+        guard case .failed(let reason) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertTrue(reason.contains("402"), reason)
+    }
+
+    func testSilenceWhileReadingIsThrown() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        do {
+            _ = try await client.summary(of: "0x1")
+            XCTFail("silence should be thrown, not turned into a failure to read")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+    }
+
     func testSilenceOnProtectingIsThrown() async throws {
         let transport = StubTransport { _, _ in throw RecorderError.transport("timed out") }
         let client = RecorderClient(host: Stub.host, transport: transport)

@@ -80,6 +80,39 @@ public enum Duplicates {
         return stableSorted(found) { $0.sizeMB > $1.sizeMB }
     }
 
+    /// What comes up ticked for deletion. A tick is what deletes, so the copies left unticked are the ones
+    /// kept, whichever the screen suggested.
+    ///
+    /// Only a set confirmed by its text is ticked for the reader. One that agrees on the title and the length
+    /// alone may be two programmes the recorder has no text for, and whether to delete one of those is for the
+    /// reader to decide. A set still made of the same recordings as one already on screen keeps the ticks the
+    /// reader left it with: deleting or protecting something elsewhere must not tick again what the reader had
+    /// unticked. Nothing the recorder would refuse to delete is ticked.
+    public static func picks(for sets: [DuplicateSet], shown: [DuplicateSet], picked: Set<String>) -> Set<String> {
+        let onScreen = Set(shown.map(\.id))
+        var picks: Set<String> = []
+        for set in sets {
+            if onScreen.contains(set.id) {
+                picks.formUnion(set.items.filter { deletable($0) && picked.contains($0.id) }.map(\.id))
+            } else if set.confidence == .high {
+                picks.formUnion(set.suggestDelete)
+            }
+        }
+        return picks
+    }
+
+    /// The sets that would lose every copy if what is ticked were deleted. The screen is for thinning out
+    /// copies of a broadcast, never for getting rid of it, so these are named before anything is deleted.
+    public static func emptied(_ sets: [DuplicateSet], picked: Set<String>) -> [DuplicateSet] {
+        sets.filter { set in set.items.allSatisfy { deletable($0) && picked.contains($0.id) } }
+    }
+
+    /// Whether the recorder would delete it at all: it refuses a protected recording, and one it is still
+    /// writing to.
+    public static func deletable(_ title: RecordedTitle) -> Bool {
+        !title.protected && !title.recording
+    }
+
     /// Which copy to keep: one the recorder will not part with (protected, or still being recorded), then
     /// one that is partway through, then the better recording mode, then the earlier broadcast.
     static func set(_ members: [RecordedTitle], confidence: DuplicateSet.Confidence) -> DuplicateSet {

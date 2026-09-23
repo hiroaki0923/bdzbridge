@@ -11,9 +11,19 @@ public enum ItemOutcome: Sendable, Equatable {
     }
 }
 
-/// Deleting and protecting, one recording at a time. The loop around these belongs to the caller, which is
-/// what gives it the progress and the stop button; what lives here is the decision about each recording,
-/// including the recorder's two traps.
+/// What asking the recorder for one recording's programme text came to, for the duplicate scan.
+public enum SummaryRead: Sendable, Equatable {
+    /// What the recorder holds. An empty text is an answer too: some recordings come with none.
+    case read(String)
+    /// UPnP error 820: the recorder no longer has the recording.
+    case gone
+    /// The recorder answered, but not with the text, and this is why.
+    case failed(reason: String)
+}
+
+/// Deleting, protecting and reading the programme text, one recording at a time. The loop around these
+/// belongs to the caller, which is what gives it the progress and the stop button; what lives here is the
+/// decision about each recording, including the recorder's two traps.
 ///
 /// Silence is thrown rather than reported as a skip. A recorder that has gone to sleep part way through
 /// would otherwise turn every recording left into a skip of its own, each after a thirty-second timeout, and
@@ -48,6 +58,23 @@ public extension RecorderClient {
             return .skipped(reason: error.explanation)
         } catch {
             return .skipped(reason: String(describing: error))
+        }
+    }
+
+    /// The text the duplicate scan compares, and caches for good. So only what the recorder actually said
+    /// counts as read. A failure used to be kept as an empty text and never asked about again, and two
+    /// recordings the recorder had failed to describe then agreed with each other on nothing and came up as
+    /// copies, one of them ticked for deletion.
+    func summary(of id: String) async throws -> SummaryRead {
+        do {
+            return .read(try await titleDetail(id: id).summary)
+        } catch let error as RecorderError where error.unreachable {
+            throw error
+        } catch let error as RecorderError {
+            if case .soap(_, _, "820", _) = error { return .gone }
+            return .failed(reason: error.explanation)
+        } catch {
+            return .failed(reason: String(describing: error))
         }
     }
 

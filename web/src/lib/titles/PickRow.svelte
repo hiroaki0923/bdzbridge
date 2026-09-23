@@ -10,7 +10,8 @@
 </script>
 
 <div class="item pick" class:on={checked}>
-  <label class="check"><input type="checkbox" disabled={t.protected} {checked} onchange={(e) => onpick(t.id, e.target.checked)} /></label>
+  <!-- the recorder refuses to delete a protected recording or one it is still writing to -->
+  <label class="check"><input type="checkbox" disabled={t.protected || t.recording} {checked} onchange={(e) => onpick(t.id, e.target.checked)} /></label>
   <button class="pickbody" onclick={() => onopen(t)}>
     {#if t.protected}<span class="lock">🔒</span>{/if}
     {#if badge}<span class="mark {badgeClass}">{badge}</span>{:else}{#if t.is_new}<span class="mark now">NEW</span>{/if}<span class="title">{t.title}</span>{/if}

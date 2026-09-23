@@ -59,4 +59,38 @@ final class DuplicatesVectorTests: XCTestCase {
         XCTAssertEqual(set.keep, "0xd2")
         XCTAssertEqual(set.reasons["0xd2"], "視聴途中")
     }
+
+    private func sampleSets() throws -> [DuplicateSet] {
+        let (titles, summaries, _) = try sample()
+        return Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries)
+    }
+
+    /// Two recordings with no text agree on the title and the length alone, which is not enough to tick one
+    /// of them for deletion on the reader's behalf.
+    func testOnlyASetConfirmedByItsTextComesUpTicked() throws {
+        let sets = try sampleSets()
+        XCTAssertEqual(Duplicates.picks(for: sets, shown: [], picked: []), ["0xd1", "0xf1"])
+    }
+
+    /// Deleting or protecting something elsewhere builds the sets again. One still made of the same
+    /// recordings keeps what the reader chose -- here the other copy of the first, and one of the pair with no
+    /// text -- while a recording that can no longer be deleted drops out.
+    func testASetStillOnScreenKeepsTheReadersTicks() throws {
+        let sets = try sampleSets()
+        let picked: Set<String> = ["0xd2", "0xe1", "0xf2"]
+        XCTAssertEqual(Duplicates.picks(for: sets, shown: sets, picked: picked), ["0xd2", "0xe1"],
+                       "0xf2 is still being recorded, and 0xf1 was unticked")
+
+        let changed = sets.filter { $0.keep != "0xd2" }
+        XCTAssertEqual(Duplicates.picks(for: sets, shown: changed, picked: picked), ["0xd1", "0xe1"],
+                       "a set the reader has not seen in this shape is ticked as suggested")
+    }
+
+    func testASetThatWouldLoseEveryCopyIsNamed() throws {
+        let sets = try sampleSets()
+        let everything: Set<String> = ["0xd1", "0xd2", "0xe1", "0xf1", "0xf2"]
+        XCTAssertEqual(Duplicates.emptied(sets, picked: everything).map(\.keep), ["0xd2"],
+                       "the recorder keeps 0xf2 whatever is ticked, and 0xe2 is not ticked")
+        XCTAssertTrue(Duplicates.emptied(sets, picked: ["0xd1", "0xf1", "0xe2"]).isEmpty)
+    }
 }

@@ -185,8 +185,9 @@ space, the genre counts, a sort and a watch-state filter. A recording opens a sh
 television, protects it against the recorder's own tidying, and deletes it behind a confirmation.
 
 The duplicate copies of one broadcast can be found: recordings with the same title and nearly the same
-length are candidates, and asking the recorder what each one is about confirms them. The copy to keep is
-marked with the reason, and the rest come pre-selected for deletion.
+length are candidates, and asking the recorder what each one is about confirms them. Where the text agrees,
+the copy to keep is suggested with the reason and the rest come ticked for deletion. Whatever is left
+unticked is marked as kept, and a delete that would leave a set with no copy at all is refused, naming it.
 
 A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,

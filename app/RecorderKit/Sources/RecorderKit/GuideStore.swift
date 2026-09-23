@@ -101,6 +101,16 @@ public actor GuideStore {
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
                        [.text(schemaVersion)])
         }
+        // The duplicate scan used to store a failed read as an empty text and never ask again, so an empty row
+        // from before may be a failure rather than a recording with no text. They are thrown away once, and
+        // asked about again at the next scan; an empty text read from now on is a real answer and is kept. A
+        // schema change would not do it, since the summaries are not among the tables it rebuilds.
+        if try db.count("SELECT COUNT(*) FROM meta WHERE key='blank_summaries_cleared'") == 0 {
+            try db.transaction {
+                try db.run("DELETE FROM title_summaries WHERE summary=''")
+                try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('blank_summaries_cleared', '1')")
+            }
+        }
         self.db = db
     }
 

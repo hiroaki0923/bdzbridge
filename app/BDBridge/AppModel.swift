@@ -299,6 +299,9 @@ final class AppModel {
         recorderRules = []
         pending = []
         duplicates = []
+        duplicatePicks = []
+        unreadDuplicates = 0
+        summaries = [:]
         problem = nil
         unreachable = false
         gaveUp = false
@@ -890,8 +893,9 @@ final class AppModel {
         /// What to tell the reader once it has stopped, in the shape the web app settled on.
         var outcome: String {
             if case .scanning = kind {
-                if lostRecorder { return "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました" }
-                return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
+                let head = lostRecorder ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
+                    : cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
+                return skipped.isEmpty ? head : head + "（\(skipped.count) 件は番組内容を取得できず、比べていません）"
             }
             let count = changed.count
             let head = lostRecorder ? "\(count) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
@@ -902,10 +906,14 @@ final class AppModel {
 
     private(set) var job: BulkJob?
     private(set) var duplicates: [DuplicateSet] = []
-    /// Which copies are ticked for deletion. It lives here because the view holding it is thrown away every
-    /// time the reader looks at the list or the programmes instead.
+    /// Which copies are ticked for deletion; the ones left unticked are kept. It lives here because the view
+    /// holding it is thrown away every time the reader looks at the list or the programmes instead.
     var duplicatePicks: Set<String> = []
-    /// What the recorder said each recording is about, cached on disk as well.
+    /// How many candidates were left out of the sets because their text has not been read, which a scan run
+    /// again reads.
+    private(set) var unreadDuplicates = 0
+    /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
+    /// a recording missing here has not been read.
     private var summaries: [String: String] = [:]
     private var jobTask: Task<Void, Never>?
 
@@ -1016,10 +1024,12 @@ final class AppModel {
 
     /// Candidates cost nothing to find; confirming them means asking the recorder about each one, which is
     /// why this is a job with a progress bar and a stop button.
+    ///
+    /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
+    /// reader gave it. Ticking waits until it has finished.
     func startDuplicateScan() {
         guard jobTask == nil, let client, let store else { return }
         let candidates = Duplicates.candidates(titles)
-        setDuplicates([])
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         jobTask = Task { [weak self] in
             await self?.runScan(candidates, client: client, store: store)
@@ -1043,9 +1053,9 @@ final class AppModel {
                         answering = false
                         break scan
                     }
-                    let summary: String
+                    let read: SummaryRead
                     do {
-                        summary = try await keepingAlive { try await client.titleDetail(id: title.id).summary }
+                        read = try await keepingAlive { try await client.summary(of: title.id) }
                     } catch let error as RecorderError where error.unreachable {
                         // Stop at the first silence rather than wait it out once for every recording left,
                         // and keep nothing for this one: silence says nothing about what it is.
@@ -1053,32 +1063,49 @@ final class AppModel {
                         answering = false
                         break scan
                     } catch {
-                        summary = ""
+                        read = .failed(reason: String(describing: error))
                     }
-                    summaries[title.id] = summary
-                    try? await store.setTitleSummary(title.id, summary)
+                    switch read {
+                    case .read(let summary):
+                        summaries[title.id] = summary
+                        try? await store.setTitleSummary(title.id, summary)
+                    case .gone:
+                        // deleted on the recorder since the list was read, so it is not a copy of anything
+                        titles.removeAll { $0.id == title.id }
+                    case .failed(let reason):
+                        // Nothing is kept, so it is left out of the sets and asked about again next time.
+                        job?.skipped.append(.init(id: title.id, reason: reason))
+                    }
                 }
                 job?.done += 1
             }
         }
         if !answering { job?.lostRecorder = true }
-        // Cut short by silence, only the groups read in full are compared. One with a copy never read would be
-        // judged on nothing, and would come up with that copy ticked for deletion.
-        let compared = answering ? candidates : candidates.filter { $0.allSatisfy { summaries[$0.id] != nil } }
-        setDuplicates(Duplicates.sets(candidates: compared, summaries: summaries))
+        // from the list as it is now, which a recording deleted meanwhile has left
+        recomputeDuplicates()
         job?.finished = true
         jobTask = nil
     }
 
     /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
+    ///
+    /// A recording whose text has not been read -- the scan was stopped before it, the recorder could not
+    /// give it, or it was recorded since -- is left out rather than compared on nothing. With no text, two of
+    /// them would agree on their title and length alone, and one would come up ticked for deletion. This is
+    /// done here rather than in `Duplicates.sets`, which treats a missing text as an empty one, as the server
+    /// that its vectors come from does.
     func recomputeDuplicates() {
-        setDuplicates(Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries))
+        let candidates = Duplicates.candidates(titles)
+        let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
+        unreadDuplicates = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
+        setDuplicates(Duplicates.sets(candidates: read, summaries: summaries))
     }
 
-    /// The copies to delete are ticked for the reader; a set that changes gets a fresh set of ticks.
+    /// A set the reader has already seen keeps its ticks; a new or changed one is ticked as suggested, if its
+    /// text confirms it. See `Duplicates.picks`.
     private func setDuplicates(_ sets: [DuplicateSet]) {
+        duplicatePicks = Duplicates.picks(for: sets, shown: duplicates, picked: duplicatePicks)
         duplicates = sets
-        duplicatePicks = Set(sets.flatMap(\.suggestDelete))
     }
 
     /// Throws only silence, which ends the job: see `runBulk`.
@@ -1138,6 +1165,9 @@ final class AppModel {
         await run("録画一覧を取得中") {
             self.titles = try await client.allTitles()
             self.titlesLoaded = true
+            // The sets on screen were built from the list as it was. A copy one says it keeps may have gone
+            // since, and deleting the others would then leave nothing.
+            if !self.duplicates.isEmpty { self.recomputeDuplicates() }
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
         }
@@ -1202,6 +1232,8 @@ final class AppModel {
         // Silence may have come after the recorder made the change. The list is read again once it answers,
         // rather than guessed at.
         if !done, unreachable { titlesLoaded = false }
+        // which copy of a set to keep can change with it
+        if done, !duplicates.isEmpty { recomputeDuplicates() }
         return done
     }
 
@@ -1224,6 +1256,8 @@ final class AppModel {
         }
         // as for protecting: silence may have come after the recording had gone
         if !deleted, unreachable { titlesLoaded = false }
+        // A set on screen may have been left with one copy, or none of the one it says it keeps.
+        if deleted, !duplicates.isEmpty { recomputeDuplicates() }
         return deleted
     }
 

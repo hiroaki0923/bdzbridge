@@ -213,6 +213,28 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["td"]?.programs, 4)
     }
 
+    /// An empty text left by an older build may be a read that failed, so it is thrown away once and asked
+    /// about again. One read after that is the recorder saying there is no text, and stays.
+    func testEmptySummariesFromBeforeAreClearedOnceAndOnlyOnce() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.setTitleSummary("0x1", "")
+            try await store.setTitleSummary("0x2", "あらすじ")
+            // what a database written by an older build looks like: the rows, and no mark that they were seen to
+            try Sqlite(path: path).run("DELETE FROM meta WHERE key='blank_summaries_cleared'")
+        }
+
+        let upgraded = try GuideStore(path: path)
+        let cleared = try await upgraded.titleSummaries(["0x1", "0x2"])
+        XCTAssertEqual(cleared, ["0x2": "あらすじ"], "the empty one is asked about again; the text is kept")
+
+        try await upgraded.setTitleSummary("0x1", "")
+        let reopened = try GuideStore(path: path)
+        let kept = try await reopened.titleSummaries(["0x1"])
+        XCTAssertEqual(kept, ["0x1": ""], "an empty text read now is an answer, and is not thrown away again")
+    }
+
     func testLogosAreAttachedToTheirChannels() async throws {
         let store = try await loadedStore()
         try await store.replaceLogos([(serviceID: 1024, channelNo: 11, png: Data([0x89, 0x50, 0x4E, 0x47]))],
