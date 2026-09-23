@@ -53,7 +53,7 @@ final class ScreenshotTests: XCTestCase {
             XCTAssertTrue(reserve.waitForExistence(timeout: 20), "the programme sheet never opened")
             // The sheet asks the recorder whether anything clashes; wait for the answer, which is the line
             // worth having in the picture.
-            _ = app.staticTexts["重複する予約はありません"].waitForExistence(timeout: 20)
+            _ = app.staticTexts["時間が重なる予約はありません"].waitForExistence(timeout: 20)
         }
 
         // 4. What the recorder is going to record, the recorder's own おまかせ reservations among them.
@@ -83,6 +83,11 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: - plumbing
 
+    /// What the app remembers between launches and the pictures must not inherit from whatever was done on
+    /// the simulator before: the guide's broadcasting type, and the orders of the reservations and the
+    /// recordings. A launch argument outranks what the app saves.
+    static let pinned = ["-guideBroadcasting", "td", "-reservationSort", "time", "-recordingsSort", "newest"]
+
     private func waitFor(_ element: XCUIElement, _ name: String) {
         XCTAssertTrue(element.waitForExistence(timeout: 30), "\(name): the screen never appeared")
     }
@@ -91,8 +96,11 @@ final class ScreenshotTests: XCTestCase {
     private func shot(_ name: String, arguments: [String], sheet: Bool = false,
                       prepare: (XCUIApplication) throws -> Void) throws {
         let app = XCUIApplication()
-        // The demo's own strip is off here: these are pictures of the app as it looks with a recorder.
-        app.launchArguments = ["-demoData", "1", "-demoBanner", "0"] + arguments
+        // The demo's own strip is off here: these are pictures of the app as it looks with a recorder. The
+        // broadcasting type, the orders and the default recording mode are kept from one launch to the next,
+        // so they are pinned too. The mode only here: the demo's tests change it, which a pin would stop.
+        app.launchArguments = ["-demoData", "1", "-demoBanner", "0", "-defaultQuality", "LSR"] + Self.pinned
+            + arguments
         app.launch()
         try prepare(app)
         // The lists animate in, and a shot taken on the first frame catches them half drawn.

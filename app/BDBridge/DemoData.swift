@@ -410,15 +410,20 @@ enum DemoData {
                quality: 220, weekly: true, size: 2900),
         Booked(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶", station: 1024,
                quality: 100, size: 5900),
-        // the recorder's own おまかせ・まる録 puts its reservations in the same list, under its own id
+        // The recorder's own おまかせ・まる録 puts its reservations in the same list, under its own creator id.
+        // 1100, as a real recorder writes it: with 1000 here the demo's list had no おまかせ in it at all, and the
+        // store screenshot meant to show that mark showed none.
         Booked(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集", station: 1024,
-               quality: 220, creator: "1000", size: 2700),
+               quality: 220, creator: "1100", size: 2700),
         Booked(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）", station: 1048,
                dayOffset: 1, quality: 240, weekly: true, size: 1600),
+        // Marked 重複 by the recorder, with another reservation at the same hours for its sheet to name.
         Booked(id: "0x00000000000a9435", title: "ひなたスポーツ特集", station: 1064,
                dayOffset: 1, quality: 220, conflict: true, size: 4200),
+        Booked(id: "0x00000000000a9436", title: "みほんスポーツ中継「サンプルリーグ」", station: 1056,
+               dayOffset: 1, quality: 220, size: 4300),
         Booked(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」", station: 2048,
-               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1000", size: 7400),
+               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1100", size: 7400),
     ]
 
     static var reservationItems: [String] {

@@ -10,6 +10,7 @@ struct SettingsScreen: View {
     @State private var typedMac = ""
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
+    @AppStorage(DefaultQuality.key) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
     private var tidied: RecorderAddress.Typed { RecorderAddress.tidy(typedHost) }
@@ -132,7 +133,7 @@ struct SettingsScreen: View {
                                 typedHost = recorder.host
                                 Task { await model.adopt(host: recorder.host) }
                             } label: {
-                                FoundRecorderRow(recorder: recorder)
+                                FoundRecorderRow(recorder: recorder, inUse: model.inUse(recorder))
                             }
                             .buttonStyle(.plain)
                             .disabled(!model.canChangeRecorder)
@@ -165,6 +166,17 @@ struct SettingsScreen: View {
                          + "レコーダーの録画には影響しません。")
                 }
 
+                Section {
+                    Picker("既定の録画モード", selection: $defaultQuality) {
+                        ForEach(Codes.qualityOrder, id: \.self) { code in
+                            Text(Codes.qualityLabel[code] ?? code).tag(code)
+                        }
+                    }
+                } footer: {
+                    Text("録画予約とおまかせ・まる録の条件を追加するときに、最初に選ばれている録画モードです。"
+                         + "予約するときに変えても、ここは変わりません。")
+                }
+
                 Section("保存されている番組表") {
                     ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
                         let counts = model.counts[broadcasting]
@@ -182,7 +194,7 @@ struct SettingsScreen: View {
                     Button("番組表を更新") {
                         Task { await model.refreshGuide() }
                     }
-                    .disabled(!model.connected || model.busy != nil)
+                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }
 
                 notificationsSection
@@ -266,5 +278,19 @@ struct SettingsScreen: View {
     /// reads that; what they want to know is whether the guide is fresh.
     private static func readable(_ stored: String) -> String {
         RecorderTime.parse(stored).map { Format.when($0) } ?? stored
+    }
+}
+
+/// The recording mode a new reservation and a new keyword condition start at. Chosen here and only here: the
+/// sheets start their own picker from it and leave it alone, where they used to be bound to it, so that
+/// trying a mode on one programme quietly changed the next one's.
+enum DefaultQuality {
+    /// The key the sheets used to write, so a mode picked in an earlier version is where this starts.
+    static let key = "defaultQuality"
+    static let fallback = "LSR"
+
+    static var current: String {
+        let saved = UserDefaults.standard.string(forKey: key) ?? fallback
+        return Codes.qualityOrder.contains(saved) ? saved : fallback
     }
 }

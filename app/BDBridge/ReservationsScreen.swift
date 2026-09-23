@@ -7,13 +7,16 @@ struct ReservationsScreen: View {
     /// The row swiped, by id rather than by value: the reservation itself is read back out of the model
     /// when the dialog asks, so a delete can only ever be sent for a row the list still holds.
     @State private var removing: String?
+    /// The same for a reservation waiting to be sent, read back out of the queue.
+    @State private var removingPending: String?
     @State private var failure: String?
     @State private var opened: Reservation?
 
-    /// One alert does both jobs, because two on the same view is not something SwiftUI promises to honour.
+    /// One alert does every job, because two on the same view is not something SwiftUI promises to honour.
     /// A failure wins: it is the answer to what was just asked.
     private enum Shown {
         case confirm(Reservation)
+        case confirmPending(PendingReservation)
         case failed(String)
     }
 
@@ -22,12 +25,18 @@ struct ReservationsScreen: View {
         if let id = removing, let reservation = model.reservations.first(where: { $0.id == id }) {
             return .confirm(reservation)
         }
+        if let id = removingPending, let waiting = model.pending.first(where: { $0.id == id }) {
+            return .confirmPending(waiting)
+        }
         return nil
     }
 
     private var alertTitle: String {
-        if case .failed = shown { return "エラー" }
-        return "この予約を削除しますか？"
+        switch shown {
+        case .failed: "エラー"
+        case .confirmPending: "送信待ちの予約を削除しますか？"
+        case .confirm, nil: "この予約を削除しますか？"
+        }
     }
 
     var body: some View {
@@ -112,7 +121,7 @@ struct ReservationsScreen: View {
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .alert(alertTitle,
                    isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { removing = nil; failure = nil } }),
+                                        set: { if !$0 { removing = nil; removingPending = nil; failure = nil } }),
                    presenting: shown) { shown in
                 switch shown {
                 case .confirm(let reservation):
@@ -122,6 +131,11 @@ struct ReservationsScreen: View {
                                 failure = model.problem ?? "レコーダーがエラーを返しました"
                             }
                         }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                case .confirmPending(let waiting):
+                    Button("削除する", role: .destructive) {
+                        Task { await model.removePending(waiting) }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
@@ -135,6 +149,9 @@ struct ReservationsScreen: View {
                          + (reservation.createdByRecorder
                             ? "\nこれはおまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                             : ""))
+                case .confirmPending(let waiting):
+                    Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
+                         + "この端末から削除し、レコーダーには送りません。")
                 case .failed(let reason):
                     Text(reason)
                 }
@@ -177,8 +194,10 @@ struct ReservationsScreen: View {
                 Section {
                     ForEach(model.pending) { waiting in
                         PendingRowView(waiting: waiting)
+                            // 削除, as on the reservations below it, and asked first like every other delete:
+                            // the programme's sheet asked before letting one go, and this swipe did not.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("取り消す") { Task { await model.removePending(waiting) } }.tint(.red)
+                                Button("削除") { removingPending = waiting.id }.tint(.red)
                             }
                             // A refused one is not sent again by itself, since the answer would be the same;
                             // the reader is the one who knows when whatever it names has changed.

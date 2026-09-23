@@ -19,7 +19,10 @@ struct WelcomeView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("BD Bridge").font(.largeTitle.bold())
-                        Text("レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
+                        // Which recorders first: somebody with another maker's would otherwise go through the
+                        // steps below and learn it only from a scan that found nothing.
+                        Text("ソニーのブルーレイディスクレコーダー（BDZ シリーズ）用のアプリです。"
+                             + "レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
                              + "まず、お使いのレコーダーを登録しましょう。")
                             .foregroundStyle(.secondary)
                     }
@@ -76,7 +79,7 @@ struct WelcomeView: View {
                     Section("見つかったレコーダー") {
                         ForEach(model.found, id: \.host) { recorder in
                             Button { Task { await take(recorder.host) } } label: {
-                                FoundRecorderRow(recorder: recorder)
+                                FoundRecorderRow(recorder: recorder, inUse: model.inUse(recorder))
                             }
                             .buttonStyle(.plain)
                             .disabled(!model.canChangeRecorder)
@@ -191,28 +194,56 @@ struct AddressNote: View {
     }
 }
 
-/// What a scan came to, under the button in both the tutorial and the settings.
+/// What a scan came to, under the button in both the tutorial and the settings. When it found nothing, the
+/// likely reasons follow, one to a line, for the reader to go down.
 struct ScanOutcomeText: View {
     let outcome: AppModel.ScanOutcome
 
     var body: some View {
-        Text(outcome.text)
-            .font(.callout)
-            .foregroundStyle(outcome.failed ? Color.red : Color.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(outcome.text)
+                .font(.callout)
+                .foregroundStyle(outcome.failed ? Color.red : Color.secondary)
+            if !outcome.causes.isEmpty {
+                Text("考えられる原因").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(outcome.causes, id: \.self) { cause in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("・").accessibilityHidden(true)
+                        Text(cause)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .rowLinesInFull()
     }
 }
 
-/// One recorder the scan turned up, as both the tutorial and the settings list it.
+/// One recorder the scan turned up, as both the tutorial and the settings list it. The one the app is set to
+/// says so: from the settings, a scan finds the recorder already in use as well, and nothing told it apart from
+/// a second one on the same network.
 struct FoundRecorderRow: View {
     let recorder: RecorderDescription
+    var inUse = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(recorder.product).font(.subheadline)
-            Text("\(recorder.host) · \(recorder.friendlyName)" + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(recorder.product).font(.subheadline)
+                Text("\(recorder.host) · \(recorder.friendlyName)"
+                     + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if inUse {
+                Spacer()
+                Label("使用中", systemImage: "checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+            }
         }
         .rowHitArea()
+        .accessibilityAddTraits(inUse ? .isSelected : [])
     }
 }

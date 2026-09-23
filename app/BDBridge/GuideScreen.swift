@@ -120,7 +120,9 @@ struct GuideScreen: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("番組表を更新")
-                    .disabled(!model.connected || model.busy != nil)
+                    // Not for a model that has no guide to give, which the empty guide says in so many words:
+                    // a button left alive beside that looked like the way to put it right.
+                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }

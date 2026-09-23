@@ -101,9 +101,7 @@ struct RecordingsScreen: View {
                 if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
             }
             .sheet(item: $opened) { TitleSheet(title: $0) }
-            .sheet(item: $openedGroup) { group in
-                GroupSheet(group: group) { opened = $0 }
-            }
+            .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             .alert(shownTitle,
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { removing = nil; failure = nil } }),
@@ -325,10 +323,12 @@ struct GroupRowView: View {
 /// One programme's recordings, with the selection that bulk work needs.
 struct GroupSheet: View {
     let group: TitleGroup
-    let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
+    /// The episode opened, in a sheet over this one. It was handed to the screen underneath, which meant
+    /// closing this sheet to open it: back from one episode, the reader was on the list of programmes and had
+    /// to find the programme again for the next.
+    @State private var opened: RecordedTitle?
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmingDelete = false
@@ -394,6 +394,7 @@ struct GroupSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
+            .sheet(item: $opened) { TitleSheet(title: $0) }
             .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { confirmingDelete = false; removing = nil
@@ -446,8 +447,7 @@ struct GroupSheet: View {
                 if selecting {
                     toggle(title)
                 } else {
-                    dismiss()
-                    onOpen(title)
+                    opened = title
                 }
             } label: {
                 HStack(spacing: 10) {

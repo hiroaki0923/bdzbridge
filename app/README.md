@@ -52,7 +52,11 @@ keeps the recorder chosen rather than the one from before (`AppModel.adopt`). `B
 is there to keep both true. The demo's dramas list an invented cast in their details, the same two names a
 recording's text gives, so the search by a name can be tried without a recorder; the same tests do. They
 also read the guide's list at an accessibility text size, where the time goes above the title and the line
-under it wraps as one text.
+under it wraps as one text. The demo's automatic reservations carry the recorder's own creator id, 1100, so
+the list marks them おまかせ, and one reservation marked 重複 has another at the same hours for its sheet to
+name. The tests pin the guide's broadcasting type and the two sort orders with launch arguments
+(`-guideBroadcasting td -reservationSort time -recordingsSort newest`), since the app keeps them between
+launches and a test that switched to CS would otherwise start the next one there.
 
 ## On a real iPhone
 
@@ -150,6 +154,13 @@ not woken, since no magic packet could leave the phone either; the app says what
 it is put back. The simulator has no local network permission, so all of this is still to be seen working
 on an iPhone.
 
+The recorders found stay in the order they answered, the scan's end adding only what had not arrived yet,
+and the one the app is set to -- by address, or by UDN once the router has moved it -- is marked 使用中. A
+scan that finds nothing lists the likely reasons: a recorder left off long enough to leave the network, an
+iPhone on a guest network, a recorder not on the network at all, and a recorder that is not one of Sony's BDZ
+series, which the tutorial also says at its top. It does not say that a recorder in standby cannot be found:
+one in network standby answers.
+
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
 into the on-device cache, browsing a day's programmes as a list or as a time-by-channel grid with the station
 logos and genres, opening a programme, and listing the reservations the recorder holds. Verified against a
@@ -164,10 +175,19 @@ The grid mirrors the web app's: an hour ruler down the left and the channel name
 colours, the elapsed part of what is on air shaded up to a red line at the current time, and a time axis
 that pinches. Today opens at the current time, and pinching keeps the hour under the fingers where it is.
 
-A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder what the
-new reservation would clash with, and creates it behind a confirmation. Reserved programmes are tinted and
-labelled in both views. A reservation can be undone from any of the three places it shows up: swiped in the
-list, from the reservation sheet the list opens, or from the guide's own sheet.
+A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder which
+reservations share its hours (時間が重なる予約, not 重複: the recorder has more than one tuner, so hours in
+common do not by themselves mean a programme will be missed), and creates it behind a confirmation. The mode
+starts at 既定の録画モード in the settings, and choosing another on the sheet is for that reservation only;
+the keyword conditions start from the same setting. Reserved programmes are tinted and labelled in both
+views. A reservation can be deleted from any of the three places it shows up: swiped in the list, from the
+reservation sheet the list opens, or from the guide's own sheet. It is 削除 in all three, as it is for a
+reservation waiting to be sent, and each asks first. A reservation the recorder marks 重複 names, on its
+sheet, the other reservations at the same hours, since the recorder does not say which one it clashes with.
+
+The guide's broadcasting type and the orders of the reservations and the recordings are kept between
+launches. The filters -- genre, watch state, kind of reservation -- are not: a list opened narrowed, with only
+a filled-in icon to say so, reads as recordings or reservations gone missing.
 
 Creating and deleting have both been done against a real BDZ-FBT4100 from the app and the recorder followed
 along, 42 reservations before and 42 after.
@@ -240,6 +260,7 @@ one episode within the guide's eight days looks the same and is left unticked to
 A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,
 and it lives outside the sheet that started it: closing the sheet neither stops it nor hides the stop button.
+An episode opened from a programme's recordings comes up over them, and closing it goes back to them.
 
 Waking the recorder, without being asked to: a BDZ-FBT4100 leaves the LAN on its own after a while and
 then answers nothing at all, which is below the network standby that `X_PowerControl` can reach. A magic
@@ -312,7 +333,7 @@ skipped, so flicking between apps does not send a packet each time.
 
 The guide is on the phone and the recorder is not, so a reservation made away from home has nowhere to go.
 It is kept instead: the programme, the quality and the repeat exactly as asked for, in the phone's own
-database, and shown on the reservations tab under 送信待ち where it can be cancelled. The next time the
+database, and shown on the reservations tab under 送信待ち where it can be deleted. The next time the
 recorder answers -- a launch at home, a pull on the reservations list, the overnight refresh -- what is
 waiting is sent, by one set of rules in `RecorderKit/PendingQueue.swift` that the screens and the overnight
 run share. A programme that has already finished is dropped rather than sent; one that is
@@ -323,7 +344,7 @@ on the programme's sheet; a 503 or an answer with no code says nothing about the
 is simply sent again next time. (The client itself sends a request answered 503 twice more, half a second to
 a second apart, before it gives up on it.) Only one flush runs at a time in the app, whoever asks, so the
 screens and the overnight run cannot both send the same reservation. The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
-sheet offers to send it again or cancel it rather than the reservation form. What became of the queue is
+sheet offers to send it again or delete it rather than the reservation form. What became of the queue is
 said in one line at the top of the screen when the app sent it, and in a notification when the overnight
 run did.
 

@@ -148,7 +148,8 @@ struct RecorderRuleSheet: View {
     @State private var genreLevel2 = -1   // -1: the whole level-1 genre
     @State private var broadcastingScope = "ALL"
     @State private var timeScope = "ALL"
-    @AppStorage("defaultQuality") private var quality = "LSR"
+    /// From the settings, and not written back: see `ProgramSheet.quality`.
+    @State private var quality = DefaultQuality.current
     @State private var failure: String?
 
     /// A row of the list needs an identity of its own; the text alone would reorder rows as it is typed.

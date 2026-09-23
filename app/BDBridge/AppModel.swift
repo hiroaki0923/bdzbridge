@@ -19,15 +19,28 @@ final class AppModel {
     /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
     /// so one chosen on another left the list empty, pointing at the refresh button as though the guide were
     /// missing, and the channel menu no longer named what it was narrowed to.
+    ///
+    /// Kept across launches, as the two orders below are: somebody who reads the BS guide found terrestrial
+    /// back every time the app started. The filters are not kept -- a list opened narrowed to a genre, a watch
+    /// state or one kind of reservation, with nothing but a filled-in icon to say so, reads as recordings or
+    /// reservations gone missing. A launch argument for any of the three keys pins it, which is how the UI
+    /// tests start from the same screen.
     var broadcasting = "td" {
-        didSet { if broadcasting != oldValue { serviceFilter = nil } }
+        didSet {
+            if broadcasting != oldValue { serviceFilter = nil }
+            UserDefaults.standard.set(broadcasting, forKey: Self.broadcastingKey)
+        }
     }
     var day: Date
-    var reservationSort = ReservationSort.time
+    var reservationSort = ReservationSort.time {
+        didSet { UserDefaults.standard.set(reservationSort.rawValue, forKey: Self.reservationSortKey) }
+    }
     var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
-    var titleSort = TitleSort.newest
+    var titleSort = TitleSort.newest {
+        didSet { UserDefaults.standard.set(titleSort.rawValue, forKey: Self.titleSortKey) }
+    }
     var serviceFilter: Int?
 
     private(set) var info: RecorderDescription?
@@ -132,6 +145,9 @@ final class AppModel {
     private static let macKey = "recorderMac"
     /// The address the recorder was at when it reported the MAC. See `macWasReadHere`.
     private static let macHostKey = "recorderMacHost"
+    private static let broadcastingKey = "guideBroadcasting"
+    private static let reservationSortKey = "reservationSort"
+    private static let titleSortKey = "recordingsSort"
 
     init() {
         demo = DemoData.on
@@ -139,6 +155,18 @@ final class AppModel {
         self.days = days
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         mac = UserDefaults.standard.string(forKey: Self.macKey)
+        // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
+        // left for the defaults above.
+        let defaults = UserDefaults.standard
+        if let saved = defaults.string(forKey: Self.broadcastingKey), GuideRefresh.broadcastingTypes.contains(saved) {
+            broadcasting = saved
+        }
+        if let saved = defaults.string(forKey: Self.reservationSortKey).flatMap(ReservationSort.init(rawValue:)) {
+            reservationSort = saved
+        }
+        if let saved = defaults.string(forKey: Self.titleSortKey).flatMap(TitleSort.init(rawValue:)) {
+            titleSort = saved
+        }
         // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
         // whether a recorder is set, and it looks before `start()` has run.
         if DemoData.on { host = DemoData.host; mac = DemoData.mac }
@@ -456,10 +484,25 @@ final class AppModel {
             }
         })
         guard scanRun == run, !Task.isCancelled else { return }
-        found = result
+        // The list stays in the order the recorders answered, which is the order the reader has been looking
+        // at while the scan ran. Taking the scan's own list here put it in the order of the addresses as text
+        // -- .100 before .63 -- and moved the row under a finger about to tap it. Anything the scan found whose
+        // row has not arrived yet goes at the end.
+        for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
+            found.append(recorder)
+        }
         scanning = nil
         scanTask = nil
-        report(result.isEmpty ? .nothing : .found(result.count))
+        report(found.isEmpty ? .nothing : .found(found.count))
+    }
+
+    /// Whether a recorder a scan found is the one the app is set to. By its UDN as well as its address, so
+    /// that it is marked once the router has moved it and before the app has followed.
+    func inUse(_ recorder: RecorderDescription) -> Bool {
+        guard !demo else { return false }
+        if recorder.host == host { return true }
+        guard let info, !info.udn.isEmpty else { return false }
+        return recorder.udn == info.udn
     }
 
     /// Puts the outcome under the button, and says it aloud as well: the words appear below where a
@@ -477,10 +520,26 @@ final class AppModel {
         var text: String {
             switch self {
             case .found(let count): "レコーダーが \(count) 台見つかりました"
-            case .nothing: "レコーダーが見つかりませんでした。レコーダーの電源が入っていて、"
-                + "iPhone と同じ Wi-Fi につながっているか確認してください。"
+            case .nothing: "レコーダーが見つかりませんでした"
             case .noWiFi: "Wi-Fi に接続されていません。レコーダーと同じ Wi-Fi につないでから、もう一度お試しください。"
             }
+        }
+
+        /// What usually lies behind finding nothing, for the reader to go through. A single line asking them
+        /// to check the power and the Wi-Fi left out the two causes nobody would think of: a guest network,
+        /// and a recorder that is not one of Sony's BDZ series.
+        ///
+        /// Nothing here says a recorder in standby cannot be found. It answers in network standby; what goes
+        /// silent is one left off a while, which leaves the network (`docs/porting.md`).
+        var causes: [String] {
+            guard self == .nothing else { return [] }
+            return [
+                "レコーダーがネットワークから外れている。電源を切ってしばらくたつと外れることがあるので、"
+                    + "電源を入れてから探し直してください。",
+                "iPhone が、ゲスト用の Wi-Fi など、レコーダーとは別のネットワークにつながっている。",
+                "レコーダーがネットワークにつながっていない。レコーダー本体のネットワーク設定で確認できます。",
+                "ソニーの BDZ シリーズ以外のレコーダー。このアプリは BDZ シリーズ専用です。",
+            ]
         }
 
         var failed: Bool {
@@ -1656,6 +1715,17 @@ final class AppModel {
     func reservation(for program: GuideProgramRow) -> Reservation? {
         guard let key = Self.key(program) else { return nil }
         return reservationsByProgram[key]
+    }
+
+    /// The other reservations whose hours overlap this one's, soonest first, for a reservation the recorder
+    /// marks 重複. The recorder says that something clashes but not with what, and the sheet said only
+    /// 他の予約と重複しています, leaving the reader to go through the list by the clock. The sheet names them
+    /// as reservations at the same time rather than as the clash itself: the recorder has more than one tuner,
+    /// so hours in common are not by themselves what it is complaining about.
+    func overlapping(_ reservation: Reservation) -> [Reservation] {
+        reservations
+            .filter { $0.id != reservation.id && $0.start < reservation.end && reservation.start < $0.end }
+            .sorted { $0.start < $1.start }
     }
 
     /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,

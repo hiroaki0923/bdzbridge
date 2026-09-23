@@ -8,7 +8,10 @@ struct ProgramSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage("defaultQuality") private var quality = "LSR"
+    /// Starts at the mode chosen in the settings, and choosing another here is for this reservation only. It
+    /// was the setting itself, so a mode picked once for one long film became every reservation's after it,
+    /// and the keyword conditions' too, without anything saying so.
+    @State private var quality = DefaultQuality.current
     @State private var repeating = "none"
     @State private var conflicts: [Reservation]?
     @State private var checking = false
@@ -67,7 +70,7 @@ struct ProgramSheet: View {
                         if !reservation.recording {
                             Button("予約を変更する") { editing = reservation }
                         }
-                        Button("予約を取り消す", role: .destructive) { ask = .cancel(reservation) }
+                        Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
                             .disabled(model.busy != nil)
                     }
                 }
@@ -132,14 +135,14 @@ struct ProgramSheet: View {
                         }
                     }
                 case .cancel(let reservation):
-                    Button("取り消す", role: .destructive) {
+                    Button("削除する", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
                             if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
                         }
                     }
                 case .cancelPending(let waiting):
-                    Button("取り消す", role: .destructive) {
+                    Button("削除する", role: .destructive) {
                         Task {
                             await model.removePending(waiting)
                             done = true
@@ -173,17 +176,19 @@ struct ProgramSheet: View {
                 case .queued:
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "レコーダーに届かなかったので、予約を端末に保存しました。"
-                         + "次にレコーダーにつながったときに登録します。予約タブで取り消せます。")
+                         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。")
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
         }
     }
 
+    /// 削除 throughout, as in the rest of the app. 取り消す put two words for going back on something side by
+    /// side in one dialog, 取り消す for the reservation and キャンセル for the dialog.
     private var askTitle: String {
         switch ask {
-        case .cancel: "この予約を取り消しますか？"
-        case .cancelPending: "送信待ちの予約を取り消しますか？"
+        case .cancel: "この予約を削除しますか？"
+        case .cancelPending: "送信待ちの予約を削除しますか？"
         case .failed: "エラー"
         case .queued: "送信待ちにしました"
         case .reserve: model.offline ? "この番組を送信待ちにしますか？" : "この番組を録画予約しますか？"
@@ -214,22 +219,29 @@ struct ProgramSheet: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }
-            Button("送信待ちを取り消す", role: .destructive) { ask = .cancelPending(waiting) }
+            Button("送信待ちの予約を削除", role: .destructive) { ask = .cancelPending(waiting) }
         }
     }
 
+    /// What the recorder answers when asked what a new reservation would clash with: the reservations whose
+    /// hours it shares (`docs/xsrs-api.md`). Said as that rather than as 重複, the mark the recorder puts on a
+    /// reservation in its list: it has more than one tuner, so hours in common do not by themselves mean
+    /// anything will be missed.
     @ViewBuilder
     private var conflictRow: some View {
         if checking {
-            HStack { ProgressView().controlSize(.small); Text("重複を確認中").foregroundStyle(.secondary) }
+            HStack {
+                ProgressView().controlSize(.small)
+                Text("時間が重なる予約を確認中").foregroundStyle(.secondary)
+            }
         } else if let conflicts {
             if conflicts.isEmpty {
-                Label("重複する予約はありません", systemImage: "checkmark.circle")
+                Label("時間が重なる予約はありません", systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("\(conflicts.count) 件の予約と重複します", systemImage: "exclamationmark.triangle")
+                    Label("時間が重なる予約が \(conflicts.count) 件あります", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(Color.legibleOrange)
                         .font(.callout)
                     ForEach(conflicts) { conflict in

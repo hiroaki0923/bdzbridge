@@ -68,7 +68,7 @@ struct ReservationSheet: View {
                 if reservation.recording || reservation.conflict || reservation.createdByRecorder {
                     Section {
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
-                        if reservation.conflict { Text("他の予約と重複しています").foregroundStyle(Color.legibleOrange) }
+                        if reservation.conflict { conflictRow }
                         if reservation.createdByRecorder {
                             Text("おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                                  + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。")
@@ -101,8 +101,11 @@ struct ReservationSheet: View {
                     }
                 }
 
+                // 削除, the word the list's swipe and every other delete in the app use. 取り消す here put
+                // 取り消す beside キャンセル in the dialog, two words for going back on something, one of them
+                // meaning the reservation and the other the dialog.
                 Section {
-                    Button("予約を取り消す", role: .destructive) { confirming = true }
+                    Button("予約を削除", role: .destructive) { confirming = true }
                         .disabled(model.busy != nil)
                 }
 
@@ -121,11 +124,11 @@ struct ReservationSheet: View {
             .onChange(of: saved) { if $1 { dismiss() } }
             // One alert, because two on the same view is not something SwiftUI promises to honour, and
             // asking and reporting never happen at once. The red line further up the sheet was missed.
-            .alert(failure == nil ? "この予約を取り消しますか？" : "エラー",
+            .alert(failure == nil ? "この予約を削除しますか？" : "エラー",
                    isPresented: Binding(get: { confirming || failure != nil },
                                         set: { if !$0 { confirming = false; failure = nil } })) {
                 if failure == nil {
-                    Button("取り消す", role: .destructive) {
+                    Button("削除する", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
                             if !done { failure = model.problem ?? "レコーダーがエラーを返しました" }
@@ -148,5 +151,28 @@ struct ReservationSheet: View {
             }
             .onChange(of: done) { if $1 { dismiss() } }
         }
+    }
+
+    /// The recorder's 重複, and the reservations at the same hours, by when, where and what: the recorder does
+    /// not say which one it clashes with. See `AppModel.overlapping`.
+    private var conflictRow: some View {
+        let others = model.overlapping(reservation)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("他の予約と重複しています").foregroundStyle(Color.legibleOrange)
+            if others.isEmpty {
+                Text("読み込んだ予約一覧には、時間が重なる予約がありません")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("時間が重なる予約").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(others) { other in
+                    Text("\(Format.dateTime.string(from: other.start))〜\(Format.time.string(from: other.end))"
+                         + "　\(model.channelName(for: other))　\(other.title)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .rowLinesInFull()
     }
 }

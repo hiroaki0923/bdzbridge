@@ -5,7 +5,7 @@ import XCTest
 /// database, ending the demo deletes it and puts the previous recorder back, and choosing a recorder from
 /// inside the demo ends it too and keeps the one chosen. Its invented guide is also what a screen that needs
 /// a guide is tried against, as the search by a name in the cast, the channel settings and the guide's list
-/// at a large text size are below.
+/// at a large text size are below, and its reservations and recordings what the sheets opened from them are.
 final class DemoModeTests: XCTestCase {
     private static let demoHost = "192.0.2.63"
     private static let demoMac = "f8:4e:17:00:00:00"
@@ -177,7 +177,120 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// The recorder marks a reservation 重複 without saying what with, and its sheet now names the
+    /// reservations at the same hours. The demo's おまかせ reservations carry the recorder's own creator id,
+    /// so the list marks them, and deleting is called 削除 on the sheet as it is in the list.
+    func testAReservationMarkedAsClashingNamesTheOnesAtTheSameTime() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["予約"].tap()
+        XCTAssertTrue(app.staticTexts["おまかせ"].waitForExistence(timeout: 20),
+                      "the recorder's own reservations were not marked おまかせ")
+        let clashing = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "ひなたスポーツ特集"))
+            .firstMatch
+        scroll(app, to: clashing)
+        clashing.tap()
+
+        XCTAssertTrue(app.staticTexts["時間が重なる予約"].waitForExistence(timeout: 10),
+                      "the sheet did not list the reservations at the same time")
+        let named = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+                                                         "サンプル放送　みほんスポーツ中継「サンプルリーグ」"))
+        XCTAssertTrue(named.firstMatch.exists, "the reservation at the same time was not named")
+        let delete = app.buttons["予約を削除"]
+        scroll(app, to: delete)
+        XCTAssertTrue(delete.exists, "the sheet did not offer 予約を削除")
+
+        app.buttons["閉じる"].firstMatch.tap()
+        endTheDemo(app)
+    }
+
+    /// An episode opened from a programme's recordings comes up over them, and closing it goes back to them
+    /// rather than to the list of programmes, where the programme had to be found again for the next one.
+    func testAnEpisodeOpensOverItsProgrammeAndClosesBackToIt() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["録画"].tap()
+        let mode = app.buttons["表示を変える"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
+        mode.tap()
+        let groups = app.buttons["まとめ"]
+        XCTAssertTrue(groups.waitForExistence(timeout: 10), "the menu did not offer まとめ")
+        groups.tap()
+
+        let programme = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "ひかりの街")).firstMatch
+        XCTAssertTrue(programme.waitForExistence(timeout: 20), "the programmes did not list the drama")
+        programme.tap()
+        let select = app.buttons["選択"]
+        XCTAssertTrue(select.waitForExistence(timeout: 10), "the programme's sheet did not open")
+
+        let episode = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "第４話")).firstMatch
+        XCTAssertTrue(episode.waitForExistence(timeout: 10), "the programme's sheet did not list the episode")
+        episode.tap()
+        let recording = app.navigationBars["録画"]
+        XCTAssertTrue(recording.waitForExistence(timeout: 10), "the episode did not open")
+        recording.buttons["閉じる"].tap()
+
+        XCTAssertTrue(select.waitForExistence(timeout: 10), "closing the episode closed its programme too")
+        XCTAssertTrue(episode.exists, "the programme's episodes were gone")
+
+        app.buttons["閉じる"].firstMatch.tap()
+        endTheDemo(app)
+    }
+
+    /// The mode a new reservation starts at is the one in the settings, and choosing another on a programme
+    /// is for that reservation only. The sheet used to be bound to the setting, so trying a mode changed it.
+    func testChoosingAModeOnAProgrammeLeavesTheDefaultAlone() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["設定"].tap()
+        let setting = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "既定の録画モード")).firstMatch
+        scroll(app, to: setting)
+        XCTAssertTrue(setting.exists, "the settings had no default recording mode")
+        setting.tap()
+        let dr = app.buttons["DR(高画質)"]
+        XCTAssertTrue(dr.waitForExistence(timeout: 10), "the default mode offered no DR")
+        dr.tap()
+        XCTAssertTrue(says(setting, "DR(高画質)"), "the default was \(setting.debugDescription)")
+
+        // A programme's sheet starts at it, and another mode chosen there stays there.
+        app.tabBars.buttons["検索"].tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("遠い灯台")
+        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "遠い灯台")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 20), "the search found nothing")
+        result.tap()
+        let picker = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "録画モード")).firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 20), "the programme's sheet had no mode")
+        XCTAssertTrue(says(picker, "DR(高画質)"), "the sheet started at \(picker.debugDescription)")
+        picker.tap()
+        let eer = app.buttons["EER(長時間)"]
+        XCTAssertTrue(eer.waitForExistence(timeout: 10), "the sheet's mode offered no EER")
+        eer.tap()
+        XCTAssertTrue(says(picker, "EER(長時間)"), "the sheet's mode was \(picker.debugDescription)")
+        app.navigationBars["番組"].buttons["閉じる"].tap()
+
+        // Opened again, it starts from the default, which the choice above has not touched. Asked here rather
+        // than on the settings screen: the tab bar is under the search's keyboard.
+        result.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 20), "the programme's sheet did not open again")
+        XCTAssertTrue(says(picker, "DR(高画質)"), "choosing on the programme changed the default: "
+                      + picker.debugDescription)
+        app.navigationBars["番組"].buttons["閉じる"].tap()
+
+        endTheDemo(app)
+    }
+
     // MARK: - steps
+
+    /// Whether a picker's row shows this choice, which it gives as its label or as its value.
+    private func says(_ picker: XCUIElement, _ choice: String) -> Bool {
+        picker.label.contains(choice) || (picker.value as? String)?.contains(choice) == true
+    }
 
     /// The line under a programme's title in the guide's list, by the channel it starts with. It is one text
     /// with the marks and the genre, so the channel's name is not a text of its own there.
@@ -199,11 +312,13 @@ final class DemoModeTests: XCTestCase {
 
     /// No recorder and no MAC, so the tutorial is the first thing up. `-demoData` is deliberately not passed:
     /// the argument domain outranks what the app writes, and the app has to be able to turn the demo on
-    /// itself.
+    /// itself. The broadcasting type and the orders are pinned, since the app keeps them between launches and
+    /// a test that switched to CS would otherwise start the next one there.
     /// `textSize` is a content size category's name, for the reader's text size.
     private func launchWithoutARecorder(textSize: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-recorderHost", "", "-recorderMac", "", "-startTab", "guide", "-guideMode", "list"]
+            + ScreenshotTests.pinned
             + (textSize.map { ["-UIPreferredContentSizeCategoryName", $0] } ?? [])
         app.launch()
         // A previous run on this simulator may have left the demo on. The tutorial comes up only at launch,
