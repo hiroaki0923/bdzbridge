@@ -213,7 +213,7 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 | 放送 | `broadcastTypeScope` | `ALL` / `TRD` / `BSD` / `CSD` / `ADVBSD` / `ADVCSD`。詳細設定に入る前に選ぶ |
 | 対象チャンネル | `presetID`（複数可） | **この機種は返しません。** 下記 |
 | 録画モード(地上/BS/CS) | `desiredQualityMode` | `object` 直下。上の録画モード表と同じ値 |
-| 録画モード(BS4K/CS4K) | `desiredQualityModeForAdvanced` | 同じ。送らなければ `100`（DR）で埋まる |
+| 録画モード(BS4K/CS4K) | `desiredQualityModeForAdvanced` | 同じ。送らなければ `100`（DR）で埋まるので、`ALL` の条件では両方に入れる |
 | 録画先 | `recordDestinationID` | `object` 直下 |
 
 本体の「時間帯」は任意の範囲ではなく、次の 5 つから選ぶものでした（境界は画面の表記のまま。意図的に重なって
@@ -256,6 +256,10 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 </xsrs>
 ```
 
+これは `ALL` の条件に録画モードを 1 つだけ送ったもので、4K 側は `100`（DR）になりました（下記）。実装は `ALL` では
+`desiredQualityMode` の直後に `desiredQualityModeForAdvanced` を置き、同じ値を入れて送ります。知らない放送波も
+`ALL` になるので（上記）、同じく両方に入れます。
+
 書き込みで分かったこと。
 
 - **変更は id を振り直します。** `X_UpdatePrefRecSetting` の応答に**新しい** `SearchSettingID` が入って返って
@@ -273,6 +277,10 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 - **送るときも条件が含む側に入れること。** `ADVCSD` の条件に `desiredQualityMode` で 220 を送ったら捨てられ、
   4K 側が既定の `100`（DR）になりました。`desiredQualityModeForAdvanced` に 220 や 230 を入れれば保持されます
   （4K が DR 固定ということはありません）。`ALL` の条件では両方送れて、片方だけ送ると 4K 側は `100` になります。
+  **`ALL` では両方に同じ値を入れること。** `desiredQualityMode` だけだと、LSR で作ったつもりの条件でも BS4K・CS4K
+  の番組は DR で録られ、容量を思った以上に使います。一覧の `desiredQualityModeForAdvanced` を見れば、そうして
+  作られた条件を見分けられます。4K 側に入れて保持を確かめた値は 220 と 230 だけで、240（LSR）以降が同じように
+  通るかは未確認です。
 - **要素の順序は送ったとおりに保たれます。** 本体で作った条件は `genreID` が `keyword` より前でしたが、
   こちらが後ろで送ったものはそのまま後ろで返ってきました。順序は受理の条件ではないようです。
 

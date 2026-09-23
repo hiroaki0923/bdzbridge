@@ -195,7 +195,7 @@
      "recorder"
     ],
     "summary": "Epg Refresh",
-    "description": "Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards.",
+    "description": "Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards. A recorder that has left the network is woken first when its MAC is known, and 503 means it did not answer even then.",
     "operationId": "epg_refresh_api_v1_epg_refresh_post",
     "responses": {
      "200": {
@@ -3129,7 +3129,7 @@
        }
       ],
       "title": "Quality 4K",
-      "description": "録画モード(BS4K/CS4K), filled in by the recorder"
+      "description": "録画モード(BS4K/CS4K); DR when the condition was made without one"
      },
      "destination": {
       "type": "string",
@@ -3245,7 +3245,8 @@
         "type": "null"
        }
       ],
-      "title": "Quality"
+      "title": "Quality",
+      "description": "the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, which the recorder would otherwise record in DR"
      }
     },
     "type": "object",

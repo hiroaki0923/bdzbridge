@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 import httpx
 
 from bdzbridge.recorder.client import RecorderClient
-from bdzbridge.recorder.epg import JST
+from bdzbridge.recorder.epg import JST, Program, Service
 from tests.conftest import (
+    SUMMARY,
     H,
     make_title,
     wait_job,
@@ -18,7 +19,7 @@ def test_titles_and_detail(client):
     ts = client.get("/api/v1/titles", headers=H).json()
     assert ts[0]["dlna_id"] == "V_216440" and ts[0]["is_new"]
     d = client.get("/api/v1/titles/0x0000010000034d78", headers=H).json()
-    assert d["summary"] == "あらすじ" and d["details"] == ["番組内容 本文"] and d["id"] == "0x0000010000034d78"
+    assert d["summary"] == SUMMARY and d["details"] == ["番組内容 本文"] and d["id"] == "0x0000010000034d78"
 
 def test_dlna_id_names_the_disk_the_title_lives_on():
     assert RecorderClient.cds_id("0x0000010000034d78") == "V_216440"
@@ -80,7 +81,7 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert s["confidence"] == "high" and [i["id"] for i in s["items"]] == ["0x0000010000034d7b", "0x0000010000034d78"]  # broadcast order
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
-    assert client.bridge.store.title_summary("0x0000010000034d78") == "あらすじ"
+    assert client.bridge.store.title_summary("0x0000010000034d78") == SUMMARY
 
 def test_bulk_protect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"], "protected": True})
@@ -118,6 +119,34 @@ def test_duplicates_keep_protected_partway_and_better_quality(client):
     c = sets["ドラマＣ"]
     assert c["keep"] == "0xc2" and c["reasons"]["0xc2"] == "高画質" and c["reasons"]["0xc1"] == "低画質" and c["confidence"] == "low"
     from bdzbridge.recorder.xsrs import RecordedTitle  # noqa: F401
+
+def test_a_text_the_programme_carries_every_time_does_not_confirm_a_copy(client):
+    x = client.bridge.recorder.xsrs
+    t0 = datetime(2026, 9, 1, 6, 0, tzinfo=JST)
+    daily = "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。"
+    night = "深夜に届ける架空のサンプル番組、今夜のテーマは旅と音楽。"
+    x.extra_titles = [
+        make_title("0xa1", "サンプル体操", t0, duration=180), make_title("0xa2", "サンプル体操[字]", t0 + timedelta(days=1), duration=180),
+        make_title("0xb1", "ミニアニメ　サンプルくん", t0, duration=300), make_title("0xb2", "ミニアニメ　サンプルくん", t0 + timedelta(days=2), duration=300),
+        make_title("0xc1", "深夜のサンプル", t0), make_title("0xc2", "深夜のサンプル", t0 + timedelta(days=7)),
+    ]
+    x.summaries = {"0xa1": daily, "0xa2": daily, "0xb1": "サンプルくんの毎日。", "0xb2": "サンプルくんの毎日。",
+                   "0xc1": night, "0xc2": night}
+    day = datetime(2026, 9, 14, 6, 0, tzinfo=JST)
+    client.bridge.store.replace_services("bs", [Service(101, "ＢＳサンプル", [
+        # the same text on two mornings: the programme's own, not an episode's
+        Program(101, 1, day, day + timedelta(minutes=3), "サンプル体操[字]", daily, ""),
+        Program(101, 2, day + timedelta(days=1), day + timedelta(days=1, minutes=3), "サンプル体操", daily, ""),
+        # twice in one night, either side of midnight: one broadcast day, so it says nothing of the kind
+        Program(101, 3, day.replace(hour=23, minute=30), day.replace(hour=23, minute=59), "深夜のサンプル", night, ""),
+        Program(101, 4, day + timedelta(hours=19, minutes=30), day + timedelta(hours=20), "深夜のサンプル", night, ""),
+    ])])
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    confidence = {s["items"][0]["id"][:3]: s["confidence"] for s in r["result"]["sets"]}
+    assert confidence["0xa"] == "boilerplate"  # the guide repeats it
+    assert confidence["0xb"] == "boilerplate"  # under twenty characters
+    assert confidence["0xc"] == "high"
+    assert confidence["0x0"] == "high"  # the fake recorder's own pair, whose title the guide does not have
 
 def test_bulk_unprotect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d79", "0x0000010000034d78"], "protected": False}).json()

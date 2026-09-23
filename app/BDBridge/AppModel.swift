@@ -2,6 +2,7 @@ import Foundation
 import Network
 import RecorderKit
 import SwiftUI
+import UserNotifications
 
 /// Everything the screens share: which recorder we talk to, the guide cache, and what is on screen now.
 ///
@@ -10,21 +11,42 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppModel {
-    /// The recorder's address on the LAN. Discovery by scanning comes later; for now it is typed in.
+    /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
+    /// has moved it since (`findMovedRecorder`).
     var host: String {
-        didSet { UserDefaults.standard.set(host, forKey: Self.hostKey) }
+        didSet { defaults.set(host, forKey: DefaultsKey.recorderHost) }
     }
 
-    var broadcasting = "td"
+    /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
+    /// so one chosen on another left the list empty, pointing at the refresh button as though the guide were
+    /// missing, and the channel menu no longer named what it was narrowed to.
+    ///
+    /// Kept across launches, as the two orders below are: somebody who reads the BS guide found terrestrial
+    /// back every time the app started. The filters are not kept -- a list opened narrowed to a genre, a watch
+    /// state or one kind of reservation, with nothing but a filled-in icon to say so, reads as recordings or
+    /// reservations gone missing. A launch argument for any of the three keys pins it, which is how the UI
+    /// tests start from the same screen.
+    var broadcasting = "td" {
+        didSet {
+            if broadcasting != oldValue { serviceFilter = nil }
+            defaults.set(broadcasting, forKey: DefaultsKey.guideBroadcasting)
+        }
+    }
     var day: Date
-    var reservationSort = ReservationSort.time
+    var reservationSort = ReservationSort.time {
+        didSet { defaults.set(reservationSort.rawValue, forKey: DefaultsKey.reservationSort) }
+    }
     var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
-    var titleSort = TitleSort.newest
+    var titleSort = TitleSort.newest {
+        didSet { defaults.set(titleSort.rawValue, forKey: DefaultsKey.recordingsSort) }
+    }
     var serviceFilter: Int?
 
     private(set) var info: RecorderDescription?
+    /// Empty, and `storage` nil, when the recorder would not say. Both are only shown, and another model of
+    /// the series need not give them: see `attach`.
     private(set) var firmware = ""
     private(set) var storage: (free: Int, total: Int)?
     private(set) var counts: [String: GuideCounts] = [:]
@@ -34,7 +56,12 @@ final class AppModel {
     private(set) var channelNames: [String: String] = [:]
     private(set) var channelLogos: [String: Data] = [:]
     private(set) var programs: [GuideProgramRow] = []
-    private(set) var reservations: [Reservation] = []
+    private(set) var reservations: [Reservation] = [] {
+        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled --
+        // taken out of the list by hand, and again after a reload that can be a moment behind the recorder
+        // -- went on being marked 予約 in the guide.
+        didSet { reservationsByProgram = Self.byProgram(reservations) }
+    }
     private(set) var titles: [RecordedTitle] = []
     /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
     private(set) var titlesLoaded = false
@@ -42,10 +69,35 @@ final class AppModel {
     private(set) var reservationsByProgram: [String: Reservation] = [:]
     private(set) var found: [RecorderDescription] = []
     private(set) var scanning: (done: Int, total: Int)?
-    private(set) var busy: String?
-    /// Set while the app is only waiting for the recorder to come back from a magic packet. Nothing is
-    /// being written and nothing is being read, so the screens leave alive what they can: a reservation
-    /// made during these seconds goes to the queue, which is what the queue is for.
+    /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
+    /// which every screen shows as a failure: a scan that found nothing was said at the foot of the
+    /// tutorial, below the fold on most iPhones, and after "あとで設定" the guide showed it as an error.
+    private(set) var scanOutcome: ScanOutcome?
+    /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
+    /// answered no -- so that the screens can say so and offer the Settings app.
+    private(set) var scanBlocked = false
+    /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
+    /// is then waiting for the permission rather than for the recorder; see `watchForAccess`.
+    private(set) var connectBlocked = false
+    /// Either of the two: something the reader wants is waiting on the local network permission.
+    var lanBlocked: Bool { scanBlocked || connectBlocked }
+    /// The scan under way, kept so that leaving the tutorial or turning to the demo can stop it -- above all
+    /// while it waits on the system's question, which could otherwise outlive the screen that asked.
+    private var scanTask: Task<Void, Never>?
+    /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
+    private var scanRun = 0
+    /// Waits for the local network permission after a connect ran into it, and connects when it comes.
+    private var accessWatch: Task<Void, Never>?
+    /// Everything under way with the recorder, each with a line of its own. Work overlaps -- a tab asking
+    /// for its list while another is still loading -- and the client finishes it first come, first served,
+    /// so nothing here can save one shared line and put it back afterwards. See `Activities`.
+    private var activities = Activities()
+    /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
+    var busy: String? { activities.current }
+    /// Set while the app is only waiting for the recorder to come back from a magic packet, or looking for it
+    /// at another address after that (`findMovedRecorder`). Nothing is being written and nothing is being
+    /// read, so the screens leave alive what they can: a reservation made during these seconds goes to the
+    /// queue, which is what the queue is for.
     private(set) var waking = false
     /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
     /// until either the network this device is on changes or the reader asks for it, because the answer
@@ -64,47 +116,89 @@ final class AppModel {
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     private(set) var mac: String?
-
-    /// When the recorder last answered. Coming back to the app checks again, but not on every flick between
-    /// apps: without this a glance at something else and back would send a magic packet each time.
-    private var lastAnswered: Date?
+    /// Where notification permission stands, for the settings to say. Nil until it has been read. The app
+    /// changes it itself -- provisionally after the first connect, with the dialog when a reservation is
+    /// queued -- and the reader can change it in the Settings app, so it is read again after each.
+    private(set) var notifications: UNAuthorizationStatus?
 
     private var store: GuideStore?
     private var client: RecorderClient?
-    private var starting: Task<Void, Never>?
+    /// Opening the cache and reading it, shared by every caller of `start()` and by `connect()`.
+    private var opening: Task<Void, Never>?
+    /// Set once the first connect has been set going, so that it is set going once, however many screens
+    /// call `start()`.
+    private var launched = false
     private var pathMonitor: NWPathMonitor?
     /// Kept for as long as the demo lasts, because it holds what the reader has done to it: a reservation
     /// made in the demo has to still be there after a reconnect.
     private var demoRecorder: DemoRecorder?
     /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
     /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
-    private var connecting = false
+    private(set) var connecting = false
+    /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
+    private var inBackground = false
+    /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
+    private var backInFront: CheckedContinuation<Void, Never>?
+    /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
+    private var stepTask = UIBackgroundTaskIdentifier.invalid
+    /// Where the settings and the database are kept, how requests reach the recorder, and what the model
+    /// does on the network by itself. The app's own everywhere but in the unit tests; see `Surroundings`.
+    private let surroundings: Surroundings
+    private var defaults: UserDefaults { surroundings.defaults }
 
-    private static let hostKey = "recorderHost"
-    private static let macKey = "recorderMac"
-
-    init() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = RecorderTime.timeZone
-        let midnight = calendar.startOfDay(for: Date())
-        days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
-        host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
-        mac = UserDefaults.standard.string(forKey: Self.macKey)
-        // Here rather than in `begin()`: the first screen decides whether to show the tutorial by looking at
-        // whether a recorder is set, and it looks before `begin()` has run.
-        if DemoData.on { host = DemoData.host; mac = DemoData.mac }
+    init(surroundings: Surroundings = .app) {
+        self.surroundings = surroundings
+        let defaults = surroundings.defaults
+        let demo = DemoData.on(in: defaults)
+        self.demo = demo
+        let days = GuideStore.broadcastDays()
+        self.days = days
+        host = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
+        mac = defaults.string(forKey: DefaultsKey.recorderMac)
+        // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
+        // left for the defaults above.
+        if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
+           GuideRefresh.broadcastingTypes.contains(saved) {
+            broadcasting = saved
+        }
+        if let saved = defaults.string(forKey: DefaultsKey.reservationSort).flatMap(ReservationSort.init(rawValue:)) {
+            reservationSort = saved
+        }
+        if let saved = defaults.string(forKey: DefaultsKey.recordingsSort).flatMap(TitleSort.init(rawValue:)) {
+            titleSort = saved
+        }
+        // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
+        // whether a recorder is set, and it looks before `start()` has run.
+        if demo { host = DemoData.host; mac = DemoData.mac }
         day = days.first ?? Date()
     }
 
     var connected: Bool { info != nil }
 
+    /// Bumped each time a connect reaches the recorder (`attach`), which is before it goes on to read the
+    /// reservations and the guide. A count rather than a flag, so that a screen where a recorder has just been
+    /// chosen can tell the answer to that choice from a connection that was already up. See `WelcomeView`.
+    private(set) var timesAttached = 0
+
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
-    var demo: Bool { DemoData.on }
+    ///
+    /// A copy of `DemoData.on` rather than a read of it: that lives in UserDefaults, where no screen sees it
+    /// change, and ending the demo left the strip saying the data was invented -- with a 終了 that did
+    /// nothing -- until something else on the model happened to move.
+    private(set) var demo: Bool
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
     /// one of them, on purpose -- see `waking`.
     var working: Bool { busy != nil && !waking }
+
+    /// Whether the recorder in play may be changed now: into the demo or out of it, or to another address.
+    /// Not while anything is under way with the one in play. A connect or a load carries on with the client
+    /// it started with, and what it reads lands on the screens of whichever recorder came after it -- a real
+    /// recorder's details in the demo. `busy` alone leaves gaps inside a connect, such as the check of the
+    /// local network permission, so `connecting` counts as well. Nor while a bulk job runs: it holds the
+    /// client and the list it started from, and would go on marking rows in a list that is no longer its own.
+    var canChangeRecorder: Bool { busy == nil && !connecting && !jobRunning }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
     /// last ask got silence. Every list guards on it, so that going out of range costs one timeout rather
@@ -112,7 +206,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { LocalNetwork.signature() != triedOn }
+    var networkChanged: Bool { surroundings.networkSignature() != triedOn }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
@@ -120,45 +214,112 @@ final class AppModel {
 
     /// Today, at this minute. Tapping the guide tab while already on it scrolls to the top of the day by
     /// itself, and the top of a broadcast day is four in the morning, which is nobody's idea of home.
+    ///
+    /// The programmes are read again when that changed the day. Moving the day alone put today's date over
+    /// whichever day had been open, and the grid, finding none of it on today, came up empty. The ask to
+    /// go to now waits for them, so that it is answered from the day it names.
     func goToNow() {
+        let before = day
+        followTheClock()
         day = days.first ?? Date()
-        nowRequests += 1
+        guard day != before else {
+            nowRequests += 1
+            return
+        }
+        Task {
+            await reloadFromCache()
+            nowRequests += 1
+        }
     }
 
-    /// Opens the cache, shows what is in it, then connects. Every screen awaits this before asking for
-    /// anything, and only the first caller does the work: two clients at once would mean two conversations
-    /// with a recorder that answers 503 to the second.
+    /// Moves the day strip on when the broadcast day on air is no longer its first. A process the system
+    /// kept alive overnight comes back to the days it worked out the evening before: it opened on
+    /// yesterday, going back to now went to yesterday, and the eighth day was out of reach. The day on screen
+    /// stays if it is still in the strip -- tomorrow, looked at last night, is today now -- and otherwise
+    /// goes to the first.
+    ///
+    /// Asked wherever the reader arrives -- the app starting, coming back to it, going back to now -- because
+    /// nothing says when four in the morning has passed: `significantTimeChangeNotification` comes at
+    /// midnight.
+    ///
+    /// Returns whether `day` moved, since the programmes on screen are then those of a day no longer shown.
+    @discardableResult
+    private func followTheClock() -> Bool {
+        let current = GuideStore.broadcastDays()
+        guard current.first != days.first else { return false }
+        days = current
+        guard !days.contains(day) else { return false }
+        day = days.first ?? day
+        return true
+    }
+
+    /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
+    /// only the first caller does the work.
+    ///
+    /// The first call also sets the first connect going, without waiting for it. Waiting was a deadlock:
+    /// the connect ran inside the task this awaited, and reading the reservations -- which the connect does
+    /// -- awaited this, so the connect waited for itself and the app spun until it was quit. Only a race
+    /// with coming to the foreground, which usually got its own connect in first, kept it from being seen.
+    /// So nothing `connect()` reaches may await this; it uses the `...Now` loads, which do not. Not waiting
+    /// also lets a search, which needs nothing but the cache, answer at once rather than after half a
+    /// minute of waking a recorder that is not there.
     func start() async {
-        if starting == nil { starting = Task { await self.begin() } }
-        await starting?.value
+        // The days were worked out when the model was made, and a process the system started in the night
+        // for the overnight run is still here when the app is opened in the morning.
+        let moved = followTheClock()
+        await openCache()
+        if moved { await reloadFromCache() }
+        guard !launched, store != nil else { return }
+        launched = true
+        Task { await self.connectFirstTime() }
     }
 
-    /// Shows the cached guide before touching the network, so something is on screen at once.
-    private func begin() async {
+    /// Shows the cached guide before touching the network, so something is on screen at once. Safe to
+    /// await from anywhere, `connect()` included, because nothing in it goes near the recorder.
+    private func openCache() async {
+        if opening == nil { opening = Task { await self.readCache() } }
+        await opening?.value
+    }
+
+    private func readCache() async {
         guard store == nil else { return }
         do {
-            store = try GuideStore(path: try Storage.guidePath())
+            store = try GuideStore(path: try guidePath())
             // Invented programmes: for the screenshots, and for anyone without a recorder to hand. See
             // DemoData.
-            if DemoData.on, let store { try? await DemoData.seed(store: store) }
+            if demo, let store { try? await DemoData.seed(store: store) }
             await reloadFromCache()
-            if !host.isEmpty { await connect() }
-            // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
-            // soon as it starts, and that would be a second connect racing the first.
-            watchNetwork()
+            // A guide cached by a build that searched only titles and descriptions is made searchable by its
+            // details here, once, in place: fetching it again would need the recorder. The guide is on
+            // screen by now, and a search made meanwhile waits for this rather than missing the cast.
+            if let store { Task { _ = try? await store.updateSearchText() } }
         } catch {
             problem = "番組表の保存領域を開けませんでした: \(error)"
         }
+    }
+
+    /// The database of whichever recorder is in play, the demo's or a real one's.
+    private func guidePath() throws -> String {
+        Storage.guidePath(demo: demo, in: try surroundings.folder())
+    }
+
+    private func connectFirstTime() async {
+        if !host.isEmpty { await connect() }
+        // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
+        // soon as it starts, and that would be a second connect racing the first.
+        watchNetwork()
     }
 
     /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
     /// than that -- an interface going up on its own account, a route changing -- so the decision is left to
     /// the addresses this device holds, which is what actually says whether the recorder might be nearby.
     private func watchNetwork() {
-        guard pathMonitor == nil else { return }
+        guard pathMonitor == nil, surroundings.reachesTheLAN else { return }
         let monitor = NWPathMonitor()
         pathMonitor = monitor
-        monitor.pathUpdateHandler = { _ in
+        // Weak here as well as in the task: the monitor, which the model holds, keeps this handler, and a
+        // handler that names `self` only inside the task still holds it strongly.
+        monitor.pathUpdateHandler = { [weak self] _ in
             Task { @MainActor [weak self] in await self?.networkChangedWhileOpen() }
         }
         monitor.start(queue: .global(qos: .utility))
@@ -170,8 +331,12 @@ final class AppModel {
     /// recorder on the network, and not everyone has one to hand when they are deciding whether this is
     /// worth setting up -- the reviewer who has to judge it least of all.
     func enterDemo() async {
-        guard !demo else { return }
-        DemoData.turnOn(realHost: host, realMac: mac)
+        guard !demo, canChangeRecorder else { return }
+        // A scan still waiting on the local network question has nothing to do with the invented recorder,
+        // and the demo is exactly the path that must never raise that question.
+        stopScanning()
+        DemoData.turnOn(realHost: host, realMac: mac, in: defaults)
+        demo = true
         await openStore()
         host = DemoData.host
         remember(mac: DemoData.mac)
@@ -181,14 +346,51 @@ final class AppModel {
     /// Puts back whatever was there before, and takes the demo's guide with it: the invented programmes live
     /// in their own database, which is deleted here rather than left to be mistaken for a real one.
     func leaveDemo() async {
-        guard demo else { return }
-        let before = DemoData.turnOff()
-        demoRecorder = nil
-        Storage.removeDemoGuide()
-        host = before.host
-        if let mac = before.mac { remember(mac: mac) } else { forgetMac() }
+        guard demo, canChangeRecorder else { return }
+        host = endDemo()
         await openStore()
         if !host.isEmpty { await connect() }
+    }
+
+    /// Turns the demo off, deletes its guide and puts back the MAC from before it, and hands back the address
+    /// from before it for the caller to go back to or not: leaving the demo does, choosing a recorder from
+    /// inside it does not (see `adopt`). The demo's own MAC is nobody's, so it goes either way.
+    private func endDemo() -> String {
+        let before = DemoData.turnOff(in: defaults)
+        demo = false
+        demoRecorder = nil
+        if let folder = try? surroundings.folder() { Storage.removeDemoGuide(in: folder) }
+        if let mac = before.mac { remember(mac: mac) } else { forgetMac() }
+        return before.host
+    }
+
+    /// Takes the recorder at this address, whichever way the reader chose it: from what a scan found, or by
+    /// typing it in. Everything that sets a recorder on the reader's say-so comes through here.
+    ///
+    /// In the demo this is also the way out of it. Connecting went through the invented recorder whatever
+    /// the address, so choosing a real one left the screens the demo's, said it had connected and closed the
+    /// tutorial; ending the demo afterwards then put back the recorder from before it -- none at all, for
+    /// somebody who tried the demo first -- and the one just chosen was gone. Trying the demo and then
+    /// setting up the real thing is the likeliest way for anyone new to arrive, so the demo ends here, its
+    /// guide with it, and the recorder from before is not put back: the reader has just said which one they
+    /// want. The MAC from before does come back, as it would have stayed had the address been typed outside
+    /// the demo; `macWasReadHere` keeps it from sending the search after the wrong recorder, and the new one's
+    /// own replaces it as soon as it answers.
+    func adopt(host chosen: String) async {
+        guard canChangeRecorder else { return }
+        // The reader has chosen, so the rest of the subnet no longer matters -- and a scan left running would
+        // put the list back when it finished.
+        stopScanning()
+        scanOutcome = nil
+        found = []
+        if demo {
+            _ = endDemo()
+            host = chosen
+            await openStore()
+        } else {
+            host = chosen
+        }
+        await connect()
     }
 
     /// Opens the cache that belongs to whichever recorder is in play now, and forgets everything the other
@@ -199,17 +401,27 @@ final class AppModel {
         storage = nil
         client = nil
         reservations = []
-        reservationsByProgram = [:]
         titles = []
         titlesLoaded = false
         recorderRules = []
+        recorderRulesLoaded = false
+        recorderRulesFailure = nil
         pending = []
+        flushReport = nil
         duplicates = []
+        duplicatePicks = []
+        unreadDuplicates = 0
+        summaries = [:]
+        fixedBlurbs = []
         problem = nil
         unreachable = false
         gaveUp = false
         found = []
-        store = (try? Storage.guidePath()).flatMap { try? GuideStore(path: $0) }
+        scanOutcome = nil
+        accessWatch?.cancel()
+        accessWatch = nil
+        connectBlocked = false
+        store = (try? guidePath()).flatMap { try? GuideStore(path: $0) }
         if let store {
             if demo { try? await DemoData.seed(store: store) }
             await reloadFromCache()
@@ -217,34 +429,130 @@ final class AppModel {
         }
     }
 
-    /// Looks through the subnet this device is on for a recorder. One short request per address, so the
-    /// first run also asks the reader for permission to reach the local network.
-    func scanForRecorders() async {
+    /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
+    /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
+    /// reach the local network.
+    ///
+    /// The scan waits for that answer before it starts. It used to go straight ahead behind the question,
+    /// where every request failed at once and the scan came back with nothing; the reader allowed it and had
+    /// to tap a second time, under a red line saying no recorder had been found.
+    func scanForRecorders() {
+        scanTask?.cancel()
+        scanTask = Task { await scan() }
+    }
+
+    /// Ends a scan wherever it has got to, the wait for the permission included.
+    func stopScanning() {
+        scanTask?.cancel()
+        scanTask = nil
+        scanRun += 1
+        scanning = nil
+        scanBlocked = false
+    }
+
+    private func scan() async {
+        scanRun += 1
+        let run = scanRun
+        // whatever the last attempt left on screen is not about this one
+        problem = nil
+        scanOutcome = nil
         found = []
-        let hosts = LocalNetwork.hostsToScan()
-        guard !hosts.isEmpty else {
-            problem = "この端末のネットワーク情報を取得できませんでした"
+        let lan = LocalNetwork.lanInterfaces()
+        let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
+        guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
+            report(.noWiFi)
             return
         }
         scanning = (0, hosts.count)
+        let allowed = await LocalNetwork.waitForAccess(probing: neighbour) { @MainActor [weak self] in
+            guard let self, self.scanRun == run else { return }
+            self.scanBlocked = true
+        }
+        guard scanRun == run, !Task.isCancelled else { return }
+        scanBlocked = false
+        // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
+        // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
+        if !allowed, LocalNetwork.lanInterfaces().isEmpty {
+            scanning = nil
+            report(.noWiFi)
+            return
+        }
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
-        found = await Discovery.scan(hosts: hosts, progress: { done, total in
-            Task { @MainActor in self.scanning = (done, total) }
+        let result = await Discovery.scan(hosts: hosts, progress: { done, total in
+            Task { @MainActor in
+                guard self.scanRun == run, self.scanning != nil else { return }
+                self.scanning = (done, total)
+            }
         }, found: { recorder in
             Task { @MainActor in
+                guard self.scanRun == run else { return }
                 if !self.found.contains(where: { $0.host == recorder.host }) { self.found.append(recorder) }
             }
         })
+        guard scanRun == run, !Task.isCancelled else { return }
+        // The list stays in the order the recorders answered, which is the order the reader has been looking
+        // at while the scan ran. Taking the scan's own list here put it in the order of the addresses as text
+        // -- .100 before .63 -- and moved the row under a finger about to tap it. Anything the scan found whose
+        // row has not arrived yet goes at the end.
+        for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
+            found.append(recorder)
+        }
         scanning = nil
-        if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークに接続されているか確認してください。" }
+        scanTask = nil
+        report(found.isEmpty ? .nothing : .found(found.count))
     }
 
-    /// Takes one of the recorders the scan turned up.
-    func use(_ recorder: RecorderDescription) async {
-        host = recorder.host
-        found = []
-        await connect()
+    /// Whether a recorder a scan found is the one the app is set to. By its UDN as well as its address, so
+    /// that it is marked once the router has moved it and before the app has followed.
+    func inUse(_ recorder: RecorderDescription) -> Bool {
+        guard !demo else { return false }
+        if recorder.host == host { return true }
+        guard let info, !info.udn.isEmpty else { return false }
+        return recorder.udn == info.udn
+    }
+
+    /// Puts the outcome under the button, and says it aloud as well: the words appear below where a
+    /// VoiceOver reader's focus still is, on the button they tapped.
+    private func report(_ outcome: ScanOutcome) {
+        scanOutcome = outcome
+        AccessibilityNotification.Announcement(outcome.text).post()
+    }
+
+    enum ScanOutcome: Equatable {
+        case found(Int)
+        case nothing
+        case noWiFi
+
+        var text: String {
+            switch self {
+            case .found(let count): "レコーダーが \(count) 台見つかりました"
+            case .nothing: "レコーダーが見つかりませんでした"
+            case .noWiFi: "Wi-Fi に接続されていません。レコーダーと同じ Wi-Fi につないでから、もう一度お試しください。"
+            }
+        }
+
+        /// What usually lies behind finding nothing, for the reader to go through. A single line asking them
+        /// to check the power and the Wi-Fi left out the two causes nobody would think of: a guest network,
+        /// and a recorder that is not one of Sony's BDZ series.
+        ///
+        /// Nothing here says a recorder in standby cannot be found. It answers in network standby; what goes
+        /// silent is one left off a while, which leaves the network (`docs/porting.md`).
+        var causes: [String] {
+            guard self == .nothing else { return [] }
+            return [
+                "レコーダーがネットワークから外れている。電源を切ってしばらくたつと外れることがあるので、"
+                    + "電源を入れてから探し直してください。",
+                "iPhone が、ゲスト用の Wi-Fi など、レコーダーとは別のネットワークにつながっている。",
+                "レコーダーがネットワークにつながっていない。レコーダー本体のネットワーク設定で確認できます。",
+                "ソニーの BDZ シリーズ以外のレコーダー。このアプリは BDZ シリーズ専用です。",
+            ]
+        }
+
+        var failed: Bool {
+            if case .found = self { return false }
+            return true
+        }
     }
 
     /// Connects, and wakes the recorder first if that is what it needs. A BDZ-FBT4100 leaves the LAN when
@@ -253,16 +561,78 @@ final class AppModel {
     /// happens here rather than as a button — the address came from the recorder itself, the packet costs
     /// nothing, and the reader only wanted to see their guide.
     func connect() async {
-        guard !host.isEmpty, !connecting else { return }
+        // Not while a bulk job or the duplicate scan is running. It holds the client it started with, and a
+        // new one beside it is two queues talking at once to a recorder that answers 503 to the second --
+        // which the connect took for a device that is not a recorder and gave up on, putting "not connected"
+        // over a job that was still going. Here rather than at the callers, so that 再接続 and pulling down
+        // are held off as well. The job makes sure of the recorder by itself, and stops at the first silence.
+        guard !host.isEmpty, !connecting, !jobRunning else { return }
+        // A check already waking this recorder with the client in hand is doing what this would do, and a
+        // second client beside it would talk over it. Asked for meanwhile -- by pulling down, which is what a
+        // screen of lists waiting on the waking invites -- this waits for its answer rather than start again.
+        if let wakeCheck, let client, client.host == host {
+            _ = await wakeCheck.value
+            return
+        }
         connecting = true
         defer { connecting = false }
+        // This attempt answers what the watcher was waiting to find out, one way or the other.
+        accessWatch?.cancel()
+        accessWatch = nil
+        // The cache first, since the queued reservations and the guide are sent from and fetched into it.
+        // Coming to the foreground connects too, and at launch it can get here before `start()` has opened
+        // anything; without this that connect found no cache and quietly did neither.
+        await openCache()
+        guard var reached = await reachTheRecorder() else { return }
+        // The network under this phone can change while a connect is under way -- the Wi-Fi joined on the way
+        // in through the door, a VPN coming up -- and the watcher that would ask again on a change stays out of
+        // a connect's way (`networkChangedWhileOpen`). What was tried was then tried on a network that had
+        // gone, and the app gave up on the one that had come instead, with nothing to ask again until the
+        // reader did. So a connect that got nowhere tries once more, here, when the network it started on is
+        // no longer the one under it. Once: a network still changing after that is left to the next return
+        // to the app, which asks again on a network it has not tried.
+        if !reached, networkChanged {
+            guard let again = await reachTheRecorder() else { return }
+            reached = again
+        }
+        // Trying again by itself would only spend another half-minute arriving at the same silence. The
+        // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
+        // network asks again without being told to.
+        // Only silence, though. A recorder that answered, if only to refuse -- a 503 because something else
+        // was talking to it, a fault from a model without one of the calls -- is there, and has said what is
+        // wrong already. Giving up on it put "not connected" on screen beside a recorder that was answering,
+        // and kept the next return to the app from asking again.
+        gaveUp = !reached && unreachable
+        if reached {
+            // Provisional permission for notifications, now that there is a recorder for them to be about.
+            // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
+            // for the demo, whose recorder nobody will hear from overnight.
+            if !demo, surroundings.asksAboutNotifications {
+                Task {
+                    await Notify.allowQuietly()
+                    await readNotifications()
+                }
+            }
+            // Before the guide, because the guide marks what is already set to record and the marks come
+            // from this list. Reading it only when the reservations screen appeared meant that opening the
+            // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
+            // been to the other tab and back.
+            await loadReservationsNow()
+            await refreshGuideIfStale()
+        }
+    }
+
+    /// One attempt at the recorder, for `connect()`: a client of its own, the first probe, waking it, and a
+    /// look for it at another address. Returns whether it answered, or nil when local network privacy is why
+    /// it did not, and the app is now waiting for the permission instead.
+    private func reachTheRecorder() async -> Bool? {
         let client: RecorderClient
-        if DemoData.on {
+        if demo {
             let recorder = demoRecorder ?? DemoRecorder()
             demoRecorder = recorder
             client = RecorderClient(host: host, transport: recorder)
         } else {
-            client = RecorderClient(host: host)
+            client = RecorderClient(host: host, transport: surroundings.transport(host))
         }
         self.client = client
         // The first ask is a short one. A recorder that has left the network does not refuse the
@@ -273,25 +643,76 @@ final class AppModel {
         // that is awake ignores it. Waiting for the failure first is what made this look like a fault
         // followed by a retry.
         sendMagicPacket()
-        triedOn = LocalNetwork.signature()
+        triedOn = surroundings.networkSignature()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
+        if !reached, unreachable, !demo, await lanIsBlocked() {
+            waitForPermission()
+            return nil
+        }
+        connectBlocked = false
         if !reached { reached = await wakeAndAttach(client) }
-        // Trying again by itself would only spend another half-minute arriving at the same silence. The
-        // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
-        // network asks again without being told to.
-        gaveUp = !reached
-        if reached {
-            // Before the guide, because the guide marks what is already set to record and the marks come
-            // from this list. Reading it only when the reservations screen appeared meant that opening the
-            // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
-            // been to the other tab and back.
-            await loadReservations()
-            await refreshGuideIfStale()
+        // Not back where it was after the waking: it may be answering at another address. One look per
+        // attempt, and only from here, so the rule in `connect()` about not trying again stands.
+        if !reached, unreachable, let moved = await findMovedRecorder() {
+            host = moved.host
+            // It is the recorder the MAC was read from, which its UDN has just said.
+            defaults.set(moved.host, forKey: DefaultsKey.recorderMacHost)
+            let found = RecorderClient(host: moved.host, transport: surroundings.transport(moved.host))
+            self.client = found
+            reached = await attach(found, timeout: RecorderClient.probeTimeout)
+        }
+        return reached
+    }
+
+    /// Whether local network privacy is why the recorder said nothing. Aimed at the recorder's own address,
+    /// because that is the connection the permission would have stopped. At most two seconds; the path
+    /// answers at once in practice. Only asked in the foreground, after a real recorder was silent -- never
+    /// by the overnight run, which has no screen to explain it on, and never in the demo, which has to go
+    /// through without the system's question ever coming up.
+    private func lanIsBlocked() async -> Bool {
+        guard surroundings.reachesTheLAN else { return false }
+        return await LocalNetwork.access(probing: host) == .blocked
+    }
+
+    /// Silence because iOS stopped the app asking, not because the recorder is asleep. The magic packet
+    /// could not leave this phone either, so half a minute of waking would be half a minute of nothing
+    /// followed by the wrong advice. Waits for the permission instead; what the screens say comes from
+    /// `connectBlocked`, not from a failure line.
+    private func waitForPermission() {
+        connectBlocked = true
+        problem = nil
+        gaveUp = true
+        watchForAccess()
+    }
+
+    /// Waits for the reader to allow the local network, then connects. The one exception to leaving a
+    /// recorder alone until the network changes or the reader asks: switching the permission on is the
+    /// reader asking, and it changes nothing `networkChanged` could see, so without this the app would stay
+    /// given up after it until something else happened to move.
+    private func watchForAccess() {
+        accessWatch?.cancel()
+        let host = host
+        accessWatch = Task { [weak self] in
+            let allowed = await LocalNetwork.waitForAccess(probing: host) {}
+            guard let self, !Task.isCancelled else { return }
+            // cleared before connecting, since connecting cancels whatever watcher is still set
+            self.accessWatch = nil
+            self.connectBlocked = false
+            if allowed, self.host == host { await self.connect() }
         }
     }
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
     /// is the only case worth sending a magic packet for.
+    ///
+    /// Only the description decides whether this is a recorder the app is connected to. The firmware, the
+    /// MAC and the free space are read too, but the app is as connected without them, and another model of
+    /// the series may refuse one or answer it in a shape of its own. Failing on that failed the connect
+    /// with the recorder answering and described in the settings: an error on screen, the queue not sent,
+    /// the reservations and the guide never fetched, and a tutorial that waited for the recorder to be
+    /// reached stayed open. What such a read cannot give is left unknown instead
+    /// (`RecorderError.silenceOnly`). Silence still ends it, as it would anywhere.
+    ///
     /// `quiet` keeps a failure off the screen. A probe that is about to be answered with a magic packet has
     /// not failed at anything the reader should be told about, and saying so for the five seconds before the
     /// waking starts reads as a fault that then mysteriously heals.
@@ -300,26 +721,32 @@ final class AppModel {
     /// clearing it per attempt made every button bound to `busy` flicker once a second while waking.
     private func attach(_ client: RecorderClient, what: String? = "接続中",
                         timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
-        // Whatever was being said is put back rather than cleared: this can run inside the waking, which
+        // A line of its own, and only that one taken away afterwards: this can run inside the waking, which
         // goes on for the better part of a minute and should not lose its line on the screen.
-        let previous = busy
-        if let what { busy = what }
-        defer { if what != nil { busy = previous } }
+        let activity = what.map { activities.begin($0) }
+        defer { if let activity { activities.end(activity) } }
         do {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
-            UserDefaults.standard.set(host, forKey: Self.hostKey)
-            firmware = try await client.firmwareVersion()
+            defaults.set(host, forKey: DefaultsKey.recorderHost)
+            firmware = try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? ""
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
-            // cannot read an ARP table, so it is read every time rather than once.
-            if let settings = try? await client.networkSettings() { remember(mac: settings.mac) }
-            let capacity = try await client.recordDestinationInfo()
-            storage = (capacity.freeBytes, capacity.totalBytes)
+            // cannot read an ARP table, so it is read every time rather than once. With the address it was
+            // read at, which is what lets the recorder be recognised by it somewhere else: see
+            // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
+            if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }),
+               remember(mac: settings.mac), !demo {
+                defaults.set(host, forKey: DefaultsKey.recorderMacHost)
+            }
+            storage = try await Self.storage(of: client)
             unreachable = false
             problem = nil
-            lastAnswered = Date()
             await flushPending()
+            // The recorder can go quiet in the middle of sending the queue, which leaves the app offline
+            // like any other silence; a connect that ended there has not reached anything to show.
+            guard !unreachable else { return false }
+            timesAttached += 1
             return true
         } catch {
             let recorderError = error as? RecorderError
@@ -328,20 +755,47 @@ final class AppModel {
             // it standing is what had the screens asking a recorder that was not there, one 30-second
             // timeout at a time.
             if unreachable { info = nil }
-            if !quiet { problem = recorderError?.explanation ?? String(describing: error) }
+            // Nor is a recorder there if the address is not an address. Leaving the last one's description
+            // standing would have the app look connected, to a recorder it is no longer set to.
+            if case .badAddress? = recorderError { info = nil }
+            // Quiet only keeps silence off the screen, because only silence is answered with a magic packet.
+            // Anything else -- an address that is not one, above all -- is where this ends, and without a
+            // word the reader would have nothing but a strip saying it is not connected.
+            if !quiet || !unreachable { problem = recorderError?.explanation ?? String(describing: error) }
             return false
         }
     }
 
-    /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
-    /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
+    /// The free space as the screens show it, or nil when the recorder will not say: see `attach`. A disk
+    /// of no size counts as not saying, since the screens would show it as 残り 0 GB -- a full disk, which is
+    /// the one thing it is not known to be. Throws only silence.
+    private static func storage(of client: RecorderClient) async throws -> (free: Int, total: Int)? {
+        guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
+              capacity.totalBytes > 0 else { return nil }
+        return (capacity.freeBytes, capacity.totalBytes)
+    }
+
+    /// The free space read again, after a delete or with the list of recordings. It is only shown, so a
+    /// recorder that will not say is not an error: the read used to be part of the delete, and failing it
+    /// put an error on screen, and reported the delete as failed, for a recording that had gone. Silence
+    /// is still silence, whatever was being asked.
+    private func refreshStorage(_ client: RecorderClient) async {
+        do {
+            storage = try await Self.storage(of: client)
+        } catch {
+            lostTheRecorder()
+        }
+    }
+
     /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
     private func sendMagicPacket() {
-        if DemoData.on { return }   // nothing to wake, and no reason to shout on somebody's LAN
-        guard let mac else { return }
+        if demo { return }   // nothing to wake, and no reason to shout on somebody's LAN
+        guard let mac, surroundings.reachesTheLAN else { return }
         _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
     }
 
+    /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
+    /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     @discardableResult
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
         guard let client = client ?? self.client, unreachable, mac != nil else { return false }
@@ -351,21 +805,28 @@ final class AppModel {
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
         waking = true
-        let previous = busy
         let started = Date()
-        defer { waking = false; busy = previous }
+        let activity = activities.begin(Self.wakingLine(0))
+        defer { waking = false; activities.end(activity) }
         // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet, so half a minute is
         // generous. Bounded by the clock rather than by a count of attempts, so that the line on screen and
         // the wait behind it are the same length -- and the line says how long it has been, because a
         // spinner that has been going for twenty seconds is otherwise indistinguishable from a hung one.
+        var sent = Date()
         while Date().timeIntervalSince(started) < Self.wakeLimit {
-            busy = "レコーダーを起動しています（\(Int(Date().timeIntervalSince(started))) 秒）"
+            activities.update(activity, to: Self.wakingLine(Int(Date().timeIntervalSince(started))))
             // Only the identity, and only for two seconds: asking for everything is what the attach below
             // is for, and it is worth doing once, after the recorder has proved it is listening.
             if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil {
                 return await attach(client, what: "接続中", timeout: RecorderClient.probeTimeout)
             }
             try? await Task.sleep(for: .seconds(1))
+            // Again every few seconds: one packet lost on the way was a recorder left asleep for the whole
+            // half minute. See `WakeOnLan.resendInterval`.
+            if Date().timeIntervalSince(sent) >= WakeOnLan.resendInterval {
+                sendMagicPacket()
+                sent = Date()
+            }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
@@ -374,21 +835,179 @@ final class AppModel {
     /// How long to wait for a recorder to come back from a magic packet before leaving it alone.
     private static let wakeLimit: TimeInterval = 30
 
+    private static func wakingLine(_ seconds: Int) -> String {
+        "レコーダーを起動しています（\(seconds) 秒）"
+    }
+
+    // MARK: - a recorder that is not where it was
+
+    /// Looks for the recorder at another address, once, after waking it where it was came to nothing.
+    ///
+    /// The recorder's address is a DHCP lease, and the router hands it out again as it likes: after a power
+    /// cut, a restart of the router, a long sleep. The app went on knocking at the old address, and the only
+    /// thing on screen was 再接続, which knocked there again. The magic packet has already gone to the
+    /// subnet's broadcast, so a recorder that moved has had the half minute of waking to come up at its new
+    /// address, and a scan of the subnet finds it in a few seconds. It is told from any other recorder by the
+    /// MAC kept for waking it, which is the tail of its UDN (`RecorderDescription.hasMAC`), so an
+    /// installation that has only ever saved the MAC finds it too.
+    ///
+    /// Only from `connect()`, once, and never on a loop: when nothing is found the app gives up as before,
+    /// until the network changes or the reader asks. Only on a Wi-Fi whose subnet the saved address belongs
+    /// to, which is where DHCP would have moved it (`LocalNetwork.hostsToScan(near:)`). Never in the demo, and
+    /// never in the background, where the system refuses the local network without a word. The permission
+    /// itself has been looked at already: a connect that met silence asks it about the saved address, in this
+    /// same subnet, before waking anything, and waits for it rather than coming here.
+    private func findMovedRecorder() async -> RecorderDescription? {
+        guard !demo, !inBackground, surroundings.reachesTheLAN, let mac, macWasReadHere else { return nil }
+        let hosts = LocalNetwork.hostsToScan(near: host)
+        guard !hosts.isEmpty else { return nil }
+        // The waking's failure is not the last word yet, and a screen saying it while the search runs would
+        // be saying it too soon. It is put back if the search finds nothing either.
+        let failure = problem
+        problem = nil
+        waking = true
+        let activity = activities.begin("レコーダーを探しています")
+        defer { waking = false; activities.end(activity) }
+        let moved = await Discovery.find(mac: mac, among: hosts)
+        if moved == nil { problem = failure }
+        return moved
+    }
+
+    /// Whether the MAC is the one the recorder at the saved address reported, or nobody knows (a version
+    /// before this one did not write down where). Once the reader has typed the address of another recorder,
+    /// the MAC is still the old one's until the new one answers, and the magic packet addressed to it wakes
+    /// the old recorder: the search would find that, and quietly go back to the recorder the reader had just
+    /// left.
+    private var macWasReadHere: Bool {
+        guard let readAt = defaults.string(forKey: DefaultsKey.recorderMacHost) else { return true }
+        return readAt == host
+    }
+
+    // MARK: - a recorder that falls asleep while the app is open
+
+    /// Leaves the app where a connect that got no answer leaves it: not connected, given up until the network
+    /// changes or the reader asks, with 再接続 on the strip.
+    ///
+    /// Every request that meets silence comes here, not only connecting. Before, the rest put the failure on
+    /// screen and the app went on looking connected to a recorder that had gone to sleep: the next screen
+    /// asked again and waited out the same timeout, nothing offered to reconnect, and pulling down asked the
+    /// silent recorder once more instead of connecting.
+    ///
+    /// Nothing is sent again from here, and the callers do not send again either, not even once the recorder
+    /// has been woken: a write that met silence may have reached the recorder all the same, and a reservation
+    /// sent twice can be made twice. The reader is told to look once it is back.
+    private func lostTheRecorder() {
+        unreachable = true
+        info = nil
+        gaveUp = true
+        triedOn = surroundings.networkSignature()
+    }
+
+    /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
+    /// again, and what the list says once the recorder answers is the only way to find out.
+    private static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。再接続してから一覧で確かめてください。"
+
+    /// Why something the reader asked for was not sent at all: the app is not connected.
+    private var notConnected: String {
+        connectBlocked ? LocalNetworkNotice.title
+            : "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
+    }
+
+    /// How long the recorder may say nothing before it is worth making sure it is still up, ahead of something
+    /// the reader asked for. A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing
+    /// asked of it, and has been seen awake for as little as two minutes at a time; a minute and a half is
+    /// well inside both, and a recorder that is up answers the check in milliseconds.
+    private static let dozeAfter: TimeInterval = 90
+
+    /// The check under way, so that everything asked for while it runs waits for its answer rather than
+    /// sending a probe -- and a magic packet -- of its own.
+    private var wakeCheck: Task<Bool, Never>?
+
+    /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
+    /// is not. Returns whether it is there to ask. When it is not, the app has been left offline, `problem`
+    /// says why, and nothing has been sent.
+    ///
+    /// Without this, a recorder that had gone to sleep while the app was open was found out by the request
+    /// itself: thirty seconds on the conflict check, thirty more on the reservation, and then
+    /// "送信待ちにしました" on a phone in the same room as the recorder. Now it is asked first, briefly, and
+    /// woken the way connecting wakes it -- with the client already in hand. Connecting again would make a
+    /// second client, and two clients are two queues talking over each other to a recorder that answers 503
+    /// to the second.
+    ///
+    /// `evenIfRecent` asks whatever the time since the last answer, for when that answer no longer says
+    /// anything: the network under this device has changed since.
+    private func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
+        guard let client, !offline else {
+            problem = notConnected
+            return false
+        }
+        // Already at it: a connect, or the waking of an earlier check -- whose attach reads lists of its own
+        // through here, and must not wait for itself. Whatever is asked meanwhile waits behind it in the
+        // client's queue.
+        if connecting || waking { return true }
+        if let wakeCheck { return await wakeCheck.value }
+        let check = Task { await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent) }
+        wakeCheck = check
+        let answered = await check.value
+        if wakeCheck == check { wakeCheck = nil }
+        return answered
+    }
+
+    private func makeSureItIsUp(_ client: RecorderClient, evenIfRecent: Bool) async -> Bool {
+        if !evenIfRecent, let last = await client.lastAnswer, Date().timeIntervalSince(last) < Self.dozeAfter {
+            return true
+        }
+        // The packet first and the probe after, as connecting does: a recorder that is asleep is on its way
+        // up while the probe waits, and one that is awake ignores it.
+        sendMagicPacket()
+        do {
+            try await client.describe(timeout: RecorderClient.probeTimeout)
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            // silence, which is what waking is for
+        } catch {
+            // Something answered, so there is nothing to wake. What is wrong is for the request itself to
+            // run into and say.
+            return true
+        }
+        // Where a connect's first probe leaves things too, and what waking starts from.
+        unreachable = true
+        info = nil
+        triedOn = surroundings.networkSignature()
+        if !demo, await lanIsBlocked() {
+            waitForPermission()
+            return false
+        }
+        if await wakeAndAttach(client) { return true }
+        // Given up, as a connect is when waking does not bring the recorder back. Something that answered
+        // only to refuse has said so already, and is not silence, so it is not given up on either: see
+        // `connect()`.
+        guard unreachable else { return false }
+        lostTheRecorder()
+        // Waking says why it gave up; without a MAC there was no waking to say it.
+        if !canWake { problem = RecorderError.transport("no answer").explanation }
+        return false
+    }
+
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
     /// the address cannot be guessed and iOS will not read the ARP table.
     var canWake: Bool { mac != nil }
 
     /// Keeps a MAC for waking the recorder. Anything that is not one is ignored rather than stored, so a
-    /// half-typed address never replaces a good one.
-    func remember(mac text: String) {
-        guard let normalised = WakeOnLan.normalise(text) else { return }
+    /// half-typed address never replaces a good one. Returns whether it was kept.
+    @discardableResult
+    func remember(mac text: String) -> Bool {
+        guard let normalised = WakeOnLan.normalise(text) else { return false }
         mac = normalised
-        UserDefaults.standard.set(normalised, forKey: Self.macKey)
+        defaults.set(normalised, forKey: DefaultsKey.recorderMac)
+        return true
     }
 
     func forgetMac() {
         mac = nil
-        UserDefaults.standard.removeObject(forKey: Self.macKey)
+        defaults.removeObject(forKey: DefaultsKey.recorderMac)
+        defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
@@ -401,66 +1020,146 @@ final class AppModel {
         return previous ?? now.addingTimeInterval(-24 * 3600)
     }
 
-    /// Whether the cache holds nothing, or nothing newer than that rebuild.
-    var guideIsStale: Bool {
-        guard counts.values.contains(where: { $0.programs > 0 }),
-              let newest = counts.values.compactMap(\.refreshed).compactMap(RecorderTime.parse).max()
-        else { return true }
-        return newest < Self.lastRebuild()
+    /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
+    /// worth fetching again. Each type by its own time. Judged by the newest of them, a type that failed while
+    /// the others came in counted as fresh and stayed missing until the next night; by the oldest, a type the
+    /// recorder cannot give would have every connect fetch all four again. A type it answered with no file for
+    /// is marked as asked (`GuideCounts.checked`), so it waits for the next rebuild like the rest.
+    var staleBroadcastingTypes: [String] {
+        let rebuilt = Self.lastRebuild()
+        return GuideRefresh.broadcastingTypes.filter { broadcasting in
+            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            return answered < rebuilt
+        }
     }
+
+    /// Whether any broadcasting type is behind the recorder's last rebuild.
+    var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
+
+    /// How many guide downloads are under way. A count, so that one ending does not say the other has.
+    private var guideDownloads = 0
+
+    /// Whether the guide is on its way: being downloaded, or about to be, by a connect that has reached the
+    /// recorder and found the cache behind -- it reads the reservations first (see `connect()`). An empty
+    /// guide says so then, rather than that there is nothing for the day. On the first run that is what the
+    /// reader sees as soon as the tutorial closes, for as long as the first broadcasting type takes.
+    var guideOnItsWay: Bool { guideDownloads > 0 || (connecting && connected && guideIsStale) }
 
     /// Fetching the guide is what connecting is for, so it happens without being asked: the first run
     /// otherwise lands on an empty guide with nothing to say that anything has to be fetched, and a cache
     /// the overnight run never got to would quietly stay a day behind. A cache that is already current
     /// costs nothing, which is what makes this safe on every launch.
     func refreshGuideIfStale() async {
-        guard connected, guideIsStale else { return }
-        await refreshGuide()
+        guard connected else { return }
+        // Judged by what the cache holds now, not by what this model read from it last. The overnight run
+        // writes the cache without going through the model -- in this very process, when the app was kept
+        // alive behind it -- and deciding on the counts from the evening before fetched every broadcasting
+        // type again each morning. What it wrote goes on screen as well.
+        if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
+        let stale = staleBroadcastingTypes
+        guard !stale.isEmpty else { return }
+        await refreshGuide(only: stale)
     }
 
-    /// Downloads every broadcasting type the recorder has and replaces the cache.
-    func refreshGuide() async {
+    /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
+    /// the cache holds for each.
+    ///
+    /// Each type goes on screen as soon as it is stored. Reading the cache only at the end left the first
+    /// run with an empty guide until BS, CS and BS4K had come in behind the terrestrial programmes it opens
+    /// on, which were there all along. A type that fails is passed over (see `GuideRefresh.run`), said on
+    /// screen a line per type, and fetched again at the next connect.
+    func refreshGuide(only types: [String] = GuideRefresh.broadcastingTypes) async {
         guard let client, let store, !unreachable else { return }
-        await run("番組表を取得中") {
-            try await GuideRefresh.run(client: client, store: store) { broadcasting in
-                self.busy = "番組表を取得中 (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
+        guideDownloads += 1
+        defer { guideDownloads -= 1 }
+        var failed: [GuideRefresh.Failure] = []
+        await run("番組表を取得中") { activity in
+            // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
+            // connected is cancelled when its screen goes away, and the refresh stops between types when it
+            // is cancelled -- which is for the overnight run, whose time runs out.
+            let refresh = Task {
+                try await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
+                    let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
+                    self.activities.update(activity, to: "番組表を取得中 (\(label))")
+                }, onStored: { _ in
+                    await self.reloadFromCache()
+                })
             }
-            await self.reloadFromCache()
+            failed = try await refresh.value.failed
         }
+        if !failed.isEmpty {
+            problem = failed.map { "\(GuideEmptyView.inSentence($0.broadcasting))の番組表：\($0.reason)" }
+                .joined(separator: "\n")
+        }
+        // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
+        // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
+        // not be asked for again, and which the model goes by.
+        await reloadFromCache()
     }
 
     func loadReservations() async {
         await start()
+        await loadReservationsNow()
+    }
+
+    /// The load itself, for `connect()` and everything it reaches, which must not await `start()`: see there.
+    private func loadReservationsNow() async {
         guard let client, !unreachable else { return }
-        await run("予約一覧を取得中") {
-            self.reservations = try await client.reservations()
-            self.reservationsByProgram = Dictionary(
-                self.reservations.compactMap { reservation in
-                    reservation.eventID.map { (Self.key(reservation.broadcastingType, reservation.serviceID, $0),
-                                               reservation) }
-                },
-                uniquingKeysWith: { first, _ in first })
-        }
+        await run("予約一覧を取得中") { self.reservations = try await client.reservations() }
     }
 
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
     private(set) var recorderRules: [RecorderRule] = []
+    /// Whether `recorderRules` is the recorder's answer, and why the last read failed if it did. An empty list
+    /// is also what there is while the first read is on its way and after one that failed, and saying
+    /// 条件が登録されていません then tells the reader something the recorder never said.
+    private(set) var recorderRulesLoaded = false
+    private(set) var recorderRulesFailure: String?
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
-    private(set) var pending: [PendingReservation] = []
+    private(set) var pending: [PendingReservation] = [] {
+        didSet { pendingByProgram = Self.byProgram(pending) }
+    }
+
+    /// The same by the programme each is for, so that the guide, the search results and the programme's
+    /// sheet can say it is waiting. Without it a programme reserved away from home looked unreserved
+    /// everywhere but the reservations tab, and opening it again offered the reservation form again.
+    private var pendingByProgram: [String: PendingReservation] = [:]
+
+    /// What the last sending of the queue came to, for the strip to say in one line until the reader closes
+    /// it or leaves the app. See `flushPending`.
+    var flushReport: String?
 
     func loadRecorderRules() async {
         await start()
-        guard let client, !unreachable else { return }
-        await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
+        guard let client, !unreachable else {
+            // A list read before stays on screen under the strip that says the recorder is not there; with
+            // none, the screen says why there is nothing rather than waiting for a read that is not coming.
+            if !recorderRulesLoaded { recorderRulesFailure = problem ?? Self.rulesNotAsked }
+            return
+        }
+        let read = await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
+        if read {
+            recorderRulesLoaded = true
+            recorderRulesFailure = nil
+        } else {
+            // With no message the recorder was never asked: the check before the read found the local network
+            // permission missing, which the strip explains. Saying the recorder returned an error would be
+            // saying something it did not do.
+            recorderRulesFailure = problem ?? Self.rulesNotAsked
+        }
     }
+
+    private static let rulesNotAsked = "レコーダーに接続していません"
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
         guard let client else { return false }
-        let made = await run("レコーダーに登録中") { _ = try await client.createRecorderRule(request) }
+        let made = await run("レコーダーに登録中", sending: true) {
+            _ = try await client.createRecorderRule(request)
+        }
         if made { await loadRecorderRules() }
         return made
     }
@@ -471,8 +1170,16 @@ final class AppModel {
     func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
         await start()
         guard let client else { return false }
-        let removed = await run("レコーダーから削除中") { try await client.deleteRecorderRule(id: rule.id) }
+        let removed = await run("レコーダーから削除中", sending: true) {
+            try await client.deleteRecorderRule(id: rule.id)
+        }
+        // The read that follows clears the message when it works, and for a delete that failed the message is
+        // the reason the screen shows. Without this it could say only that the recorder had returned an error.
+        // Put back only over nothing: a read that failed has said something newer, such as the recorder no
+        // longer answering, and that is what is true now.
+        let reason = problem
         await loadRecorderRules()
+        if !removed, problem == nil { problem = reason }
         return removed
     }
 
@@ -500,6 +1207,8 @@ final class AppModel {
         var changed: [String] = []
         var skipped: [Skip] = []
         var cancelled = false
+        /// Set when the recorder stopped answering and the job stopped there.
+        var lostRecorder = false
         var finished = false
 
         var verb: String {
@@ -516,21 +1225,31 @@ final class AppModel {
         /// What to tell the reader once it has stopped, in the shape the web app settled on.
         var outcome: String {
             if case .scanning = kind {
-                return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
+                let head = lostRecorder ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
+                    : cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
+                return skipped.isEmpty ? head : head + "（\(skipped.count) 件は番組内容を取得できず、比べていません）"
             }
             let count = changed.count
-            let head = cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
+            let head = lostRecorder ? "\(count) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
+                : cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
             return skipped.isEmpty ? head : head + "（\(skipped.count) 件はスキップ）"
         }
     }
 
     private(set) var job: BulkJob?
     private(set) var duplicates: [DuplicateSet] = []
-    /// Which copies are ticked for deletion. It lives here because the view holding it is thrown away every
-    /// time the reader looks at the list or the programmes instead.
+    /// Which copies are ticked for deletion; the ones left unticked are kept. It lives here because the view
+    /// holding it is thrown away every time the reader looks at the list or the programmes instead.
     var duplicatePicks: Set<String> = []
-    /// What the recorder said each recording is about, cached on disk as well.
+    /// How many candidates were left out of the sets because their text has not been read, which a scan run
+    /// again reads.
+    private(set) var unreadDuplicates = 0
+    /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
+    /// a recording missing here has not been read.
     private var summaries: [String: String] = [:]
+    /// The candidates' titles whose text the guide shows on more than one day: a text the programme carries
+    /// every time, which does not make two recordings the same broadcast. Read from the guide at each scan.
+    private var fixedBlurbs: Set<Duplicates.Blurb> = []
     private var jobTask: Task<Void, Never>?
 
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
@@ -554,32 +1273,96 @@ final class AppModel {
     }
 
     private func runBulk(_ kind: BulkJob.Kind, ids: [String], client: RecorderClient) async {
-        for id in ids {
-            if job?.cancelled == true { break }
-            switch kind {
-            case .delete: await deleteOne(id, client)
-            case .protecting(let on): await protectOne(id, on, client)
-            case .scanning: break
+        // Made sure of first, like anything else the reader asks for: a recorder asleep since the list was
+        // read would otherwise cost the first recording a timeout, and every one after it another.
+        if await wakeIfDozing() {
+            for id in ids {
+                guard await readyForNextStep() else {
+                    job?.lostRecorder = true
+                    break
+                }
+                // after the wait, so that 中止 tapped while the recorder was being woken is heeded
+                if job?.cancelled == true { break }
+                do {
+                    try await keepingAlive {
+                        switch kind {
+                        case .delete: try await deleteOne(id, client)
+                        case .protecting(let on): try await protectOne(id, on, client)
+                        case .scanning: break
+                        }
+                    }
+                } catch {
+                    // Silence. Stop at the first, since every recording after it would wait out the same
+                    // timeout, and do not send this one again: it may have gone through. The list is read
+                    // again once the recorder answers, which settles what became of it.
+                    lostTheRecorder()
+                    titlesLoaded = false
+                    job?.lostRecorder = true
+                    break
+                }
+                job?.done += 1
             }
-            job?.done += 1
+        } else {
+            job?.lostRecorder = true
         }
-        if case .delete = kind, let capacity = try? await client.recordDestinationInfo() {
-            storage = (capacity.freeBytes, capacity.totalBytes)
-        }
+        if case .delete = kind, !unreachable { await refreshStorage(client) }
         // the sets were built from recordings that may no longer all be there
         if !duplicates.isEmpty { recomputeDuplicates() }
         job?.finished = true
         jobTask = nil
     }
 
+    /// Whether a bulk job or the scan may take its next step, having waited first for as long as the app is
+    /// in the background.
+    ///
+    /// No step is started while the reader is away. iOS suspends the app soon after it leaves, and a request
+    /// frozen with it comes back as a failure, which would stop the job for a recorder that had gone nowhere,
+    /// unsure whether the recording it was on had been deleted. So the job waits here, between two steps, and
+    /// goes on when the app is back -- after making sure of a recorder that has had all that time to fall
+    /// asleep. The step under way as the reader leaves is finished first, under `keepingAlive`.
+    ///
+    /// False when the recorder is not there to ask. Silence met by anything stops the job, not only silence
+    /// met by the job: a list another screen was loading may have met it first, and the next step would only
+    /// wait out the same timeout to find out again.
+    private func readyForNextStep() async -> Bool {
+        if inBackground {
+            await withCheckedContinuation { backInFront = $0 }
+            // A screen coming back may be waking the recorder already, and until that is over the app counts
+            // it as not answering. Its outcome is the one to go by.
+            if let wakeCheck { _ = await wakeCheck.value }
+            guard await wakeIfDozing() else { return false }
+        }
+        return !unreachable
+    }
+
+    /// Runs one step of a bulk job under a background task, so that a step under way when the reader leaves
+    /// the app is finished rather than frozen half way (see `readyForNextStep`). iOS allows half a minute or
+    /// so, which a step fits in with room to spare unless the recorder has gone quiet, and then the task is
+    /// ended when the time runs out, as iOS requires.
+    private func keepingAlive<T>(_ step: () async throws -> T) async rethrows -> T {
+        stepTask = UIApplication.shared.beginBackgroundTask(withName: "BulkStep") { [weak self] in
+            self?.endStepTask()
+        }
+        defer { endStepTask() }
+        return try await step()
+    }
+
+    private func endStepTask() {
+        guard stepTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(stepTask)
+        stepTask = .invalid
+    }
+
     // MARK: - duplicates
 
     /// Candidates cost nothing to find; confirming them means asking the recorder about each one, which is
     /// why this is a job with a progress bar and a stop button.
+    ///
+    /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
+    /// reader gave it. Ticking waits until it has finished.
     func startDuplicateScan() {
         guard jobTask == nil, let client, let store else { return }
         let candidates = Duplicates.candidates(titles)
-        setDuplicates([])
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         jobTask = Task { [weak self] in
             await self?.runScan(candidates, client: client, store: store)
@@ -591,40 +1374,84 @@ final class AppModel {
         if let known = try? await store.titleSummaries(ids) {
             summaries.merge(known) { _, new in new }
         }
+        // The recorder is needed only for what the cache does not already hold, and made sure of only then.
+        var answering = true
+        if ids.contains(where: { summaries[$0] == nil }) { answering = await wakeIfDozing() }
 
         scan: for group in candidates {
             for title in group {
-                if job?.cancelled == true { break scan }
+                if !answering || job?.cancelled == true { break scan }
                 if summaries[title.id] == nil {
-                    let summary = (try? await client.titleDetail(id: title.id))?.summary ?? ""
-                    summaries[title.id] = summary
-                    try? await store.setTitleSummary(title.id, summary)
+                    guard await readyForNextStep() else {
+                        answering = false
+                        break scan
+                    }
+                    let read: SummaryRead
+                    do {
+                        read = try await keepingAlive { try await client.summary(of: title.id) }
+                    } catch let error as RecorderError where error.unreachable {
+                        // Stop at the first silence rather than wait it out once for every recording left,
+                        // and keep nothing for this one: silence says nothing about what it is.
+                        lostTheRecorder()
+                        answering = false
+                        break scan
+                    } catch {
+                        read = .failed(reason: String(describing: error))
+                    }
+                    switch read {
+                    case .read(let summary):
+                        summaries[title.id] = summary
+                        try? await store.setTitleSummary(title.id, summary)
+                    case .gone:
+                        // deleted on the recorder since the list was read, so it is not a copy of anything
+                        titles.removeAll { $0.id == title.id }
+                    case .failed(let reason):
+                        // Nothing is kept, so it is left out of the sets and asked about again next time.
+                        job?.skipped.append(.init(id: title.id, reason: reason))
+                    }
                 }
                 job?.done += 1
             }
         }
-        setDuplicates(Duplicates.sets(candidates: candidates, summaries: summaries))
+        if !answering { job?.lostRecorder = true }
+        // Read again each time, since the guide moves on a day at a time. It is the cache on this device, so
+        // it is read whether or not the recorder answered; one that cannot be read leaves what was read last.
+        let titleKeys = Set(candidates.compactMap { $0.first.map { Series.sameTitleKey($0.title) } })
+        if let found = try? await store.fixedBlurbs(among: titleKeys) { fixedBlurbs = found }
+        // from the list as it is now, which a recording deleted meanwhile has left
+        recomputeDuplicates()
         job?.finished = true
         jobTask = nil
     }
 
     /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
+    ///
+    /// A recording whose text has not been read -- the scan was stopped before it, the recorder could not
+    /// give it, or it was recorded since -- is left out rather than compared on nothing. With no text, two of
+    /// them would agree on their title and length alone, and one would come up ticked for deletion. This is
+    /// done here rather than in `Duplicates.sets`, which treats a missing text as an empty one, as the server
+    /// that its vectors come from does.
     func recomputeDuplicates() {
-        setDuplicates(Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries))
+        let candidates = Duplicates.candidates(titles)
+        let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
+        unreadDuplicates = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
+        setDuplicates(Duplicates.sets(candidates: read, summaries: summaries, fixedBlurbs: fixedBlurbs))
     }
 
-    /// The copies to delete are ticked for the reader; a set that changes gets a fresh set of ticks.
+    /// A set the reader has already seen keeps its ticks; a new or changed one is ticked as suggested, if its
+    /// text confirms it. See `Duplicates.picks`.
     private func setDuplicates(_ sets: [DuplicateSet]) {
+        duplicatePicks = Duplicates.picks(for: sets, shown: duplicates, picked: duplicatePicks)
         duplicates = sets
-        duplicatePicks = Set(sets.flatMap(\.suggestDelete))
     }
 
-    private func deleteOne(_ id: String, _ client: RecorderClient) async {
+    /// Throws only silence, which ends the job: see `runBulk`.
+    private func deleteOne(_ id: String, _ client: RecorderClient) async throws {
         guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
-        let outcome = await client.deleteIfPresent(title)
+        let outcome = try await client.deleteIfPresent(title)
         switch outcome {
         case .changed:
             titles.removeAll { $0.id == id }
@@ -636,14 +1463,17 @@ final class AppModel {
         }
     }
 
-    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async {
-        guard let index = titles.firstIndex(where: { $0.id == id }) else {
+    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async throws {
+        guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
-        switch await client.setProtected(titles[index], on) {
+        switch try await client.setProtected(title, on) {
         case .changed:
-            titles[index].protected = on
+            // Found again rather than by the place it had before the request: the list can change while the
+            // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
+            // may then be another recording's, which would be marked protected instead, or past the end.
+            if let index = titles.firstIndex(where: { $0.id == id }) { titles[index].protected = on }
             job?.changed.append(id)
         case .skipped(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
@@ -669,15 +1499,16 @@ final class AppModel {
         await loadTitlesNow(force: force)
     }
 
-    /// The load itself. Anything called from `begin()` has to use this: going through `loadTitles` would wait
-    /// on the very start-up task it is already running inside.
+    /// The load itself, without `start()`, for anything `connect()` reaches: see there.
     private func loadTitlesNow(force: Bool) async {
         guard let client, !unreachable, force || !titlesLoaded else { return }
         await run("録画一覧を取得中") {
             self.titles = try await client.allTitles()
             self.titlesLoaded = true
-            let capacity = try await client.recordDestinationInfo()
-            self.storage = (capacity.freeBytes, capacity.totalBytes)
+            // The sets on screen were built from the list as it was. A copy one says it keeps may have gone
+            // since, and deleting the others would then leave nothing.
+            if !self.duplicates.isEmpty { self.recomputeDuplicates() }
+            await self.refreshStorage(client)
         }
     }
 
@@ -711,10 +1542,19 @@ final class AppModel {
             ?? ""
     }
 
+    /// Asked as a recording's sheet opens, which is also the moment to wake a recorder that has gone to
+    /// sleep: what the reader opened it for -- playing, protecting, deleting -- then goes straight through.
     func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
         await start()
-        guard let client else { return nil }
-        return try? await client.titleDetail(id: title.id)
+        guard let client, !unreachable, await wakeIfDozing() else { return nil }
+        do {
+            return try await client.titleDetail(id: title.id)
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     /// A write: the recorder stops deleting this one to make room.
@@ -722,12 +1562,18 @@ final class AppModel {
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
         await start()
         guard let client else { return false }
-        return await run(on ? "保護中" : "保護を解除中") {
+        let done = await run(on ? "保護中" : "保護を解除中", sending: true) {
             try await client.updateTitle(id: title.id, protected: on)
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
                 self.titles[index].protected = on
             }
         }
+        // Silence may have come after the recorder made the change. The list is read again once it answers,
+        // rather than guessed at.
+        if !done, unreachable { titlesLoaded = false }
+        // which copy of a set to keep can change with it
+        if done, !duplicates.isEmpty { recomputeDuplicates() }
+        return done
     }
 
     /// A write, and not one that can be undone: the recording is gone from the recorder.
@@ -741,28 +1587,50 @@ final class AppModel {
             return false
         }
         guard let client else { return false }
-        return await run("削除中") {
+        let deleted = await run("削除中", sending: true) {
             try await client.deleteTitle(id: title.id)
             self.titles.removeAll { $0.id == title.id }
-            let capacity = try await client.recordDestinationInfo()
-            self.storage = (capacity.freeBytes, capacity.totalBytes)
+            // Under the same line, but not able to fail the delete, which has happened whatever this says:
+            // see `refreshStorage`.
+            await self.refreshStorage(client)
         }
+        // as for protecting: silence may have come after the recording had gone
+        if !deleted, unreachable { titlesLoaded = false }
+        // A set on screen may have been left with one copy, or none of the one it says it keeps.
+        if deleted, !duplicates.isEmpty { recomputeDuplicates() }
+        return deleted
     }
 
     /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
-    /// call resumes. A recorder in network standby answers 880, which is what `needsPower` reports.
+    /// call resumes.
+    ///
+    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying
+    /// on the line how long it has been: the recorder is in standby whenever nobody is watching it, and the
+    /// 880 it answers used to end the tap there. A recorder that has still not come on by the end of the wait,
+    /// or a pause or a stop sent to one in standby, answers 880 all the same, which is what `needsPower`
+    /// reports and the sheet offers to turn it on for.
     func play(_ title: RecordedTitle, _ operation: String) async {
         await start()
         guard let client else { return }
         needsPower = false
-        await run(operation == "stop" ? "停止中" : "再生を指示中") {
+        await run(operation == "stop" ? "停止中" : "再生を指示中") { activity in
             do {
-                try await client.playControl(titleID: title.id, operation: operation)
+                if operation == "play" {
+                    try await client.play(titleID: title.id) { @MainActor seconds in
+                        self.activities.update(activity, to: Self.poweringOnLine(seconds))
+                    }
+                } else {
+                    try await client.playControl(titleID: title.id, operation: operation)
+                }
             } catch let error as RecorderError where error.needsPowerOn {
                 self.needsPower = true
                 throw error
             }
         }
+    }
+
+    private static func poweringOnLine(_ seconds: Int) -> String {
+        "レコーダーの電源を入れています（\(seconds) 秒）"
     }
 
     /// Turns the recorder on, which also turns on the television attached to it.
@@ -853,12 +1721,48 @@ final class AppModel {
     /// The reservation that follows this programme, if there is one. Time-only reservations carry no
     /// programme id and so cannot be matched to one.
     func reservation(for program: GuideProgramRow) -> Reservation? {
-        guard let broadcastingType = Codes.broadcasting[program.broadcasting] else { return nil }
-        return reservationsByProgram[Self.key(broadcastingType, program.serviceID, program.eventID)]
+        guard let key = Self.key(program) else { return nil }
+        return reservationsByProgram[key]
+    }
+
+    /// The other reservations whose hours overlap this one's, soonest first, for a reservation the recorder
+    /// marks 重複. The recorder says that something clashes but not with what, and the sheet said only
+    /// 他の予約と重複しています, leaving the reader to go through the list by the clock. The sheet names them
+    /// as reservations at the same time rather than as the clash itself: the recorder has more than one tuner,
+    /// so hours in common are not by themselves what it is complaining about.
+    func overlapping(_ reservation: Reservation) -> [Reservation] {
+        reservations
+            .filter { $0.id != reservation.id && $0.start < reservation.end && reservation.start < $0.end }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,
+    /// so it always carries the programme id.
+    func pending(for program: GuideProgramRow) -> PendingReservation? {
+        guard let key = Self.key(program) else { return nil }
+        return pendingByProgram[key]
+    }
+
+    private static func key(_ program: GuideProgramRow) -> String? {
+        Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
     }
 
     private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
         "\(broadcastingType)-\(serviceID)-\(eventID)"
+    }
+
+    private static func byProgram(_ reservations: [Reservation]) -> [String: Reservation] {
+        Dictionary(reservations.compactMap { reservation in
+            reservation.eventID.map { (key(reservation.broadcastingType, reservation.serviceID, $0), reservation) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func byProgram(_ pending: [PendingReservation]) -> [String: PendingReservation] {
+        Dictionary(pending.compactMap { waiting in
+            waiting.request.eventID.map {
+                (key(waiting.request.broadcastingType, waiting.request.serviceID, $0), waiting)
+            }
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// What would be sent to the recorder to record this programme.
@@ -878,9 +1782,13 @@ final class AppModel {
         await start()
         guard let client, !unreachable,
               let request = request(for: program, quality: quality, repeating: repeating) else { return nil }
+        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
+        // not, so that the reservation which usually follows goes straight through.
+        guard await wakeIfDozing() else { return nil }
         do {
             return try await client.conflicts(elements: XsrsElements.create(request))
         } catch let error as RecorderError {
+            if error.unreachable { lostTheRecorder() }
             problem = error.explanation
             return nil
         } catch {
@@ -893,27 +1801,34 @@ final class AppModel {
     ///
     /// Away from home the recorder is not there to write to, and the programme is still worth keeping: a
     /// reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
-    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see.
+    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see —
+    /// and only silence before anything was sent. A reservation that went out and met silence may have been
+    /// made all the same, and the queue would make it a second time.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
         guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
         // Known to be away: queue it now rather than spending a timeout finding out again. Thirty seconds
         // of a spinner before "送信待ちにしました" reads as a failure that was then made the best of.
         guard let client, !offline else {
-            await queue(request, serviceName: program.serviceName)
-            return true
+            return await queue(request, serviceName: program.serviceName)
         }
-        let previous = busy
-        busy = "予約を登録中"
-        defer { busy = previous }
+        let activity = activities.begin("予約を登録中")
+        defer { activities.end(activity) }
+        // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
+        // cannot be, nothing has been sent, so the queue is the place for this.
+        guard await wakeIfDozing() else {
+            return await queue(request, serviceName: program.serviceName)
+        }
         do {
             _ = try await client.createReservation(request)
             problem = nil
             await loadReservations()
             return true
         } catch let error as RecorderError where error.unreachable {
-            await queue(request, serviceName: program.serviceName)
-            return true
+            lostTheRecorder()
+            problem = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
+                + "再接続してから予約一覧で確かめてください。"
+            return false
         } catch let error as RecorderError {
             problem = error.explanation
             return false
@@ -923,12 +1838,38 @@ final class AppModel {
         }
     }
 
-    /// The app has come back to the front. The recorder may have gone to sleep while it was away -- a
-    /// BDZ-FBT4100 leaves the network after a quarter of an hour or so -- and the screens would otherwise
-    /// show what was true when the app was last looked at. Connecting again also sends anything queued.
+    /// The app has gone to the background, which is what makes coming back worth a reconnect. Only this
+    /// counts. Control Centre, Notification Centre, the app switcher and a system alert take the app out of
+    /// `.active` as well, without it going anywhere, and reconnecting after each of them sent a magic packet
+    /// for a glance at the time -- and, with a bulk job running, set a second client talking over the job's.
+    func wentToBackground() {
+        inBackground = true
+        // The line about the queue was for this visit. Coming back sends the queue again when there is
+        // anything to send, and says what became of that.
+        flushReport = nil
+    }
+
+    /// The app is active again. The recorder may have gone to sleep while it was away -- a BDZ-FBT4100 leaves
+    /// the network after a quarter of an hour or so -- and the screens would otherwise show what was true
+    /// when the app was last looked at. Connecting again also sends anything queued. Called every time the
+    /// scene becomes active, and connects only when the app has really been away: see `wentToBackground`.
     func returnedToForeground() async {
-        guard !host.isEmpty, busy == nil else { return }
-        if connected, let lastAnswered, Date().timeIntervalSince(lastAnswered) < 60 { return }
+        let wasAway = inBackground
+        inBackground = false
+        // A bulk job waiting between two steps goes on, and makes sure of the recorder itself first.
+        backInFront?.resume()
+        backInFront = nil
+        // Before any of the reasons below not to connect: a day may have gone by while the app was away,
+        // with or without a recorder to ask.
+        if followTheClock() { await reloadFromCache() }
+        // Not after a moment in Control Centre and the like, which went nowhere: see `wentToBackground`.
+        guard wasAway else { return }
+        // Nor while a check is making sure of the recorder: connecting would make a second client beside the
+        // one the check is using. The conflict check has no line of its own to make `busy` say so.
+        guard !host.isEmpty, busy == nil, wakeCheck == nil else { return }
+        // Not on every flick between apps: without this a glance at something else and back would send a
+        // magic packet each time. Any answer counts, not only the connect's.
+        if connected, let last = await client?.lastAnswer, Date().timeIntervalSince(last) < 60 { return }
         // Already tried on this very network and got nowhere. Coming back to the app is not news, and
         // spending half a minute waking a recorder that is not there -- every time -- is what made the app
         // look as though it never stopped searching.
@@ -938,28 +1879,60 @@ final class AppModel {
 
     /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
     /// over. That is the one thing that makes another attempt worth making without being asked.
+    ///
+    /// While connected, it is the one thing that makes the last answer worth nothing: leaving home with the
+    /// app open left it looking connected to a recorder it could no longer reach, until something asked and
+    /// waited out a timeout. The recorder is asked again with the client in hand, as before an operation.
     func networkChangedWhileOpen() async {
-        guard !host.isEmpty, busy == nil, !connected, networkChanged else { return }
-        await connect()
+        guard !host.isEmpty, busy == nil, networkChanged else { return }
+        guard connected else {
+            await connect()
+            return
+        }
+        triedOn = surroundings.networkSignature()
+        _ = await wakeIfDozing(evenIfRecent: true)
+    }
+
+    // MARK: - notifications
+
+    func readNotifications() async {
+        notifications = await Notify.status()
+    }
+
+    /// The system's dialog, when the reader has not answered it yet. See `Notify.askIfNeeded`.
+    func askForNotifications() async {
+        guard surroundings.asksAboutNotifications else { return }
+        await Notify.askIfNeeded()
+        await readNotifications()
     }
 
     // MARK: - reservations waiting for the recorder
 
-    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing.
-    private func queue(_ request: ReservationRequest, serviceName: String) async {
-        guard let store else { return }
+    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns
+    /// whether it was kept. One that could not be saved has been made nowhere, and the sheet closed on it as
+    /// though it had been reserved: the programme went unrecorded without a word.
+    private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
+        guard let store else {
+            problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+            return false
+        }
         let waiting = PendingReservation(request: request, serviceName: serviceName)
-        // The reader learns that this was finally sent through a notification, and a queued reservation is
-        // the first moment that means anything, so this is where the asking belongs.
-        await Notify.askIfNeeded()
         do {
             try await store.queue(waiting)
             pending = try await store.pendingReservations()
             problem = nil
             queued = waiting
         } catch {
-            problem = String(describing: error)
+            problem = "予約を端末に保存できませんでした: \(error)"
+            return false
         }
+        // The reader learns that this was finally sent through a notification, and a queued reservation is
+        // the first moment that means anything, so this is where the system's dialog belongs. After the
+        // reservation is saved, not before: the dialog waits on the reader, who may leave the app instead
+        // of answering, and the reservation must not wait with it. Nor is there anything to be told about
+        // when saving failed.
+        await askForNotifications()
+        return true
     }
 
     func loadPending() async {
@@ -973,25 +1946,43 @@ final class AppModel {
         await loadPending()
     }
 
+    /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
+    /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
+    /// since, an antenna put right -- and only the reader knows when it has. Sent now when the recorder can
+    /// be reached, and otherwise with the rest the next time it answers.
+    func resend(_ waiting: PendingReservation) async {
+        await start()
+        guard let store else { return }
+        try? await store.setPendingProblem(waiting.id, nil)
+        await loadPending()
+        guard !offline, await wakeIfDozing() else { return }
+        await flushPending()
+    }
+
     /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
-    /// Called whenever the recorder has just answered.
+    /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
+    /// await `start()`.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store else { return 0 }
         await loadPending()
         guard !pending.isEmpty, !unreachable else { return 0 }
-        let previous = busy
-        busy = "送信待ちの予約を登録中"
+        let activity = activities.begin("送信待ちの予約を登録中")
         let outcome = await PendingQueue.flush(client: client, store: store)
-        busy = previous
+        activities.end(activity)
+        // What had not been sent stays queued for the next answer, and the app goes offline as it does for
+        // any silence.
+        if outcome.interrupted { lostTheRecorder() }
         await loadPending()
-        if !outcome.sent.isEmpty { await loadReservations() }
+        if !outcome.sent.isEmpty { await loadReservationsNow() }
+        // Said on screen. The overnight run's notification is the only other place this is said, and a
+        // notification does not show while the app is in front (nothing here answers `willPresent`), so a
+        // reservation dropped because its programme had finished went without a word. A flush with nothing
+        // to say -- everything waiting had been refused before -- leaves the last line where it was.
+        if let summary = outcome.summary { flushReport = summary }
         return outcome.sent.count
     }
 
-    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
-    /// is left on screen rather than being reloaded away.
-    @discardableResult
     /// Changes the quality or the repeat of a reservation the recorder already holds.
     ///
     /// Found again by what it is rather than by the id in hand, for the same reason a deletion is: the
@@ -1000,7 +1991,14 @@ final class AppModel {
     func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
         await start()
         guard client != nil else { return false }
+        // Sending would only wait out a timeout, from a list that could not be read again first.
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
+        // The read makes sure of the recorder too, and wakes it if it has gone to sleep.
         await loadReservations()
+        guard !offline else { return false }   // the load has said why
         guard let target = current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
@@ -1012,11 +2010,14 @@ final class AppModel {
                                          durationSec: target.durationSec, repeatCode: repeatCode,
                                          broadcastingType: target.broadcastingType, serviceID: target.serviceID,
                                          qualityCode: qualityCode, eventID: target.eventID)
-        let previous = busy
-        busy = "予約を変更中"
-        defer { busy = previous }
+        let activity = activities.begin("予約を変更中")
+        defer { activities.end(activity) }
         do {
             try await client.updateReservation(id: target.id, request)
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
         } catch let error as RecorderError where error.unknownReservation {
             await loadReservations()
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
@@ -1038,31 +2039,45 @@ final class AppModel {
     /// 19 automatic reservations were renumbered in one go, the programmes themselves unchanged. So read
     /// the list again first and find this reservation by its channel and the moment it starts, which no two
     /// reservations can share. Only when it is not there at all has it really gone.
+    ///
+    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
+    /// is left on screen rather than being reloaded away.
+    @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
         guard client != nil else { return false }
+        // as for a change: the list has to be read first, and nothing can be read
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
         await loadReservations()
+        guard !offline else { return false }
         guard let target = current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
         }
         guard let client else { return false }
-        let previous = busy
-        busy = "予約を削除中"
+        let activity = activities.begin("予約を削除中")
         do {
             try await client.deleteReservation(id: target.id)
+        } catch let error as RecorderError where error.unreachable {
+            activities.end(activity)
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
         } catch let error as RecorderError where error.unknownReservation {
             // the list we just read was itself out of date, which is what happens when reading it failed
-            busy = previous
+            activities.end(activity)
             await loadReservations()  // first, because a successful read clears `problem`
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
         } catch {
-            busy = previous
+            activities.end(activity)
             problem = (error as? RecorderError)?.explanation ?? String(describing: error)
             return false
         }
-        busy = previous
+        activities.end(activity)
         problem = nil
         reservations.removeAll { $0.id == target.id }
         await loadReservations()
@@ -1098,6 +2113,11 @@ final class AppModel {
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
+            // The channel the list is narrowed to has to be one the guide shows. Hidden, it stayed chosen, and
+            // the list stayed empty with nothing to say why: the menu that would undo it no longer named it.
+            if let serviceFilter, !channels.contains(where: { $0.serviceID == serviceFilter }) {
+                self.serviceFilter = nil
+            }
             let everyChannel = try await store.channels(includeHidden: true)
             channelNames = Dictionary(
                 everyChannel.compactMap { channel in
@@ -1134,17 +2154,20 @@ final class AppModel {
             .flatMap { channelLogos["\($0)-\(serviceID)"] }
     }
 
-    /// Programmes still to come whose title or description contains this, across every broadcasting type.
-    /// The search runs against the cache, so it works away from home too.
-    func search(_ query: String) async -> [GuideProgramRow] {
+    /// Programmes still to come with every word of this in their title, description or details, across every
+    /// broadcasting type: the ones named for it first. The search runs against the cache, so it works away
+    /// from home too. At most 300, which is more than anyone reads down; `more` says the words should be
+    /// narrowed, rather than letting the list pass for all there is.
+    func search(_ query: String) async -> GuideSearchResults {
         await start()
-        guard let store, query.trimmingCharacters(in: .whitespaces).count >= 1 else { return [] }
-        return (try? await store.programs(since: Date(), query: query, limit: 300)) ?? []
+        guard let store else { return GuideSearchResults() }
+        return (try? await store.search(query, since: Date(), limit: 300)) ?? GuideSearchResults()
     }
 
-    /// The eight days the recorder's guide covers, starting today. Fixed when the app opened: building them
-    /// from the current moment each time gives every chip a new identity and the day strip loses its place.
-    let days: [Date]
+    /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four
+    /// in the morning is yesterday's. Kept rather than worked out each time they are read, and replaced by
+    /// `followTheClock` only when that first day changes, so that the day strip keeps its chips and its place.
+    private(set) var days: [Date]
 
     /// What the list shows: the day, narrowed to one channel when the reader picked one.
     var filteredPrograms: [GuideProgramRow] {
@@ -1157,25 +2180,65 @@ final class AppModel {
         return channels.first { $0.serviceID == serviceFilter }?.name ?? "すべての局"
     }
 
+    // MARK: - which channels the guide shows
+
+    /// Whether the broadcasting type on screen has channels and the reader has hidden every one of them. The
+    /// guide is empty then for a reason that has nothing to do with the recorder, and says so.
+    var everyChannelHidden: Bool {
+        channels.isEmpty && (counts[broadcasting]?.channels ?? 0) > 0
+    }
+
+    /// Every channel of one broadcasting type, hidden ones too, in the reader's order: what the screen that
+    /// sets them lists. Empty until that type's guide has been fetched.
+    func channelsToArrange(broadcasting: String) async throws -> [Channel] {
+        await start()
+        guard let store else { return [] }
+        return try await store.channels(broadcasting: broadcasting, includeHidden: true)
+    }
+
+    /// Hides channels of one broadcasting type or puts them in another order (see
+    /// `GuideStore.setChannelPreferences`), and reads the guide again at once, so that the guide, the grid
+    /// and the channel menu are in step when the reader goes back to them. Only the cache is written; the
+    /// recorder is not told, and records from a hidden channel as before.
+    func setChannelPreferences(broadcasting: String, order: [Int]? = nil, hidden: [Int]? = nil) async throws {
+        await start()
+        guard let store else { return }
+        try await store.setChannelPreferences(broadcasting: broadcasting, order: order, hidden: hidden)
+        await reloadFromCache()
+    }
+
     /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something
     /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
+    ///
+    /// A recorder that has been quiet a while is made sure of first (`wakeIfDozing`), under the action's own
+    /// line, so the screen says what the reader asked for from the moment they asked. Silence on the way
+    /// leaves the app offline (`lostTheRecorder`). `sending` marks an action that changes something on the
+    /// recorder, which silence leaves unknown rather than undone, and the reader is told so.
     @discardableResult
-    private func run(_ what: String, _ work: () async throws -> Void) async -> Bool {
-        let previous = busy
-        busy = what
-        var failed = false
+    private func run(_ what: String, sending: Bool = false, _ work: () async throws -> Void) async -> Bool {
+        await run(what, sending: sending) { (_: Activities.Token) in try await work() }
+    }
+
+    /// The same, handing the work its own line so that it can say how far it has got.
+    @discardableResult
+    private func run(_ what: String, sending: Bool = false,
+                     _ work: (Activities.Token) async throws -> Void) async -> Bool {
+        let activity = activities.begin(what)
+        defer { activities.end(activity) }
+        guard await wakeIfDozing() else { return false }
         do {
-            try await work()
+            try await work(activity)
             problem = nil
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = sending ? Self.mayHaveArrived : error.explanation
         } catch let error as RecorderError {
             problem = error.explanation
-            failed = true
         } catch {
             problem = String(describing: error)
-            failed = true
         }
-        busy = previous
-        return !failed
+        return false
     }
 
 }

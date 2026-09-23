@@ -11,6 +11,19 @@ public enum LocalNetwork {
         public var name: String
         public var address: String
         public var netmask: String
+        /// Whether the interface has neighbours to broadcast to (`IFF_BROADCAST`): Wi-Fi or Ethernet. Cellular
+        /// (`pdp_ip`) and VPN tunnels (`utun`) are point-to-point links and do not.
+        public var broadcasts: Bool
+
+        /// True for a network the recorder could be sitting on beside this device. Cellular and VPN tunnels
+        /// are left out by name as well as by the flag, because what they would add is worse than nothing:
+        /// a /32 on `pdp_ip` put this device's own address among the places to broadcast to, and the
+        /// local network permission is never asked about on either, so a check aimed there says yes.
+        public var isLAN: Bool {
+            broadcasts && !Self.tunnelPrefixes.contains { name.hasPrefix($0) }
+        }
+
+        private static let tunnelPrefixes = ["pdp_ip", "utun", "ipsec"]
     }
 
     /// The device's own IPv4 interfaces, loopback and anything that is down left out.
@@ -27,7 +40,7 @@ public enum LocalNetwork {
                   let mask = cursor.pointee.ifa_netmask,
                   let address = text(of: addr), let netmask = text(of: mask) else { continue }
             found.append(Interface(name: String(cString: cursor.pointee.ifa_name), address: address,
-                                   netmask: netmask))
+                                   netmask: netmask, broadcasts: flags & IFF_BROADCAST != 0))
         }
         return found
     }
@@ -36,8 +49,18 @@ public enum LocalNetwork {
     /// with the address and mask it holds. Joining another Wi-Fi, falling back to cellular or bringing a VPN
     /// up all change it, and sitting still does not -- which is what makes it a fair thing to decide by
     /// whether reaching a recorder that did not answer is worth trying again.
+    ///
+    /// Cellular is left out. The carrier hands out a new address whenever it likes, at home on the Wi-Fi as
+    /// much as anywhere, and a recorder is never reached through it: what matters about cellular is the
+    /// Wi-Fi going, and that changes the Wi-Fi's part. Counting it had a phone lying on the table spend half
+    /// a minute waking a recorder the app had given up on, each time the carrier moved it.
     public static func signature() -> String {
-        interfaces().map { "\($0.name)=\($0.address)/\($0.netmask)" }.sorted().joined(separator: ",")
+        signature(of: interfaces())
+    }
+
+    static func signature(of interfaces: [Interface]) -> String {
+        interfaces.filter { !$0.name.hasPrefix("pdp_ip") }
+            .map { "\($0.name)=\($0.address)/\($0.netmask)" }.sorted().joined(separator: ",")
     }
 
     /// Every host on the same subnet as `interface`, without the network and broadcast addresses or the
@@ -59,17 +82,62 @@ public enum LocalNetwork {
         return (low...high).compactMap { $0 == address ? nil : dotted($0) }
     }
 
-    /// The addresses worth trying, nearest interface first.
-    public static func hostsToScan(maxHosts: Int = 512) -> [String] {
-        interfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
+    /// The interfaces a recorder could be found on: Wi-Fi, or Ethernet on a Mac. Empty when this device is
+    /// on cellular alone, or reaches home only through a VPN, which is when a scan has nothing to look at.
+    public static func lanInterfaces() -> [Interface] {
+        interfaces().filter(\.isLAN)
     }
 
-    /// Where to send something that everything on the subnet should hear. The subnet's own broadcast
-    /// address first, since a router is likelier to pass that than the all-ones one, and 255.255.255.255
-    /// after it for the case where the netmask could not be read.
+    /// The addresses worth trying, nearest interface first. Only the LAN ones: the subnet of a VPN tunnel is
+    /// the tunnel's own, not the home network the recorder is on.
+    public static func hostsToScan(maxHosts: Int = 512) -> [String] {
+        lanInterfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
+    }
+
+    /// The addresses to look through for a recorder last seen at `host`: the subnet of each interface that
+    /// `host` belongs to, and nothing when it belongs to none. A router hands a lease out again within its
+    /// own subnet, so that is where the recorder has gone if it has moved. On any other network -- away from
+    /// home, a café's Wi-Fi, a VPN whose tunnel is not among `interfaces` -- the recorder is not there to be
+    /// found, and knocking on every address of somebody else's LAN is not this app's business.
+    public static func hostsToScan(near host: String, on interfaces: [Interface] = lanInterfaces(),
+                                   maxHosts: Int = 512) -> [String] {
+        guard let target = packed(host) else { return [] }
+        var out: [String] = []
+        for interface in interfaces {
+            guard let address = packed(interface.address), let mask = packed(interface.netmask),
+                  address & mask == target & mask else { continue }
+            for candidate in hosts(around: interface, maxHosts: maxHosts) where !out.contains(candidate) {
+                out.append(candidate)
+            }
+        }
+        return out
+    }
+
+    /// Somebody else on the interface's subnet, to aim the local network check at (see `waitForAccess`):
+    /// the first address of the subnet, which is usually the router, or the second when that is this
+    /// device. Whether anything answers there does not matter; the check reads the path, not a reply.
+    public static func neighbour(on interface: Interface) -> String? {
+        guard let address = packed(interface.address), let mask = packed(interface.netmask) else { return nil }
+        let network = address & mask
+        let broadcast = network | ~mask
+        return [network &+ 1, network &+ 2]
+            .first { $0 > network && $0 < broadcast && $0 != address }
+            .map(dotted)
+    }
+
+    /// Where to send something that everything on the subnet should hear: the broadcast address of each
+    /// LAN interface's subnet, then 255.255.255.255.
+    ///
+    /// The subnet's own address comes first because, as far as the kernel's source says, it is the one an
+    /// iPhone app may send to. Apple's documentation says broadcasting needs the multicast entitlement,
+    /// which this app does not have, but the check that enforces it (`necp_check_restricted_multicast_drop`
+    /// in xnu's bsd/net/necp.c) drops only 224.0.0.0/4 and the all-ones address, and a subnet broadcast
+    /// arriving has been reported on Apple's forums. So 255.255.255.255 is expected to fail on an iPhone,
+    /// with EHOSTUNREACH, every time. It is sent anyway, because it costs nothing and a Mac lets it
+    /// through; `WakeOnLan` logs what each destination did, which is how a real iPhone settles it.
     public static func broadcastAddresses() -> [String] {
         var out: [String] = []
-        for interface in interfaces() {
+        for interface in lanInterfaces() {
             guard let address = packed(interface.address), let mask = packed(interface.netmask) else {
                 continue
             }
@@ -93,7 +161,8 @@ public enum LocalNetwork {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         var sin = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
         guard inet_ntop(AF_INET, &sin, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return String(cString: buffer)
+        // Up to the zero inet_ntop ends it with. `String(cString:)` taking an array is deprecated.
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     static func packed(_ dotted: String) -> UInt32? {

@@ -36,29 +36,38 @@ struct TitleSheet: View {
                 }
 
                 Section("テレビで再生") {
-                    Button {
-                        Task { await model.play(current, "play") }
-                    } label: {
-                        Label("再生", systemImage: "play.fill")
-                    }
-                    Button {
-                        Task { await model.play(current, "pause") }
-                    } label: {
-                        Label("一時停止 / 再開", systemImage: "pause.fill")
-                    }
-                    Button {
-                        Task { await model.play(current, "stop") }
-                    } label: {
-                        Label("停止", systemImage: "stop.fill")
-                    }
-                    if model.needsPower {
+                    // Held off while anything is under way. 一時停止 is one toggle on the recorder, so a second
+                    // tap while the first was still on its way resumed what the reader had meant to pause; and
+                    // turning the recorder on to play takes long enough to invite a second tap too.
+                    Group {
                         Button {
-                            Task { await model.powerOn() }
+                            Task { await model.play(current, "play") }
                         } label: {
-                            Label("レコーダーの電源を入れる", systemImage: "power")
+                            // The recorder cannot be told where to start: `play` begins at the beginning whatever
+                            // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
+                            // button, rather than surprise a reader who expected to carry on where they left off.
+                            Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                         }
-                        .foregroundStyle(.orange)
+                        Button {
+                            Task { await model.play(current, "pause") }
+                        } label: {
+                            Label("一時停止 / 再開", systemImage: "pause.fill")
+                        }
+                        Button {
+                            Task { await model.play(current, "stop") }
+                        } label: {
+                            Label("停止", systemImage: "stop.fill")
+                        }
+                        if model.needsPower {
+                            Button {
+                                Task { await model.powerOn() }
+                            } label: {
+                                Label("レコーダーの電源を入れる", systemImage: "power")
+                            }
+                            .foregroundStyle(Color.legibleOrange)
+                        }
                     }
+                    .disabled(model.busy != nil)
                     Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -98,6 +107,9 @@ struct TitleSheet: View {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }
+            // The strip, as on the screens, rather than the waking alone: turning the recorder on to play
+            // takes as long as waking it, and the strip is what says how long it has been.
+            .recorderActivity(inSheet: true)
             .navigationTitle("録画")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }

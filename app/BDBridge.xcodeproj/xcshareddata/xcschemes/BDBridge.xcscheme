@@ -44,6 +44,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "D01A1B5C25EC97706F307BE4"
+               BuildableName = "BDBridgeTests.xctest"
+               BlueprintName = "BDBridgeTests"
+               ReferencedContainer = "container:BDBridge.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "6D9214599971A0A668FA877A"
                BuildableName = "BDBridgeUITests.xctest"
                BlueprintName = "BDBridgeUITests"

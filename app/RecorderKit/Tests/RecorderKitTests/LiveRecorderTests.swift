@@ -352,13 +352,16 @@ extension LiveRecorderTests {
         let store = try GuideStore(path: ":memory:")
         try await store.replace(services, broadcasting: "td")
 
-        for word in ["ニュース", "news", "ドラマ"] {
-            let found = try await store.programs(since: Date(), query: word, limit: 300)
-            print("\(word): \(found.count) programmes still to come, first \(found.first?.title ?? "-")")
-            XCTAssertTrue(found.allSatisfy { $0.end > Date() }, "only what has not finished")
+        for word in ["ニュース", "news", "ドラマ", "出演"] {
+            let found = try await store.search(word, since: Date())
+            let byField = Dictionary(grouping: found.hits, by: \.match).mapValues(\.count)
+            print("\(word): \(found.hits.count)\(found.more ? "+" : "") programmes still to come,"
+                  + " by field \(byField), first \(found.hits.first?.program.title ?? "-")")
+            XCTAssertTrue(found.hits.allSatisfy { $0.program.end > Date() }, "only what has not finished")
+            XCTAssertEqual(found.hits.map(\.match), found.hits.map(\.match).sorted(), "best field first")
         }
-        let mixedWidth = try await store.programs(since: Date(), query: "ｎｅｗｓ", limit: 300)
-        let plain = try await store.programs(since: Date(), query: "news", limit: 300)
-        XCTAssertEqual(mixedWidth.map(\.id), plain.map(\.id), "full width and half width should agree")
+        let mixedWidth = try await store.search("ｎｅｗｓ", since: Date())
+        let plain = try await store.search("news", since: Date())
+        XCTAssertEqual(mixedWidth.hits.map(\.id), plain.hits.map(\.id), "full width and half width should agree")
     }
 }

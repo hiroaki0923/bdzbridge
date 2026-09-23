@@ -1,12 +1,19 @@
 import RecorderKit
 import SwiftUI
+import UserNotifications
 
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var typedHost = ""
     @State private var typedMac = ""
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
+    @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
+
+    /// The address field, tidied: what connecting would use.
+    private var tidied: RecorderAddress.Typed { RecorderAddress.tidy(typedHost) }
 
     /// What the store calls the version, and the build behind it: `0.2 (12)`. The build number comes from
     /// Xcode Cloud, so it is the only thing that tells two TestFlight builds of one version apart.
@@ -28,6 +35,7 @@ struct SettingsScreen: View {
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                     }
+                    AddressNote(typed: tidied)
                     LabeledContent("MAC アドレス") {
                         TextField("接続時に自動で記録", text: $typedMac)
                             .multilineTextAlignment(.trailing)
@@ -41,20 +49,28 @@ struct SettingsScreen: View {
                         let typed = typedMac.trimmingCharacters(in: .whitespaces)
                         if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
                     }
+                    // Following the model when it forgets the MAC as well: ending the demo can leave none, and
+                    // the field went on showing the demo's, which is nobody's. A half-typed MAC is left alone,
+                    // since it is no MAC and so already agrees with none.
                     .onChange(of: model.mac, initial: true) {
-                        if let mac = model.mac, WakeOnLan.normalise(typedMac) != mac { typedMac = mac }
+                        if WakeOnLan.normalise(typedMac) != model.mac { typedMac = model.mac ?? "" }
                     }
                     // Connecting happens by itself at launch and after a scan, so a button is only for an
-                    // address typed by hand, or for trying the saved one again after it failed.
-                    if typedHost.trimmingCharacters(in: .whitespaces) != model.host {
+                    // address typed by hand, or for trying the saved one again after it failed. The field is
+                    // compared both as typed and tidied, because the saved address can be untidy itself: an
+                    // older version saved `192.168.1.10:64220` just as it was typed, and 再接続 would only
+                    // try that again.
+                    if tidied.host != model.host || typedHost != model.host {
                         Button("このアドレスに接続") {
-                            model.host = typedHost.trimmingCharacters(in: .whitespaces)
-                            Task { await model.connect() }
+                            // the field shows what is saved, so that what was taken off can be seen to be gone
+                            let host = tidied.host
+                            typedHost = host
+                            Task { await model.adopt(host: host) }
                         }
-                        .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                        .disabled(!RecorderAddress.isUsable(tidied.host) || !model.canChangeRecorder)
                     } else if !model.connected, !model.host.isEmpty {
                         Button("再接続") { Task { await model.connect() } }
-                            .disabled(model.busy != nil)
+                            .disabled(model.busy != nil || model.jobRunning)
                     }
                 } header: {
                     Text("レコーダー")
@@ -63,26 +79,35 @@ struct SettingsScreen: View {
                 }
 
                 Section {
+                    // Not while a connect, a load or a job is under way: see `canChangeRecorder`.
                     if model.demo {
                         Button("サンプルデータを終了する", role: .destructive) {
                             Task { await model.leaveDemo() }
                         }
+                        .disabled(!model.canChangeRecorder)
                     } else {
                         Button("サンプルデータで試す") { Task { await model.enterDemo() } }
+                            .disabled(!model.canChangeRecorder)
                     }
                 } footer: {
                     Text(model.demo
                          ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表は削除され、"
-                           + "元のレコーダーの設定に戻ります。"
+                           + "元のレコーダーの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
                          : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
                 }
 
                 Section {
                     Button("レコーダーを探す") {
-                        Task { await model.scanForRecorders() }
+                        model.scanForRecorders()
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
-                    if let scanning = model.scanning {
+                    // This screen has no activity strip, so a connect held up by the permission is said here
+                    // as well as a scan.
+                    if model.lanBlocked {
+                        LocalNetworkNotice()
+                        OpenSettingsButton()
+                    }
+                    if let scanning = model.scanning, !model.scanBlocked {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
@@ -94,6 +119,9 @@ struct SettingsScreen: View {
                                          total: Double(max(1, scanning.total)))
                         }
                     }
+                    if let outcome = model.scanOutcome {
+                        ScanOutcomeText(outcome: outcome)
+                    }
                 } footer: {
                     Text("同じ Wi-Fi 上のレコーダーを探します。見つかったものを選ぶと、そのレコーダーに切り替わります。")
                 }
@@ -103,11 +131,12 @@ struct SettingsScreen: View {
                         ForEach(model.found, id: \.host) { recorder in
                             Button {
                                 typedHost = recorder.host
-                                Task { await model.use(recorder) }
+                                Task { await model.adopt(host: recorder.host) }
                             } label: {
-                                FoundRecorderRow(recorder: recorder)
+                                FoundRecorderRow(recorder: recorder, inUse: model.inUse(recorder))
                             }
                             .buttonStyle(.plain)
+                            .disabled(!model.canChangeRecorder)
                         }
                     }
                 }
@@ -116,13 +145,36 @@ struct SettingsScreen: View {
                     Section("接続中のレコーダー") {
                         LabeledContent("機種", value: info.product)
                         LabeledContent("名前", value: info.friendlyName)
-                        LabeledContent("ファームウェア", value: model.firmware)
+                        // empty when the recorder would not say, which another model may not
+                        if !model.firmware.isEmpty {
+                            LabeledContent("ファームウェア", value: model.firmware)
+                        }
                         LabeledContent("番組表", value: info.epgCapable ? "対応" : "非対応")
                         if let storage = model.storage {
                             LabeledContent("残り容量",
                                            value: "\(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))")
                         }
                     }
+                }
+
+                Section {
+                    NavigationLink("チャンネルの表示と並び順") {
+                        ChannelsScreen(broadcasting: model.broadcasting)
+                    }
+                } footer: {
+                    Text("番組表に出す局と、その並び順を放送ごとに選べます。この iPhone の番組表だけが変わり、"
+                         + "レコーダーの録画には影響しません。")
+                }
+
+                Section {
+                    Picker("既定の録画モード", selection: $defaultQuality) {
+                        ForEach(Codes.qualityOrder, id: \.self) { code in
+                            Text(Codes.qualityLabel[code] ?? code).tag(code)
+                        }
+                    }
+                } footer: {
+                    Text("録画予約とおまかせ・まる録の条件を追加するときに、最初に選ばれている録画モードです。"
+                         + "予約するときに変えても、ここは変わりません。")
                 }
 
                 Section("保存されている番組表") {
@@ -136,14 +188,16 @@ struct SettingsScreen: View {
                     if let refreshed = model.counts["td"]?.refreshed {
                         LabeledContent("最終更新", value: Self.readable(refreshed))
                     }
-                    if let overnight = UserDefaults.standard.string(forKey: BackgroundWork.lastRefreshKey) {
+                    if let overnight = UserDefaults.standard.string(forKey: DefaultsKey.lastBackgroundRefresh) {
                         LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
                         Task { await model.refreshGuide() }
                     }
-                    .disabled(!model.connected || model.busy != nil)
+                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }
+
+                notificationsSection
 
                 Section {
                     Button("セットアップ手順を見る") { showingGuide = true }
@@ -169,8 +223,54 @@ struct SettingsScreen: View {
             }
             .navigationTitle("設定")
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }
+            // The app moves the address by itself when it finds the recorder somewhere else, and a field still
+            // showing the old one would offer このアドレスに接続 to take it back there.
+            .onChange(of: model.host) { typedHost = model.host }
+            // Read on the way in, and again on coming back, since the switch is in the Settings app.
+            .task { await model.readNotifications() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await model.readNotifications() } }
+            }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
+        }
+    }
+
+    /// Whether the overnight run can say anything, and the way to change it. The provisional permission the
+    /// app takes after the first connect happens without a word, and somebody who only uses the app at home
+    /// never queues a reservation and never sees the dialog, so this is the one place it shows.
+    @ViewBuilder
+    private var notificationsSection: some View {
+        let status = model.notifications
+        Section {
+            LabeledContent("通知") {
+                Text(status.map(Self.permissionLabel) ?? "")
+                    .foregroundStyle(.secondary)
+            }
+            // Until the reader has answered the dialog. Provisional permission is no answer: it was taken
+            // without asking.
+            if status == .notDetermined || status == .provisional {
+                Button("通知を許可する") { Task { await model.askForNotifications() } }
+            }
+            // Before the app has asked for anything, the Settings app has no notification switches for it.
+            if let status, status != .notDetermined {
+                Button("通知の設定を開く") {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                }
+            }
+        } footer: {
+            Text("送信待ちの予約をレコーダーに送ったときと、レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を"
+                 + "下回ったときにお知らせします。どちらも夜間の自動更新で起きることなので、音は鳴りません。")
+        }
+    }
+
+    private static func permissionLabel(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized, .ephemeral: "オン"
+        case .provisional: "通知センターのみ"
+        case .denied: "オフ"
+        case .notDetermined: "未設定"
+        @unknown default: ""
         }
     }
 
@@ -178,5 +278,17 @@ struct SettingsScreen: View {
     /// reads that; what they want to know is whether the guide is fresh.
     private static func readable(_ stored: String) -> String {
         RecorderTime.parse(stored).map { Format.when($0) } ?? stored
+    }
+}
+
+/// The recording mode a new reservation and a new keyword condition start at. Chosen here and only here: the
+/// sheets start their own picker from it and leave it alone, where they used to be bound to it, so that
+/// trying a mode on one programme quietly changed the next one's.
+enum DefaultQuality {
+    static let fallback = "LSR"
+
+    static var current: String {
+        let saved = UserDefaults.standard.string(forKey: DefaultsKey.defaultQuality) ?? fallback
+        return Codes.qualityOrder.contains(saved) ? saved : fallback
     }
 }

@@ -2,7 +2,8 @@
 
 After every EPG refresh (and on demand) the enabled rules are matched against the cached guide; every new match
 that starts in the future is reserved on the recorder, unless the recorder reports a conflict. Each program is
-tried once per rule (the outcome is kept in the auto_log table), and one notification summarises a pass.
+tried once per rule (the outcome is kept in the auto_log table) -- unless the recorder was too busy to answer, which
+decides nothing -- and one notification summarises a pass.
 """
 from __future__ import annotations
 
@@ -53,6 +54,10 @@ async def run_rules(bridge, now: datetime | None = None) -> dict:
                         await rec.xsrs.create_reservation(el)
                         status, message = "reserved", ""
             except XsrsError as e:
+                if e.busy:
+                    # nothing was decided about this programme, so it is not logged, and the next pass asks again
+                    log.warning("rule %s: recorder busy, %s left for the next pass", rule["id"], p.title)
+                    continue
                 status, message = "error", str(e)
             store.auto_log_add(rule["id"], p, status, message)
             if status == "reserved":

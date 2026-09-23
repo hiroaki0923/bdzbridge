@@ -7,13 +7,16 @@ struct ReservationsScreen: View {
     /// The row swiped, by id rather than by value: the reservation itself is read back out of the model
     /// when the dialog asks, so a delete can only ever be sent for a row the list still holds.
     @State private var removing: String?
+    /// The same for a reservation waiting to be sent, read back out of the queue.
+    @State private var removingPending: String?
     @State private var failure: String?
     @State private var opened: Reservation?
 
-    /// One alert does both jobs, because two on the same view is not something SwiftUI promises to honour.
+    /// One alert does every job, because two on the same view is not something SwiftUI promises to honour.
     /// A failure wins: it is the answer to what was just asked.
     private enum Shown {
         case confirm(Reservation)
+        case confirmPending(PendingReservation)
         case failed(String)
     }
 
@@ -22,12 +25,18 @@ struct ReservationsScreen: View {
         if let id = removing, let reservation = model.reservations.first(where: { $0.id == id }) {
             return .confirm(reservation)
         }
+        if let id = removingPending, let waiting = model.pending.first(where: { $0.id == id }) {
+            return .confirmPending(waiting)
+        }
         return nil
     }
 
     private var alertTitle: String {
-        if case .failed = shown { return "エラー" }
-        return "この予約を削除しますか？"
+        switch shown {
+        case .failed: "エラー"
+        case .confirmPending: "送信待ちの予約を削除しますか？"
+        case .confirm, nil: "この予約を削除しますか？"
+        }
     }
 
     var body: some View {
@@ -112,7 +121,7 @@ struct ReservationsScreen: View {
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .alert(alertTitle,
                    isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { removing = nil; failure = nil } }),
+                                        set: { if !$0 { removing = nil; removingPending = nil; failure = nil } }),
                    presenting: shown) { shown in
                 switch shown {
                 case .confirm(let reservation):
@@ -122,6 +131,11 @@ struct ReservationsScreen: View {
                                 failure = model.problem ?? "レコーダーがエラーを返しました"
                             }
                         }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                case .confirmPending(let waiting):
+                    Button("削除する", role: .destructive) {
+                        Task { await model.removePending(waiting) }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
@@ -135,6 +149,9 @@ struct ReservationsScreen: View {
                          + (reservation.createdByRecorder
                             ? "\nこれはおまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                             : ""))
+                case .confirmPending(let waiting):
+                    Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
+                         + "この端末から削除し、レコーダーには送りません。")
                 case .failed(let reason):
                     Text(reason)
                 }
@@ -177,14 +194,27 @@ struct ReservationsScreen: View {
                 Section {
                     ForEach(model.pending) { waiting in
                         PendingRowView(waiting: waiting)
+                            // 削除, as on the reservations below it, and asked first like every other delete:
+                            // the programme's sheet asked before letting one go, and this swipe did not.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("取り消す") { Task { await model.removePending(waiting) } }.tint(.red)
+                                Button("削除") { removingPending = waiting.id }.tint(.red)
+                            }
+                            // A refused one is not sent again by itself, since the answer would be the same;
+                            // the reader is the one who knows when whatever it names has changed.
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                if waiting.problem != nil {
+                                    Button("もう一度送る") { Task { await model.resend(waiting) } }
+                                        .tint(.blue)
+                                }
                             }
                     }
                 } header: {
                     Text("送信待ち \(model.pending.count) 件")
                 } footer: {
-                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。")
+                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
+                         + (model.pending.contains { $0.problem != nil }
+                            ? "レコーダーが受け付けなかったものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+                            : ""))
                 }
             }
             ForEach(model.reservationSections) { section in
@@ -216,50 +246,64 @@ struct ReservationRowView: View {
     let channel: String
     let logo: Data?
 
+    @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(Format.time.string(from: reservation.start)).font(.callout.monospacedDigit())
-                Text(Format.duration(reservation.durationSec)).font(.caption2).foregroundStyle(.secondary)
-                if reservation.recording {
-                    Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+            if reservation.createdByRecorder {
+                // The badge is a shape, which a line of text cannot hold, so it goes under the line when the
+                // two do not fit side by side.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { head; recorderBadge }
+                    VStack(alignment: .leading, spacing: 4) { head; recorderBadge }
                 }
-                if reservation.conflict {
-                    Text("重複").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
-                }
-                if reservation.createdByRecorder {
-                    Text("おまかせ")
-                        .font(.caption2)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color(.tertiarySystemFill))
-                        .foregroundStyle(.secondary)
-                        .clipShape(Capsule())
-                }
+            } else {
+                head
             }
             Text(reservation.title).font(.subheadline).lineLimit(2)
-            HStack(spacing: 6) {
-                // The space is held whether or not there is a logo, so the names line up down the list.
-                // Plenty of stations have none: the recorder only has the ones it has been sent.
-                Group {
-                    if let logo, let image = UIImage(data: logo) {
-                        Image(uiImage: image).resizable().scaledToFit()
-                    }
-                }
-                .frame(width: 25, height: 14)
-                if !channel.isEmpty { Text(channel) }
-                if let quality = reservation.qualityName { Text(quality) }
-                if let name = reservation.repeatName, name != "none" {
-                    Text(Codes.repeatLabel[name] ?? name)
-                }
-                if let genre = reservation.genreCode.flatMap({ Codes.genreLabel[$0 / 16] }) {
-                    Text(genre).foregroundStyle(.tertiary)
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            meta.font(.caption2).foregroundStyle(.secondary)
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// When, and the marks, as one line of text: as views side by side, a large text size squeezed each
+    /// into a narrow column of its own.
+    private var head: Text {
+        var line = Text(Format.time.string(from: reservation.start)).font(.callout.monospacedDigit())
+            + Text.rowGap
+            + Text(Format.duration(reservation.durationSec)).foregroundStyle(.secondary)
+        if reservation.recording {
+            line = line + Text.rowGap + Text("録画中").fontWeight(.semibold).foregroundStyle(.red)
+        }
+        if reservation.conflict {
+            line = line + Text.rowGap
+                + Text("重複").fontWeight(.semibold).foregroundStyle(Color.legibleOrange)
+        }
+        return line.font(.caption2)
+    }
+
+    private var recorderBadge: some View {
+        Text("おまかせ")
+            .font(.caption2)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color(.tertiarySystemFill))
+            .foregroundStyle(.secondary)
+            .clipShape(Capsule())
+    }
+
+    /// The channel and how it records, as one line of text for the same reason. The genre is in the secondary
+    /// grey with the rest: it was fainter still, too faint to read.
+    private var meta: Text {
+        var parts: [Text] = []
+        if !channel.isEmpty { parts.append(Text(channel)) }
+        if let quality = reservation.qualityName { parts.append(Text(quality)) }
+        if let name = reservation.repeatName, name != "none" { parts.append(Text(Codes.repeatLabel[name] ?? name)) }
+        if let genre = reservation.genreCode.flatMap({ Codes.genreLabel[$0 / 16] }) { parts.append(Text(genre)) }
+        // The logo's space is held whether or not there is one, so the names line up down the list. Plenty
+        // of stations have none: the recorder only has the ones it has been sent.
+        return parts.reduce(InlineLogo.holdingSpace(logo, height: logoHeight)) { $0 + Text.rowGap + $1 }
     }
 }
 
@@ -273,7 +317,7 @@ struct PendingRowView: View {
             HStack(spacing: 6) {
                 Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.legibleOrange)
                 Text(waiting.request.title).lineLimit(2)
             }
             Text(details).font(.caption).foregroundStyle(.secondary)
@@ -281,6 +325,7 @@ struct PendingRowView: View {
                 Text(problem).font(.caption).foregroundStyle(.red)
             }
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
         .rowHitArea()
     }

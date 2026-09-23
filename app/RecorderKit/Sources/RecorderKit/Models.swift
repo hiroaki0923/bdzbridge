@@ -95,6 +95,18 @@ public struct RecorderDescription: Equatable, Sendable {
     public var location: String
     /// How it was found: `ssdp`, `scan` or `manual`.
     public var via: String
+
+    /// Whether this is the recorder whose wired MAC is `mac`, written in any shape `WakeOnLan.normalise`
+    /// takes. A Sony recorder's UDN ends with that MAC (`uuid:XXXXXXXX-XXXX-XXXX-XXXX-<MAC>`, the same as
+    /// ARP on a BDZ-FBT4100), and it is the address `X_GetPrivateIp` reports as `macAddress` -- the one the
+    /// app keeps for waking the recorder. So a recorder the router has given another address can be told
+    /// from any other on the LAN by what was already saved, without its UDN ever having been written down.
+    public func hasMAC(_ mac: String) -> Bool {
+        guard let wanted = WakeOnLan.normalise(mac),
+              let tail = udn.split(separator: "-").last,
+              let own = WakeOnLan.normalise(String(tail)) else { return false }
+        return own == wanted
+    }
 }
 
 /// One of the recorder's own おまかせ・まる録 conditions: what the box records by itself, by keyword.
@@ -118,11 +130,13 @@ public struct RecorderRule: Equatable, Sendable, Identifiable {
     public var broadcastingScope: String
     /// 録画モード(地上/BS/CS); the recorder only sends it when asked with Filter "*".
     public var qualityCode: Int?
-    /// 録画モード(BS4K/CS4K); the recorder fills it in itself and omits it for a one-wave scope.
+    /// 録画モード(BS4K/CS4K); DR where the condition was made without one, and not reported for a scope
+    /// without the 4K waves.
     public var qualityCode4K: Int?
     public var destination: String
 
     public var qualityName: String? { qualityCode.flatMap(Codes.quality(code:)) }
+    public var qualityName4K: String? { qualityCode4K.flatMap(Codes.quality(code:)) }
     public var logicLabel: String { Codes.ruleLogicLabel[logic] ?? logic }
     public var timeScopeLabel: String { Codes.timeScopeLabel[timeScope] ?? timeScope }
     public var broadcastingScopeLabel: String { Codes.broadcastingScopeLabel[broadcastingScope] ?? broadcastingScope }

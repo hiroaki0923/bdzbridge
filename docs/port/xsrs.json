@@ -71,14 +71,14 @@
   ],
   "create_elements": [
    {
-    "name": "keyword only, as accepted by a BDZ-FBT4100",
+    "name": "keyword only on every wave: the quality goes in both elements, or the 4K waves get DR",
     "input": {
      "keywords": [
       "サンプル"
      ],
      "quality_code": 220
     },
-    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル</name><keyword>サンプル</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>"
+    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>220</desiredQualityMode><desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>サンプル</name><keyword>サンプル</keyword><timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>"
    },
    {
     "name": "every field: genre in hex before the keywords, exclusions after, text escaped",
@@ -121,6 +121,17 @@
      "quality_code": 220
     },
     "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>x</name><keyword>x</keyword><timeScope>MIDNIGHT</timeScope><broadcastTypeScope>ADVBSD</broadcastTypeScope></searchSetting></object></xsrs>"
+   },
+   {
+    "name": "a scope the recorder does not know, which it takes for ALL: the quality goes in both elements",
+    "input": {
+     "keywords": [
+      "x"
+     ],
+     "broadcasting_scope": "NOSUCHWAVE",
+     "quality_code": 240
+    },
+    "elements": "<xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><object type=\"SEARCH\"><desiredQualityMode>240</desiredQualityMode><desiredQualityModeForAdvanced>240</desiredQualityModeForAdvanced><recordDestinationID>HDD</recordDestinationID><searchSetting type=\"MULTIPLE\" logic=\"OR\"><name>x</name><keyword>x</keyword><timeScope>ALL</timeScope><broadcastTypeScope>NOSUCHWAVE</broadcastTypeScope></searchSetting></object></xsrs>"
    }
   ]
  },

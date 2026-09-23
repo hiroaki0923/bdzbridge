@@ -3,14 +3,28 @@ import Foundation
 /// One recorder on the LAN. Every request goes through a serial queue because the recorder answers 503 to
 /// concurrent calls, so hold on to a single client per device rather than making one per request.
 public actor RecorderClient {
-    public let host: String
+    /// Readable without waiting on the actor: it never changes, and a caller deciding whether this is the
+    /// client for the address it wants should not have to give up its turn to find out.
+    public nonisolated let host: String
     public let upnpPort: Int
     /// Where the EPG and logo files are served. Confirmed from the DLNA tree on first contact.
     public private(set) var streamPort: Int
     public private(set) var info: RecorderDescription?
+    /// When the recorder last answered anything at all. A fault counts: only a recorder that is up can
+    /// refuse something. Nil until the first answer.
+    ///
+    /// A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing asked of it, and then
+    /// says nothing, so how long it has been quiet is what tells a caller whether to make sure it is still
+    /// there before asking it for something -- rather than finding out from a thirty-second timeout.
+    /// Recorded here, where every request passes, so that no answer is missed whoever asked for it.
+    public private(set) var lastAnswer: Date?
 
     private let transport: any HTTPTransport
     private let queue = SerialQueue()
+    /// How long to wait, in seconds, before sending again what the recorder answered 503 to. See `send`.
+    private let busyRetryDelay: ClosedRange<Double>
+    /// How many times a request answered 503 is sent again before the 503 is thrown.
+    static let busyRetries = 2
     private var streamPortConfirmed: Bool
     /// Whether the DLNA tree has already been walked looking for the port. A tree that gives nothing away
     /// leaves `streamPortConfirmed` false, and asking again for every one of the eight guide files would
@@ -30,10 +44,11 @@ public actor RecorderClient {
     public static let wakeProbeTimeout: TimeInterval = 2
 
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
-                upnpPort: Int = Upnp.port, streamPort: Int? = nil) {
+                upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1) {
         self.host = host
         self.upnpPort = upnpPort
         self.transport = transport
+        self.busyRetryDelay = busyRetryDelay
         self.streamPort = streamPort ?? Upnp.defaultStreamPort
         self.streamPortConfirmed = streamPort != nil
     }
@@ -47,15 +62,19 @@ public actor RecorderClient {
     /// never reached. On a recorder that had just woken -- or over a VPN -- a probe meant to cost two seconds
     /// cost minutes, which is what made waking look as though it had hung. The walk now happens where its
     /// answer is needed, in `guideFile`.
+    ///
+    /// A 503 is the recorder busy, not something else at its address: it is thrown as `busy` (see `send`).
+    /// Read as any other answer that was not a description, it had the app say the recorder was not a Sony
+    /// recorder, while it was answering somebody else.
     @discardableResult
     public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
         -> RecorderDescription {
-        let response = try await send(HTTPRequest(url: url(port: upnpPort, path: "/description.xml"),
-                                                  timeout: timeout ?? Self.soapTimeout))
+        let location = try url(port: upnpPort, path: "/description.xml")
+        let response = try await send(HTTPRequest(url: location, timeout: timeout ?? Self.soapTimeout),
+                                      asking: "description.xml")
         guard response.statusCode == 200,
               let described = Discovery.parseDescription(response.text, host: host, port: upnpPort,
-                                                         location: url(port: upnpPort, path: "/description.xml").absoluteString,
-                                                         via: via)
+                                                         location: location.absoluteString, via: via)
         else { throw RecorderError.notARecorder(host: host) }
         info = described
         return described
@@ -216,7 +235,46 @@ public actor RecorderClient {
     }
 
     /// Playback on the television attached to the recorder. `pause` toggles, so it resumes as well; `play`
-    /// with a position restarts from the beginning. The recorder has to be fully on.
+    /// starts from the beginning whatever position is given. The recorder has to be fully on: in network
+    /// standby it answers 880.
+    public func playControl(titleID: String, operation: String, position: Int = 0) async throws {
+        _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_PlayControlTitle",
+                           [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
+    }
+
+    /// Plays a recording on the television, turning the recorder on first if it is in network standby --
+    /// which is how it is usually found, since it keeps answering the LAN in standby and is only switched on
+    /// to be watched. Answered with 880, the play used to end there, and the reader had to turn the recorder
+    /// on, wait without being told for how long, and ask again.
+    ///
+    /// Only an 880 turns it on. The power state is not asked first: that would be one request more on every
+    /// play of a recorder that is already on, and the demo's recorder, which never answers 880, does not
+    /// report a power state at all. Once it has been told to come on, `X_GetPlayStatus` is asked every
+    /// `interval` until `powerstatus` says `PowerOn`, and the play is sent again. After `limit` it is sent
+    /// regardless, and a recorder still in standby answers it with 880, which is thrown to the caller.
+    ///
+    /// `waiting` is told how many seconds the wait has lasted, each time round, for the screen to say: the
+    /// recorder and the television coming on take long enough to look like nothing is happening.
+    public func play(titleID: String, limit: TimeInterval = RecorderClient.powerOnLimit,
+                     interval: Duration = .seconds(1), waiting: @Sendable (Int) async -> Void) async throws {
+        do {
+            try await playControl(titleID: titleID, operation: "play")
+            return
+        } catch let error as RecorderError where error.needsPowerOn {}
+        try await powerOn()
+        let started = Date()
+        while Date().timeIntervalSince(started) < limit {
+            await waiting(Int(Date().timeIntervalSince(started)))
+            try await Task.sleep(for: interval)
+            if try await playStatus()["powerstatus"] == "PowerOn" { break }
+        }
+        try await playControl(titleID: titleID, operation: "play")
+    }
+
+    /// How long `play` waits for a recorder in standby to come on. How long a BDZ-FBT4100 takes has not been
+    /// timed, so this is as generous as the wait for a magic packet; the wait ends as soon as it says it is on.
+    public static let powerOnLimit: TimeInterval = 30
+
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
     /// Filter must be "*": unlike the title and reservation lists this one honours it, and an empty one drops
@@ -239,11 +297,6 @@ public actor RecorderClient {
         _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_DeletePrefRecSetting", [("SearchSettingID", id)])
     }
 
-    public func playControl(titleID: String, operation: String, position: Int = 0) async throws {
-        _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_PlayControlTitle",
-                           [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
-    }
-
     public func liveChannelIDs(broadcastingType: Int) async throws -> [Int] {
         let root = try XmlNode.parse(try await pvr("X_GetLiveChList",
                                                    [("BroadcastType", "\(broadcastingType)"), ("SkipChannel", "0")]))
@@ -252,12 +305,20 @@ public actor RecorderClient {
     }
 
     /// Capacity of a recording destination, in bytes.
+    ///
+    /// An answer without both numbers in it is thrown as `unexpectedAnswer`. It used to be read as nothing
+    /// of either, which is a full disk: 残り 0.0 GB on screen, and a warning that the recorder was running out
+    /// of room, from a recorder that had only said it differently.
     public func recordDestinationInfo(destination: String = "HDD") async throws -> (totalBytes: Int, freeBytes: Int) {
-        let root = try await call(Upnp.contentDirectoryControlURL, Upnp.contentDirectoryService,
-                                  "X_HDLnkGetRecordDestinationInfo", [("RecordDestinationID", destination)])
+        let action = "X_HDLnkGetRecordDestinationInfo"
+        let root = try await call(Upnp.contentDirectoryControlURL, Upnp.contentDirectoryService, action,
+                                  [("RecordDestinationID", destination)])
         guard let text = root.firstDescendantText("RecordDestinationInfo"),
-              let info = try? XmlNode.parse(text) else { return (0, 0) }
-        return (Int(info.attributes["totalCapacity"] ?? "") ?? 0, Int(info.attributes["availableCapacity"] ?? "") ?? 0)
+              let info = try? XmlNode.parse(text),
+              let total = info.attributes["totalCapacity"].flatMap({ Int($0) }),
+              let free = info.attributes["availableCapacity"].flatMap({ Int($0) })
+        else { throw RecorderError.unexpectedAnswer(action: action) }
+        return (total, free)
     }
 
     /// Raw DIDL-Lite for a container's children.
@@ -296,8 +357,8 @@ public actor RecorderClient {
     }
 
     /// The path really does start with two slashes; the media server does not answer otherwise.
-    func guideFileURL(named name: String) -> URL {
-        URL(string: "http://\(host):\(streamPort)//\(name)")!
+    func guideFileURL(named name: String) throws -> URL {
+        try url(port: streamPort, path: "//\(name)")
     }
 
     private func guideFile(named name: String) async throws -> Data? {
@@ -308,7 +369,8 @@ public actor RecorderClient {
             streamPortTried = true
             _ = try? await detectStreamPort()
         }
-        let response = try await send(HTTPRequest(url: guideFileURL(named: name), timeout: Self.fileTimeout))
+        let response = try await send(HTTPRequest(url: try guideFileURL(named: name), timeout: Self.fileTimeout),
+                                      asking: name)
         switch response.statusCode {
         case 200: return response.body
         case 404, 416: return nil
@@ -320,24 +382,53 @@ public actor RecorderClient {
 
     // MARK: - plumbing
 
-    private func url(port: Int, path: String) -> URL {
-        URL(string: "http://\(host):\(port)\(path)")!
+    /// Throws rather than crashing on an address no URL can be made of. The address is saved as soon as it
+    /// is set and read again at every launch and by the overnight run, so a crash here was a crash for
+    /// good. Thrown before anything is sent, and not as silence: nothing was asked, so a magic packet would
+    /// answer nothing.
+    private func url(port: Int, path: String) throws -> URL {
+        guard let url = RecorderAddress.url(host: host, port: port, path: path) else {
+            throw RecorderError.badAddress(host: host)
+        }
+        return url
     }
 
-    private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+    /// Every request goes through here, one at a time.
+    ///
+    /// A 503 is the recorder busy with another request -- from the official app, another phone, or the
+    /// overnight run's client beside the screens' -- and says nothing about this one, which it has not
+    /// looked at. So it is sent again, up to `busyRetries` times, after a pause of half a second to a second:
+    /// random, so that two clients that met are not in step when they ask again. Inside the queue, so that
+    /// nothing else of this client's goes in between. A 503 after that is thrown as `busy`, naming `asking`:
+    /// the callers read other statuses in their own ways, and every one of them read this one wrong -- as not
+    /// a recorder, as a guide file not built yet, as an answer that was not XML.
+    private func send(_ request: HTTPRequest, asking: String) async throws -> HTTPResponse {
         let transport = self.transport
-        return try await queue.run { try await transport.send(request) }
+        let delay = busyRetryDelay
+        let response = try await queue.run {
+            var response = try await transport.send(request)
+            var retries = 0
+            while response.statusCode == 503, retries < Self.busyRetries {
+                retries += 1
+                try await Task.sleep(for: .seconds(Double.random(in: delay)))
+                response = try await transport.send(request)
+            }
+            return response
+        }
+        lastAnswer = Date()
+        if response.statusCode == 503 { throw RecorderError.busy(action: asking) }
+        return response
     }
 
     /// One SOAP call. Throws when the recorder answers a fault, which it does with an HTTP 500 and an
     /// `errorCode` in the body.
     private func call(_ controlPath: String, _ service: String, _ action: String,
                       _ arguments: [(String, String)] = []) async throws -> XmlNode {
-        let request = HTTPRequest(url: url(port: upnpPort, path: controlPath), method: "POST",
+        let request = HTTPRequest(url: try url(port: upnpPort, path: controlPath), method: "POST",
                                   headers: Soap.headers(service: service, action: action),
                                   body: Data(Soap.body(service: service, action: action, arguments: arguments).utf8),
                                   timeout: Self.soapTimeout)
-        let response = try await send(request)
+        let response = try await send(request, asking: action)
         guard let root = try? XmlNode.parse(response.body) else {
             throw RecorderError.badResponse(status: response.statusCode)
         }

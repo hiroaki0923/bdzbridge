@@ -45,9 +45,19 @@ fi
 
 # RecorderKit is checked against docs/port, so run it whenever either side moves. Drop this block if it makes
 # commits too slow; `cd app/RecorderKit && swift test` is the same check by hand.
+#
+# Its output is kept, and what matters in it is shown when it fails. It used to be thrown away for a fixed line
+# saying the vectors no longer matched, which sent the reader to run it all again to find out what had failed,
+# and was wrong whenever it was anything else. The end alone is not enough either: XCTest reports the suites
+# in order and then a summary, so a failing test's own line is somewhere in the middle, and the last lines
+# say only how many failed. So the lines that say error -- a test's assertion, or the compiler's -- come first,
+# then the end.
 if git diff --cached --name-only | grep -qE '^(app/|docs/port/)' && command -v swift >/dev/null 2>&1; then
-  if ! (cd app/RecorderKit && swift test) >/dev/null 2>&1; then
-    echo "pre-commit: RecorderKit no longer matches docs/port - run 'cd app/RecorderKit && swift test'" >&2
+  if ! output=$(cd app/RecorderKit && swift test 2>&1); then
+    echo "pre-commit: RecorderKit's tests fail ('cd app/RecorderKit && swift test' for all of it):" >&2
+    echo "$output" | grep 'error:' | head -n 20 >&2
+    echo "  ..." >&2
+    echo "$output" | tail -n 10 >&2
     exit 1
   fi
 fi

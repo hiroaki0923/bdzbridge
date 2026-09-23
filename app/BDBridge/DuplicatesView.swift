@@ -1,7 +1,9 @@
 import RecorderKit
 import SwiftUI
 
-/// Recordings that look like copies of one broadcast, with the copy to keep marked and the rest offered up.
+/// Recordings that look like copies of one broadcast. A tick deletes, and whatever is left unticked is marked
+/// as kept: the mark follows the ticks rather than the suggestion, so that it can never name a copy that is
+/// about to go.
 struct DuplicatesView: View {
     let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
@@ -13,8 +15,14 @@ struct DuplicatesView: View {
         return job.finished
     }
 
+    /// What a delete would take: the ticked copies the recorder will part with.
     private var chosen: [RecordedTitle] {
-        model.duplicates.flatMap(\.items).filter { model.duplicatePicks.contains($0.id) }
+        model.duplicates.flatMap(\.items).filter { Duplicates.deletable($0) && model.duplicatePicks.contains($0.id) }
+    }
+
+    /// Sets with every copy ticked. Nothing is deleted while there are any: see `Duplicates.emptied`.
+    private var emptied: [DuplicateSet] {
+        Duplicates.emptied(model.duplicates, picked: model.duplicatePicks)
     }
 
     private var chosenGB: Double {
@@ -29,23 +37,53 @@ struct DuplicatesView: View {
                 list
             }
         }
-        .alert("重複した \(chosen.count) 件を削除しますか？", isPresented: $confirming) {
-            Button("\(chosen.count) 件を削除する", role: .destructive) {
-                model.startBulk(.delete, ids: chosen.filter { !$0.protected }.map(\.id))
+        // One alert for both, since two on the same view is not something SwiftUI promises to honour.
+        .alert(emptied.isEmpty ? "重複した \(chosen.count) 件を削除しますか？" : "1 本も残らない組があります",
+               isPresented: $confirming) {
+            if emptied.isEmpty {
+                Button("\(chosen.count) 件を削除する", role: .destructive) {
+                    model.startBulk(.delete, ids: chosen.map(\.id))
+                }
+                Button("キャンセル", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
             }
-            Button("キャンセル", role: .cancel) {}
         } message: {
-            Text(String(format: "合計 %.1fGB。各組で「残す」が付いたものは削除されません。\n"
-                        + "レコーダーから削除され、元に戻せません。", chosenGB))
+            if emptied.isEmpty {
+                Text(String(format: "合計 %.1fGB。チェックの無いものは残ります。\n"
+                            + "レコーダーから削除され、元に戻せません。", chosenGB))
+            } else {
+                Text(emptiedMessage)
+            }
         }
+    }
+
+    /// Which sets would go entirely, by name, since the reader has to find them in the list to put it right.
+    private var emptiedMessage: String {
+        var names = emptied.prefix(3).map { "・\($0.title)" }
+        if emptied.count > 3 { names.append("ほか \(emptied.count - 3) 組") }
+        return "次の組はすべてにチェックが付いていて、削除すると 1 本も残りません。"
+            + "残すものを選んで、チェックを外してください。\n\n" + names.joined(separator: "\n")
+    }
+
+    /// Candidates left out because their text has not been read yet: the scan was stopped, or the recorder
+    /// could not give it. Scanning again reads only those.
+    private var unread: String {
+        "番組内容をまだ取得できていない録画が \(model.unreadDuplicates) 件あり、比べていません。"
     }
 
     private var prompt: some View {
         ContentUnavailableView {
-            Label(scanned ? "重複はありませんでした" : "重複した録画を探す", systemImage: "square.on.square")
+            Label(!scanned ? "重複した録画を探す"
+                  : model.unreadDuplicates > 0 ? "調べた範囲に重複はありませんでした" : "重複はありませんでした",
+                  systemImage: "square.on.square")
         } description: {
-            Text("タイトルと長さが同じ録画について、番組内容をレコーダーから取得して照合します。"
-                 + "1 件ずつ取得するため、初回は時間がかかります。")
+            if scanned, model.unreadDuplicates > 0 {
+                Text(unread)
+            } else {
+                Text("タイトルと長さが同じ録画について、番組内容をレコーダーから取得して照合します。"
+                     + "1 件ずつ取得するため、初回は時間がかかります。")
+            }
         } actions: {
             Button(scanned ? "もう一度調べる" : "検出を開始") { model.startDuplicateScan() }
                 .buttonStyle(.borderedProminent)
@@ -56,10 +94,18 @@ struct DuplicatesView: View {
     private var list: some View {
         List {
             Section {
-                Text("チェックが付いたものが削除候補です。先に放送されたものを残します。"
-                     + "保護中や視聴途中のものがある場合は、そちらを残します。")
+                Text("チェックを付けたものを削除し、チェックの無いものは残します。番組内容も同じ組では、"
+                     + "先に放送されたもの（保護中や視聴途中のものがあればそちら）を残して、ほかにチェックを付けています。"
+                     + "説明文が毎回同じ番組の組と、内容を確かめられない組にはチェックを付けていません。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if model.unreadDuplicates > 0 {
+                Section {
+                    Text(unread).font(.caption).foregroundStyle(.secondary)
+                    Button("もう一度調べる") { model.startDuplicateScan() }
+                        .disabled(model.jobRunning)
+                }
             }
             ForEach(model.duplicates) { set in
                 Section {
@@ -96,7 +142,8 @@ struct DuplicatesView: View {
     }
 
     private func row(_ title: RecordedTitle, in set: DuplicateSet) -> some View {
-        let keeping = title.id == set.keep
+        let deletable = Duplicates.deletable(title)
+        let keeping = !(deletable && model.duplicatePicks.contains(title.id))
         return HStack(alignment: .top, spacing: 10) {
             Button {
                 if model.duplicatePicks.contains(title.id) {
@@ -105,41 +152,61 @@ struct DuplicatesView: View {
                     model.duplicatePicks.insert(title.id)
                 }
             } label: {
-                Image(systemName: model.duplicatePicks.contains(title.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(title.protected ? .secondary : Color.accentColor)
+                // The glyph is little more than 20 points, and a tap had to land on it. The area reaches out
+                // from it to about the 44 a finger needs.
+                Image(systemName: keeping ? "circle" : "checkmark.circle.fill")
+                    .foregroundStyle(deletable ? Color.accentColor : .secondary)
+                    .hitArea(growingBy: 11)
             }
             .buttonStyle(.plain)
-            .disabled(title.protected)
+            // The recorder would refuse to delete it. And while a job runs the ticks stay as they are: a delete
+            // is working from them, and a scan builds the sets again when it ends.
+            .disabled(!deletable || model.jobRunning)
+            // Read out as what the tick does, and whether it is on, rather than as the name of a circle. Worded
+            // as a choice: 「…を削除」 sounded as if a double tap deleted the recording there and then, when it
+            // only marks it for the delete at the foot of the screen, which asks first.
+            .accessibilityLabel("\(Format.dateTime.string(from: title.start))の録画を削除する対象に選ぶ")
+            .accessibilityAddTraits(keeping ? [] : .isSelected)
 
             Button { onOpen(title) } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 4) {
-                        Text(keeping ? "残す" : "候補")
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(keeping ? "残す" : "削除")
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(keeping ? Color.accentColor.opacity(0.15) : Color(.tertiarySystemFill))
-                            .foregroundStyle(keeping ? Color.accentColor : .secondary)
+                            .background(keeping ? Color.accentColor.opacity(0.15) : Color.red.opacity(0.12))
+                            .foregroundStyle(keeping ? Color.accentColor : .red)
                             .clipShape(Capsule())
-                        Text(set.reasons[title.id] ?? "").font(.caption2).foregroundStyle(.secondary)
-                        if title.protected {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        reason(title, in: set).font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(Format.dateTime.string(from: title.start)).font(.footnote)
-                    HStack(spacing: 6) {
-                        Text(model.channelName(for: title))
-                        Text(Format.duration(title.durationSec))
-                        if let size = title.sizeMB { Text(String(format: "%.1fGB", Double(size) / 1024)) }
-                        if let quality = title.qualityName { Text(quality) }
-                        Text(title.watchState.label)
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    meta(title).font(.caption2).foregroundStyle(.secondary)
                 }
+                .rowLinesInFull()
                 .rowHitArea()
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Why this copy is kept or not, and the lock when it is protected, as one text that wraps beside the
+    /// mark rather than squeezing into columns.
+    private func reason(_ title: RecordedTitle, in set: DuplicateSet) -> Text {
+        let reason = Text(set.reasons[title.id] ?? "")
+        guard title.protected else { return reason }
+        return reason + Text(verbatim: " ") + Text(Image(systemName: "lock.fill"))
+    }
+
+    /// The channel, the length, the size, the mode and whether it has been watched, as one line of text: as
+    /// views side by side, a large text size squeezed each into a narrow column of its own.
+    private func meta(_ title: RecordedTitle) -> Text {
+        let channel = model.channelName(for: title)
+        var parts = channel.isEmpty ? [] : [Text(channel)]
+        parts.append(Text(Format.duration(title.durationSec)))
+        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let quality = title.qualityName { parts.append(Text(quality)) }
+        parts.append(Text(title.watchState.label))
+        return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
     }
 }

@@ -1,7 +1,7 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
   import { api, fmtDateTime, repeatOptions } from '../api.js'
-  import { app, loadReservations, toast } from '../store.svelte.js'
+  import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
   let error = $state('')
@@ -33,6 +33,9 @@
   // a genre's sub-genres are its own, so the choice cannot survive a change of genre
   $effect(() => { if (recForm.genre === '') recForm.sub = '' })
   const splitWords = (text) => text.split(/[、,\s]+/).map((w) => w.trim()).filter(Boolean)
+  // the genres with sub-genres, less the extension area (0xE): the table holds it so that it is the whole
+  // standard, but it is not a kind of programme and a condition cannot look for it
+  const ruleGenres = $derived(Object.keys(app.defaults?.sub_genres ?? {}).filter((k) => Number(k) !== 0xE))
   async function loadRecRules() {
     try { recRules = await api('/recorder-rules') } catch { recRules = [] }
   }
@@ -85,32 +88,20 @@
   let quality = $state('LSR')
   let repeat = $state('none')
   function startEdit() { quality = confirmTarget.quality; repeat = confirmTarget.repeat; editing = true }
+  // both find the reservation again first: the id in a list left open may be one the recorder has renumbered
   async function save() {
     busy = true; error = ''
-    try { await api(`/reservations/${confirmTarget.id}`, { method: 'PATCH', body: { quality, repeat } }); await loadReservations(); toast('予約を変更しました'); editing = false; confirmTarget = null }
-    catch (e) { error = e.message } finally { busy = false }
+    try {
+      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat } }))
+      toast('予約を変更しました'); editing = false; confirmTarget = null
+    } catch (e) { error = e.message } finally { busy = false }
   }
-  // The recorder renumbers the reservations its own automatic recording made, the whole block at once,
-  // whenever it works through the guide again (docs/xsrs-api.md). A list left open therefore holds ids that
-  // are already dead, and deleting one answers 804 — which reads as a broken delete rather than a stale
-  // row. So read the list again first and find this reservation by its channel and start time, which no two
-  // reservations can share.
   async function remove() {
+    if (!window.confirm('この予約を削除しますか？')) return
     busy = true; error = ''
     try {
-      await loadReservations()
-      const target = app.reservations.find((r) => r.id === confirmTarget.id)
-        ?? app.reservations.find((r) => r.broadcasting === confirmTarget.broadcasting
-          && r.service_id === confirmTarget.service_id && r.start === confirmTarget.start)
-      if (!target) {
-        error = 'この予約はレコーダーにもうありませんでした。一覧を取り直しました。'
-        confirmTarget = null
-        return
-      }
-      await api(`/reservations/${target.id}`, { method: 'DELETE' })
-      await loadReservations()
-      toast('予約を削除しました')
-      confirmTarget = null
+      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'DELETE' }))
+      toast('予約を削除しました'); confirmTarget = null
     } catch (e) { error = e.message } finally { busy = false }
   }
 </script>
@@ -143,7 +134,7 @@
     <p class="muted">レコーダー本体が自分で番組を探して録画する条件です。このサーバーが止まっていても働きます。対象チャンネルの絞り込みは本体でしか設定できず、ここには表示されません。</p>
     {#each recRules as r (r.id)}
       <div class="field">
-        <span><b>{r.name}</b><br /><span class="muted">{r.keywords.join('、')}{r.excluded.length ? '　除外: ' + r.excluded.join('、') : ''} · {r.logic === 'AND' ? 'すべて含む' : 'いずれか含む'} · {r.broadcasting_scope_label} · {r.time_scope_label}{r.genres[0] ? ' · ' + r.genres[0].label + (r.genres[0].label2 ? ' / ' + r.genres[0].label2 : '') : ''}{r.quality ? ' · ' + r.quality : ''}</span></span>
+        <span><b>{r.name}</b><br /><span class="muted">{r.keywords.join('、')}{r.excluded.length ? '　除外: ' + r.excluded.join('、') : ''} · {r.logic === 'AND' ? 'すべて含む' : 'いずれか含む'} · {r.broadcasting_scope_label} · {r.time_scope_label}{r.genres[0] ? ' · ' + r.genres[0].label + (r.genres[0].label2 ? ' / ' + r.genres[0].label2 : '') : ''}{r.quality ? ' · ' + r.quality : ''}{r.quality_4k ? ' · 4K: ' + r.quality_4k : ''}</span></span>
         <button class="chip" onclick={() => deleteRecRule(r)}>削除</button>
       </div>
     {/each}
@@ -151,7 +142,7 @@
       <div class="field"><span>キーワード</span><input bind:value={recForm.keywords} placeholder="、区切りで最大 5 つ" /></div>
       <div class="field"><span>除外ワード</span><input bind:value={recForm.excluded} placeholder="最大 2 つ" /></div>
       <div class="field"><span>検索方法</span><select bind:value={recForm.logic}><option value="OR">いずれかのキーワードを含む</option><option value="AND">すべてのキーワードを含む</option></select></div>
-      <div class="field"><span>ジャンル</span><select bind:value={recForm.genre} onchange={() => (recForm.sub = '')}><option value="">指定しない</option>{#each Object.entries(app.defaults?.sub_genres ?? {}) as [k] }<option value={k}>{app.defaults?.genres?.[k] ?? k}</option>{/each}</select></div>
+      <div class="field"><span>ジャンル</span><select bind:value={recForm.genre} onchange={() => (recForm.sub = '')}><option value="">指定しない</option>{#each ruleGenres as k}<option value={k}>{app.defaults?.genres?.[k] ?? k}</option>{/each}</select></div>
       {#if recForm.genre !== ''}
         <div class="field"><span>サブジャンル</span><select bind:value={recForm.sub}><option value="">すべて</option>{#each Object.entries(app.defaults?.sub_genres?.[recForm.genre] ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
       {/if}

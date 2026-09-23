@@ -97,6 +97,9 @@ public enum Codes {
     ]
     /// The 4K waves, whose recording quality lives in its own element on a condition.
     public static let advancedScopes = ["ADVBSD", "ADVCSD"]
+    /// One of the other waves alone. Every scope that is neither -- ALL, and a spelling the recorder does not
+    /// know, which it takes for ALL -- covers both kinds of wave.
+    public static let ordinaryScopes = ["TRD", "BSD", "CSD"]
 
     public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
     public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]

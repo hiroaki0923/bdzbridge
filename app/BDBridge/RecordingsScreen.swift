@@ -6,7 +6,7 @@ struct RecordingsScreen: View {
     @Environment(AppModel.self) private var model
     // A launch argument for this key pins it for the whole run: the argument domain outranks what is
     // written here, so a pick would appear to do nothing. See app/README.md.
-    @AppStorage("recordingsMode") private var mode = "list"
+    @AppStorage(DefaultsKey.recordingsMode) private var mode = "list"
     @State private var opened: RecordedTitle?
     @State private var openedGroup: TitleGroup?
     /// The row swiped, by id rather than by value: the recording is read back out of the model when the
@@ -101,9 +101,7 @@ struct RecordingsScreen: View {
                 if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
             }
             .sheet(item: $opened) { TitleSheet(title: $0) }
-            .sheet(item: $openedGroup) { group in
-                GroupSheet(group: group) { opened = $0 }
-            }
+            .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             .alert(shownTitle,
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { removing = nil; failure = nil } }),
@@ -168,14 +166,17 @@ struct RecordingsScreen: View {
         } else if duplicating {
             DuplicatesView { opened = $0 }
         } else if grouped {
-            List(model.titleGroups) { group in
+            // Once for the list and its overlay: each read filters, sorts and groups every recording.
+            let groups = model.titleGroups
+            List(groups) { group in
                 Button { openedGroup = group } label: { GroupRowView(group: group).rowHitArea() }
                     .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .overlay { if model.titleGroups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if groups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         } else {
-            List(model.shownTitles) { title in
+            let listed = model.shownTitles
+            List(listed) { title in
                 Button { opened = title } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title)).rowHitArea()
@@ -185,7 +186,7 @@ struct RecordingsScreen: View {
                             unprotect: { Task { await model.setProtected(title, false) } })
             }
             .listStyle(.plain)
-            .overlay { if model.shownTitles.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if listed.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         }
     }
 }
@@ -208,7 +209,7 @@ extension View {
             } else if let title, title.protected {
                 // `role: .destructive` would animate the row away as it is swiped, before there is an
                 // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(.orange)
+                Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
             } else if title != nil {
                 Button("削除") { ask() }.tint(.red)
             }
@@ -221,43 +222,74 @@ struct TitleRowView: View {
     let channel: String
     let logo: Data?
 
+    @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                if title.protected { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary) }
-                if title.recording {
-                    Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
-                }
-                Text(title.title).font(.subheadline).lineLimit(2)
-            }
-            HStack(spacing: 6) {
-                Text(Format.dateTime.string(from: title.start))
-                // no space held for a missing logo, unlike the reservations: this one sits in the middle of
-                // the line, where a held gap would read as something having gone wrong
-                if let logo, let image = UIImage(data: logo) {
-                    Image(uiImage: image).resizable().scaledToFit().frame(height: 14)
-                }
-                if !channel.isEmpty { Text(channel) }
-                Text(Format.duration(title.durationSec))
-                if let size = title.sizeMB { Text(String(format: "%.1fGB", Double(size) / 1024)) }
-                if let quality = title.qualityName { Text(quality) }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Text(title.watchState.label)
-                    .font(.caption2)
-                    .foregroundStyle(title.watchState == .unwatched ? Color.accentColor : .secondary)
-                if title.watchState == .partway {
-                    ProgressView(value: title.resumeFraction)
-                        .frame(width: 60)
-                }
-                if let genre = title.genre?.label {
-                    Text(genre).font(.caption2).foregroundStyle(.tertiary)
-                }
-            }
+            heading.lineLimit(2)
+            meta.font(.caption2).foregroundStyle(.secondary)
+            watching
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// The title after the lock and 録画中, in one text for the same reason as the line under it: beside
+    /// 録画中 the title was left a column a few characters wide.
+    private var heading: Text {
+        var line = Text(title.title).font(.subheadline)
+        if title.recording {
+            line = Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+                + Text.rowGap.font(.caption2) + line
+        }
+        if title.protected {
+            line = Text(Image(systemName: "lock.fill")).font(.caption2).foregroundStyle(.secondary)
+                + Text.rowGap.font(.caption2) + line
+        }
+        return line
+    }
+
+    /// When, where and how big, as one line of text: as views side by side, a large text size squeezed each
+    /// into a narrow column of its own.
+    private var meta: Text {
+        var parts = [Text(Format.dateTime.string(from: title.start))]
+        // No space held for a missing logo, unlike the reservations: this one sits in the middle of the line,
+        // where a held gap would read as something having gone wrong.
+        if let logo = InlineLogo.text(logo, height: logoHeight) {
+            parts.append(channel.isEmpty ? logo : logo + Text.rowGap + Text(channel))
+        } else if !channel.isEmpty {
+            parts.append(Text(channel))
+        }
+        parts.append(Text(Format.duration(title.durationSec)))
+        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let quality = title.qualityName { parts.append(Text(quality)) }
+        return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
+    }
+
+    /// Whether it has been watched, and the genre, which is in the secondary grey: it was fainter still, too
+    /// faint to read. A recording watched partway has a bar between the two, which a line of text cannot
+    /// hold, so when they do not fit side by side the bar goes under the words.
+    @ViewBuilder
+    private var watching: some View {
+        let state = Text(title.watchState.label)
+            .foregroundStyle(title.watchState == .unwatched ? Color.accentColor : Color.secondary)
+        let genre = title.genre?.label.map { Text($0).foregroundStyle(.secondary) }
+        if title.watchState == .partway {
+            let bar = ProgressView(value: title.resumeFraction).frame(width: 60)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    state.font(.caption2)
+                    bar
+                    genre?.font(.caption2)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    (genre.map { state + Text.rowGap + $0 } ?? state).font(.caption2)
+                    bar
+                }
+            }
+        } else {
+            (genre.map { state + Text.rowGap + $0 } ?? state).font(.caption2)
+        }
     }
 }
 
@@ -267,29 +299,36 @@ struct GroupRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(group.name).font(.subheadline).lineLimit(2)
-            HStack(spacing: 6) {
-                Text("\(group.count) 件")
-                Text(String(format: "%.1fGB", group.sizeGB))
-                if group.newCount > 0 { Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor) }
-                if group.protectedCount > 0 { Text("🔒 \(group.protectedCount)") }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            counts.font(.caption2).foregroundStyle(.secondary)
+            // The secondary grey rather than fainter: it is what says how far back the programme goes.
             Text("\(Format.dateTime.string(from: group.earliest)) 〜 \(Format.dateTime.string(from: group.latest))")
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// How many, how big, and how many are new or protected, as one line of text that wraps as a line does.
+    private var counts: Text {
+        var line = Text("\(group.count) 件") + Text.rowGap + Text(String(format: "%.1fGB", group.sizeGB))
+        if group.newCount > 0 {
+            line = line + Text.rowGap + Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor)
+        }
+        if group.protectedCount > 0 { line = line + Text.rowGap + Text("🔒 \(group.protectedCount)") }
+        return line
     }
 }
 
 /// One programme's recordings, with the selection that bulk work needs.
 struct GroupSheet: View {
     let group: TitleGroup
-    let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
+    /// The episode opened, in a sheet over this one. It was handed to the screen underneath, which meant
+    /// closing this sheet to open it: back from one episode, the reader was on the list of programmes and had
+    /// to find the programme again for the next.
+    @State private var opened: RecordedTitle?
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmingDelete = false
@@ -305,22 +344,28 @@ struct GroupSheet: View {
         case failed(String)
     }
 
-    private var shown: Shown? {
+    private func shown(among members: [RecordedTitle]) -> Shown? {
         if let failure { return .failed(failure) }
         if let id = removing, let title = members.first(where: { $0.id == id }) { return .one(title) }
         return confirmingDelete ? .bulk : nil
     }
 
-    private var members: [RecordedTitle] { model.members(of: group) }
-    private var chosen: [RecordedTitle] { members.filter { selected.contains($0.id) } }
-    private var chosenGB: Double { chosen.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024 }
+    private static func gigabytes(_ titles: [RecordedTitle]) -> Double {
+        titles.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024
+    }
 
     var body: some View {
+        // Read once here and handed to the parts that need them. Each read sorts every recording and picks
+        // this programme's out of them, and every tick in the selection draws the sheet again; read wherever
+        // they were wanted, that came to half a dozen reads a tap.
+        let members = model.members(of: group)
+        let chosen = members.filter { selected.contains($0.id) }
+        let shown = self.shown(among: members)
         NavigationStack {
             VStack(spacing: 0) {
                 JobBarView()
-                if selecting { selectionBar }
-                list
+                if selecting { selectionBar(members: members, chosen: chosen) }
+                list(members)
             }
             .navigationTitle(group.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -343,12 +388,14 @@ struct GroupSheet: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("保護をまとめて変更")
                     .disabled(model.jobRunning || members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
-            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
-            .alert(shownTitle,
+            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
+            .sheet(item: $opened) { TitleSheet(title: $0) }
+            .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { confirmingDelete = false; removing = nil
                                                         failure = nil } }),
@@ -378,7 +425,7 @@ struct GroupSheet: View {
                 switch shown {
                 case .bulk:
                     Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
-                                + "レコーダーから削除され、元に戻せません。", chosenGB))
+                                + "レコーダーから削除され、元に戻せません。", Self.gigabytes(chosen)))
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
                 case .failed(let reason): Text(reason)
                 }
@@ -386,7 +433,7 @@ struct GroupSheet: View {
         }
     }
 
-    private var shownTitle: String {
+    private func shownTitle(_ shown: Shown?, chosen: [RecordedTitle]) -> String {
         switch shown {
         case .bulk: "選択した \(chosen.count) 件を削除しますか？"
         case .failed: "エラー"
@@ -394,20 +441,20 @@ struct GroupSheet: View {
         }
     }
 
-    private var list: some View {
+    private func list(_ members: [RecordedTitle]) -> some View {
         List(members) { title in
             Button {
                 if selecting {
                     toggle(title)
                 } else {
-                    dismiss()
-                    onOpen(title)
+                    opened = title
                 }
             } label: {
                 HStack(spacing: 10) {
                     if selecting {
                         Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(title.protected ? .secondary : Color.accentColor)
+                            .accessibilityHidden(true)
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title))
@@ -415,6 +462,8 @@ struct GroupSheet: View {
                 .rowHitArea()
             }
             .buttonStyle(.plain)
+            // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
+            .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
             .titleSwipe(selecting ? nil : title, ask: { removing = title.id },
                         unprotect: { Task { await model.setProtected(title, false) } })
@@ -422,7 +471,7 @@ struct GroupSheet: View {
         .listStyle(.plain)
     }
 
-    private var selectionBar: some View {
+    private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
                 selected = Set(members.filter { !$0.protected && !$0.recording }.map(\.id))
@@ -437,18 +486,18 @@ struct GroupSheet: View {
         .background(Color(.secondarySystemBackground))
     }
 
-    private var actions: some View {
+    private func actions(_ chosen: [RecordedTitle]) -> some View {
         VStack(spacing: 8) {
             Button(role: .destructive) {
                 confirmingDelete = true
             } label: {
-                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, chosenGB))
+                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, Self.gigabytes(chosen)))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             HStack {
-                Button("保護する") { bulkProtect(true) }
-                Button("保護を解除") { bulkProtect(false) }
+                Button("保護する") { bulkProtect(true, chosen) }
+                Button("保護を解除") { bulkProtect(false, chosen) }
             }
             .buttonStyle(.bordered)
         }
@@ -465,7 +514,7 @@ struct GroupSheet: View {
         }
     }
 
-    private func bulkProtect(_ on: Bool) {
+    private func bulkProtect(_ on: Bool, _ chosen: [RecordedTitle]) {
         model.startBulk(.protecting(on), ids: chosen.map(\.id))
         selecting = false
         selected = []

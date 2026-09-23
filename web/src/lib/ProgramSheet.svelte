@@ -1,6 +1,6 @@
 <script>
   import { api, repeatOptions, fmtDateTime, fmtTime, findReservation } from '../api.js'
-  import { app, loadReservations, toast } from '../store.svelte.js'
+  import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let { program, onclose } = $props()
   let existing = $derived(findReservation(app.resIdx, program))
   let quality = $state(app.defaults?.quality ?? 'LSR')
@@ -22,17 +22,23 @@
       else error = e.message
     } finally { busy = false }
   }
+  // both find the reservation again first: the id in a list read a while ago may be one the recorder has renumbered
   async function remove() {
+    if (!window.confirm('この予約を削除しますか？')) return
     busy = true; error = ''
-    try { await api(`/reservations/${existing.id}`, { method: 'DELETE' }); await loadReservations(); toast('予約を削除しました'); onclose() }
-    catch (e) { error = e.message } finally { busy = false }
+    try {
+      await actOnReservation(existing, (r) => api(`/reservations/${r.id}`, { method: 'DELETE' }))
+      toast('予約を削除しました'); onclose()
+    } catch (e) { error = e.message } finally { busy = false }
   }
   let editing = $state(false)
   function startEdit() { quality = existing.quality; repeat = existing.repeat; editing = true }
   async function saveEdit() {
     busy = true; error = ''
-    try { await api(`/reservations/${existing.id}`, { method: 'PATCH', body: { quality, repeat } }); await loadReservations(); toast('予約を変更しました'); editing = false }
-    catch (e) { error = e.message } finally { busy = false }
+    try {
+      await actOnReservation(existing, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat } }))
+      toast('予約を変更しました'); editing = false
+    } catch (e) { error = e.message } finally { busy = false }
   }
 </script>
 
