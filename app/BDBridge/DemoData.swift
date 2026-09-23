@@ -254,14 +254,20 @@ enum DemoData {
 
     // MARK: - filling the guide cache
 
-    /// Writes the invented guide into the app's own cache, which is where the screens read it from. Four
-    /// days, so stepping a day forward in the guide is not an empty screen.
+    /// How many days the invented guide covers: enough that stepping a day forward is not an empty screen.
+    static let guideDays = 4
+
+    /// What `seed` writes, in words, for the guide to say where the invented one runs out: a broadcasting type
+    /// or a day it does not cover is otherwise an empty screen pointing at a refresh that would not fill it.
+    static let guideCoverage = "サンプルデータの番組表は、地デジと BS の \(guideDays) 日分です"
+
+    /// Writes the invented guide into the app's own cache, which is where the screens read it from.
     static func seed(store: GuideStore) async throws {
         for (broadcasting, stations) in [("td", terrestrial), ("bs", satellite)] {
             var services: [GuideService] = []
             for station in stations {
                 var programs: [GuideProgram] = []
-                for day in 0..<4 {
+                for day in 0..<guideDays {
                     programs += station.schedule.enumerated().map { index, slot in
                         program(slot, on: day, of: station, index: index)
                     }

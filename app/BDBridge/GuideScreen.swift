@@ -8,6 +8,7 @@ struct GuideScreen: View {
     /// the store screenshots pass it on the command line. See `GuideClock`.
     @AppStorage("guideOpenAt") private var openAt = ""
     @State private var tapped: GuideProgramRow?
+    @State private var arranging = false
 
     private var grid: Bool { mode == "grid" }
 
@@ -20,7 +21,7 @@ struct GuideScreen: View {
             VStack(spacing: 0) {
                 if nothingAndNoRecorder {
                     NoRecorderView(icon: "calendar")
-                } else if nothing, model.guideOnItsWay {
+                } else if nothing, !nothingByChoice, model.guideOnItsWay {
                     // The first run lands here as soon as the recorder answers. Saying there was nothing for the
                     // day, and pointing at a refresh button greyed out meanwhile, read as though the download
                     // had come to nothing.
@@ -31,6 +32,8 @@ struct GuideScreen: View {
                     } actions: {
                         ProgressView()
                     }
+                } else if nothing {
+                    GuideEmptyView(narrowed: narrowed) { arranging = true }
                 } else if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
@@ -53,6 +56,11 @@ struct GuideScreen: View {
                                 Text(Codes.broadcastingLabel[broadcasting] ?? broadcasting).tag(broadcasting)
                             }
                         }
+                        // Above the channels rather than after them, where a type with sixty would leave it
+                        // at the foot of a long scroll. In the grid as well, whose columns come in this order.
+                        Button { arranging = true } label: {
+                            Label("チャンネルの表示と並び順", systemImage: "arrow.up.arrow.down")
+                        }
                         if !grid {
                             Picker("局", selection: channelChoice) {
                                 Text("すべての局").tag(-1)
@@ -74,6 +82,10 @@ struct GuideScreen: View {
                         Button { step(-1) } label: { Image(systemName: "chevron.left") }
                             .disabled(dayIndex <= 0)
                         Menu {
+                            // Where a tap on the guide's tab already showing goes, which few would guess. It
+                            // was the only way back to what is on now.
+                            Button { model.goToNow() } label: { Label("今", systemImage: "clock") }
+                            Divider()
                             Picker("日付", selection: dayChoice) {
                                 ForEach(model.days, id: \.self) { day in
                                     Text(Format.day.string(from: day)).tag(day)
@@ -107,6 +119,7 @@ struct GuideScreen: View {
                 }
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
+            .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
         }
     }
 
@@ -119,8 +132,8 @@ struct GuideScreen: View {
         return Self.shortLabel[model.broadcasting] ?? Codes.broadcastingLabel[model.broadcasting] ?? "番組表"
     }
 
-    /// The navigation bar has room for a word, not for 地上デジタル.
-    private static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
+    /// The navigation bar has room for a word, not for 地上デジタル. Nor has a segmented control.
+    static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
 
     private var dayIndex: Int {
         model.days.firstIndex { Calendar.current.isDate($0, inSameDayAs: model.day) } ?? 0
@@ -158,7 +171,7 @@ struct GuideScreen: View {
     /// the refresh button, which is greyed out while not connected. `NoRecorderView` says what is wrong and
     /// offers 再接続 and レコーダーを探す.
     private var nothingAndNoRecorder: Bool {
-        !model.connected && nothing
+        !model.connected && nothing && !nothingByChoice
     }
 
     /// Nothing for the day on screen. The grid shows every channel whatever the list is narrowed to, so it is
@@ -167,28 +180,32 @@ struct GuideScreen: View {
         (grid ? model.programs : shown).isEmpty
     }
 
-    @ViewBuilder
+    /// Whether the list is narrowed to one channel. The grid is not, whatever the list is set to.
+    private var narrowed: Bool { !grid && model.serviceFilter != nil }
+
+    /// Nothing on screen because of what the reader chose rather than what the cache holds: every channel
+    /// hidden, or the list narrowed to a channel with nothing that day. Said ahead of anything about the
+    /// recorder, which is not the reason and could not put it right.
+    private var nothingByChoice: Bool {
+        model.everyChannelHidden || (narrowed && !model.programs.isEmpty)
+    }
+
+    /// The day's programmes. Only reached with some to show: the empty states are the body's.
+    ///
+    /// A guide that is in the cache is shown whatever the recorder is doing. It is the whole reason the cache
+    /// exists: away from home the recorder cannot be reached, and a programme can still be read and still be
+    /// reserved -- the reservation waits in the queue. An error in place of the guide left nothing to do but
+    /// go home.
     private var list: some View {
-        // A guide that is in the cache is shown whatever the recorder is doing. It is the whole reason the
-        // cache exists: away from home the recorder cannot be reached, and a programme can still be read
-        // and still be reserved -- the reservation waits in the queue. An error in place of the guide left
-        // nothing to do but go home.
-        if shown.isEmpty {
-            // connected here: see `nothingAndNoRecorder`
-            if let problem = model.problem {
-                ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle",
-                                       description: Text(problem))
-            } else {
-                ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
-                                       description: Text("右上の更新ボタンでレコーダーから取得できます"))
-            }
-        } else {
+        // Drawn again each minute, so that the programme on air is marked as it starts and the one before it
+        // dimmed as it ends, with nobody touching the list.
+        TimelineView(.everyMinute) { timeline in
             ScrollViewReader { scroller in
                 List(shown) { program in
                     Button { tapped = program } label: {
                         ProgramRowView(program: program, logo: logo(for: program.serviceID),
                                        reservation: model.reservation(for: program),
-                                       pending: model.pending(for: program))
+                                       pending: model.pending(for: program), now: timeline.date)
                             .rowHitArea()
                     }
                     .buttonStyle(.plain)
@@ -250,6 +267,74 @@ struct GuideScreen: View {
     }
 }
 
+/// What the guide says when there is nothing to show for the day, in the list and in the grid alike. It used
+/// to say この日の番組表はありません and point at the refresh button whatever the reason -- in the grid always,
+/// in the list unless something had failed -- and most of the reasons are not put right by a refresh: a
+/// broadcasting type or a day the demo's guide does not cover, every channel hidden, the list narrowed to a
+/// channel with nothing that day, a recorder with no guide to give.
+///
+/// Not for a recorder that cannot be reached, nor for a guide on its way, which the screen says before this.
+struct GuideEmptyView: View {
+    @Environment(AppModel.self) private var model
+    /// The list narrowed to one channel. The grid shows every channel, whatever the list is set to.
+    var narrowed = false
+    /// Opens the channel settings, for a guide with every channel hidden. The sheet belongs to the screen
+    /// rather than to this view: the first channel turned back on takes this view away, and a sheet hung on
+    /// it closed with it, under the reader's finger.
+    var arrange: (() -> Void)? = nil
+
+    @ViewBuilder
+    var body: some View {
+        let type = Self.inSentence(model.broadcasting)
+        let cached = model.counts[model.broadcasting]?.programs ?? 0
+        if model.everyChannelHidden {
+            ContentUnavailableView {
+                Label("\(type)の局をすべて非表示にしています", systemImage: "eye.slash")
+            } description: {
+                Text("表示する局を選ぶと、番組表に出てきます")
+            } actions: {
+                if let arrange {
+                    Button("チャンネルの表示と並び順", action: arrange)
+                }
+            }
+        } else if narrowed, !model.programs.isEmpty {
+            ContentUnavailableView {
+                Label("この日の\(model.channelName)の番組はありません", systemImage: "calendar")
+            } actions: {
+                Button("すべての局を表示") { model.serviceFilter = nil }
+            }
+        } else if model.demo {
+            // The demo's guide is what DemoData invented, and a refresh would fetch the same again.
+            ContentUnavailableView(cached == 0 ? "\(type)の番組表はありません" : "この日の番組表はありません",
+                                   systemImage: "calendar", description: Text(DemoData.guideCoverage))
+        } else if model.info?.epgCapable == false {
+            ContentUnavailableView("このレコーダーは番組表に対応していません", systemImage: "calendar",
+                                   description: Text("この機種からは番組表を取得できません"))
+        } else if let problem = model.problem {
+            ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle", description: Text(problem))
+        } else if cached == 0, model.counts.values.contains(where: { $0.programs > 0 }) {
+            // The other types came in and this one did not: the recorder had no file for it, which is what a
+            // model without that kind of tuner answers.
+            ContentUnavailableView("\(type)の番組表はありません", systemImage: "calendar",
+                                   description: Text("レコーダーが対応していない放送は空のままです。"
+                                                     + "右上の更新ボタンで取得し直せます"))
+        } else if cached == 0 {
+            ContentUnavailableView("番組表をまだ取得していません", systemImage: "calendar",
+                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
+        } else {
+            ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
+                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
+        }
+    }
+
+    /// A broadcasting type's name at the start of a sentence: 地上デジタル as it is, a Latin one set off from the
+    /// Japanese after it by a space, as the app writes GB and Wi-Fi.
+    static func inSentence(_ broadcasting: String) -> String {
+        let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
+        return label.last?.isASCII == true ? label + " " : label
+    }
+}
+
 struct ProgramRowView: View {
     let program: GuideProgramRow
     let logo: Data?
@@ -260,6 +345,14 @@ struct ProgramRowView: View {
     /// In the search results, for a programme found only in its details: the words found and a little on
     /// either side, since neither the title nor the description says why it is there.
     var snippet: Search.Snippet? = nil
+    /// The time the marks are worked out for. The guide's list passes the minute it was last drawn at.
+    var now = Date()
+
+    /// Marked the way the grid marks it, which the list did not: a day's list opens at what is on now, and
+    /// nothing said which of the rows at the top that was.
+    private var onAir: Bool { program.start <= now && now < program.end }
+    /// Dimmed, as in the grid, so that the eye goes past what can no longer be watched or reserved.
+    private var ended: Bool { program.end <= now }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -270,12 +363,15 @@ struct ProgramRowView: View {
             .frame(width: 52, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(program.title).font(.subheadline).lineLimit(2)
+                Text(program.title).font(.subheadline.weight(onAir ? .semibold : .regular)).lineLimit(2)
                 HStack(spacing: 6) {
                     if let logo, let image = UIImage(data: logo) {
                         Image(uiImage: image).resizable().scaledToFit().frame(height: 12)
                     }
                     Text(program.serviceName).font(.caption2).foregroundStyle(.secondary)
+                    if onAir {
+                        Text("放送中").font(.caption2.weight(.semibold)).foregroundStyle(.tint)
+                    }
                     if let reservation {
                         Text(reservation.recording ? "録画中" : "予約")
                             .font(.caption2)
@@ -298,6 +394,7 @@ struct ProgramRowView: View {
             }
         }
         .padding(.vertical, 2)
+        .opacity(ended ? 0.5 : 1)
     }
 
     /// 詳細, as the programme's sheet heads the same text, and the words found set in the colour of the title.

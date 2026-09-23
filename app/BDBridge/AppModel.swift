@@ -16,7 +16,12 @@ final class AppModel {
         didSet { UserDefaults.standard.set(host, forKey: Self.hostKey) }
     }
 
-    var broadcasting = "td"
+    /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
+    /// so one chosen on another left the list empty, pointing at the refresh button as though the guide were
+    /// missing, and the channel menu no longer named what it was narrowed to.
+    var broadcasting = "td" {
+        didSet { if broadcasting != oldValue { serviceFilter = nil } }
+    }
     var day: Date
     var reservationSort = ReservationSort.time
     var reservationKind = ReservationKind.all
@@ -1968,6 +1973,11 @@ final class AppModel {
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
+            // The channel the list is narrowed to has to be one the guide shows. Hidden, it stayed chosen, and
+            // the list stayed empty with nothing to say why: the menu that would undo it no longer named it.
+            if let serviceFilter, !channels.contains(where: { $0.serviceID == serviceFilter }) {
+                self.serviceFilter = nil
+            }
             let everyChannel = try await store.channels(includeHidden: true)
             channelNames = Dictionary(
                 everyChannel.compactMap { channel in
@@ -2028,6 +2038,33 @@ final class AppModel {
     var channelName: String {
         guard let serviceFilter else { return "すべての局" }
         return channels.first { $0.serviceID == serviceFilter }?.name ?? "すべての局"
+    }
+
+    // MARK: - which channels the guide shows
+
+    /// Whether the broadcasting type on screen has channels and the reader has hidden every one of them. The
+    /// guide is empty then for a reason that has nothing to do with the recorder, and says so.
+    var everyChannelHidden: Bool {
+        channels.isEmpty && (counts[broadcasting]?.channels ?? 0) > 0
+    }
+
+    /// Every channel of one broadcasting type, hidden ones too, in the reader's order: what the screen that
+    /// sets them lists. Empty until that type's guide has been fetched.
+    func channelsToArrange(broadcasting: String) async throws -> [Channel] {
+        await start()
+        guard let store else { return [] }
+        return try await store.channels(broadcasting: broadcasting, includeHidden: true)
+    }
+
+    /// Hides channels of one broadcasting type or puts them in another order (see
+    /// `GuideStore.setChannelPreferences`), and reads the guide again at once, so that the guide, the grid
+    /// and the channel menu are in step when the reader goes back to them. Only the cache is written; the
+    /// recorder is not told, and records from a hidden channel as before.
+    func setChannelPreferences(broadcasting: String, order: [Int]? = nil, hidden: [Int]? = nil) async throws {
+        await start()
+        guard let store else { return }
+        try await store.setChannelPreferences(broadcasting: broadcasting, order: order, hidden: hidden)
+        await reloadFromCache()
     }
 
     /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something

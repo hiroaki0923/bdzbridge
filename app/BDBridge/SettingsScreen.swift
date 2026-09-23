@@ -156,6 +156,15 @@ struct SettingsScreen: View {
                     }
                 }
 
+                Section {
+                    NavigationLink("チャンネルの表示と並び順") {
+                        ChannelsScreen(broadcasting: model.broadcasting)
+                    }
+                } footer: {
+                    Text("番組表に出す局と、その並び順を放送ごとに選べます。この iPhone の番組表だけが変わり、"
+                         + "レコーダーの録画には影響しません。")
+                }
+
                 Section("保存されている番組表") {
                     ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
                         let counts = model.counts[broadcasting]

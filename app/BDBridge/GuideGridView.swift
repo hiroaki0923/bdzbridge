@@ -62,8 +62,9 @@ struct GuideGridView: View {
     var body: some View {
         let columns = columns
         if columns.isEmpty {
-            ContentUnavailableView("この日の番組表はありません", systemImage: "squareshape.split.3x3",
-                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
+            // The guide screen says why before it makes a grid with no programmes. This is for programmes
+            // with none of their channels shown, and says the same as the list would.
+            GuideEmptyView()
         } else {
             // A GeometryReader, because the rulers are as wide as the whole grid and must not report that
             // width upwards: everything around them would be stretched to it.

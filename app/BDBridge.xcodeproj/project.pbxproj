@@ -26,6 +26,7 @@
 		CA7AAF4853F8DABDA9D0DF01 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B57FEE346AAB3BF701F1D01C /* PrivacyInfo.xcprivacy */; };
 		D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E965F5A7D72F5934B73195 /* DemoData.swift */; };
 		D215463557C8F257EF86EA36 /* ScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */; };
+		E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126A76C55A44B1C1314D806C /* ChannelsScreen.swift */; };
 		E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6328D6F84094C9B14A5C500 /* GuideGridView.swift */; };
 		EE0A45F94B0B6419C3D312A6 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C50D9578B5D62CFBB300399 /* WelcomeView.swift */; };
 		F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */; };
@@ -45,6 +46,7 @@
 
 /* Begin PBXFileReference section */
 		1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchScreen.swift; sourceTree = "<group>"; };
+		126A76C55A44B1C1314D806C /* ChannelsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsScreen.swift; sourceTree = "<group>"; };
 		1279E749BC680BAC08A88565 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderRulesScreen.swift; sourceTree = "<group>"; };
@@ -102,6 +104,7 @@
 				320A5AF47092867E2DBFE5F0 /* Assets.xcassets */,
 				386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */,
 				5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */,
+				126A76C55A44B1C1314D806C /* ChannelsScreen.swift */,
 				83E965F5A7D72F5934B73195 /* DemoData.swift */,
 				D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */,
 				58160E6F634978F81AD1D797 /* DuplicatesView.swift */,
@@ -270,6 +273,7 @@
 				0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */,
 				8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */,
 				7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */,
+				E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */,
 				D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */,
 				02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */,
 				C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */,

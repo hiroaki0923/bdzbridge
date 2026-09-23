@@ -233,7 +233,22 @@ another day was open. The tab bar's own answer to that tap is the top of the bro
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
 The days follow the broadcast day rather than the calendar: until four in the morning the first of them
 is still yesterday's, whose late-night programmes are on air. Nothing announces four o'clock, so the
-days move on when the app starts, comes back to the front or is taken back to now.
+days move on when the app starts, comes back to the front or is taken back to now. The date menu has 今
+as well, for anyone who would not guess the tab. The list marks what is on air with 放送中 and dims what
+has ended, as the grid does, redrawn each minute.
+
+Which channels the guide shows, and in what order, is set for each broadcasting type on
+チャンネルの表示と並び順, reached from the settings and from the guide's channel menu: a switch for each
+channel and a handle to drag, saved in the cache's own `channel_prefs` table as each changes, and put
+back to the recorder's order with everything shown by a reset that asks first. The list, the grid's
+columns and the guide's search follow it; the reservations and the recordings do not, and the recorder
+is not told. A list narrowed to a channel lets go of it when it is hidden, and when the broadcasting type
+changes, rather than staying empty with no way back in the menu.
+
+An empty guide says why, in the list and the grid alike: every channel hidden, with a way to the channel
+settings; the list narrowed to a channel with nothing that day; a broadcasting type or a day the demo does
+not cover; a recorder with no guide; a broadcasting type the recorder gave no file for; or a guide not
+fetched yet. It used to point at the refresh button whatever the reason.
 
 ### Changing a reservation
 
