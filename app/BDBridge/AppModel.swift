@@ -42,7 +42,12 @@ final class AppModel {
     private(set) var reservationsByProgram: [String: Reservation] = [:]
     private(set) var found: [RecorderDescription] = []
     private(set) var scanning: (done: Int, total: Int)?
-    private(set) var busy: String?
+    /// Everything under way with the recorder, each with a line of its own. Work overlaps -- a tab asking
+    /// for its list while another is still loading -- and the client finishes it first come, first served,
+    /// so nothing here can save one shared line and put it back afterwards. See `Activities`.
+    private var activities = Activities()
+    /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
+    var busy: String? { activities.current }
     /// Set while the app is only waiting for the recorder to come back from a magic packet. Nothing is
     /// being written and nothing is being read, so the screens leave alive what they can: a reservation
     /// made during these seconds goes to the queue, which is what the queue is for.
@@ -71,7 +76,11 @@ final class AppModel {
 
     private var store: GuideStore?
     private var client: RecorderClient?
-    private var starting: Task<Void, Never>?
+    /// Opening the cache and reading it, shared by every caller of `start()` and by `connect()`.
+    private var opening: Task<Void, Never>?
+    /// Set once the first connect has been set going, so that it is set going once, however many screens
+    /// call `start()`.
+    private var launched = false
     private var pathMonitor: NWPathMonitor?
     /// Kept for as long as the demo lasts, because it holds what the reader has done to it: a reservation
     /// made in the demo has to still be there after a reconnect.
@@ -84,14 +93,15 @@ final class AppModel {
     private static let macKey = "recorderMac"
 
     init() {
+        demo = DemoData.on
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         let midnight = calendar.startOfDay(for: Date())
         days = (0..<8).compactMap { calendar.date(byAdding: .day, value: $0, to: midnight) }
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         mac = UserDefaults.standard.string(forKey: Self.macKey)
-        // Here rather than in `begin()`: the first screen decides whether to show the tutorial by looking at
-        // whether a recorder is set, and it looks before `begin()` has run.
+        // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
+        // whether a recorder is set, and it looks before `start()` has run.
         if DemoData.on { host = DemoData.host; mac = DemoData.mac }
         day = days.first ?? Date()
     }
@@ -100,7 +110,11 @@ final class AppModel {
 
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
-    var demo: Bool { DemoData.on }
+    ///
+    /// A copy of `DemoData.on` rather than a read of it: that lives in UserDefaults, where no screen sees it
+    /// change, and ending the demo left the strip saying the data was invented -- with a 終了 that did
+    /// nothing -- until something else on the model happened to move.
+    private(set) var demo: Bool
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
     /// one of them, on purpose -- see `waking`.
@@ -125,16 +139,31 @@ final class AppModel {
         nowRequests += 1
     }
 
-    /// Opens the cache, shows what is in it, then connects. Every screen awaits this before asking for
-    /// anything, and only the first caller does the work: two clients at once would mean two conversations
-    /// with a recorder that answers 503 to the second.
+    /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
+    /// only the first caller does the work.
+    ///
+    /// The first call also sets the first connect going, without waiting for it. Waiting was a deadlock:
+    /// the connect ran inside the task this awaited, and reading the reservations -- which the connect does
+    /// -- awaited this, so the connect waited for itself and the app spun until it was quit. Only a race
+    /// with coming to the foreground, which usually got its own connect in first, kept it from being seen.
+    /// So nothing `connect()` reaches may await this; it uses the `...Now` loads, which do not. Not waiting
+    /// also lets a search, which needs nothing but the cache, answer at once rather than after half a
+    /// minute of waking a recorder that is not there.
     func start() async {
-        if starting == nil { starting = Task { await self.begin() } }
-        await starting?.value
+        await openCache()
+        guard !launched, store != nil else { return }
+        launched = true
+        Task { await self.connectFirstTime() }
     }
 
-    /// Shows the cached guide before touching the network, so something is on screen at once.
-    private func begin() async {
+    /// Shows the cached guide before touching the network, so something is on screen at once. Safe to
+    /// await from anywhere, `connect()` included, because nothing in it goes near the recorder.
+    private func openCache() async {
+        if opening == nil { opening = Task { await self.readCache() } }
+        await opening?.value
+    }
+
+    private func readCache() async {
         guard store == nil else { return }
         do {
             store = try GuideStore(path: try Storage.guidePath())
@@ -142,13 +171,16 @@ final class AppModel {
             // DemoData.
             if DemoData.on, let store { try? await DemoData.seed(store: store) }
             await reloadFromCache()
-            if !host.isEmpty { await connect() }
-            // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
-            // soon as it starts, and that would be a second connect racing the first.
-            watchNetwork()
         } catch {
             problem = "番組表の保存領域を開けませんでした: \(error)"
         }
+    }
+
+    private func connectFirstTime() async {
+        if !host.isEmpty { await connect() }
+        // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
+        // soon as it starts, and that would be a second connect racing the first.
+        watchNetwork()
     }
 
     /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
@@ -172,6 +204,7 @@ final class AppModel {
     func enterDemo() async {
         guard !demo else { return }
         DemoData.turnOn(realHost: host, realMac: mac)
+        demo = true
         await openStore()
         host = DemoData.host
         remember(mac: DemoData.mac)
@@ -183,6 +216,7 @@ final class AppModel {
     func leaveDemo() async {
         guard demo else { return }
         let before = DemoData.turnOff()
+        demo = false
         demoRecorder = nil
         Storage.removeDemoGuide()
         host = before.host
@@ -256,6 +290,10 @@ final class AppModel {
         guard !host.isEmpty, !connecting else { return }
         connecting = true
         defer { connecting = false }
+        // The cache first, since the queued reservations and the guide are sent from and fetched into it.
+        // Coming to the foreground connects too, and at launch it can get here before `start()` has opened
+        // anything; without this that connect found no cache and quietly did neither.
+        await openCache()
         let client: RecorderClient
         if DemoData.on {
             let recorder = demoRecorder ?? DemoRecorder()
@@ -285,7 +323,7 @@ final class AppModel {
             // from this list. Reading it only when the reservations screen appeared meant that opening the
             // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
             // been to the other tab and back.
-            await loadReservations()
+            await loadReservationsNow()
             await refreshGuideIfStale()
         }
     }
@@ -300,11 +338,10 @@ final class AppModel {
     /// clearing it per attempt made every button bound to `busy` flicker once a second while waking.
     private func attach(_ client: RecorderClient, what: String? = "接続中",
                         timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
-        // Whatever was being said is put back rather than cleared: this can run inside the waking, which
+        // A line of its own, and only that one taken away afterwards: this can run inside the waking, which
         // goes on for the better part of a minute and should not lose its line on the screen.
-        let previous = busy
-        if let what { busy = what }
-        defer { if what != nil { busy = previous } }
+        let activity = what.map { activities.begin($0) }
+        defer { if let activity { activities.end(activity) } }
         do {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
@@ -351,15 +388,15 @@ final class AppModel {
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
         waking = true
-        let previous = busy
         let started = Date()
-        defer { waking = false; busy = previous }
+        let activity = activities.begin(Self.wakingLine(0))
+        defer { waking = false; activities.end(activity) }
         // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet, so half a minute is
         // generous. Bounded by the clock rather than by a count of attempts, so that the line on screen and
         // the wait behind it are the same length -- and the line says how long it has been, because a
         // spinner that has been going for twenty seconds is otherwise indistinguishable from a hung one.
         while Date().timeIntervalSince(started) < Self.wakeLimit {
-            busy = "レコーダーを起動しています（\(Int(Date().timeIntervalSince(started))) 秒）"
+            activities.update(activity, to: Self.wakingLine(Int(Date().timeIntervalSince(started))))
             // Only the identity, and only for two seconds: asking for everything is what the attach below
             // is for, and it is worth doing once, after the recorder has proved it is listening.
             if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil {
@@ -373,6 +410,10 @@ final class AppModel {
 
     /// How long to wait for a recorder to come back from a magic packet before leaving it alone.
     private static let wakeLimit: TimeInterval = 30
+
+    private static func wakingLine(_ seconds: Int) -> String {
+        "レコーダーを起動しています（\(seconds) 秒）"
+    }
 
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
     /// the address cannot be guessed and iOS will not read the ARP table.
@@ -421,9 +462,10 @@ final class AppModel {
     /// Downloads every broadcasting type the recorder has and replaces the cache.
     func refreshGuide() async {
         guard let client, let store, !unreachable else { return }
-        await run("番組表を取得中") {
+        await run("番組表を取得中") { activity in
             try await GuideRefresh.run(client: client, store: store) { broadcasting in
-                self.busy = "番組表を取得中 (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
+                let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
+                self.activities.update(activity, to: "番組表を取得中 (\(label))")
             }
             await self.reloadFromCache()
         }
@@ -431,6 +473,11 @@ final class AppModel {
 
     func loadReservations() async {
         await start()
+        await loadReservationsNow()
+    }
+
+    /// The load itself, for `connect()` and everything it reaches, which must not await `start()`: see there.
+    private func loadReservationsNow() async {
         guard let client, !unreachable else { return }
         await run("予約一覧を取得中") {
             self.reservations = try await client.reservations()
@@ -669,8 +716,7 @@ final class AppModel {
         await loadTitlesNow(force: force)
     }
 
-    /// The load itself. Anything called from `begin()` has to use this: going through `loadTitles` would wait
-    /// on the very start-up task it is already running inside.
+    /// The load itself, without `start()`, for anything `connect()` reaches: see there.
     private func loadTitlesNow(force: Bool) async {
         guard let client, !unreachable, force || !titlesLoaded else { return }
         await run("録画一覧を取得中") {
@@ -903,9 +949,8 @@ final class AppModel {
             await queue(request, serviceName: program.serviceName)
             return true
         }
-        let previous = busy
-        busy = "予約を登録中"
-        defer { busy = previous }
+        let activity = activities.begin("予約を登録中")
+        defer { activities.end(activity) }
         do {
             _ = try await client.createReservation(request)
             problem = nil
@@ -974,18 +1019,18 @@ final class AppModel {
     }
 
     /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
-    /// Called whenever the recorder has just answered.
+    /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
+    /// await `start()`.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store else { return 0 }
         await loadPending()
         guard !pending.isEmpty, !unreachable else { return 0 }
-        let previous = busy
-        busy = "送信待ちの予約を登録中"
+        let activity = activities.begin("送信待ちの予約を登録中")
         let outcome = await PendingQueue.flush(client: client, store: store)
-        busy = previous
+        activities.end(activity)
         await loadPending()
-        if !outcome.sent.isEmpty { await loadReservations() }
+        if !outcome.sent.isEmpty { await loadReservationsNow() }
         return outcome.sent.count
     }
 
@@ -1012,9 +1057,8 @@ final class AppModel {
                                          durationSec: target.durationSec, repeatCode: repeatCode,
                                          broadcastingType: target.broadcastingType, serviceID: target.serviceID,
                                          qualityCode: qualityCode, eventID: target.eventID)
-        let previous = busy
-        busy = "予約を変更中"
-        defer { busy = previous }
+        let activity = activities.begin("予約を変更中")
+        defer { activities.end(activity) }
         do {
             try await client.updateReservation(id: target.id, request)
         } catch let error as RecorderError where error.unknownReservation {
@@ -1047,22 +1091,21 @@ final class AppModel {
             return false
         }
         guard let client else { return false }
-        let previous = busy
-        busy = "予約を削除中"
+        let activity = activities.begin("予約を削除中")
         do {
             try await client.deleteReservation(id: target.id)
         } catch let error as RecorderError where error.unknownReservation {
             // the list we just read was itself out of date, which is what happens when reading it failed
-            busy = previous
+            activities.end(activity)
             await loadReservations()  // first, because a successful read clears `problem`
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
         } catch {
-            busy = previous
+            activities.end(activity)
             problem = (error as? RecorderError)?.explanation ?? String(describing: error)
             return false
         }
-        busy = previous
+        activities.end(activity)
         problem = nil
         reservations.removeAll { $0.id == target.id }
         await loadReservations()
@@ -1161,11 +1204,17 @@ final class AppModel {
     /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
     @discardableResult
     private func run(_ what: String, _ work: () async throws -> Void) async -> Bool {
-        let previous = busy
-        busy = what
+        await run(what) { (_: Activities.Token) in try await work() }
+    }
+
+    /// The same, handing the work its own line so that it can say how far it has got.
+    @discardableResult
+    private func run(_ what: String, _ work: (Activities.Token) async throws -> Void) async -> Bool {
+        let activity = activities.begin(what)
+        defer { activities.end(activity) }
         var failed = false
         do {
-            try await work()
+            try await work(activity)
             problem = nil
         } catch let error as RecorderError {
             problem = error.explanation
@@ -1174,7 +1223,6 @@ final class AppModel {
             problem = String(describing: error)
             failed = true
         }
-        busy = previous
         return !failed
     }
 
