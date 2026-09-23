@@ -6,16 +6,30 @@ struct BDBridgeApp: App {
     @State private var model = AppModel()
 
     init() {
+        guard !Self.hostingUnitTests else { return }
         BackgroundWork.register()
         BackgroundWork.schedule()
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(model)
+            if Self.hostingUnitTests {
+                // Nothing on screen, so nothing that starts the model: see `hostingUnitTests`.
+                Color.clear
+            } else {
+                RootView()
+                    .environment(model)
+            }
         }
     }
+
+    /// True when the app has been launched only to host `BDBridgeTests`, which run inside it. The app's own
+    /// start is left out then: the screens, which start the model, and the overnight task. Started, it would
+    /// connect to whatever recorder this simulator last saved -- a real one, on the network the tests run on
+    /// -- beside the models the tests make for themselves. XCTest sets this variable in the process it runs
+    /// unit tests in; the UI tests launch the app as a process of its own, without it, and it starts as it
+    /// would for anybody.
+    static let hostingUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 }
 
 struct RootView: View {

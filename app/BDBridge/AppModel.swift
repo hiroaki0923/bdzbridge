@@ -14,7 +14,7 @@ final class AppModel {
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
     /// has moved it since (`findMovedRecorder`).
     var host: String {
-        didSet { UserDefaults.standard.set(host, forKey: DefaultsKey.recorderHost) }
+        didSet { defaults.set(host, forKey: DefaultsKey.recorderHost) }
     }
 
     /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
@@ -29,18 +29,18 @@ final class AppModel {
     var broadcasting = "td" {
         didSet {
             if broadcasting != oldValue { serviceFilter = nil }
-            UserDefaults.standard.set(broadcasting, forKey: DefaultsKey.guideBroadcasting)
+            defaults.set(broadcasting, forKey: DefaultsKey.guideBroadcasting)
         }
     }
     var day: Date
     var reservationSort = ReservationSort.time {
-        didSet { UserDefaults.standard.set(reservationSort.rawValue, forKey: DefaultsKey.reservationSort) }
+        didSet { defaults.set(reservationSort.rawValue, forKey: DefaultsKey.reservationSort) }
     }
     var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
     var titleSort = TitleSort.newest {
-        didSet { UserDefaults.standard.set(titleSort.rawValue, forKey: DefaultsKey.recordingsSort) }
+        didSet { defaults.set(titleSort.rawValue, forKey: DefaultsKey.recordingsSort) }
     }
     var serviceFilter: Int?
 
@@ -141,16 +141,22 @@ final class AppModel {
     private var backInFront: CheckedContinuation<Void, Never>?
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
     private var stepTask = UIBackgroundTaskIdentifier.invalid
+    /// Where the settings and the database are kept, how requests reach the recorder, and what the model
+    /// does on the network by itself. The app's own everywhere but in the unit tests; see `Surroundings`.
+    private let surroundings: Surroundings
+    private var defaults: UserDefaults { surroundings.defaults }
 
-    init() {
-        demo = DemoData.on
+    init(surroundings: Surroundings = .app) {
+        self.surroundings = surroundings
+        let defaults = surroundings.defaults
+        let demo = DemoData.on(in: defaults)
+        self.demo = demo
         let days = GuideStore.broadcastDays()
         self.days = days
-        host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost) ?? ""
-        mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac)
+        host = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
+        mac = defaults.string(forKey: DefaultsKey.recorderMac)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
-        let defaults = UserDefaults.standard
         if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
            GuideRefresh.broadcastingTypes.contains(saved) {
             broadcasting = saved
@@ -163,7 +169,7 @@ final class AppModel {
         }
         // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
         // whether a recorder is set, and it looks before `start()` has run.
-        if DemoData.on { host = DemoData.host; mac = DemoData.mac }
+        if demo { host = DemoData.host; mac = DemoData.mac }
         day = days.first ?? Date()
     }
 
@@ -200,7 +206,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { LocalNetwork.signature() != triedOn }
+    var networkChanged: Bool { surroundings.networkSignature() != triedOn }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
@@ -278,10 +284,10 @@ final class AppModel {
     private func readCache() async {
         guard store == nil else { return }
         do {
-            store = try GuideStore(path: try Storage.guidePath())
+            store = try GuideStore(path: try guidePath())
             // Invented programmes: for the screenshots, and for anyone without a recorder to hand. See
             // DemoData.
-            if DemoData.on, let store { try? await DemoData.seed(store: store) }
+            if demo, let store { try? await DemoData.seed(store: store) }
             await reloadFromCache()
             // A guide cached by a build that searched only titles and descriptions is made searchable by its
             // details here, once, in place: fetching it again would need the recorder. The guide is on
@@ -290,6 +296,11 @@ final class AppModel {
         } catch {
             problem = "番組表の保存領域を開けませんでした: \(error)"
         }
+    }
+
+    /// The database of whichever recorder is in play, the demo's or a real one's.
+    private func guidePath() throws -> String {
+        Storage.guidePath(demo: demo, in: try surroundings.folder())
     }
 
     private func connectFirstTime() async {
@@ -303,7 +314,7 @@ final class AppModel {
     /// than that -- an interface going up on its own account, a route changing -- so the decision is left to
     /// the addresses this device holds, which is what actually says whether the recorder might be nearby.
     private func watchNetwork() {
-        guard pathMonitor == nil else { return }
+        guard pathMonitor == nil, surroundings.reachesTheLAN else { return }
         let monitor = NWPathMonitor()
         pathMonitor = monitor
         // Weak here as well as in the task: the monitor, which the model holds, keeps this handler, and a
@@ -324,7 +335,7 @@ final class AppModel {
         // A scan still waiting on the local network question has nothing to do with the invented recorder,
         // and the demo is exactly the path that must never raise that question.
         stopScanning()
-        DemoData.turnOn(realHost: host, realMac: mac)
+        DemoData.turnOn(realHost: host, realMac: mac, in: defaults)
         demo = true
         await openStore()
         host = DemoData.host
@@ -345,10 +356,10 @@ final class AppModel {
     /// from before it for the caller to go back to or not: leaving the demo does, choosing a recorder from
     /// inside it does not (see `adopt`). The demo's own MAC is nobody's, so it goes either way.
     private func endDemo() -> String {
-        let before = DemoData.turnOff()
+        let before = DemoData.turnOff(in: defaults)
         demo = false
         demoRecorder = nil
-        Storage.removeDemoGuide()
+        if let folder = try? surroundings.folder() { Storage.removeDemoGuide(in: folder) }
         if let mac = before.mac { remember(mac: mac) } else { forgetMac() }
         return before.host
     }
@@ -410,7 +421,7 @@ final class AppModel {
         accessWatch?.cancel()
         accessWatch = nil
         connectBlocked = false
-        store = (try? Storage.guidePath()).flatMap { try? GuideStore(path: $0) }
+        store = (try? guidePath()).flatMap { try? GuideStore(path: $0) }
         if let store {
             if demo { try? await DemoData.seed(store: store) }
             await reloadFromCache()
@@ -596,7 +607,7 @@ final class AppModel {
             // Provisional permission for notifications, now that there is a recorder for them to be about.
             // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
             // for the demo, whose recorder nobody will hear from overnight.
-            if !demo {
+            if !demo, surroundings.asksAboutNotifications {
                 Task {
                     await Notify.allowQuietly()
                     await readNotifications()
@@ -616,12 +627,12 @@ final class AppModel {
     /// it did not, and the app is now waiting for the permission instead.
     private func reachTheRecorder() async -> Bool? {
         let client: RecorderClient
-        if DemoData.on {
+        if demo {
             let recorder = demoRecorder ?? DemoRecorder()
             demoRecorder = recorder
             client = RecorderClient(host: host, transport: recorder)
         } else {
-            client = RecorderClient(host: host)
+            client = RecorderClient(host: host, transport: surroundings.transport(host))
         }
         self.client = client
         // The first ask is a short one. A recorder that has left the network does not refuse the
@@ -632,7 +643,7 @@ final class AppModel {
         // that is awake ignores it. Waiting for the failure first is what made this look like a fault
         // followed by a retry.
         sendMagicPacket()
-        triedOn = LocalNetwork.signature()
+        triedOn = surroundings.networkSignature()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached, unreachable, !demo, await lanIsBlocked() {
             waitForPermission()
@@ -645,8 +656,8 @@ final class AppModel {
         if !reached, unreachable, let moved = await findMovedRecorder() {
             host = moved.host
             // It is the recorder the MAC was read from, which its UDN has just said.
-            UserDefaults.standard.set(moved.host, forKey: DefaultsKey.recorderMacHost)
-            let found = RecorderClient(host: moved.host)
+            defaults.set(moved.host, forKey: DefaultsKey.recorderMacHost)
+            let found = RecorderClient(host: moved.host, transport: surroundings.transport(moved.host))
             self.client = found
             reached = await attach(found, timeout: RecorderClient.probeTimeout)
         }
@@ -659,7 +670,8 @@ final class AppModel {
     /// by the overnight run, which has no screen to explain it on, and never in the demo, which has to go
     /// through without the system's question ever coming up.
     private func lanIsBlocked() async -> Bool {
-        await LocalNetwork.access(probing: host) == .blocked
+        guard surroundings.reachesTheLAN else { return false }
+        return await LocalNetwork.access(probing: host) == .blocked
     }
 
     /// Silence because iOS stopped the app asking, not because the recorder is asleep. The magic packet
@@ -717,7 +729,7 @@ final class AppModel {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
-            UserDefaults.standard.set(host, forKey: DefaultsKey.recorderHost)
+            defaults.set(host, forKey: DefaultsKey.recorderHost)
             firmware = try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? ""
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once. With the address it was
@@ -725,7 +737,7 @@ final class AppModel {
             // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
             if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }),
                remember(mac: settings.mac), !demo {
-                UserDefaults.standard.set(host, forKey: DefaultsKey.recorderMacHost)
+                defaults.set(host, forKey: DefaultsKey.recorderMacHost)
             }
             storage = try await Self.storage(of: client)
             unreachable = false
@@ -777,8 +789,8 @@ final class AppModel {
 
     /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
     private func sendMagicPacket() {
-        if DemoData.on { return }   // nothing to wake, and no reason to shout on somebody's LAN
-        guard let mac else { return }
+        if demo { return }   // nothing to wake, and no reason to shout on somebody's LAN
+        guard let mac, surroundings.reachesTheLAN else { return }
         _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
     }
 
@@ -846,7 +858,7 @@ final class AppModel {
     /// itself has been looked at already: a connect that met silence asks it about the saved address, in this
     /// same subnet, before waking anything, and waits for it rather than coming here.
     private func findMovedRecorder() async -> RecorderDescription? {
-        guard !demo, !inBackground, let mac, macWasReadHere else { return nil }
+        guard !demo, !inBackground, surroundings.reachesTheLAN, let mac, macWasReadHere else { return nil }
         let hosts = LocalNetwork.hostsToScan(near: host)
         guard !hosts.isEmpty else { return nil }
         // The waking's failure is not the last word yet, and a screen saying it while the search runs would
@@ -867,7 +879,7 @@ final class AppModel {
     /// the old recorder: the search would find that, and quietly go back to the recorder the reader had just
     /// left.
     private var macWasReadHere: Bool {
-        guard let readAt = UserDefaults.standard.string(forKey: DefaultsKey.recorderMacHost) else { return true }
+        guard let readAt = defaults.string(forKey: DefaultsKey.recorderMacHost) else { return true }
         return readAt == host
     }
 
@@ -888,7 +900,7 @@ final class AppModel {
         unreachable = true
         info = nil
         gaveUp = true
-        triedOn = LocalNetwork.signature()
+        triedOn = surroundings.networkSignature()
     }
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
@@ -962,7 +974,7 @@ final class AppModel {
         // Where a connect's first probe leaves things too, and what waking starts from.
         unreachable = true
         info = nil
-        triedOn = LocalNetwork.signature()
+        triedOn = surroundings.networkSignature()
         if !demo, await lanIsBlocked() {
             waitForPermission()
             return false
@@ -988,14 +1000,14 @@ final class AppModel {
     func remember(mac text: String) -> Bool {
         guard let normalised = WakeOnLan.normalise(text) else { return false }
         mac = normalised
-        UserDefaults.standard.set(normalised, forKey: DefaultsKey.recorderMac)
+        defaults.set(normalised, forKey: DefaultsKey.recorderMac)
         return true
     }
 
     func forgetMac() {
         mac = nil
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.recorderMac)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.recorderMacHost)
+        defaults.removeObject(forKey: DefaultsKey.recorderMac)
+        defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
@@ -1877,7 +1889,7 @@ final class AppModel {
             await connect()
             return
         }
-        triedOn = LocalNetwork.signature()
+        triedOn = surroundings.networkSignature()
         _ = await wakeIfDozing(evenIfRecent: true)
     }
 
@@ -1889,6 +1901,7 @@ final class AppModel {
 
     /// The system's dialog, when the reader has not answered it yet. See `Notify.askIfNeeded`.
     func askForNotifications() async {
+        guard surroundings.asksAboutNotifications else { return }
         await Notify.askIfNeeded()
         await readNotifications()
     }

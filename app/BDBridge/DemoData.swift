@@ -18,7 +18,10 @@ import UIKit
 /// The guide it writes goes in a database of its own, so that trying the demo leaves nothing behind in the
 /// cache of a real recorder.
 enum DemoData {
-    static var on: Bool { UserDefaults.standard.bool(forKey: DefaultsKey.demoData) }
+    static var on: Bool { on(in: .standard) }
+
+    /// The same, in the defaults a model was given (`Surroundings.defaults`).
+    static func on(in defaults: UserDefaults) -> Bool { defaults.bool(forKey: DefaultsKey.demoData) }
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
     /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
@@ -30,16 +33,14 @@ enum DemoData {
     }
 
     /// Remembers the real recorder, if there is one, and turns the demo on.
-    static func turnOn(realHost: String, realMac: String?) {
-        let defaults = UserDefaults.standard
+    static func turnOn(realHost: String, realMac: String?, in defaults: UserDefaults) {
         defaults.set(realHost, forKey: DefaultsKey.hostBeforeDemo)
         defaults.set(realMac ?? "", forKey: DefaultsKey.macBeforeDemo)
         defaults.set(true, forKey: DefaultsKey.demoData)
     }
 
     /// Turns the demo off and hands back the recorder that was there before it, if any.
-    static func turnOff() -> (host: String, mac: String?) {
-        let defaults = UserDefaults.standard
+    static func turnOff(in defaults: UserDefaults) -> (host: String, mac: String?) {
         let host = defaults.string(forKey: DefaultsKey.hostBeforeDemo) ?? ""
         let mac = defaults.string(forKey: DefaultsKey.macBeforeDemo) ?? ""
         defaults.removeObject(forKey: DefaultsKey.hostBeforeDemo)

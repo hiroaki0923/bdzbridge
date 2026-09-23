@@ -83,6 +83,27 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - jp.hiroaki.bdbridge.guideRefresh
 
+  # AppModel's unit tests. They run inside the app, which is how they reach its types, and the app leaves out
+  # its own start while they do (BDBridgeApp.hostingUnitTests). XcodeGen sets TEST_HOST and BUNDLE_LOADER
+  # from the dependency on the app. RecorderKit is left out on purpose: the tests use the app's copy, and a
+  # second one linked in here would put two of every RecorderKit type in the process (see app/README.md).
+  BDBridgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BDBridgeTests
+    dependencies:
+      - target: BDBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge.tests
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+
   # The demo's UI tests, and the App Store screenshots, which skip themselves unless BDBRIDGE_SHOTS is set.
   # See app/scripts/screenshots.
   BDBridgeUITests:
@@ -102,8 +123,8 @@ targets:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
 
-# Spelled out rather than left to Xcode, so that `xcodebuild test -only-testing:BDBridgeUITests` finds the
-# tests through the same scheme Xcode Cloud archives.
+# Spelled out rather than left to Xcode, so that `xcodebuild test -only-testing:BDBridgeTests` (or
+# BDBridgeUITests) finds the tests through the same scheme Xcode Cloud archives.
 schemes:
   BDBridge:
     build:
@@ -114,6 +135,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - BDBridgeTests
         - BDBridgeUITests
     profile:
       config: Release

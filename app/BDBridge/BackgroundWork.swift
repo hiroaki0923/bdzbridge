@@ -8,11 +8,17 @@ enum Storage {
     /// The demo keeps its invented programmes in a database of its own, so that trying it leaves nothing
     /// behind in the cache of a real recorder -- and so that leaving it is a matter of deleting one file.
     static func guidePath(demo: Bool = DemoData.on) throws -> String {
-        try directory().appendingPathComponent(demo ? "guide-demo.sqlite3" : "guide.sqlite3").path
+        guidePath(demo: demo, in: try directory())
     }
 
-    static func removeDemoGuide() {
-        guard let path = try? guidePath(demo: true) else { return }
+    /// The same in a folder given, which for everything but the unit tests is `directory()`: see
+    /// `Surroundings.folder`.
+    static func guidePath(demo: Bool, in folder: URL) -> String {
+        folder.appendingPathComponent(demo ? "guide-demo.sqlite3" : "guide.sqlite3").path
+    }
+
+    static func removeDemoGuide(in folder: URL) {
+        let path = guidePath(demo: true, in: folder)
         // SQLite leaves a write-ahead log and a shared-memory file beside the database
         for suffix in ["", "-wal", "-shm"] {
             try? FileManager.default.removeItem(atPath: path + suffix)

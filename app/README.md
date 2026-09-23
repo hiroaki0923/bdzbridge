@@ -3,6 +3,7 @@
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle.
+- `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
 - `project.yml` — the Xcode project is generated from this by XcodeGen, and committed (see below).
@@ -59,6 +60,43 @@ name. The tests pin the guide's broadcasting type and the two sort orders with l
 (`-guideBroadcasting td -reservationSort time -recordingsSort newest`), since the app keeps them between
 launches and a test that switched to CS would otherwise start the next one there.
 
+## The model's tests
+
+`BDBridgeTests` tries `AppModel` as the app makes it at launch with a recorder saved, without a phone, a
+recorder or the network. The model takes what it reaches beyond itself as one value,
+`BDBridge/Surroundings.swift`: the defaults it keeps the address and the screens' choices in, the folder its
+databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it
+may put anything on the LAN by itself -- the magic packet, the look at the local network permission, the
+search for a recorder the router has moved, the watch on the network -- or ask about notifications. The app
+passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults suite and a
+temporary folder that are thrown away afterwards, the demo's `DemoRecorder` or a `SilentRecorder` that
+answers nothing as the transport, and a network it changes when the phone is meant to have moved. Nothing
+leaves the machine.
+
+What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
+while the recorder says nothing, and the first connect finishing with one that answers (the launch that
+waited on itself); the line on screen clearing once overlapping work has finished, including the order that
+left it stuck; a reservation made while offline going to the queue and to disk without the recorder being
+asked; and a recorder given up on not being asked again -- by coming back to the app, the network watcher or
+a screen's list -- until the network changes. A test of something that used to wait for ever fails after a
+few seconds rather than waiting with it.
+
+The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
+it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would
+connect to whatever recorder the simulator last saved, and the overnight task would be registered. The UI
+tests launch the app as a process of its own, without the variable, and it starts as it does for anybody.
+
+```
+cd app
+xcodebuild test -project BDBridge.xcodeproj -scheme BDBridge \
+  -destination 'platform=iOS Simulator,id=<simulator udid>' -only-testing:BDBridgeTests
+```
+
+The test bundle does not link RecorderKit itself. It uses the copy linked into the app it is loaded into
+(`TEST_HOST` and `BUNDLE_LOADER`, which XcodeGen sets from the dependency). A second copy in the bundle would
+put two of every RecorderKit type in the process, and the model would not take a `RecorderError` thrown by a
+test's recorder for its own.
+
 ## On a real iPhone
 
 **Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer
@@ -109,6 +147,10 @@ Two scripts, each documented in its own header, and nothing about Apple's websit
 - `ci_scripts/ci_post_clone.sh` is what Xcode Cloud needs, and it has to sit at the root of the repository:
   it installs XcodeGen, regenerates the project from `project.yml` so a cloud build matches the definition,
   and writes `Signing.local.xcconfig` from the workflow's `DEVELOPMENT_TEAM` and `CI_BUILD_NUMBER`.
+- `ci_scripts/ci_pre_xcodebuild.sh` runs RecorderKit's `swift test` before an archive, and a failure fails
+  the build, so nothing goes to TestFlight that the package's tests would have stopped. The app's unit tests
+  and the demo's UI tests need a simulator; a Test action in the workflow, which is set up in App Store
+  Connect, runs both through the scheme.
 
 `ITSAppUsesNonExemptEncryption` in `project.yml` is what keeps every upload from stopping to ask about
 export compliance. The build number comes from the xcconfig rather than `project.yml`, because a setting on
