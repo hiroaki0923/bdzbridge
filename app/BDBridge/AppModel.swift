@@ -89,10 +89,6 @@ final class AppModel {
     /// also type it, for a recorder that has never been reached from this phone.
     private(set) var mac: String?
 
-    /// When the recorder last answered. Coming back to the app checks again, but not on every flick between
-    /// apps: without this a glance at something else and back would send a magic packet each time.
-    private var lastAnswered: Date?
-
     private var store: GuideStore?
     private var client: RecorderClient?
     /// Opening the cache and reading it, shared by every caller of `start()` and by `connect()`.
@@ -426,6 +422,13 @@ final class AppModel {
     /// nothing, and the reader only wanted to see their guide.
     func connect() async {
         guard !host.isEmpty, !connecting else { return }
+        // A check already waking this recorder with the client in hand is doing what this would do, and a
+        // second client beside it would talk over it. Asked for meanwhile -- by pulling down, which is what a
+        // screen of lists waiting on the waking invites -- this waits for its answer rather than start again.
+        if let wakeCheck, let client, client.host == host {
+            _ = await wakeCheck.value
+            return
+        }
         connecting = true
         defer { connecting = false }
         // This attempt answers what the watcher was waiting to find out, one way or the other.
@@ -455,14 +458,7 @@ final class AppModel {
         triedOn = LocalNetwork.signature()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached, unreachable, !demo, await lanIsBlocked() {
-            // Silence because iOS stopped the app asking, not because the recorder is asleep. The magic
-            // packet could not leave this phone either, so half a minute of waking would be half a minute of
-            // nothing followed by the wrong advice. Wait for the permission instead; what the screens say
-            // comes from `connectBlocked`, not from a failure line.
-            connectBlocked = true
-            problem = nil
-            gaveUp = true
-            watchForAccess()
+            waitForPermission()
             return
         }
         connectBlocked = false
@@ -488,6 +484,17 @@ final class AppModel {
     /// through without the system's question ever coming up.
     private func lanIsBlocked() async -> Bool {
         await LocalNetwork.access(probing: host) == .blocked
+    }
+
+    /// Silence because iOS stopped the app asking, not because the recorder is asleep. The magic packet
+    /// could not leave this phone either, so half a minute of waking would be half a minute of nothing
+    /// followed by the wrong advice. Waits for the permission instead; what the screens say comes from
+    /// `connectBlocked`, not from a failure line.
+    private func waitForPermission() {
+        connectBlocked = true
+        problem = nil
+        gaveUp = true
+        watchForAccess()
     }
 
     /// Waits for the reader to allow the local network, then connects. The one exception to leaving a
@@ -534,9 +541,10 @@ final class AppModel {
             storage = (capacity.freeBytes, capacity.totalBytes)
             unreachable = false
             problem = nil
-            lastAnswered = Date()
             await flushPending()
-            return true
+            // The recorder can go quiet in the middle of sending the queue, which leaves the app offline
+            // like any other silence; a connect that ended there has not reached anything to show.
+            return !unreachable
         } catch {
             let recorderError = error as? RecorderError
             unreachable = recorderError?.unreachable ?? false
@@ -598,6 +606,115 @@ final class AppModel {
 
     private static func wakingLine(_ seconds: Int) -> String {
         "レコーダーを起動しています（\(seconds) 秒）"
+    }
+
+    // MARK: - a recorder that falls asleep while the app is open
+
+    /// Leaves the app where a connect that got no answer leaves it: not connected, given up until the network
+    /// changes or the reader asks, with 再接続 on the strip.
+    ///
+    /// Every request that meets silence comes here, not only connecting. Before, the rest put the failure on
+    /// screen and the app went on looking connected to a recorder that had gone to sleep: the next screen
+    /// asked again and waited out the same timeout, nothing offered to reconnect, and pulling down asked the
+    /// silent recorder once more instead of connecting.
+    ///
+    /// Nothing is sent again from here, and the callers do not send again either, not even once the recorder
+    /// has been woken: a write that met silence may have reached the recorder all the same, and a reservation
+    /// sent twice can be made twice. The reader is told to look once it is back.
+    private func lostTheRecorder() {
+        unreachable = true
+        info = nil
+        gaveUp = true
+        triedOn = LocalNetwork.signature()
+    }
+
+    /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
+    /// again, and what the list says once the recorder answers is the only way to find out.
+    private static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。再接続してから一覧で確かめてください。"
+
+    /// Why something the reader asked for was not sent at all: the app is not connected.
+    private var notConnected: String {
+        connectBlocked ? LocalNetworkNotice.title
+            : "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
+    }
+
+    /// How long the recorder may say nothing before it is worth making sure it is still up, ahead of something
+    /// the reader asked for. A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing
+    /// asked of it, and has been seen awake for as little as two minutes at a time; a minute and a half is
+    /// well inside both, and a recorder that is up answers the check in milliseconds.
+    private static let dozeAfter: TimeInterval = 90
+
+    /// The check under way, so that everything asked for while it runs waits for its answer rather than
+    /// sending a probe -- and a magic packet -- of its own.
+    private var wakeCheck: Task<Bool, Never>?
+
+    /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
+    /// is not. Returns whether it is there to ask. When it is not, the app has been left offline, `problem`
+    /// says why, and nothing has been sent.
+    ///
+    /// Without this, a recorder that had gone to sleep while the app was open was found out by the request
+    /// itself: thirty seconds on the conflict check, thirty more on the reservation, and then
+    /// "送信待ちにしました" on a phone in the same room as the recorder. Now it is asked first, briefly, and
+    /// woken the way connecting wakes it -- with the client already in hand. Connecting again would make a
+    /// second client, and two clients are two queues talking over each other to a recorder that answers 503
+    /// to the second.
+    ///
+    /// `evenIfRecent` asks whatever the time since the last answer, for when that answer no longer says
+    /// anything: the network under this device has changed since.
+    private func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
+        guard let client, !offline else {
+            problem = notConnected
+            return false
+        }
+        // Already at it: a connect, or the waking of an earlier check -- whose attach reads lists of its own
+        // through here, and must not wait for itself. Whatever is asked meanwhile waits behind it in the
+        // client's queue.
+        if connecting || waking { return true }
+        if let wakeCheck { return await wakeCheck.value }
+        let check = Task { await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent) }
+        wakeCheck = check
+        let answered = await check.value
+        if wakeCheck == check { wakeCheck = nil }
+        return answered
+    }
+
+    private func makeSureItIsUp(_ client: RecorderClient, evenIfRecent: Bool) async -> Bool {
+        if !evenIfRecent, let last = await client.lastAnswer, Date().timeIntervalSince(last) < Self.dozeAfter {
+            return true
+        }
+        // The packet first and the probe after, as connecting does: a recorder that is asleep is on its way
+        // up while the probe waits, and one that is awake ignores it.
+        sendMagicPacket()
+        do {
+            try await client.describe(timeout: RecorderClient.probeTimeout)
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            // silence, which is what waking is for
+        } catch {
+            // Something answered, so there is nothing to wake. What is wrong is for the request itself to
+            // run into and say.
+            return true
+        }
+        // Where a connect's first probe leaves things too, and what waking starts from.
+        unreachable = true
+        info = nil
+        triedOn = LocalNetwork.signature()
+        if !demo, await lanIsBlocked() {
+            waitForPermission()
+            return false
+        }
+        if await wakeAndAttach(client) { return true }
+        // Given up, as a connect is when waking does not bring the recorder back. Something that answered
+        // only to refuse has said so already, and is not silence.
+        guard unreachable else {
+            gaveUp = true
+            return false
+        }
+        lostTheRecorder()
+        // Waking says why it gave up; without a MAC there was no waking to say it.
+        if !canWake { problem = RecorderError.transport("no answer").explanation }
+        return false
     }
 
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
@@ -698,7 +815,9 @@ final class AppModel {
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
         guard let client else { return false }
-        let made = await run("レコーダーに登録中") { _ = try await client.createRecorderRule(request) }
+        let made = await run("レコーダーに登録中", sending: true) {
+            _ = try await client.createRecorderRule(request)
+        }
         if made { await loadRecorderRules() }
         return made
     }
@@ -709,7 +828,9 @@ final class AppModel {
     func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
         await start()
         guard let client else { return false }
-        let removed = await run("レコーダーから削除中") { try await client.deleteRecorderRule(id: rule.id) }
+        let removed = await run("レコーダーから削除中", sending: true) {
+            try await client.deleteRecorderRule(id: rule.id)
+        }
         await loadRecorderRules()
         return removed
     }
@@ -738,6 +859,8 @@ final class AppModel {
         var changed: [String] = []
         var skipped: [Skip] = []
         var cancelled = false
+        /// Set when the recorder stopped answering and the job stopped there.
+        var lostRecorder = false
         var finished = false
 
         var verb: String {
@@ -754,10 +877,12 @@ final class AppModel {
         /// What to tell the reader once it has stopped, in the shape the web app settled on.
         var outcome: String {
             if case .scanning = kind {
+                if lostRecorder { return "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました" }
                 return cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
             }
             let count = changed.count
-            let head = cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
+            let head = lostRecorder ? "\(count) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
+                : cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
             return skipped.isEmpty ? head : head + "（\(skipped.count) 件はスキップ）"
         }
     }
@@ -792,16 +917,32 @@ final class AppModel {
     }
 
     private func runBulk(_ kind: BulkJob.Kind, ids: [String], client: RecorderClient) async {
-        for id in ids {
-            if job?.cancelled == true { break }
-            switch kind {
-            case .delete: await deleteOne(id, client)
-            case .protecting(let on): await protectOne(id, on, client)
-            case .scanning: break
+        // Made sure of first, like anything else the reader asks for: a recorder asleep since the list was
+        // read would otherwise cost the first recording a timeout, and every one after it another.
+        if await wakeIfDozing() {
+            for id in ids {
+                if job?.cancelled == true { break }
+                do {
+                    switch kind {
+                    case .delete: try await deleteOne(id, client)
+                    case .protecting(let on): try await protectOne(id, on, client)
+                    case .scanning: break
+                    }
+                } catch {
+                    // Silence. Stop at the first, since every recording after it would wait out the same
+                    // timeout, and do not send this one again: it may have gone through. The list is read
+                    // again once the recorder answers, which settles what became of it.
+                    lostTheRecorder()
+                    titlesLoaded = false
+                    job?.lostRecorder = true
+                    break
+                }
+                job?.done += 1
             }
-            job?.done += 1
+        } else {
+            job?.lostRecorder = true
         }
-        if case .delete = kind, let capacity = try? await client.recordDestinationInfo() {
+        if case .delete = kind, !unreachable, let capacity = try? await client.recordDestinationInfo() {
             storage = (capacity.freeBytes, capacity.totalBytes)
         }
         // the sets were built from recordings that may no longer all be there
@@ -829,19 +970,37 @@ final class AppModel {
         if let known = try? await store.titleSummaries(ids) {
             summaries.merge(known) { _, new in new }
         }
+        // The recorder is needed only for what the cache does not already hold, and made sure of only then.
+        var answering = true
+        if ids.contains(where: { summaries[$0] == nil }) { answering = await wakeIfDozing() }
 
         scan: for group in candidates {
             for title in group {
-                if job?.cancelled == true { break scan }
+                if !answering || job?.cancelled == true { break scan }
                 if summaries[title.id] == nil {
-                    let summary = (try? await client.titleDetail(id: title.id))?.summary ?? ""
+                    let summary: String
+                    do {
+                        summary = try await client.titleDetail(id: title.id).summary
+                    } catch let error as RecorderError where error.unreachable {
+                        // Stop at the first silence rather than wait it out once for every recording left,
+                        // and keep nothing for this one: silence says nothing about what it is.
+                        lostTheRecorder()
+                        answering = false
+                        break scan
+                    } catch {
+                        summary = ""
+                    }
                     summaries[title.id] = summary
                     try? await store.setTitleSummary(title.id, summary)
                 }
                 job?.done += 1
             }
         }
-        setDuplicates(Duplicates.sets(candidates: candidates, summaries: summaries))
+        if !answering { job?.lostRecorder = true }
+        // Cut short by silence, only the groups read in full are compared. One with a copy never read would be
+        // judged on nothing, and would come up with that copy ticked for deletion.
+        let compared = answering ? candidates : candidates.filter { $0.allSatisfy { summaries[$0.id] != nil } }
+        setDuplicates(Duplicates.sets(candidates: compared, summaries: summaries))
         job?.finished = true
         jobTask = nil
     }
@@ -857,12 +1016,13 @@ final class AppModel {
         duplicatePicks = Set(sets.flatMap(\.suggestDelete))
     }
 
-    private func deleteOne(_ id: String, _ client: RecorderClient) async {
+    /// Throws only silence, which ends the job: see `runBulk`.
+    private func deleteOne(_ id: String, _ client: RecorderClient) async throws {
         guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
-        let outcome = await client.deleteIfPresent(title)
+        let outcome = try await client.deleteIfPresent(title)
         switch outcome {
         case .changed:
             titles.removeAll { $0.id == id }
@@ -874,12 +1034,12 @@ final class AppModel {
         }
     }
 
-    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async {
+    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async throws {
         guard let index = titles.firstIndex(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
-        switch await client.setProtected(titles[index], on) {
+        switch try await client.setProtected(titles[index], on) {
         case .changed:
             titles[index].protected = on
             job?.changed.append(id)
@@ -948,10 +1108,19 @@ final class AppModel {
             ?? ""
     }
 
+    /// Asked as a recording's sheet opens, which is also the moment to wake a recorder that has gone to
+    /// sleep: what the reader opened it for -- playing, protecting, deleting -- then goes straight through.
     func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
         await start()
-        guard let client else { return nil }
-        return try? await client.titleDetail(id: title.id)
+        guard let client, !unreachable, await wakeIfDozing() else { return nil }
+        do {
+            return try await client.titleDetail(id: title.id)
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     /// A write: the recorder stops deleting this one to make room.
@@ -959,12 +1128,16 @@ final class AppModel {
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
         await start()
         guard let client else { return false }
-        return await run(on ? "保護中" : "保護を解除中") {
+        let done = await run(on ? "保護中" : "保護を解除中", sending: true) {
             try await client.updateTitle(id: title.id, protected: on)
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
                 self.titles[index].protected = on
             }
         }
+        // Silence may have come after the recorder made the change. The list is read again once it answers,
+        // rather than guessed at.
+        if !done, unreachable { titlesLoaded = false }
+        return done
     }
 
     /// A write, and not one that can be undone: the recording is gone from the recorder.
@@ -978,12 +1151,15 @@ final class AppModel {
             return false
         }
         guard let client else { return false }
-        return await run("削除中") {
+        let deleted = await run("削除中", sending: true) {
             try await client.deleteTitle(id: title.id)
             self.titles.removeAll { $0.id == title.id }
             let capacity = try await client.recordDestinationInfo()
             self.storage = (capacity.freeBytes, capacity.totalBytes)
         }
+        // as for protecting: silence may have come after the recording had gone
+        if !deleted, unreachable { titlesLoaded = false }
+        return deleted
     }
 
     /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
@@ -1115,9 +1291,13 @@ final class AppModel {
         await start()
         guard let client, !unreachable,
               let request = request(for: program, quality: quality, repeating: repeating) else { return nil }
+        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
+        // not, so that the reservation which usually follows goes straight through.
+        guard await wakeIfDozing() else { return nil }
         do {
             return try await client.conflicts(elements: XsrsElements.create(request))
         } catch let error as RecorderError {
+            if error.unreachable { lostTheRecorder() }
             problem = error.explanation
             return nil
         } catch {
@@ -1130,7 +1310,9 @@ final class AppModel {
     ///
     /// Away from home the recorder is not there to write to, and the programme is still worth keeping: a
     /// reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
-    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see.
+    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see —
+    /// and only silence before anything was sent. A reservation that went out and met silence may have been
+    /// made all the same, and the queue would make it a second time.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
         guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
@@ -1142,14 +1324,22 @@ final class AppModel {
         }
         let activity = activities.begin("予約を登録中")
         defer { activities.end(activity) }
+        // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
+        // cannot be, nothing has been sent, so the queue is the place for this.
+        guard await wakeIfDozing() else {
+            await queue(request, serviceName: program.serviceName)
+            return true
+        }
         do {
             _ = try await client.createReservation(request)
             problem = nil
             await loadReservations()
             return true
         } catch let error as RecorderError where error.unreachable {
-            await queue(request, serviceName: program.serviceName)
-            return true
+            lostTheRecorder()
+            problem = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
+                + "再接続してから予約一覧で確かめてください。"
+            return false
         } catch let error as RecorderError {
             problem = error.explanation
             return false
@@ -1166,8 +1356,12 @@ final class AppModel {
         // Before any of the reasons below not to connect: a day may have gone by while the app was away,
         // with or without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
-        guard !host.isEmpty, busy == nil else { return }
-        if connected, let lastAnswered, Date().timeIntervalSince(lastAnswered) < 60 { return }
+        // Nor while a check is making sure of the recorder: connecting would make a second client beside the
+        // one the check is using. The conflict check has no line of its own to make `busy` say so.
+        guard !host.isEmpty, busy == nil, wakeCheck == nil else { return }
+        // Not on every flick between apps: without this a glance at something else and back would send a
+        // magic packet each time. Any answer counts, not only the connect's.
+        if connected, let last = await client?.lastAnswer, Date().timeIntervalSince(last) < 60 { return }
         // Already tried on this very network and got nowhere. Coming back to the app is not news, and
         // spending half a minute waking a recorder that is not there -- every time -- is what made the app
         // look as though it never stopped searching.
@@ -1177,9 +1371,18 @@ final class AppModel {
 
     /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
     /// over. That is the one thing that makes another attempt worth making without being asked.
+    ///
+    /// While connected, it is the one thing that makes the last answer worth nothing: leaving home with the
+    /// app open left it looking connected to a recorder it could no longer reach, until something asked and
+    /// waited out a timeout. The recorder is asked again with the client in hand, as before an operation.
     func networkChangedWhileOpen() async {
-        guard !host.isEmpty, busy == nil, !connected, networkChanged else { return }
-        await connect()
+        guard !host.isEmpty, busy == nil, networkChanged else { return }
+        guard connected else {
+            await connect()
+            return
+        }
+        triedOn = LocalNetwork.signature()
+        _ = await wakeIfDozing(evenIfRecent: true)
     }
 
     // MARK: - reservations waiting for the recorder
@@ -1223,6 +1426,9 @@ final class AppModel {
         let activity = activities.begin("送信待ちの予約を登録中")
         let outcome = await PendingQueue.flush(client: client, store: store)
         activities.end(activity)
+        // What had not been sent stays queued for the next answer, and the app goes offline as it does for
+        // any silence.
+        if outcome.interrupted { lostTheRecorder() }
         await loadPending()
         if !outcome.sent.isEmpty { await loadReservationsNow() }
         return outcome.sent.count
@@ -1239,7 +1445,14 @@ final class AppModel {
     func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
         await start()
         guard client != nil else { return false }
+        // Sending would only wait out a timeout, from a list that could not be read again first.
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
+        // The read makes sure of the recorder too, and wakes it if it has gone to sleep.
         await loadReservations()
+        guard !offline else { return false }   // the load has said why
         guard let target = current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
@@ -1255,6 +1468,10 @@ final class AppModel {
         defer { activities.end(activity) }
         do {
             try await client.updateReservation(id: target.id, request)
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
         } catch let error as RecorderError where error.unknownReservation {
             await loadReservations()
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
@@ -1279,7 +1496,13 @@ final class AppModel {
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
         guard client != nil else { return false }
+        // as for a change: the list has to be read first, and nothing can be read
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
         await loadReservations()
+        guard !offline else { return false }
         guard let target = current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
@@ -1288,6 +1511,11 @@ final class AppModel {
         let activity = activities.begin("予約を削除中")
         do {
             try await client.deleteReservation(id: target.id)
+        } catch let error as RecorderError where error.unreachable {
+            activities.end(activity)
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
         } catch let error as RecorderError where error.unknownReservation {
             // the list we just read was itself out of date, which is what happens when reading it failed
             activities.end(activity)
@@ -1397,28 +1625,36 @@ final class AppModel {
 
     /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something
     /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
+    ///
+    /// A recorder that has been quiet a while is made sure of first (`wakeIfDozing`), under the action's own
+    /// line, so the screen says what the reader asked for from the moment they asked. Silence on the way
+    /// leaves the app offline (`lostTheRecorder`). `sending` marks an action that changes something on the
+    /// recorder, which silence leaves unknown rather than undone, and the reader is told so.
     @discardableResult
-    private func run(_ what: String, _ work: () async throws -> Void) async -> Bool {
-        await run(what) { (_: Activities.Token) in try await work() }
+    private func run(_ what: String, sending: Bool = false, _ work: () async throws -> Void) async -> Bool {
+        await run(what, sending: sending) { (_: Activities.Token) in try await work() }
     }
 
     /// The same, handing the work its own line so that it can say how far it has got.
     @discardableResult
-    private func run(_ what: String, _ work: (Activities.Token) async throws -> Void) async -> Bool {
+    private func run(_ what: String, sending: Bool = false,
+                     _ work: (Activities.Token) async throws -> Void) async -> Bool {
         let activity = activities.begin(what)
         defer { activities.end(activity) }
-        var failed = false
+        guard await wakeIfDozing() else { return false }
         do {
             try await work(activity)
             problem = nil
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = sending ? Self.mayHaveArrived : error.explanation
         } catch let error as RecorderError {
             problem = error.explanation
-            failed = true
         } catch {
             problem = String(describing: error)
-            failed = true
         }
-        return !failed
+        return false
     }
 
 }

@@ -49,8 +49,18 @@ public enum LocalNetwork {
     /// with the address and mask it holds. Joining another Wi-Fi, falling back to cellular or bringing a VPN
     /// up all change it, and sitting still does not -- which is what makes it a fair thing to decide by
     /// whether reaching a recorder that did not answer is worth trying again.
+    ///
+    /// Cellular is left out. The carrier hands out a new address whenever it likes, at home on the Wi-Fi as
+    /// much as anywhere, and a recorder is never reached through it: what matters about cellular is the
+    /// Wi-Fi going, and that changes the Wi-Fi's part. Counting it had a phone lying on the table spend half
+    /// a minute waking a recorder the app had given up on, each time the carrier moved it.
     public static func signature() -> String {
-        interfaces().map { "\($0.name)=\($0.address)/\($0.netmask)" }.sorted().joined(separator: ",")
+        signature(of: interfaces())
+    }
+
+    static func signature(of interfaces: [Interface]) -> String {
+        interfaces.filter { !$0.name.hasPrefix("pdp_ip") }
+            .map { "\($0.name)=\($0.address)/\($0.netmask)" }.sorted().joined(separator: ",")
     }
 
     /// Every host on the same subnet as `interface`, without the network and broadcast addresses or the

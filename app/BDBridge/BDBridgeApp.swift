@@ -154,6 +154,24 @@ struct RecorderActivityBar: View {
     }
 }
 
+/// The waking, said inside a sheet. The strip that says it on the screens is underneath the sheet, and a sheet
+/// is where much of what wakes the recorder is asked for -- opening a programme, changing a reservation,
+/// playing a recording -- so without this half a minute went by with nothing moving but a greyed-out button.
+struct WakingSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if model.waking, let busy = model.busy {
+            Section {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(busy).font(.callout)
+                }
+            }
+        }
+    }
+}
+
 extension View {
     /// Puts the activity strip above a screen's content, inside its navigation stack.
     func recorderActivity() -> some View {

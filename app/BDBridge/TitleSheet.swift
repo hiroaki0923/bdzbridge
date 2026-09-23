@@ -18,6 +18,7 @@ struct TitleSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                WakingSection()
                 Section {
                     Text(current.title).font(.headline)
                     LabeledContent("放送", value: model.channelName(for: current))

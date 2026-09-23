@@ -43,6 +43,7 @@ struct ProgramSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                WakingSection()
                 Section {
                     Text(program.title).font(.headline)
                     LabeledContent("放送", value: program.serviceName)

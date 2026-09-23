@@ -43,6 +43,27 @@ final class DiscoveryScanTests: XCTestCase {
         XCTAssertFalse(flaggedTunnel.isLAN, "a tunnel is left out by its name too, whatever its flags say")
     }
 
+    /// The carrier moves a phone's cellular address whenever it likes, at home as anywhere, and each move
+    /// was taken for a change of network: another half-minute of waking a recorder the app had given up on.
+    /// Wi-Fi coming or going, and a VPN, still change it.
+    func testACellularAddressIsNotPartOfTheNetworkSignature() {
+        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
+                                          broadcasts: true)
+        let cellular = LocalNetwork.Interface(name: "pdp_ip0", address: "198.51.100.7",
+                                              netmask: "255.255.255.255", broadcasts: false)
+        let moved = LocalNetwork.Interface(name: "pdp_ip0", address: "198.51.100.99",
+                                           netmask: "255.255.255.255", broadcasts: false)
+        let vpn = LocalNetwork.Interface(name: "utun4", address: "203.0.113.9", netmask: "255.255.255.0",
+                                         broadcasts: false)
+
+        XCTAssertEqual(LocalNetwork.signature(of: [wifi, cellular]), LocalNetwork.signature(of: [wifi, moved]))
+        XCTAssertEqual(LocalNetwork.signature(of: [cellular]), LocalNetwork.signature(of: [moved]))
+        XCTAssertNotEqual(LocalNetwork.signature(of: [wifi, cellular]), LocalNetwork.signature(of: [cellular]),
+                          "leaving the Wi-Fi is a change")
+        XCTAssertNotEqual(LocalNetwork.signature(of: [cellular]), LocalNetwork.signature(of: [cellular, vpn]),
+                          "a VPN coming up is a change")
+    }
+
     func testThePermissionCheckIsAimedAtANeighbour() {
         let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
                                           broadcasts: true)

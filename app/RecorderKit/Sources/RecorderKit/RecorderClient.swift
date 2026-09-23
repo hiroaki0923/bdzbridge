@@ -3,11 +3,21 @@ import Foundation
 /// One recorder on the LAN. Every request goes through a serial queue because the recorder answers 503 to
 /// concurrent calls, so hold on to a single client per device rather than making one per request.
 public actor RecorderClient {
-    public let host: String
+    /// Readable without waiting on the actor: it never changes, and a caller deciding whether this is the
+    /// client for the address it wants should not have to give up its turn to find out.
+    public nonisolated let host: String
     public let upnpPort: Int
     /// Where the EPG and logo files are served. Confirmed from the DLNA tree on first contact.
     public private(set) var streamPort: Int
     public private(set) var info: RecorderDescription?
+    /// When the recorder last answered anything at all. A fault counts: only a recorder that is up can
+    /// refuse something. Nil until the first answer.
+    ///
+    /// A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing asked of it, and then
+    /// says nothing, so how long it has been quiet is what tells a caller whether to make sure it is still
+    /// there before asking it for something -- rather than finding out from a thirty-second timeout.
+    /// Recorded here, where every request passes, so that no answer is missed whoever asked for it.
+    public private(set) var lastAnswer: Date?
 
     private let transport: any HTTPTransport
     private let queue = SerialQueue()
@@ -332,7 +342,9 @@ public actor RecorderClient {
 
     private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let transport = self.transport
-        return try await queue.run { try await transport.send(request) }
+        let response = try await queue.run { try await transport.send(request) }
+        lastAnswer = Date()
+        return response
     }
 
     /// One SOAP call. Throws when the recorder answers a fault, which it does with an HTTP 500 and an

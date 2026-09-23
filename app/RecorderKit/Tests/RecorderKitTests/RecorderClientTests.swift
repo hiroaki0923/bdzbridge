@@ -219,6 +219,30 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(details, ["本文1", "本文2"])
     }
 
+    /// How long the recorder has been quiet is what decides whether to make sure it is up before asking it
+    /// for something, so every answer has to count -- a fault included, since only a recorder that is up
+    /// can refuse -- and silence must not.
+    func testTheLastAnswerIsKeptAndSilenceLeavesItAlone() async throws {
+        let silent = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        _ = try? await silent.reservations()
+        let never = await silent.lastAnswer
+        XCTAssertNil(never, "nothing answered, so nothing was heard")
+
+        let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("402")))
+        let before = Date()
+        _ = try? await refusing.reservations()
+        let heard = await refusing.lastAnswer
+        let refused = try XCTUnwrap(heard, "a fault is an answer")
+        XCTAssertGreaterThanOrEqual(refused, before)
+
+        let answering = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.soap("X_DeleteTitle")))
+        try await answering.deleteTitle(id: "0x1")
+        let answered = await answering.lastAnswer
+        XCTAssertNotNil(answered)
+    }
+
     func testFreeSpaceComesBackInBytes() async throws {
         // The capacity arrives in an element of its own, not in Result, and is escaped XML like Result is.
         let info = "<RecordDestinationInfo totalCapacity=\"4294967296000\" availableCapacity=\"790273982464\"/>"
@@ -269,7 +293,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(recording: true))
+        let outcome = try await client.deleteIfPresent(title(recording: true))
 
         XCTAssertEqual(outcome, .skipped(reason: "録画中です"))
         let sent = await transport.requests.count
@@ -280,7 +304,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(protected: true))
+        let outcome = try await client.deleteIfPresent(title(protected: true))
 
         let sent = await transport.requests.count
         XCTAssertEqual(outcome, .skipped(reason: "保護されています"))
@@ -291,7 +315,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.fault("820"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title())
+        let outcome = try await client.deleteIfPresent(title())
 
         XCTAssertEqual(outcome, .skipped(reason: "すでに削除されています"))
         let bodies = await transport.bodies
@@ -308,7 +332,7 @@ final class BulkWorkTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(id: "0x0000010000034d78"))
+        let outcome = try await client.deleteIfPresent(title(id: "0x0000010000034d78"))
 
         XCTAssertEqual(outcome, .changed)
         let bodies = await transport.bodies
@@ -324,7 +348,7 @@ final class BulkWorkTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title())
+        let outcome = try await client.deleteIfPresent(title())
 
         XCTAssertEqual(outcome.reason?.contains("402"), true, outcome.reason ?? "-")
     }
@@ -333,18 +357,69 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_UpdateTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let already = await client.setProtected(title(protected: true), true)
+        let already = try await client.setProtected(title(protected: true), true)
         XCTAssertEqual(already, .skipped(reason: "すでに保護されています"))
-        let notProtected = await client.setProtected(title(protected: false), false)
+        let notProtected = try await client.setProtected(title(protected: false), false)
         XCTAssertEqual(notProtected, .skipped(reason: "保護されていません"))
         let untouched = await transport.requests.count
         XCTAssertEqual(untouched, 0)
 
-        let changed = await client.setProtected(title(id: "0x2", protected: false), true)
+        let changed = try await client.setProtected(title(id: "0x2", protected: false), true)
         XCTAssertEqual(changed, .changed)
         let bodies = await transport.bodies
         XCTAssertEqual(bodies.count, 1)
         // the payload travels as a SOAP argument, so it arrives escaped
         XCTAssertTrue(bodies[0].contains("&lt;item id=&quot;0x2&quot;&gt;&lt;titleProtectFlag&gt;1&lt;"), bodies[0])
+    }
+
+    /// A recorder that has gone to sleep says nothing to the question asked first, and the delete is then
+    /// not sent at all: it would only wait out the same silence, and the run has to stop rather than skip.
+    func testSilenceBeforeTheDeleteStopsTheRunWithoutDeleting() async throws {
+        let transport = StubTransport { _, _ in throw RecorderError.transport("timed out") }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.deleteIfPresent(title())
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])
+    }
+
+    /// Silence on the delete itself is thrown too. Whether it arrived is unknown, which is why it must not
+    /// come back as a skip that the caller could take for "not deleted" -- or send again.
+    func testSilenceOnTheDeleteIsThrownRatherThanSkipped() async throws {
+        let transport = StubTransport { request, _ in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            if body.contains("X_GetTitleDetail") { return Stub.soap("X_GetTitleDetail", result: "<detail/>") }
+            throw RecorderError.transport("timed out")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.deleteIfPresent(title())
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 2, "asked once and deleted once, and nothing sent again")
+    }
+
+    func testSilenceOnProtectingIsThrown() async throws {
+        let transport = StubTransport { _, _ in throw RecorderError.transport("timed out") }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.setProtected(title(protected: false), true)
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 1)
     }
 }
