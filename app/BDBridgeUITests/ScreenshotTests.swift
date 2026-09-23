@@ -23,19 +23,22 @@ final class ScreenshotTests: XCTestCase {
                       "set BDBRIDGE_SHOTS to take the App Store screenshots")
 
         // 1. The guide as a grid: time down, channels across, genres in colour, reservations marked.
-        //    Opened at seven in the evening rather than at whatever time the shot is taken, so the picture
-        //    is of an evening's television and not of the small hours. Nothing is tapped here: tapping the
-        //    zoom button once landed on the programme behind it and the "guide" shot came out as a
-        //    programme sheet.
+        //    Opened in the evening (`evening`), at the scale the app offers when zoomed right out, which
+        //    fits the evening's hours on one screen; the scale is kept between launches, and the picture
+        //    would otherwise be at whatever the simulator was last pinched to. The scale is a real, which a
+        //    plain `1.5` on the command line is not: it would arrive as a string. Nothing is tapped here:
+        //    tapping the zoom button once landed on the programme behind it and the "guide" shot came out
+        //    as a programme sheet.
         try shot("01_guide_grid",
-                 arguments: ["-startTab", "guide", "-guideMode", "grid", "-guideOpenAt", "19:00"]) { app in
+                 arguments: ["-startTab", "guide", "-guideMode", "grid",
+                             "-gridPointsPerMinute", "<real>1.5</real>"] + Self.evening) { app in
             self.waitFor(app.staticTexts["サンプルテレビ"], "01_guide_grid")
         }
 
         // 2. The same guide as a list, which is the other way the screen is read: logos, genres, what is
         //    already set to record, and the description under each programme.
         try shot("02_guide_list",
-                 arguments: ["-startTab", "guide", "-guideMode", "list", "-guideOpenAt", "19:00"]) { app in
+                 arguments: ["-startTab", "guide", "-guideMode", "list"] + Self.evening) { app in
             self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "02_guide_list")
         }
 
@@ -87,6 +90,17 @@ final class ScreenshotTests: XCTestCase {
     /// the simulator before: the guide's broadcasting type, and the orders of the reservations and the
     /// recordings. A launch argument outranks what the app saves.
     static let pinned = ["-guideBroadcasting", "td", "-reservationSort", "time", "-recordingsSort", "newest"]
+
+    /// Where the guide opens: at seven in the evening, so that the picture is of an evening's television and
+    /// not of the small hours whenever it is taken -- unless the evening in Japan is further on than that
+    /// already, and then at now, as the app itself opens. Programmes that have ended are drawn faded, and
+    /// a picture taken at half past nine and opened at seven was faded from top to bottom. The hour is
+    /// Japan's because the guide's is.
+    static var evening: [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        return (19...23).contains(calendar.component(.hour, from: Date())) ? [] : ["-guideOpenAt", "19:00"]
+    }
 
     private func waitFor(_ element: XCUIElement, _ name: String) {
         XCTAssertTrue(element.waitForExistence(timeout: 30), "\(name): the screen never appeared")

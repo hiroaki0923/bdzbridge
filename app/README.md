@@ -209,6 +209,19 @@ into the on-device cache, browsing a day's programmes as a list or as a time-by-
 logos and genres, opening a programme, and listing the reservations the recorder holds. Verified against a
 BDZ-FBT4100 from the simulator.
 
+What is typed as the address is tidied before it is used: full-width characters and the Japanese keyboard's
+。 become what they stand for, spaces and line breaks go wherever they are, and so do `http://` in front and
+`/` behind. The recorder's ports are its own, so a port typed after the address is not used, and the field
+says so rather than dropping it without a word. An address no URL can be built on is refused before anything
+is sent (`RecorderKit/RecorderAddress.swift`). The client used to force such a URL open and crash, and since
+the address is saved as it is set, it crashed again at every launch, before the settings could come up to
+correct it.
+
+Whether the app is connected is decided by the recorder's description alone. The firmware version, the MAC
+and the free space read after it are only shown; one the recorder refuses, or answers in a shape the app does
+not know, is left unknown rather than failing the connect. Only the BDZ-FBT4100 has been tried, and the rest
+of the series need not answer the same.
+
 Choosing a recorder in the tutorial closes it as soon as the recorder answers, not once its guide is in: the
 first guide is four broadcasting types and their logos, and takes a while. The guide screen says it is being fetched, and
 shows each broadcasting type as soon as it is stored, starting with the terrestrial one it opens on. This has
@@ -303,6 +316,10 @@ one episode within the guide's eight days looks the same and is left unticked to
 A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,
 and it lives outside the sheet that started it: closing the sheet neither stops it nor hides the stop button.
+Leaving the app pauses it rather than breaking it: the step under way is finished under a background task,
+the job waits before the next one until the app is back, makes sure of the recorder, which has had all that
+time to fall asleep, and goes on. The job bar says so. Nothing reconnects while a job or the duplicate scan
+is running, since a second client beside the one the job holds would be answered 503.
 An episode opened from a programme's recordings comes up over them, and closing it goes back to them.
 
 Waking the recorder, without being asked to: a BDZ-FBT4100 leaves the LAN on its own after a while and
@@ -312,6 +329,13 @@ and hands over the address to send it to (`X_GetPrivateIp`), so nothing has to b
 because iOS cannot read an ARP table. Connecting sends the packet itself when the recorder answered nothing
 at all, and waits for it to come back: measured at eleven seconds from launching the app to the recorder
 answering again. Nobody has to know their recorder left the network.
+
+The address is a DHCP lease, and a router restarted or a power cut can give the recorder another. When the
+waking comes to nothing, connecting looks once through the Wi-Fi subnet the saved address belongs to for the
+recorder with the MAC the app keeps -- which is the tail of the recorder's UDN, so an installation from before
+this recognises it too -- and moves to wherever it now is. It never looks on another network, in the demo or
+in the background, and it looks once per connect, not in a loop. The empty guide, reservations and
+recordings offer a quieter レコーダーを探す under 再接続 for the times it finds nothing.
 
 Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
@@ -334,6 +358,24 @@ An empty guide says why, in the list and the grid alike: every channel hidden, w
 settings; the list narrowed to a channel with nothing that day; a broadcasting type or a day the demo does
 not cover; a recorder with no guide; a broadcasting type the recorder gave no file for; or a guide not
 fetched yet. It used to point at the refresh button whatever the reason.
+
+The recorder's own keyword conditions (おまかせ・まる録) are read, created and deleted, and never changed:
+the list the recorder gives leaves out the channels its own screen can narrow a condition to, and writing a
+condition back erases them. A condition on every wave carries the chosen mode for the 4K waves as well,
+where the recorder otherwise records at DR, and its row shows that mode. The screen says 読み込み中 while the
+list is on its way and 条件を読み込めませんでした with the reason when it could not be read, rather than that
+there are none.
+
+At the larger text sizes every row wraps as lines of text do, rather than squeezing its small print into
+columns: the station's logo is set inside the line, and at the accessibility sizes the guide's list puts the
+time and the length above the title. The orange that says reserved, waiting to be sent or clashing is
+#C93400 in light mode, the shade iOS itself uses under Increase Contrast, which reads against white where the
+system orange does not. VoiceOver reads a grid block as its channel, start, length, title and marks, and the
+buttons that are only an icon have names. None of it has been heard with VoiceOver actually speaking.
+
+Two things are worked out once rather than every time they are drawn: a recording's programme, which
+`Series` keeps by title, so 1,300 recordings group in about 1.4 ms on a Mac rather than 35; and the grid's
+columns and decoded logos, made when the guide screen makes the grid rather than on every frame of a scroll.
 
 ### Changing a reservation
 
@@ -370,7 +412,18 @@ spends in the background between glances -- measured over twelve hours it was an
 time, in a dozen stretches (`docs/porting.md`). So returning to the front checks again rather than trusting what
 was true when the app was last looked at: if the recorder has gone, the magic packet goes out and the screens
 fill in when it answers, and anything queued goes with it. A check within a minute of the last answer is
-skipped, so flicking between apps does not send a packet each time.
+skipped, so flicking between apps does not send a packet each time. Only a real trip to the background
+counts: Control Centre, Notification Centre, the app switcher and a system alert make the app inactive for a
+moment without taking it anywhere.
+
+The recorder also leaves while the app is open. Silence from any request -- a list, the conflict check, a
+reservation, a deletion, a bulk job -- leaves the app where a connect with no answer does: not connected, and
+given up until the network changes or the reader asks, rather than looking connected while each screen waits
+out a timeout of its own. Before anything is sent to a recorder that has said nothing for more than ninety
+seconds, the app sends a magic packet and a five-second probe with the client it already holds, and falls
+back to the usual waking; a recorder that is up answers in milliseconds. A write that met silence is not
+queued, since it may have arrived all the same and a reservation sent twice can be made twice: the reader is
+told to look after reconnecting.
 
 ### Reservations made away from home
 
@@ -398,3 +451,9 @@ shown as it always was.
 
 Finding the recorder over SSDP. It needs a multicast entitlement from Apple, and the scan it would replace
 looks through the subnet in about seven seconds, so it has not been worth asking for.
+
+Keyword reservations made from the guide, as the server's rules do. The recorder's own keyword conditions do
+the same with the app closed, so they have not been needed.
+
+Taking a recording anywhere: the app does not copy, export or dub recordings, to the phone or to a disc. It
+plays them on the television the recorder is connected to, and that is all.

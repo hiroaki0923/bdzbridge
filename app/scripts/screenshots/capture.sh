@@ -23,11 +23,12 @@ mkdir -p "$WORK" "$DEST"
 rm -rf "$BUNDLE"
 
 # ステータスバーを整える。時刻はいまの時刻にする: 番組表には現在時刻の赤い線が引かれるので、
-# 9:41 に固定すると画面のなかで時計と番組表が食い違う
+# 9:41 に固定すると画面のなかで時計と番組表が食い違う。アプリは放送の時刻を日本時間で描くので、
+# 時計も日本時間にする（Mac が別のタイムゾーンにあると、そのままでは線と時計がずれる）
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
 xcrun simctl status_bar "$UDID" override \
-    --time "$(date +%-H:%M)" \
+    --time "$(TZ=Asia/Tokyo date +%-H:%M)" \
     --batteryState discharging --batteryLevel 100 \
     --cellularMode active --cellularBars 4 \
     --wifiMode active --wifiBars 3

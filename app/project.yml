@@ -38,7 +38,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
-        MARKETING_VERSION: "0.2"
+        MARKETING_VERSION: "0.3"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
