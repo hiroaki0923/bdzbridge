@@ -528,6 +528,27 @@ public actor GuideStore {
                    [.text(id), .text(summary), .text(RecorderTime.format(Date()))])
     }
 
+    /// Which of `titleKeys` the guide shows with the same programme text on two or more broadcast days. See
+    /// `Duplicates.fixedBlurbs`.
+    ///
+    /// Only the programmes with one of those titles are kept from the query, so that the text of the whole
+    /// guide -- thirty thousand programmes or more -- is neither held nor normalised; each title is looked at
+    /// once, however often it is on.
+    public func fixedBlurbs(among titleKeys: Set<String>) throws -> Set<Duplicates.Blurb> {
+        guard !titleKeys.isEmpty else { return [] }
+        var wanted: [String: Bool] = [:]
+        let rows = try db.query("""
+        SELECT title, description, start FROM programs WHERE ref_event_id IS NULL AND description<>''
+        """) { row -> (title: String, summary: String, start: Date)? in
+            let title = row.string("title")
+            let keep = wanted[title] ?? titleKeys.contains(Series.sameTitleKey(title))
+            wanted[title] = keep
+            guard keep else { return nil }
+            return (title, row.string("description"), Date(timeIntervalSince1970: TimeInterval(row.int("start"))))
+        }
+        return Duplicates.fixedBlurbs(in: rows.compactMap { $0 }, among: titleKeys)
+    }
+
     // MARK: - time
 
     /// A broadcast day runs 04:00 to 04:00 in Japan, which is how the printed guides are laid out.

@@ -37,7 +37,7 @@ from ..recorder.xsrs import (
     parse_reservation,
     parse_title,
 )
-from ..services.titles import duplicate_candidates, duplicate_sets, group_titles
+from ..services.titles import duplicate_candidates, duplicate_sets, fixed_blurbs, group_titles
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "docs" / "port"
@@ -142,6 +142,9 @@ def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
     0xd1/0xd2/0xd3 are the same episode three times: the first two share their programme text, the third has
     a different one and so is a set of its own. 0xd4 has the same title but runs half an hour longer, so it is
     not a copy at all. 0xe1/0xe2 have no text, which leaves only the title and the length to go on.
+    0xb1/0xb2 are a daily show whose text the guide repeats from one day to the next (_duplicate_guide), and
+    0xa1/0xa2 a mini anime whose text is too short to tell one episode from another: both agree on their text
+    without that saying they are the same broadcast.
     """
     base = datetime(2026, 9, 1, 21, 0, tzinfo=JST)
 
@@ -166,22 +169,61 @@ def _duplicate_titles() -> tuple[list[XTitle], dict[str, str]]:
         title("0xf1", "サンプル特番「今夜の生放送」", timedelta(days=3), duration=1800, size_mb=900),
         title("0xf2", "サンプル特番「今夜の生放送」", timedelta(days=10), duration=1800, size_mb=900,
               recording=True),
+        # the same text every morning, which the guide shows on two days; the title's mark does not matter
+        title("0xb1", "サンプル体操[字]", timedelta(days=4), duration=180, size_mb=60),
+        title("0xb2", "サンプル体操", timedelta(days=5), duration=180, size_mb=60),
+        # a one-line text, under twenty characters, with nothing in the guide to go on
+        title("0xa1", "ミニアニメ　サンプルくん", timedelta(days=4), duration=300, size_mb=100),
+        title("0xa2", "ミニアニメ　サンプルくん", timedelta(days=6), duration=300, size_mb=100),
     ]
     summaries = {
-        "0xd1": "架空市警のサンプル警部が挑む。",
-        "0xd2": "（再放送）架空市警のサンプル警部が挑む。",
+        "0xd1": "架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。",
+        "0xd2": "（再放送）架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。",
         "0xd3": "まったく別のあらすじ。",
         "0xd4": "拡大版のあらすじ。",
         "0xe1": "",
         "0xe2": "",
-        "0xf1": "生放送のサンプル。",
-        "0xf2": "生放送のサンプル。",
+        "0xf1": "今夜の生放送は、架空の町の夏祭りから中継でお届けします。",
+        "0xf2": "今夜の生放送は、架空の町の夏祭りから中継でお届けします。",
+        "0xb1": FIXED_BLURB,
+        "0xb2": FIXED_BLURB,
+        "0xa1": "サンプルくんの毎日。",
+        "0xa2": "サンプルくんの毎日。",
     }
     return titles, summaries
 
 
+FIXED_BLURB = "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。"
+
+
+def _duplicate_guide() -> list[tuple[str, str, datetime]]:
+    """The guide the duplicate sets are read against: (title, description, start) for each programme.
+
+    サンプル体操 has the same text on two broadcast days, spelled with and without its mark, so its text is a
+    fixed one. 深夜のサンプル has its text twice as well, but either side of midnight on one broadcast day, which
+    is a showing again the same night rather than a text used every day. 刑事サンプル's episode is in it once,
+    and again a day later with a different text: neither makes its text a fixed one.
+    """
+    def at(day: int, hour: int, minute: int = 0) -> datetime:
+        return datetime(2026, 9, day, hour, minute, tzinfo=JST)
+
+    night = "深夜に届ける架空のサンプル番組、今夜のテーマは旅と音楽。"
+    detective = "架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。"
+    return [
+        ("サンプル体操[字]", FIXED_BLURB, at(14, 6)),
+        ("サンプル体操", FIXED_BLURB, at(15, 6)),
+        ("深夜のサンプル", night, at(14, 23, 30)),
+        ("深夜のサンプル", night, at(15, 1, 30)),
+        ("刑事サンプル（４８）「幻の宝石」", detective, at(16, 21)),
+        ("刑事サンプル（４８）「幻の宝石」", "拡大版のあらすじ。", at(17, 21)),
+        ("サンプル特番「今夜の生放送」", "", at(18, 20)),
+    ]
+
+
 def duplicates_vectors() -> dict:
     titles, summaries = _duplicate_titles()
+    guide = _duplicate_guide()
+    fixed = fixed_blurbs(guide)
     candidates = duplicate_candidates(titles)
 
     def set_dict(s: dict) -> dict:
@@ -191,13 +233,18 @@ def duplicates_vectors() -> dict:
 
     return {
         "note": "candidates are grouped by title and then by length within 120 seconds of each other; the "
-                "programme text splits them further. reasons say why each recording is kept or offered up.",
+                "programme text splits them further. reasons say why each recording is kept or offered up. "
+                "A set whose text is under 20 characters (summary_key), or whose title and text the guide shows "
+                "on two or more broadcast days (04:00 to 04:00 JST; fixed_blurbs, from guide), is boilerplate "
+                "rather than high.",
         "titles": [{"id": t.id, "title": t.title, "start": t.start.isoformat(),
                     "duration_sec": t.duration_sec, "quality_code": t.quality_code, "protected": t.protected,
                     "is_new": t.is_new, "recording": t.recording, "resume_sec": t.resume_sec,
                     "size_mb": t.size_mb, "summary": summaries[t.id]} for t in titles],
+        "guide": [{"title": title, "summary": summary, "start": start.isoformat()} for title, summary, start in guide],
+        "fixed_blurbs": [{"same_title_key": tk, "summary_key": sk} for tk, sk in sorted(fixed)],
         "candidates": [[t.id for t in group] for group in candidates],
-        "sets": [set_dict(s) for s in duplicate_sets(candidates, summaries)],
+        "sets": [set_dict(s) for s in duplicate_sets(candidates, summaries, fixed=fixed)],
     }
 
 

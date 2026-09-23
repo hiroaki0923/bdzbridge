@@ -153,7 +153,9 @@ class TitlesDeleteResult(BaseModel):
 
 class DuplicateSet(BaseModel):
     title: str
-    confidence: Literal["high", "low"] = Field(description="high: same title, length and programme text; low: same title and length only")
+    confidence: Literal["high", "boilerplate", "low"] = Field(
+        description="high: same title, length and programme text; boilerplate: the same, but the text is one the programme "
+                    "carries every time (under 20 characters, or repeated on other days in the guide); low: same title and length only")
     size_mb: int
     items: list[RecordedTitle]
     keep: str = Field(description="id of the copy worth keeping")

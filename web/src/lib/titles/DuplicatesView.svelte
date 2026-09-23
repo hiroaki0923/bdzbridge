@@ -22,7 +22,8 @@
       const running = (await api('/jobs')).find((x) => x.kind === 'duplicates' && !x.finished)
       const onp = (x) => (job = x)
       const j = running ? await followJob(running, onp, 1000) : await runJob('/titles/duplicates', undefined, onp, 1000)
-      // Only a set whose programme text matches is ticked: title and length alone may be two programmes without text.
+      // Only a set whose programme text matches is ticked: title and length alone may be two programmes without text,
+      // and a text the programme carries every time ('boilerplate') may be two episodes.
       const p = {}
       for (const s of j.result.sets ?? []) if (s.confidence === 'high') for (const id of s.suggest_delete) p[id] = true
       picked = p
@@ -39,6 +40,7 @@
   // sets with every copy ticked: the screen thins out copies, it never gets rid of a broadcast, so nothing is deleted until each keeps one
   const emptied = $derived(sets.filter((s) => s.items.every(deleting)))
   const setProgress = (p) => (progress = p)
+  const CONFIDENCE = { high: '番組内容も同じ', boilerplate: '説明文が毎回同じ（内容は未確認）', low: 'タイトルと長さが同じ（内容は未確認）' }
   async function cancel() {
     if (!progress?.id) return
     try { await cancelJob(progress.id); progress = { ...progress, cancelled: true } } catch (e) { error = e.message }
@@ -66,11 +68,11 @@
     {#if job?.id && !job.cancelled}<button class="btn ghost" onclick={() => cancelJob(job.id)}>中止</button>{/if}
   </div>
 {:else}
-  <p class="muted">{#if job.cancelled}中止しました。「更新」でやり直せます。{:else}{sets.length} 組の重複{sets.length ? '。チェックを付けたものを削除し、チェックの無いものは残します。番組内容も同じ組では、先に放送された方（保護中や視聴途中のものがあればそちら）を残して、ほかにチェックを付けています。' : 'はありません。'}{/if}</p>
+  <p class="muted">{#if job.cancelled}中止しました。「更新」でやり直せます。{:else}{sets.length} 組の重複{sets.length ? '。チェックを付けたものを削除し、チェックの無いものは残します。番組内容も同じ組では、先に放送された方（保護中や視聴途中のものがあればそちら）を残して、ほかにチェックを付けています。説明文が毎回同じ番組の組と、内容を確かめられない組にはチェックを付けていません。' : 'はありません。'}{/if}</p>
   {#each sets as s, i (i)}
     <div class="card">
       <div class="title">{s.title}</div>
-      <div class="muted">{s.items.length} 本 · 合計 {(s.size_mb / 1024).toFixed(1)}GB · {s.confidence === 'high' ? '番組内容も同じ' : 'タイトルと長さが同じ（内容は未確認）'}</div>
+      <div class="muted">{s.items.length} 本 · 合計 {(s.size_mb / 1024).toFixed(1)}GB · {CONFIDENCE[s.confidence] ?? CONFIDENCE.low}</div>
       <div class="list" style="margin-top:8px">
         {#each s.items as t (t.id)}
           <PickRow title={t} checked={deleting(t)} onpick={(id, on) => (picked = { ...picked, [id]: on })} {onopen}

@@ -377,6 +377,7 @@ final class AppModel {
         duplicatePicks = []
         unreadDuplicates = 0
         summaries = [:]
+        fixedBlurbs = []
         problem = nil
         unreachable = false
         gaveUp = false
@@ -1127,6 +1128,9 @@ final class AppModel {
     /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
     /// a recording missing here has not been read.
     private var summaries: [String: String] = [:]
+    /// The candidates' titles whose text the guide shows on more than one day: a text the programme carries
+    /// every time, which does not make two recordings the same broadcast. Read from the guide at each scan.
+    private var fixedBlurbs: Set<Duplicates.Blurb> = []
     private var jobTask: Task<Void, Never>?
 
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
@@ -1291,6 +1295,10 @@ final class AppModel {
             }
         }
         if !answering { job?.lostRecorder = true }
+        // Read again each time, since the guide moves on a day at a time. It is the cache on this device, so
+        // it is read whether or not the recorder answered; one that cannot be read leaves what was read last.
+        let titleKeys = Set(candidates.compactMap { $0.first.map { Series.sameTitleKey($0.title) } })
+        if let found = try? await store.fixedBlurbs(among: titleKeys) { fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
         recomputeDuplicates()
         job?.finished = true
@@ -1308,7 +1316,7 @@ final class AppModel {
         let candidates = Duplicates.candidates(titles)
         let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
         unreadDuplicates = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
-        setDuplicates(Duplicates.sets(candidates: read, summaries: summaries))
+        setDuplicates(Duplicates.sets(candidates: read, summaries: summaries, fixedBlurbs: fixedBlurbs))
     }
 
     /// A set the reader has already seen keeps its ticks; a new or changed one is ticked as suggested, if its

@@ -217,6 +217,10 @@ The duplicate copies of one broadcast can be found: recordings with the same tit
 length are candidates, and asking the recorder what each one is about confirms them. Where the text agrees,
 the copy to keep is suggested with the reason and the rest come ticked for deletion. Whatever is left
 unticked is marked as kept, and a delete that would leave a set with no copy at all is refused, naming it.
+Some programmes carry one text every time -- a daily three-minute show, a mini anime -- so a text shorter
+than twenty characters, or one the cached guide shows with the same title on two or more broadcast days, does
+not confirm anything: such a set says 説明文が毎回同じ（内容は未確認） and nothing in it is ticked. A re-run of
+one episode within the guide's eight days looks the same and is left unticked too.
 
 A programme's recordings can be worked on together: select some of them, or the whole programme, and delete
 or protect them. The recorder takes one request at a time, so the run shows its progress and can be stopped,

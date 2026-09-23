@@ -407,6 +407,32 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(kept, ["0x1": ""], "an empty text read now is an answer, and is not thrown away again")
     }
 
+    /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
+    /// and the store looks only at the titles asked about.
+    func testFixedBlurbsAreReadFromTheCachedGuide() async throws {
+        let vectors = try Vectors.load("titles.json").dictionary("duplicates")
+        let guide = vectors.dictionaries("guide")
+        let programs = guide.enumerated().map { index, row in
+            let start = jst(row.string("start"))
+            return GuideProgram(serviceID: 101, eventID: index + 1, start: start, end: start.addingTimeInterval(180),
+                                title: row.string("title"), summary: row.string("summary"))
+        }
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace([GuideService(serviceID: 101, name: "ＢＳサンプル", programs: programs)],
+                                broadcasting: "bs")
+
+        let expected = Set(vectors.dictionaries("fixed_blurbs").map {
+            Duplicates.Blurb(titleKey: $0.string("same_title_key"), summaryKey: $0.string("summary_key"))
+        })
+        let every = Set(guide.map { Series.sameTitleKey($0.string("title")) })
+        let found = try await store.fixedBlurbs(among: every)
+        XCTAssertEqual(found, expected)
+        let others = try await store.fixedBlurbs(among: every.subtracting(expected.map(\.titleKey)))
+        XCTAssertEqual(others, [], "the titles asked about, and no others")
+        let nothing = try await store.fixedBlurbs(among: [])
+        XCTAssertEqual(nothing, [])
+    }
+
     func testLogosAreAttachedToTheirChannels() async throws {
         let store = try await loadedStore()
         try await store.replaceLogos([(serviceID: 1024, channelNo: 11, png: Data([0x89, 0x50, 0x4E, 0x47]))],

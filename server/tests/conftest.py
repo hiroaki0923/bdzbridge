@@ -27,6 +27,9 @@ from tests.test_logo import make_png
 
 TOKEN = "t"
 H = {"Authorization": f"Bearer {TOKEN}"}
+# what the fake recorder says a recording is about, unless a test says otherwise: as long as a real one, since a
+# text under twenty characters is not taken to tell one broadcast from another
+SUMMARY = "録画したドラマのあらすじ。主人公が架空の町で起きた事件を追う。"
 
 
 def make_services() -> list[Service]:
@@ -121,7 +124,7 @@ class FakeXsrs:
 
     async def title_detail(self, title_id):
         summaries = getattr(self, "summaries", {})
-        return {"summary": summaries.get(title_id, "あらすじ"), "details": ["番組内容 本文"]}
+        return {"summary": summaries.get(title_id, SUMMARY), "details": ["番組内容 本文"]}
 
     async def power_on(self):
         self.powered = getattr(self, "powered", 0) + 1
