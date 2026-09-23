@@ -68,7 +68,7 @@ struct ReservationSheet: View {
                 if reservation.recording || reservation.conflict || reservation.createdByRecorder {
                     Section {
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
-                        if reservation.conflict { Text("他の予約と重複しています").foregroundStyle(.orange) }
+                        if reservation.conflict { Text("他の予約と重複しています").foregroundStyle(Color.legibleOrange) }
                         if reservation.createdByRecorder {
                             Text("おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                                  + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。")

@@ -4,7 +4,8 @@ import XCTest
 /// then go and set a real one up. That is the promise worth a test: the invented guide lives in its own
 /// database, ending the demo deletes it and puts the previous recorder back, and choosing a recorder from
 /// inside the demo ends it too and keeps the one chosen. Its invented guide is also what a screen that needs
-/// a guide is tried against, as the search by a name in the cast and the channel settings are below.
+/// a guide is tried against, as the search by a name in the cast, the channel settings and the guide's list
+/// at a large text size are below.
 final class DemoModeTests: XCTestCase {
     private static let demoHost = "192.0.2.63"
     private static let demoMac = "f8:4e:17:00:00:00"
@@ -127,8 +128,8 @@ final class DemoModeTests: XCTestCase {
         app.tabBars.buttons["番組表"].tap()
         XCTAssertTrue(guideMenu(app, "地デジ").waitForExistence(timeout: 10),
                       "the list stayed narrowed to a hidden channel")
-        XCTAssertTrue(app.staticTexts["サンプルテレビ"].waitForExistence(timeout: 10), "the guide went empty")
-        XCTAssertFalse(app.staticTexts["サンプル教育"].exists, "the hidden channel was still in the guide")
+        XCTAssertTrue(channelLine(app, "サンプルテレビ").waitForExistence(timeout: 10), "the guide went empty")
+        XCTAssertFalse(channelLine(app, "サンプル教育").exists, "the hidden channel was still in the guide")
 
         // Back, and the reset brings it back.
         app.tabBars.buttons["設定"].tap()
@@ -157,7 +158,32 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// At an accessibility text size the guide's list puts the time above the title: a time column wide enough
+    /// for the time left the title a few characters a line. And the channel's line under the title is one
+    /// text, which wraps across the row, where it was a row of views each squeezed into a column of its own.
+    func testTheGuideListStacksAtAnAccessibilityTextSize() {
+        let app = launchWithoutARecorder(textSize: "UICTContentSizeCategoryAccessibilityL")
+        startTheDemo(app)
+
+        let line = channelLine(app, "サンプルテレビ")
+        XCTAssertTrue(line.waitForExistence(timeout: 20), "the guide showed no programme on the channel")
+        let time = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "\\d{1,2}:\\d{2}\\s+\\d+分"))
+            .firstMatch
+        XCTAssertTrue(time.exists, "the time and the length were not one line of their own")
+        XCTAssertEqual(time.frame.minX, line.frame.minX, accuracy: 2, "the time was still in a column beside the title")
+        XCTAssertGreaterThan(line.frame.width, app.windows.firstMatch.frame.width * 0.4,
+                             "the channel's line was squeezed into a column")
+
+        endTheDemo(app)
+    }
+
     // MARK: - steps
+
+    /// The line under a programme's title in the guide's list, by the channel it starts with. It is one text
+    /// with the marks and the genre, so the channel's name is not a text of its own there.
+    private func channelLine(_ app: XCUIApplication, _ channel: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", channel)).firstMatch
+    }
 
     /// A row further down a form is not there to find until it has been scrolled into view.
     private func scroll(_ app: XCUIApplication, to element: XCUIElement) {
@@ -174,9 +200,11 @@ final class DemoModeTests: XCTestCase {
     /// No recorder and no MAC, so the tutorial is the first thing up. `-demoData` is deliberately not passed:
     /// the argument domain outranks what the app writes, and the app has to be able to turn the demo on
     /// itself.
-    private func launchWithoutARecorder() -> XCUIApplication {
+    /// `textSize` is a content size category's name, for the reader's text size.
+    private func launchWithoutARecorder(textSize: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-recorderHost", "", "-recorderMac", "", "-startTab", "guide", "-guideMode", "list"]
+            + (textSize.map { ["-UIPreferredContentSizeCategoryName", $0] } ?? [])
         app.launch()
         // A previous run on this simulator may have left the demo on. The tutorial comes up only at launch,
         // so once the demo is over the app is launched again.
@@ -190,8 +218,13 @@ final class DemoModeTests: XCTestCase {
     }
 
     private func startTheDemo(_ app: XCUIApplication) {
+        XCTAssertTrue(app.staticTexts["BD Bridge"].waitForExistence(timeout: 20), "the tutorial did not come up")
+        // At a large text size it is further down the tutorial's list than the screen reaches, and a list row
+        // is not there to find until it has been scrolled to. Waiting for the tutorial first rather than for
+        // the button: the button's own wait would run its full length there before the scroll began.
         let tryDemo = app.buttons["サンプルデータで試す"]
-        XCTAssertTrue(tryDemo.waitForExistence(timeout: 20), "the tutorial did not offer the demo")
+        scroll(app, to: tryDemo)
+        XCTAssertTrue(tryDemo.exists, "the tutorial did not offer the demo")
         tryDemo.tap()
 
         XCTAssertTrue(demoStrip(app).waitForExistence(timeout: 30), "nothing said the data was invented")

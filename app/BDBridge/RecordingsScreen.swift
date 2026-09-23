@@ -208,7 +208,7 @@ extension View {
             } else if let title, title.protected {
                 // `role: .destructive` would animate the row away as it is swiped, before there is an
                 // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(.orange)
+                Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
             } else if title != nil {
                 Button("削除") { ask() }.tint(.red)
             }
@@ -221,43 +221,74 @@ struct TitleRowView: View {
     let channel: String
     let logo: Data?
 
+    @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                if title.protected { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary) }
-                if title.recording {
-                    Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
-                }
-                Text(title.title).font(.subheadline).lineLimit(2)
-            }
-            HStack(spacing: 6) {
-                Text(Format.dateTime.string(from: title.start))
-                // no space held for a missing logo, unlike the reservations: this one sits in the middle of
-                // the line, where a held gap would read as something having gone wrong
-                if let logo, let image = UIImage(data: logo) {
-                    Image(uiImage: image).resizable().scaledToFit().frame(height: 14)
-                }
-                if !channel.isEmpty { Text(channel) }
-                Text(Format.duration(title.durationSec))
-                if let size = title.sizeMB { Text(String(format: "%.1fGB", Double(size) / 1024)) }
-                if let quality = title.qualityName { Text(quality) }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Text(title.watchState.label)
-                    .font(.caption2)
-                    .foregroundStyle(title.watchState == .unwatched ? Color.accentColor : .secondary)
-                if title.watchState == .partway {
-                    ProgressView(value: title.resumeFraction)
-                        .frame(width: 60)
-                }
-                if let genre = title.genre?.label {
-                    Text(genre).font(.caption2).foregroundStyle(.tertiary)
-                }
-            }
+            heading.lineLimit(2)
+            meta.font(.caption2).foregroundStyle(.secondary)
+            watching
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// The title after the lock and 録画中, in one text for the same reason as the line under it: beside
+    /// 録画中 the title was left a column a few characters wide.
+    private var heading: Text {
+        var line = Text(title.title).font(.subheadline)
+        if title.recording {
+            line = Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+                + Text.rowGap.font(.caption2) + line
+        }
+        if title.protected {
+            line = Text(Image(systemName: "lock.fill")).font(.caption2).foregroundStyle(.secondary)
+                + Text.rowGap.font(.caption2) + line
+        }
+        return line
+    }
+
+    /// When, where and how big, as one line of text: as views side by side, a large text size squeezed each
+    /// into a narrow column of its own.
+    private var meta: Text {
+        var parts = [Text(Format.dateTime.string(from: title.start))]
+        // No space held for a missing logo, unlike the reservations: this one sits in the middle of the line,
+        // where a held gap would read as something having gone wrong.
+        if let logo = InlineLogo.text(logo, height: logoHeight) {
+            parts.append(channel.isEmpty ? logo : logo + Text.rowGap + Text(channel))
+        } else if !channel.isEmpty {
+            parts.append(Text(channel))
+        }
+        parts.append(Text(Format.duration(title.durationSec)))
+        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let quality = title.qualityName { parts.append(Text(quality)) }
+        return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
+    }
+
+    /// Whether it has been watched, and the genre, which is in the secondary grey: it was fainter still, too
+    /// faint to read. A recording watched partway has a bar between the two, which a line of text cannot
+    /// hold, so when they do not fit side by side the bar goes under the words.
+    @ViewBuilder
+    private var watching: some View {
+        let state = Text(title.watchState.label)
+            .foregroundStyle(title.watchState == .unwatched ? Color.accentColor : Color.secondary)
+        let genre = title.genre?.label.map { Text($0).foregroundStyle(.secondary) }
+        if title.watchState == .partway {
+            let bar = ProgressView(value: title.resumeFraction).frame(width: 60)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    state.font(.caption2)
+                    bar
+                    genre?.font(.caption2)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    (genre.map { state + Text.rowGap + $0 } ?? state).font(.caption2)
+                    bar
+                }
+            }
+        } else {
+            (genre.map { state + Text.rowGap + $0 } ?? state).font(.caption2)
+        }
     }
 }
 
@@ -267,19 +298,24 @@ struct GroupRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(group.name).font(.subheadline).lineLimit(2)
-            HStack(spacing: 6) {
-                Text("\(group.count) 件")
-                Text(String(format: "%.1fGB", group.sizeGB))
-                if group.newCount > 0 { Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor) }
-                if group.protectedCount > 0 { Text("🔒 \(group.protectedCount)") }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            counts.font(.caption2).foregroundStyle(.secondary)
+            // The secondary grey rather than fainter: it is what says how far back the programme goes.
             Text("\(Format.dateTime.string(from: group.earliest)) 〜 \(Format.dateTime.string(from: group.latest))")
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// How many, how big, and how many are new or protected, as one line of text that wraps as a line does.
+    private var counts: Text {
+        var line = Text("\(group.count) 件") + Text.rowGap + Text(String(format: "%.1fGB", group.sizeGB))
+        if group.newCount > 0 {
+            line = line + Text.rowGap + Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor)
+        }
+        if group.protectedCount > 0 { line = line + Text.rowGap + Text("🔒 \(group.protectedCount)") }
+        return line
     }
 }
 
@@ -343,6 +379,7 @@ struct GroupSheet: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("保護をまとめて変更")
                     .disabled(model.jobRunning || members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
@@ -408,6 +445,7 @@ struct GroupSheet: View {
                     if selecting {
                         Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(title.protected ? .secondary : Color.accentColor)
+                            .accessibilityHidden(true)
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title))
@@ -415,6 +453,8 @@ struct GroupSheet: View {
                 .rowHitArea()
             }
             .buttonStyle(.plain)
+            // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
+            .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
             .titleSwipe(selecting ? nil : title, ask: { removing = title.id },
                         unprotect: { Task { await model.setProtected(title, false) } })

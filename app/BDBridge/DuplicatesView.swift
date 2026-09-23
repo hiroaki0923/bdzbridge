@@ -152,17 +152,25 @@ struct DuplicatesView: View {
                     model.duplicatePicks.insert(title.id)
                 }
             } label: {
+                // The glyph is little more than 20 points, and a tap had to land on it. The area reaches out
+                // from it to about the 44 a finger needs.
                 Image(systemName: keeping ? "circle" : "checkmark.circle.fill")
                     .foregroundStyle(deletable ? Color.accentColor : .secondary)
+                    .hitArea(growingBy: 11)
             }
             .buttonStyle(.plain)
             // The recorder would refuse to delete it. And while a job runs the ticks stay as they are: a delete
             // is working from them, and a scan builds the sets again when it ends.
             .disabled(!deletable || model.jobRunning)
+            // Read out as what the tick does, and whether it is on, rather than as the name of a circle. Worded
+            // as a choice: 「…を削除」 sounded as if a double tap deleted the recording there and then, when it
+            // only marks it for the delete at the foot of the screen, which asks first.
+            .accessibilityLabel("\(Format.dateTime.string(from: title.start))の録画を削除する対象に選ぶ")
+            .accessibilityAddTraits(keeping ? [] : .isSelected)
 
             Button { onOpen(title) } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(keeping ? "残す" : "削除")
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 5)
@@ -170,25 +178,35 @@ struct DuplicatesView: View {
                             .background(keeping ? Color.accentColor.opacity(0.15) : Color.red.opacity(0.12))
                             .foregroundStyle(keeping ? Color.accentColor : .red)
                             .clipShape(Capsule())
-                        Text(set.reasons[title.id] ?? "").font(.caption2).foregroundStyle(.secondary)
-                        if title.protected {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        reason(title, in: set).font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(Format.dateTime.string(from: title.start)).font(.footnote)
-                    HStack(spacing: 6) {
-                        Text(model.channelName(for: title))
-                        Text(Format.duration(title.durationSec))
-                        if let size = title.sizeMB { Text(String(format: "%.1fGB", Double(size) / 1024)) }
-                        if let quality = title.qualityName { Text(quality) }
-                        Text(title.watchState.label)
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    meta(title).font(.caption2).foregroundStyle(.secondary)
                 }
+                .rowLinesInFull()
                 .rowHitArea()
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Why this copy is kept or not, and the lock when it is protected, as one text that wraps beside the
+    /// mark rather than squeezing into columns.
+    private func reason(_ title: RecordedTitle, in set: DuplicateSet) -> Text {
+        let reason = Text(set.reasons[title.id] ?? "")
+        guard title.protected else { return reason }
+        return reason + Text(verbatim: " ") + Text(Image(systemName: "lock.fill"))
+    }
+
+    /// The channel, the length, the size, the mode and whether it has been watched, as one line of text: as
+    /// views side by side, a large text size squeezed each into a narrow column of its own.
+    private func meta(_ title: RecordedTitle) -> Text {
+        let channel = model.channelName(for: title)
+        var parts = channel.isEmpty ? [] : [Text(channel)]
+        parts.append(Text(Format.duration(title.durationSec)))
+        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let quality = title.qualityName { parts.append(Text(quality)) }
+        parts.append(Text(title.watchState.label))
+        return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
     }
 }

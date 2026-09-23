@@ -98,12 +98,29 @@ struct SheetCloseButton: View {
 /// only while something is under way and slides out when it is done.
 struct RecorderActivityBar: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Set for the strip at the top of a sheet. The demo's strip is left to the screen underneath: its 終了
     /// would end the demo under a sheet still showing one of the demo's recordings, whose buttons would then
     /// go to whichever recorder came after it.
     var inSheet = false
 
+    /// Whether any strip is up: what the animation follows. It used to follow `true`, which never changes, so
+    /// the strip never slid anywhere. Not which strip it is, nor what it says: one strip taking over from
+    /// another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is swapped in place,
+    /// where two sliding past each other would show both for a moment.
+    private var showing: Bool {
+        model.busy != nil || model.flushReport != nil || (model.demo && DemoData.banner && !inSheet)
+            || model.connectBlocked || model.gaveUp
+    }
+
     var body: some View {
+        // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
+        VStack(spacing: 0) { content }
+            .animation(.default, value: showing)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let busy = model.busy {
             strip {
                 ProgressView().controlSize(.small)
@@ -122,6 +139,7 @@ struct RecorderActivityBar: View {
                     model.flushReport = nil
                 } label: {
                     Image(systemName: "xmark").font(.caption.weight(.semibold))
+                        .hitArea(horizontal: 16, vertical: Self.rim)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -136,11 +154,13 @@ struct RecorderActivityBar: View {
                 Spacer()
                 // Not while a connect or a job is under way, which `busy` alone does not always show: see
                 // `canChangeRecorder`.
-                Button("終了") { Task { await model.leaveDemo() } }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    .disabled(!model.canChangeRecorder)
+                Button { Task { await model.leaveDemo() } } label: {
+                    Text("終了").hitArea(horizontal: 13, vertical: Self.rim)
+                }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(!model.canChangeRecorder)
             }
         } else if model.connectBlocked {
             // Not given up: the app connects the moment the permission comes. Giving it is the one thing the
@@ -165,22 +185,31 @@ struct RecorderActivityBar: View {
                 Text("レコーダーに接続していません").font(.footnote)
                 Spacer()
                 // Not while a bulk job runs, when connecting does nothing: see `connect()`.
-                Button("再接続") { Task { await model.connect() } }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    .disabled(model.jobRunning)
+                Button { Task { await model.connect() } } label: {
+                    Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+                }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(model.jobRunning)
             }
         }
     }
 
+    /// The strip's padding above and below what it says, and so as far as a button's tap area may reach up
+    /// and down. Any further and the area hangs below the strip over the list's first row, which on a guide
+    /// opened at now is the programme on air: a tap meant for it would end the demo without a question, or
+    /// wake a recorder the app had given up on.
+    private static let rim: CGFloat = 8
+
     private func strip(@ViewBuilder _ content: () -> some View) -> some View {
         HStack(spacing: 8) { content() }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, Self.rim)
             .background(.bar)
             .overlay(alignment: .bottom) { Divider() }
-            .transition(.move(edge: .top).combined(with: .opacity))
+            // Faded rather than slid for a reader who has asked for less motion.
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -208,7 +237,7 @@ extension View {
     /// own, which leaves out the demo's strip (see `RecorderActivityBar.inSheet`).
     func recorderActivity(inSheet: Bool = false) -> some View {
         safeAreaInset(edge: .top, spacing: 0) {
-            RecorderActivityBar(inSheet: inSheet).animation(.default, value: true)
+            RecorderActivityBar(inSheet: inSheet)
         }
     }
 }
@@ -331,6 +360,84 @@ extension View {
     /// which reads as the app ignoring you.
     func rowHitArea() -> some View {
         frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+    }
+
+    /// A row's lines each as tall as its words need. A list gave a stack of texts that wrap less height than
+    /// that at the accessibility sizes: under a title on two lines, the line of small print was cut to one
+    /// ending in an ellipsis, with a blank below it where its second line should have been.
+    func rowLinesInFull() -> some View {
+        fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// A small button's tap area grown `inset` points on every side, towards the 44 a finger needs, without
+    /// moving it or anything beside it: the area reaches into the space around the button instead of taking
+    /// more of the layout. For the ones drawn smaller than that -- a tick box, a zoom button -- which
+    /// otherwise answer only to a tap on the glyph itself.
+    func hitArea(growingBy inset: CGFloat) -> some View {
+        hitArea(horizontal: inset, vertical: inset)
+    }
+
+    /// The same, grown by different amounts across and up and down. For a button in a strip not much taller
+    /// than it: an area reaching past the strip's edge lands on whatever is under the strip, and the strip is
+    /// drawn in front, so it takes the taps meant for the row there. Up and down it goes no further than the
+    /// strip's own padding.
+    func hitArea(horizontal: CGFloat, vertical: CGFloat) -> some View {
+        padding(.horizontal, horizontal).padding(.vertical, vertical)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -horizontal).padding(.vertical, -vertical)
+    }
+}
+
+extension Text {
+    /// What stands between the pieces of a row's line of small print, now that the line is one text: two
+    /// spaces, about the six points they had between them as views side by side.
+    static var rowGap: Text { Text(verbatim: "  ") }
+}
+
+extension Color {
+    /// The orange of the words and marks that say a programme is reserved, waiting to be sent, or clashing
+    /// with another. The system orange is about 2.2:1 against white, too faint for what is often the only
+    /// sign on a row that it is reserved. In light mode this is the shade iOS itself switches to under
+    /// Increase Contrast; in dark mode the system's own, which already stands out against black.
+    static let legibleOrange = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.systemOrange.resolvedColor(with: traits)
+            : UIColor(red: 201 / 255, green: 52 / 255, blue: 0, alpha: 1)
+    })
+}
+
+/// A station's logo set inside a line of text rather than beside it. Beside it, the line was a row of separate
+/// views, and at a large text size each was squeezed into a column of its own -- サン / プル / テレビ. In the
+/// text, the logo and the words wrap as one line. Decorative: the channel's name follows it, and is what
+/// VoiceOver reads.
+@MainActor
+enum InlineLogo {
+    /// The logo, `height` points tall, or nil when the station has none. Plenty have none: the recorder only
+    /// has the ones it has been sent.
+    static func text(_ png: Data?, height: CGFloat) -> Text? {
+        guard let png, let image = UIImage(data: png)?.cgImage else { return nil }
+        return text(image, height: height)
+    }
+
+    /// The logo, or as much blank space when there is none, for a list that lines up what follows it.
+    static func holdingSpace(_ png: Data?, height: CGFloat) -> Text {
+        text(png, height: height) ?? blank.map { text($0, height: height) } ?? Text("")
+    }
+
+    /// A clear image the shape of a logo, which the recorder sends at 64 by 36.
+    private static let blank: CGImage? = {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 64, height: 36), format: format).image { _ in }.cgImage
+    }()
+
+    private static func text(_ image: CGImage, height: CGFloat) -> Text {
+        // An image in a line of text stands on the baseline like a letter, and one as tall as the line then
+        // sits above the words beside it. A fifth of its height lower centres it on them, as the row's
+        // HStack used to.
+        Text(Image(decorative: image, scale: CGFloat(image.height) / height).renderingMode(.original))
+            .baselineOffset(-height / 5)
     }
 }
 

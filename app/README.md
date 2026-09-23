@@ -50,7 +50,9 @@ goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the
 Choosing a recorder from inside the demo — one a scan found, or an address typed in — ends it as well, and
 keeps the recorder chosen rather than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests`
 is there to keep both true. The demo's dramas list an invented cast in their details, the same two names a
-recording's text gives, so the search by a name can be tried without a recorder; the same tests do.
+recording's text gives, so the search by a name can be tried without a recorder; the same tests do. They
+also read the guide's list at an accessibility text size, where the time goes above the title and the line
+under it wraps as one text.
 
 ## On a real iPhone
 

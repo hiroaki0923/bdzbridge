@@ -72,15 +72,18 @@ struct GuideScreen: View {
                     } label: {
                         HStack(spacing: 3) {
                             Text(heading).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            // Only a sign that this opens a menu, which VoiceOver says of it anyway.
                             Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                                .accessibilityHidden(true)
                         }
                         .foregroundStyle(.primary)
                     }
                 }
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 0) {
-                        Button { step(-1) } label: { Image(systemName: "chevron.left") }
+                        Button { step(-1) } label: { dayArrow("chevron.left") }
                             .disabled(dayIndex <= 0)
+                            .accessibilityLabel("前の日")
                         Menu {
                             // Where a tap on the guide's tab already showing goes, which few would guess. It
                             // was the only way back to what is on now.
@@ -97,8 +100,9 @@ struct GuideScreen: View {
                                 .foregroundStyle(.primary)
                                 .frame(minWidth: 92)
                         }
-                        Button { step(1) } label: { Image(systemName: "chevron.right") }
+                        Button { step(1) } label: { dayArrow("chevron.right") }
                             .disabled(dayIndex >= model.days.count - 1)
+                            .accessibilityLabel("次の日")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -115,6 +119,7 @@ struct GuideScreen: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
+                    .accessibilityLabel("番組表を更新")
                     .disabled(!model.connected || model.busy != nil)
                 }
             }
@@ -134,6 +139,15 @@ struct GuideScreen: View {
 
     /// The navigation bar has room for a word, not for 地上デジタル. Nor has a segmented control.
     static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
+
+    /// An arrow beside the day, which was a glyph and answered only to a tap on the glyph. Its area runs up
+    /// and down as far towards the 44 points a finger needs as the bar lets an item be tall, which takes
+    /// nothing from anything beside it. Not across: on a narrow iPhone the arrows already all but touch the
+    /// buttons on the right. Nor can the area reach past the arrow instead, as the strip's buttons do: the bar
+    /// answers only to taps inside what its items take up.
+    private func dayArrow(_ symbol: String) -> some View {
+        Image(systemName: symbol).frame(minHeight: 44).contentShape(Rectangle())
+    }
 
     private var dayIndex: Int {
         model.days.firstIndex { Calendar.current.isDate($0, inSameDayAs: model.day) } ?? 0
@@ -348,6 +362,12 @@ struct ProgramRowView: View {
     /// The time the marks are worked out for. The guide's list passes the minute it was last drawn at.
     var now = Date()
 
+    /// The time column, as wide as the time needs at the reader's text size. At a fixed 52 points it split
+    /// 18:0 / 0 two sizes above the default.
+    @ScaledMetric(relativeTo: .callout) private var timeWidth = 52.0
+    @ScaledMetric(relativeTo: .caption2) private var logoHeight = 12.0
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     /// Marked the way the grid marks it, which the list did not: a day's list opens at what is on now, and
     /// nothing said which of the rows at the top that was.
     private var onAir: Bool { program.start <= now && now < program.end }
@@ -355,46 +375,66 @@ struct ProgramRowView: View {
     private var ended: Bool { program.end <= now }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(Format.time.string(from: program.start)).font(.callout.monospacedDigit())
-                Text(Format.duration(program.durationSec)).font(.caption2).foregroundStyle(.secondary)
-            }
-            .frame(width: 52, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(program.title).font(.subheadline.weight(onAir ? .semibold : .regular)).lineLimit(2)
-                HStack(spacing: 6) {
-                    if let logo, let image = UIImage(data: logo) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(height: 12)
-                    }
-                    Text(program.serviceName).font(.caption2).foregroundStyle(.secondary)
-                    if onAir {
-                        Text("放送中").font(.caption2.weight(.semibold)).foregroundStyle(.tint)
-                    }
-                    if let reservation {
-                        Text(reservation.recording ? "録画中" : "予約")
-                            .font(.caption2)
-                            .foregroundStyle(reservation.recording ? .red : .orange)
-                    } else if let pending {
-                        Text("送信待ち")
-                            .font(.caption2)
-                            .foregroundStyle(pending.problem == nil ? .orange : .red)
-                    }
-                    if let genre = program.genre?.label {
-                        Text(genre).font(.caption2).foregroundStyle(.tertiary)
-                    }
+        Group {
+            if typeSize.isAccessibilitySize {
+                // At the accessibility sizes a time column wide enough for the time leaves the title a few
+                // characters a line, so the time goes above it instead.
+                VStack(alignment: .leading, spacing: 3) {
+                    (Text(Format.time.string(from: program.start)).font(.callout.monospacedDigit())
+                        + Text.rowGap
+                        + Text(Format.duration(program.durationSec)).foregroundStyle(.secondary))
+                        .font(.caption2)
+                    details
                 }
-                if !program.summary.isEmpty {
-                    Text(program.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
-                if let snippet {
-                    Text(Self.detail(snippet)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(Format.time.string(from: program.start)).font(.callout.monospacedDigit())
+                        Text(Format.duration(program.durationSec)).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(width: timeWidth, alignment: .trailing)
+                    details
                 }
             }
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
         .opacity(ended ? 0.5 : 1)
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(program.title).font(.subheadline.weight(onAir ? .semibold : .regular)).lineLimit(2)
+            meta.font(.caption2).foregroundStyle(.secondary)
+            if !program.summary.isEmpty {
+                Text(program.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if let snippet {
+                Text(Self.detail(snippet)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+    }
+
+    /// The channel and the marks as one line of text, which wraps as a line does. As separate views side by
+    /// side, a large text size gave each a narrow column of its own. The genre is in the secondary grey with
+    /// the rest: it was fainter still, too faint to read, and it is the only place the list says it.
+    private var meta: Text {
+        var line = Text(program.serviceName)
+        if onAir {
+            line = line + Text.rowGap + Text("放送中").fontWeight(.semibold).foregroundStyle(.tint)
+        }
+        if let reservation {
+            line = line + Text.rowGap + Text(reservation.recording ? "録画中" : "予約")
+                .foregroundStyle(reservation.recording ? Color.red : Color.legibleOrange)
+        } else if let pending {
+            line = line + Text.rowGap + Text("送信待ち")
+                .foregroundStyle(pending.problem == nil ? Color.legibleOrange : Color.red)
+        }
+        if let genre = program.genre?.label {
+            line = line + Text.rowGap + Text(genre)
+        }
+        guard let logo = InlineLogo.text(logo, height: logoHeight) else { return line }
+        return logo + Text.rowGap + line
     }
 
     /// 詳細, as the programme's sheet heads the same text, and the words found set in the colour of the title.

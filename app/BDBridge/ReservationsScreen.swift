@@ -227,50 +227,64 @@ struct ReservationRowView: View {
     let channel: String
     let logo: Data?
 
+    @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(Format.time.string(from: reservation.start)).font(.callout.monospacedDigit())
-                Text(Format.duration(reservation.durationSec)).font(.caption2).foregroundStyle(.secondary)
-                if reservation.recording {
-                    Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+            if reservation.createdByRecorder {
+                // The badge is a shape, which a line of text cannot hold, so it goes under the line when the
+                // two do not fit side by side.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { head; recorderBadge }
+                    VStack(alignment: .leading, spacing: 4) { head; recorderBadge }
                 }
-                if reservation.conflict {
-                    Text("重複").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
-                }
-                if reservation.createdByRecorder {
-                    Text("おまかせ")
-                        .font(.caption2)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color(.tertiarySystemFill))
-                        .foregroundStyle(.secondary)
-                        .clipShape(Capsule())
-                }
+            } else {
+                head
             }
             Text(reservation.title).font(.subheadline).lineLimit(2)
-            HStack(spacing: 6) {
-                // The space is held whether or not there is a logo, so the names line up down the list.
-                // Plenty of stations have none: the recorder only has the ones it has been sent.
-                Group {
-                    if let logo, let image = UIImage(data: logo) {
-                        Image(uiImage: image).resizable().scaledToFit()
-                    }
-                }
-                .frame(width: 25, height: 14)
-                if !channel.isEmpty { Text(channel) }
-                if let quality = reservation.qualityName { Text(quality) }
-                if let name = reservation.repeatName, name != "none" {
-                    Text(Codes.repeatLabel[name] ?? name)
-                }
-                if let genre = reservation.genreCode.flatMap({ Codes.genreLabel[$0 / 16] }) {
-                    Text(genre).foregroundStyle(.tertiary)
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            meta.font(.caption2).foregroundStyle(.secondary)
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// When, and the marks, as one line of text: as views side by side, a large text size squeezed each
+    /// into a narrow column of its own.
+    private var head: Text {
+        var line = Text(Format.time.string(from: reservation.start)).font(.callout.monospacedDigit())
+            + Text.rowGap
+            + Text(Format.duration(reservation.durationSec)).foregroundStyle(.secondary)
+        if reservation.recording {
+            line = line + Text.rowGap + Text("録画中").fontWeight(.semibold).foregroundStyle(.red)
+        }
+        if reservation.conflict {
+            line = line + Text.rowGap
+                + Text("重複").fontWeight(.semibold).foregroundStyle(Color.legibleOrange)
+        }
+        return line.font(.caption2)
+    }
+
+    private var recorderBadge: some View {
+        Text("おまかせ")
+            .font(.caption2)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color(.tertiarySystemFill))
+            .foregroundStyle(.secondary)
+            .clipShape(Capsule())
+    }
+
+    /// The channel and how it records, as one line of text for the same reason. The genre is in the secondary
+    /// grey with the rest: it was fainter still, too faint to read.
+    private var meta: Text {
+        var parts: [Text] = []
+        if !channel.isEmpty { parts.append(Text(channel)) }
+        if let quality = reservation.qualityName { parts.append(Text(quality)) }
+        if let name = reservation.repeatName, name != "none" { parts.append(Text(Codes.repeatLabel[name] ?? name)) }
+        if let genre = reservation.genreCode.flatMap({ Codes.genreLabel[$0 / 16] }) { parts.append(Text(genre)) }
+        // The logo's space is held whether or not there is one, so the names line up down the list. Plenty
+        // of stations have none: the recorder only has the ones it has been sent.
+        return parts.reduce(InlineLogo.holdingSpace(logo, height: logoHeight)) { $0 + Text.rowGap + $1 }
     }
 }
 
@@ -284,7 +298,7 @@ struct PendingRowView: View {
             HStack(spacing: 6) {
                 Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.legibleOrange)
                 Text(waiting.request.title).lineLimit(2)
             }
             Text(details).font(.caption).foregroundStyle(.secondary)
@@ -292,6 +306,7 @@ struct PendingRowView: View {
                 Text(problem).font(.caption).foregroundStyle(.red)
             }
         }
+        .rowLinesInFull()
         .padding(.vertical, 2)
         .rowHitArea()
     }

@@ -272,10 +272,12 @@ struct GuideGridView: View {
             hold = holdingTime(atScreenY: viewport.height / 2, scale: pointsPerMinute)
             pointsPerMinute = min(largest, max(smallest, pointsPerMinute * factor))
         } label: {
+            // Drawn at 36 and tapped at 44, which is where the two areas meet in the gap between them.
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .background(.regularMaterial, in: Circle())
+                .hitArea(growingBy: 4)
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
@@ -363,9 +365,13 @@ private struct ProgramBlock: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     + reservationMark
-                    + Text(" ")
+                    + Text(verbatim: " ")
                     + Text(program.title).font(.system(size: 11, weight: onAir ? .semibold : .regular))
             }
+            // For the spaces, which have no font of their own. They took the body size, 17 points, which made
+            // the first line of every block taller than the lines after it; the line count below reckons on
+            // 14 points a line.
+            .font(.system(size: 11))
             .multilineTextAlignment(.leading)
             .lineLimit(Int(max(1, (height - labelOffset - 4) / 14)))
             .padding(.horizontal, 4)
@@ -379,6 +385,9 @@ private struct ProgramBlock: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The channel is at the top of the column, where VoiceOver reaches it once and not again: without it a
+        // block read out as a time and a title, with nothing to say which channel they were on.
+        .accessibilityLabel(spoken)
         .background(alignment: .top) {
             if onAir {
                 genreColor.opacity(0.16).frame(height: height * elapsed)
@@ -393,17 +402,29 @@ private struct ProgramBlock: View {
     /// Reservations are marked in the text, because the block is too small for anything else. One waiting on
     /// this phone is marked too, red when the recorder refused it: it is still the reader's reservation.
     private var reservationMark: Text {
-        let mark: (word: String, colour: Color)
-        if let reservation {
-            mark = reservation.recording ? ("録画中", .red) : ("予約", .orange)
-        } else if let pending {
-            mark = ("送信待ち", pending.problem == nil ? .orange : .red)
-        } else {
-            return Text("")
-        }
-        return Text(" ") + Text(mark.word)
+        guard let mark else { return Text("") }
+        return Text(verbatim: " ") + Text(mark.word)
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(mark.colour)
+    }
+
+    private var mark: (word: String, colour: Color)? {
+        if let reservation {
+            return reservation.recording ? ("録画中", .red) : ("予約", .legibleOrange)
+        } else if let pending {
+            return ("送信待ち", pending.problem == nil ? .legibleOrange : .red)
+        }
+        return nil
+    }
+
+    /// What VoiceOver reads for the block: the channel, when and for how long, the title, and the marks.
+    private var spoken: String {
+        var parts = [program.serviceName,
+                     "\(Format.time.string(from: program.start))から\(Format.duration(program.durationSec))",
+                     program.title]
+        if onAir { parts.append("放送中") }
+        if let mark { parts.append(mark.word) }
+        return parts.joined(separator: "、")
     }
 
     /// Tinted for a reservation, and more faintly for one that has not reached the recorder yet.

@@ -16,6 +16,7 @@ struct JobBarView: View {
                             model.clearJob()
                         } label: {
                             Image(systemName: "xmark").font(.caption.weight(.bold))
+                                .hitArea(horizontal: 16, vertical: Self.rim)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
@@ -45,9 +46,13 @@ struct JobBarView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, Self.rim)
             .background(.regularMaterial)
             .overlay(alignment: .bottom) { Divider() }
         }
     }
+
+    /// The bar's padding above and below, and so as far as the ✕'s tap area may reach up and down. Any
+    /// further and the area hangs past the bar's edge over the list, whose row there would lose its taps.
+    private static let rim: CGFloat = 8
 }

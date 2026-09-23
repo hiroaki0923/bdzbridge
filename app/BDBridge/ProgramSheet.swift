@@ -230,7 +230,7 @@ struct ProgramSheet: View {
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("\(conflicts.count) 件の予約と重複します", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.legibleOrange)
                         .font(.callout)
                     ForEach(conflicts) { conflict in
                         Text("\(Format.dateTime.string(from: conflict.start)) \(conflict.title)")

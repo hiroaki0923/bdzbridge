@@ -64,7 +64,7 @@ struct TitleSheet: View {
                             } label: {
                                 Label("レコーダーの電源を入れる", systemImage: "power")
                             }
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color.legibleOrange)
                         }
                     }
                     .disabled(model.busy != nil)
