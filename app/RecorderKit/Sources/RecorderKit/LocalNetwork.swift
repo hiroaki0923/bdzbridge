@@ -11,6 +11,19 @@ public enum LocalNetwork {
         public var name: String
         public var address: String
         public var netmask: String
+        /// Whether the interface has neighbours to broadcast to (`IFF_BROADCAST`): Wi-Fi or Ethernet. Cellular
+        /// (`pdp_ip`) and VPN tunnels (`utun`) are point-to-point links and do not.
+        public var broadcasts: Bool
+
+        /// True for a network the recorder could be sitting on beside this device. Cellular and VPN tunnels
+        /// are left out by name as well as by the flag, because what they would add is worse than nothing:
+        /// a /32 on `pdp_ip` put this device's own address among the places to broadcast to, and the
+        /// local network permission is never asked about on either, so a check aimed there says yes.
+        public var isLAN: Bool {
+            broadcasts && !Self.tunnelPrefixes.contains { name.hasPrefix($0) }
+        }
+
+        private static let tunnelPrefixes = ["pdp_ip", "utun", "ipsec"]
     }
 
     /// The device's own IPv4 interfaces, loopback and anything that is down left out.
@@ -27,7 +40,7 @@ public enum LocalNetwork {
                   let mask = cursor.pointee.ifa_netmask,
                   let address = text(of: addr), let netmask = text(of: mask) else { continue }
             found.append(Interface(name: String(cString: cursor.pointee.ifa_name), address: address,
-                                   netmask: netmask))
+                                   netmask: netmask, broadcasts: flags & IFF_BROADCAST != 0))
         }
         return found
     }
@@ -59,17 +72,43 @@ public enum LocalNetwork {
         return (low...high).compactMap { $0 == address ? nil : dotted($0) }
     }
 
-    /// The addresses worth trying, nearest interface first.
-    public static func hostsToScan(maxHosts: Int = 512) -> [String] {
-        interfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
+    /// The interfaces a recorder could be found on: Wi-Fi, or Ethernet on a Mac. Empty when this device is
+    /// on cellular alone, or reaches home only through a VPN, which is when a scan has nothing to look at.
+    public static func lanInterfaces() -> [Interface] {
+        interfaces().filter(\.isLAN)
     }
 
-    /// Where to send something that everything on the subnet should hear. The subnet's own broadcast
-    /// address first, since a router is likelier to pass that than the all-ones one, and 255.255.255.255
-    /// after it for the case where the netmask could not be read.
+    /// The addresses worth trying, nearest interface first. Only the LAN ones: the subnet of a VPN tunnel is
+    /// the tunnel's own, not the home network the recorder is on.
+    public static func hostsToScan(maxHosts: Int = 512) -> [String] {
+        lanInterfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
+    }
+
+    /// Somebody else on the interface's subnet, to aim the local network check at (see `waitForAccess`):
+    /// the first address of the subnet, which is usually the router, or the second when that is this
+    /// device. Whether anything answers there does not matter; the check reads the path, not a reply.
+    public static func neighbour(on interface: Interface) -> String? {
+        guard let address = packed(interface.address), let mask = packed(interface.netmask) else { return nil }
+        let network = address & mask
+        let broadcast = network | ~mask
+        return [network &+ 1, network &+ 2]
+            .first { $0 > network && $0 < broadcast && $0 != address }
+            .map(dotted)
+    }
+
+    /// Where to send something that everything on the subnet should hear: the broadcast address of each
+    /// LAN interface's subnet, then 255.255.255.255.
+    ///
+    /// The subnet's own address comes first because, as far as the kernel's source says, it is the one an
+    /// iPhone app may send to. Apple's documentation says broadcasting needs the multicast entitlement,
+    /// which this app does not have, but the check that enforces it (`necp_check_restricted_multicast_drop`
+    /// in xnu's bsd/net/necp.c) drops only 224.0.0.0/4 and the all-ones address, and a subnet broadcast
+    /// arriving has been reported on Apple's forums. So 255.255.255.255 is expected to fail on an iPhone,
+    /// with EHOSTUNREACH, every time. It is sent anyway, because it costs nothing and a Mac lets it
+    /// through; `WakeOnLan` logs what each destination did, which is how a real iPhone settles it.
     public static func broadcastAddresses() -> [String] {
         var out: [String] = []
-        for interface in interfaces() {
+        for interface in lanInterfaces() {
             guard let address = packed(interface.address), let mask = packed(interface.netmask) else {
                 continue
             }

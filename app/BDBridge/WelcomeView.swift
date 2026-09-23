@@ -9,6 +9,9 @@ struct WelcomeView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var typing = false
     @State private var typedHost = ""
+    /// Set when a connect from here ran into the local network permission. The app connects by itself once
+    /// the reader allows it, and this screen then has nothing left to do, so it goes too.
+    @State private var awaitingAccess = false
 
     var body: some View {
         NavigationStack {
@@ -29,11 +32,12 @@ struct WelcomeView: View {
                     step(2, "iPhone をレコーダーと同じ Wi-Fi につなぐ",
                          "同じネットワーク上にあるレコーダーだけが見つかります。")
                     step(3, "「レコーダーを探す」をタップする",
-                         "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。")
+                         "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。"
+                         + "そのまま検索が始まります。")
                 }
                 Section {
                     Button {
-                        Task { await model.scanForRecorders() }
+                        model.scanForRecorders()
                     } label: {
                         HStack {
                             Spacer()
@@ -43,12 +47,21 @@ struct WelcomeView: View {
                         }
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
-                    if let scanning = model.scanning {
+                    // Right under the button, which is where the reader is looking: the foot of this list is
+                    // below the fold on most iPhones.
+                    if model.lanBlocked {
+                        LocalNetworkNotice()
+                        OpenSettingsButton()
+                    }
+                    if let scanning = model.scanning, !model.scanBlocked {
                         VStack(alignment: .leading, spacing: 4) {
                             ProgressView(value: Double(scanning.done), total: Double(max(1, scanning.total)))
                             Text("検索中 \(scanning.done) / \(scanning.total)")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                    }
+                    if let outcome = model.scanOutcome {
+                        ScanOutcomeText(outcome: outcome)
                     }
                 }
                 if !model.found.isEmpty {
@@ -73,7 +86,7 @@ struct WelcomeView: View {
                             model.host = typed.host
                             Task {
                                 await model.connect()
-                                if model.connected { dismiss() }
+                                leaveIfConnected()
                             }
                         }
                         .disabled(!RecorderAddress.isUsable(typed.host) || model.busy != nil)
@@ -103,6 +116,11 @@ struct WelcomeView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            // A scan waiting on the system's question must not outlive the screen that asked it.
+            .onDisappear { model.stopScanning() }
+            .onChange(of: model.connected) {
+                if awaitingAccess, model.connected { dismiss() }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     // opened again from the settings there is nothing to put off, only a screen to leave
@@ -117,7 +135,17 @@ struct WelcomeView: View {
     /// leaving is tied to the tap that did it.
     private func take(_ recorder: RecorderDescription) async {
         await model.use(recorder)
-        if model.connected { dismiss() }
+        leaveIfConnected()
+    }
+
+    /// Leaves once the recorder answers. A connect held up by the local network permission finishes later,
+    /// on its own, when the reader allows it; the screen waits for that rather than for another tap.
+    private func leaveIfConnected() {
+        if model.connected {
+            dismiss()
+        } else {
+            awaitingAccess = model.connectBlocked
+        }
     }
 
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
@@ -154,6 +182,17 @@ struct AddressNote: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// What a scan came to, under the button in both the tutorial and the settings.
+struct ScanOutcomeText: View {
+    let outcome: AppModel.ScanOutcome
+
+    var body: some View {
+        Text(outcome.text)
+            .font(.callout)
+            .foregroundStyle(outcome.failed ? Color.red : Color.secondary)
     }
 }
 

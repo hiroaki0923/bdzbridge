@@ -42,6 +42,25 @@ final class AppModel {
     private(set) var reservationsByProgram: [String: Reservation] = [:]
     private(set) var found: [RecorderDescription] = []
     private(set) var scanning: (done: Int, total: Int)?
+    /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
+    /// which every screen shows as a failure: a scan that found nothing was said at the foot of the
+    /// tutorial, below the fold on most iPhones, and after "あとで設定" the guide showed it as an error.
+    private(set) var scanOutcome: ScanOutcome?
+    /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
+    /// answered no -- so that the screens can say so and offer the Settings app.
+    private(set) var scanBlocked = false
+    /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
+    /// is then waiting for the permission rather than for the recorder; see `watchForAccess`.
+    private(set) var connectBlocked = false
+    /// Either of the two: something the reader wants is waiting on the local network permission.
+    var lanBlocked: Bool { scanBlocked || connectBlocked }
+    /// The scan under way, kept so that leaving the tutorial or turning to the demo can stop it -- above all
+    /// while it waits on the system's question, which could otherwise outlive the screen that asked.
+    private var scanTask: Task<Void, Never>?
+    /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
+    private var scanRun = 0
+    /// Waits for the local network permission after a connect ran into it, and connects when it comes.
+    private var accessWatch: Task<Void, Never>?
     /// Everything under way with the recorder, each with a line of its own. Work overlaps -- a tab asking
     /// for its list while another is still loading -- and the client finishes it first come, first served,
     /// so nothing here can save one shared line and put it back afterwards. See `Activities`.
@@ -239,6 +258,9 @@ final class AppModel {
     /// worth setting up -- the reviewer who has to judge it least of all.
     func enterDemo() async {
         guard !demo else { return }
+        // A scan still waiting on the local network question has nothing to do with the invented recorder,
+        // and the demo is exactly the path that must never raise that question.
+        stopScanning()
         DemoData.turnOn(realHost: host, realMac: mac)
         demo = true
         await openStore()
@@ -279,6 +301,10 @@ final class AppModel {
         unreachable = false
         gaveUp = false
         found = []
+        scanOutcome = nil
+        accessWatch?.cancel()
+        accessWatch = nil
+        connectBlocked = false
         store = (try? Storage.guidePath()).flatMap { try? GuideStore(path: $0) }
         if let store {
             if demo { try? await DemoData.seed(store: store) }
@@ -287,31 +313,107 @@ final class AppModel {
         }
     }
 
-    /// Looks through the subnet this device is on for a recorder. One short request per address, so the
-    /// first run also asks the reader for permission to reach the local network.
-    func scanForRecorders() async {
+    /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
+    /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
+    /// reach the local network.
+    ///
+    /// The scan waits for that answer before it starts. It used to go straight ahead behind the question,
+    /// where every request failed at once and the scan came back with nothing; the reader allowed it and had
+    /// to tap a second time, under a red line saying no recorder had been found.
+    func scanForRecorders() {
+        scanTask?.cancel()
+        scanTask = Task { await scan() }
+    }
+
+    /// Ends a scan wherever it has got to, the wait for the permission included.
+    func stopScanning() {
+        scanTask?.cancel()
+        scanTask = nil
+        scanRun += 1
+        scanning = nil
+        scanBlocked = false
+    }
+
+    private func scan() async {
+        scanRun += 1
+        let run = scanRun
+        // whatever the last attempt left on screen is not about this one
+        problem = nil
+        scanOutcome = nil
         found = []
-        let hosts = LocalNetwork.hostsToScan()
-        guard !hosts.isEmpty else {
-            problem = "この端末のネットワーク情報を取得できませんでした"
+        let lan = LocalNetwork.lanInterfaces()
+        let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
+        guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
+            report(.noWiFi)
             return
         }
         scanning = (0, hosts.count)
+        let allowed = await LocalNetwork.waitForAccess(probing: neighbour) { @MainActor [weak self] in
+            guard let self, self.scanRun == run else { return }
+            self.scanBlocked = true
+        }
+        guard scanRun == run, !Task.isCancelled else { return }
+        scanBlocked = false
+        // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
+        // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
+        if !allowed, LocalNetwork.lanInterfaces().isEmpty {
+            scanning = nil
+            report(.noWiFi)
+            return
+        }
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
-        found = await Discovery.scan(hosts: hosts, progress: { done, total in
-            Task { @MainActor in self.scanning = (done, total) }
+        let result = await Discovery.scan(hosts: hosts, progress: { done, total in
+            Task { @MainActor in
+                guard self.scanRun == run, self.scanning != nil else { return }
+                self.scanning = (done, total)
+            }
         }, found: { recorder in
             Task { @MainActor in
+                guard self.scanRun == run else { return }
                 if !self.found.contains(where: { $0.host == recorder.host }) { self.found.append(recorder) }
             }
         })
+        guard scanRun == run, !Task.isCancelled else { return }
+        found = result
         scanning = nil
-        if found.isEmpty { problem = "レコーダーが見つかりませんでした。同じネットワークに接続されているか確認してください。" }
+        scanTask = nil
+        report(result.isEmpty ? .nothing : .found(result.count))
+    }
+
+    /// Puts the outcome under the button, and says it aloud as well: the words appear below where a
+    /// VoiceOver reader's focus still is, on the button they tapped.
+    private func report(_ outcome: ScanOutcome) {
+        scanOutcome = outcome
+        AccessibilityNotification.Announcement(outcome.text).post()
+    }
+
+    enum ScanOutcome: Equatable {
+        case found(Int)
+        case nothing
+        case noWiFi
+
+        var text: String {
+            switch self {
+            case .found(let count): "レコーダーが \(count) 台見つかりました"
+            case .nothing: "レコーダーが見つかりませんでした。レコーダーの電源が入っていて、"
+                + "iPhone と同じ Wi-Fi につながっているか確認してください。"
+            case .noWiFi: "Wi-Fi に接続されていません。レコーダーと同じ Wi-Fi につないでから、もう一度お試しください。"
+            }
+        }
+
+        var failed: Bool {
+            if case .found = self { return false }
+            return true
+        }
     }
 
     /// Takes one of the recorders the scan turned up.
     func use(_ recorder: RecorderDescription) async {
+        // The reader has chosen, so the rest of the subnet no longer matters -- and a scan left running would
+        // put the list back when it finished.
+        stopScanning()
+        scanOutcome = nil
         host = recorder.host
         found = []
         await connect()
@@ -326,6 +428,9 @@ final class AppModel {
         guard !host.isEmpty, !connecting else { return }
         connecting = true
         defer { connecting = false }
+        // This attempt answers what the watcher was waiting to find out, one way or the other.
+        accessWatch?.cancel()
+        accessWatch = nil
         // The cache first, since the queued reservations and the guide are sent from and fetched into it.
         // Coming to the foreground connects too, and at launch it can get here before `start()` has opened
         // anything; without this that connect found no cache and quietly did neither.
@@ -349,6 +454,18 @@ final class AppModel {
         sendMagicPacket()
         triedOn = LocalNetwork.signature()
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
+        if !reached, unreachable, !demo, await lanIsBlocked() {
+            // Silence because iOS stopped the app asking, not because the recorder is asleep. The magic
+            // packet could not leave this phone either, so half a minute of waking would be half a minute of
+            // nothing followed by the wrong advice. Wait for the permission instead; what the screens say
+            // comes from `connectBlocked`, not from a failure line.
+            connectBlocked = true
+            problem = nil
+            gaveUp = true
+            watchForAccess()
+            return
+        }
+        connectBlocked = false
         if !reached { reached = await wakeAndAttach(client) }
         // Trying again by itself would only spend another half-minute arriving at the same silence. The
         // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
@@ -361,6 +478,32 @@ final class AppModel {
             // been to the other tab and back.
             await loadReservationsNow()
             await refreshGuideIfStale()
+        }
+    }
+
+    /// Whether local network privacy is why the recorder said nothing. Aimed at the recorder's own address,
+    /// because that is the connection the permission would have stopped. At most two seconds; the path
+    /// answers at once in practice. Only asked in the foreground, after a real recorder was silent -- never
+    /// by the overnight run, which has no screen to explain it on, and never in the demo, which has to go
+    /// through without the system's question ever coming up.
+    private func lanIsBlocked() async -> Bool {
+        await LocalNetwork.access(probing: host) == .blocked
+    }
+
+    /// Waits for the reader to allow the local network, then connects. The one exception to leaving a
+    /// recorder alone until the network changes or the reader asks: switching the permission on is the
+    /// reader asking, and it changes nothing `networkChanged` could see, so without this the app would stay
+    /// given up after it until something else happened to move.
+    private func watchForAccess() {
+        accessWatch?.cancel()
+        let host = host
+        accessWatch = Task { [weak self] in
+            let allowed = await LocalNetwork.waitForAccess(probing: host) {}
+            guard let self, !Task.isCancelled else { return }
+            // cleared before connecting, since connecting cancels whatever watcher is still set
+            self.accessWatch = nil
+            self.connectBlocked = false
+            if allowed, self.host == host { await self.connect() }
         }
     }
 

@@ -88,10 +88,16 @@ struct SettingsScreen: View {
 
                 Section {
                     Button("レコーダーを探す") {
-                        Task { await model.scanForRecorders() }
+                        model.scanForRecorders()
                     }
                     .disabled(model.scanning != nil || model.busy != nil)
-                    if let scanning = model.scanning {
+                    // This screen has no activity strip, so a connect held up by the permission is said here
+                    // as well as a scan.
+                    if model.lanBlocked {
+                        LocalNetworkNotice()
+                        OpenSettingsButton()
+                    }
+                    if let scanning = model.scanning, !model.scanBlocked {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
@@ -102,6 +108,9 @@ struct SettingsScreen: View {
                             ProgressView(value: Double(scanning.done),
                                          total: Double(max(1, scanning.total)))
                         }
+                    }
+                    if let outcome = model.scanOutcome {
+                        ScanOutcomeText(outcome: outcome)
                     }
                 } footer: {
                     Text("同じ Wi-Fi 上のレコーダーを探します。見つかったものを選ぶと、そのレコーダーに切り替わります。")

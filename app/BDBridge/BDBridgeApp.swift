@@ -114,6 +114,19 @@ struct RecorderActivityBar: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
             }
+        } else if model.connectBlocked {
+            // Not given up: the app connects the moment the permission comes. Giving it is the one thing the
+            // app cannot do, so the strip offers the way to the switch instead of 再接続, which would only
+            // run into the same refusal.
+            strip {
+                Image(systemName: "lock.shield").font(.footnote)
+                Text("ローカルネットワークが許可されていません").font(.footnote)
+                Spacer()
+                OpenSettingsButton()
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
         } else if model.gaveUp {
             // The app has stopped trying, and says so rather than leaving a quiet failure to be guessed at
             // from lists that never fill. Trying again is the reader's to ask for: on this network the
@@ -175,6 +188,16 @@ struct NoRecorderView: View {
             } actions: {
                 ProgressView()
             }
+        } else if model.connectBlocked {
+            // Checking the power and the Wi-Fi, which the last case asks for, would change nothing here.
+            ContentUnavailableView {
+                Label(LocalNetworkNotice.title, systemImage: "lock.shield")
+            } description: {
+                Text(LocalNetworkNotice.detail(scanning: false))
+            } actions: {
+                OpenSettingsButton()
+                    .buttonStyle(.borderedProminent)
+            }
         } else {
             ContentUnavailableView {
                 Label("レコーダーに接続できません", systemImage: icon)
@@ -186,6 +209,44 @@ struct NoRecorderView: View {
                 Button("再接続") { Task { await model.connect() } }
                     .buttonStyle(.borderedProminent)
             }
+        }
+    }
+}
+
+/// What to say while local network privacy stands between the app and the recorder. The words have to be
+/// right in two situations the app cannot tell apart: the system's question is on screen and not answered
+/// yet, or it was answered no. So they say what is true of both -- access is not allowed -- say that the app
+/// carries on by itself once it is, and point to the switch for the case where the answer was no, since
+/// the question is never asked again.
+struct LocalNetworkNotice: View {
+    @Environment(AppModel.self) private var model
+
+    static let title = "ローカルネットワークへのアクセスが許可されていません"
+
+    static func detail(scanning: Bool) -> String {
+        (scanning ? "許可されると、そのまま検索が始まります。" : "許可されると、そのまま接続します。")
+            + "「許可しない」を選んだ場合は、設定アプリの「BD Bridge」で「ローカルネットワーク」をオンにしてください。"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(Self.title, systemImage: "lock.shield")
+                .font(.subheadline.weight(.semibold))
+            Text(Self.detail(scanning: model.scanBlocked))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// The app's own page in the Settings app, which is where the local network switch is.
+struct OpenSettingsButton: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button("設定を開く") {
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
         }
     }
 }

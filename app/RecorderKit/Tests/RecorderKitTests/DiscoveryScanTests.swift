@@ -3,7 +3,8 @@ import XCTest
 
 final class DiscoveryScanTests: XCTestCase {
     func testTheSubnetIsWorkedOutFromTheInterface() {
-        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0")
+        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
+                                          broadcasts: true)
         let hosts = LocalNetwork.hosts(around: wifi)
 
         XCTAssertEqual(hosts.count, 253, "254 usable addresses, without this device")
@@ -15,12 +16,59 @@ final class DiscoveryScanTests: XCTestCase {
     }
 
     func testAWideMaskIsNarrowedToTheAddressesNearby() {
-        let wide = LocalNetwork.Interface(name: "en0", address: "10.1.2.3", netmask: "255.255.0.0")
+        let wide = LocalNetwork.Interface(name: "en0", address: "10.1.2.3", netmask: "255.255.0.0",
+                                          broadcasts: true)
         let hosts = LocalNetwork.hosts(around: wide, maxHosts: 100)
 
         XCTAssertLessThanOrEqual(hosts.count, 100, "a /16 would be sixty-five thousand requests")
         XCTAssertTrue(hosts.contains("10.1.2.4"))
         XCTAssertTrue(hosts.contains("10.1.1.209"))
+    }
+
+    /// Cellular and VPN tunnels are not where a recorder lives, and aiming the permission check at one of them
+    /// always says yes, because local network privacy is never asked about there.
+    func testOnlyWiFiAndEthernetCountAsTheLocalNetwork() {
+        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
+                                          broadcasts: true)
+        let cellular = LocalNetwork.Interface(name: "pdp_ip0", address: "198.51.100.7",
+                                              netmask: "255.255.255.255", broadcasts: false)
+        let vpn = LocalNetwork.Interface(name: "utun4", address: "203.0.113.9", netmask: "255.255.255.0",
+                                         broadcasts: false)
+        let flaggedTunnel = LocalNetwork.Interface(name: "utun5", address: "203.0.113.10",
+                                                   netmask: "255.255.255.0", broadcasts: true)
+
+        XCTAssertTrue(wifi.isLAN)
+        XCTAssertFalse(cellular.isLAN)
+        XCTAssertFalse(vpn.isLAN)
+        XCTAssertFalse(flaggedTunnel.isLAN, "a tunnel is left out by its name too, whatever its flags say")
+    }
+
+    func testThePermissionCheckIsAimedAtANeighbour() {
+        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
+                                          broadcasts: true)
+        XCTAssertEqual(LocalNetwork.neighbour(on: wifi), "192.0.2.1")
+
+        let router = LocalNetwork.Interface(name: "en0", address: "192.0.2.1", netmask: "255.255.255.0",
+                                            broadcasts: true)
+        XCTAssertEqual(LocalNetwork.neighbour(on: router), "192.0.2.2", "never this device itself")
+
+        let alone = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.255",
+                                           broadcasts: true)
+        XCTAssertNil(LocalNetwork.neighbour(on: alone), "a /32 has no neighbours")
+        let pair = LocalNetwork.Interface(name: "en0", address: "192.0.2.84", netmask: "255.255.255.254",
+                                          broadcasts: true)
+        XCTAssertNil(LocalNetwork.neighbour(on: pair))
+    }
+
+    func testThisDevicesLocalNetworkLeavesTunnelsOut() {
+        for interface in LocalNetwork.lanInterfaces() {
+            XCTAssertTrue(interface.broadcasts, interface.name)
+            XCTAssertFalse(interface.name.hasPrefix("utun"), interface.name)
+        }
+        let broadcasts = LocalNetwork.broadcastAddresses()
+        for interface in LocalNetwork.interfaces() where !interface.isLAN {
+            XCTAssertFalse(broadcasts.contains(interface.address), "\(interface.name) is not a place to broadcast to")
+        }
     }
 
     func testScanningFindsOnlyRecorders() async throws {

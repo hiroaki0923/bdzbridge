@@ -74,8 +74,9 @@ has not been tried.
    a magic packet to. After the first connection the address is kept and the app wakes it by itself.
    Somebody who knows the MAC can type it on the settings screen instead and skip the wait.
 5. The phone has to be on the same Wi-Fi as the recorder. iOS asks for the local network the first time
-   the app looks for it, and refusing leaves the app with nothing to talk to (Settings > the app > Local
-   Network puts it back).
+   the app looks for it, and the search waits for the answer. Refusing leaves the app with nothing to talk
+   to; it says so, with a button to its own page in the Settings app, where Local Network puts it back, and
+   it carries on by itself once that is switched on.
 
 Once installed:
 
@@ -136,6 +137,13 @@ which runs the real task the real way rather than only its body.
 
 Finding the recorder: a button looks through the subnet the device is on and offers whatever answers as a
 recorder, so the address does not have to be typed. On a home network 253 addresses take about seven seconds.
+The first tap is also what makes iOS ask about the local network, and the search waits for that answer
+rather than running behind the question, where every request fails at once -- so that one tap finds the
+recorder. How the waiting is done, and what the app says when the answer is no, is in `docs/porting.md`
+under the local network permission. A recorder that falls silent because the permission was taken away is
+not woken, since no magic packet could leave the phone either; the app says what is wrong and connects when
+it is put back. The simulator has no local network permission, so all of this is still to be seen working
+on an iPhone.
 
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
 into the on-device cache, browsing a day's programmes as a list or as a time-by-channel grid with the station
