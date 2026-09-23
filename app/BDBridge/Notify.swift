@@ -88,7 +88,11 @@ enum Notify {
     /// It counts as said only when it could be heard. Marking it said while notifications were not allowed
     /// spent the warning on nobody, and allowing them afterwards brought nothing until the disk had been cleared
     /// above the line and filled below it again.
+    ///
+    /// A disk of no size is a recorder that has not said how full it is, not one that is full: nothing is
+    /// said about it, and whether the warning has been given is left as it was.
     static func lowSpace(freeBytes: Int, totalBytes: Int, warnBelowGB: Double = lowSpaceGB) async {
+        guard totalBytes > 0 else { return }
         let key = "warnedLowSpace"
         let freeGB = Double(freeBytes) / 1e9
         let warned = UserDefaults.standard.bool(forKey: key)

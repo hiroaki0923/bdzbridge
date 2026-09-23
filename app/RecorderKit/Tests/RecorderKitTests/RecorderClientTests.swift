@@ -337,6 +337,58 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(capacity.freeBytes, 790_273_982_464)
     }
 
+    /// Read as zeros, an answer in another shape was a full disk: 残り 0.0 GB, and a low-space warning.
+    func testFreeSpaceThatCannotBeReadIsThrownRatherThanReadAsZero() async throws {
+        let wrapped = { (inner: String) in "<RecordDestinationInfo>\(Soap.escape(inner))</RecordDestinationInfo>" }
+        let answers = [
+            "",
+            "<RecordDestinationInfo></RecordDestinationInfo>",
+            wrapped("<RecordDestinationInfo totalCapacity=\"4294967296000\""),
+            wrapped("<RecordDestinationInfo totalCapacity=\"4294967296000\"/>"),
+            wrapped("<RecordDestinationInfo totalCapacity=\"4 TB\" availableCapacity=\"790273982464\"/>"),
+        ]
+        for extra in answers {
+            let response = Stub.soap("X_HDLnkGetRecordDestinationInfo", extra: extra)
+            let client = RecorderClient(host: Stub.host, transport: StubTransport(always: response))
+            do {
+                let capacity = try await client.recordDestinationInfo()
+                XCTFail("\(extra) read as \(capacity)")
+            } catch let error as RecorderError {
+                XCTAssertEqual(error, .unexpectedAnswer(action: "X_HDLnkGetRecordDestinationInfo"), extra)
+                XCTAssertFalse(error.unreachable, "the recorder answered: \(extra)")
+            }
+        }
+    }
+
+    /// The firmware and the free space are only shown, and a model that will not give them is still a
+    /// recorder that is there. Whatever it answers leaves the value unknown; only silence gets out.
+    func testOnlySilenceGetsOutOfAReadTheAppCanDoWithout() async throws {
+        let firmware = Stub.soap("X_GetFirmwareVersion",
+                                 result: "<firmware><version>35.003.1</version></firmware>")
+        let answering = RecorderClient(host: Stub.host, transport: StubTransport(always: firmware))
+        let version = try await RecorderError.silenceOnly { try await answering.firmwareVersion() }
+        XCTAssertEqual(version, "35.003.1")
+
+        let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("401")))
+        let refused = try await RecorderError.silenceOnly { try await refusing.firmwareVersion() }
+        XCTAssertNil(refused, "a model without the call")
+
+        let unreadable = RecorderClient(host: Stub.host,
+                                        transport: StubTransport(always: Stub.soap("X_HDLnkGetRecordDestinationInfo")))
+        let capacity = try await RecorderError.silenceOnly { try await unreadable.recordDestinationInfo() }
+        XCTAssertNil(capacity, "an answer in another shape")
+
+        let silent = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        do {
+            _ = try await RecorderError.silenceOnly { try await silent.recordDestinationInfo() }
+            XCTFail("silence was taken for an answer")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+    }
+
     private func titleItem(id: String) -> String {
         "<item id=\"\(id)\"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
             + "<scheduledDuration>60</scheduledDuration></item>"

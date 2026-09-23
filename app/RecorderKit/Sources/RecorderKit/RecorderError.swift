@@ -7,6 +7,10 @@ public enum RecorderError: Error, Equatable, Sendable {
     case transport(String)
     /// An answer that was not XML at all, usually a wrong path or a different device on that port.
     case badResponse(status: Int)
+    /// A well-formed answer without what was asked for in it, or not in the shape the BDZ-FBT4100 gives it:
+    /// most likely another model of the series, answering a call it shares in a way of its own. Not
+    /// `unreachable`, since the recorder is there, and not a `refusal` either.
+    case unexpectedAnswer(action: String)
     /// The recorder answered, but not with the guide file asked for. A BDZ-FBT4100 answers 500 here while
     /// it has no file to give: after the box is restarted or its channels are re-scanned, the files are
     /// gone until it builds them again, which it does in the small hours.
@@ -35,6 +39,7 @@ public enum RecorderError: Error, Equatable, Sendable {
             }
         case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確認してください"
         case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
+        case .unexpectedAnswer(let action): "レコーダーの応答を読み取れませんでした (\(action))"
         case .guideFileMissing(let name, let status):
             "レコーダーから番組表ファイルを取得できませんでした (HTTP \(status): \(name))。"
                 + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
@@ -100,5 +105,28 @@ public enum RecorderError: Error, Equatable, Sendable {
     public var unreceivableChannel: Bool {
         if case .soap(_, _, "831", _) = self { return true }
         return false
+    }
+}
+
+public extension RecorderError {
+    /// Runs a read the app can do without -- the firmware version and the free space, which are only shown,
+    /// and the MAC, which is only kept for later -- and lets nothing out of it but silence.
+    ///
+    /// Every call this package makes is answered by a BDZ-FBT4100, but the rest of the series need not answer
+    /// all of them, or answer them in the same shape. A recorder that refuses a read like this one, or gives
+    /// an answer that cannot be read, is a recorder that is there, and the value is merely not known: nil,
+    /// for the caller to carry on without. Failing on it made the whole connection fail over a line in the
+    /// settings. Silence is thrown all the same, since it says the recorder is not there, whatever was asked.
+    ///
+    /// The read runs on the caller's actor, as if it had been written out in place.
+    static func silenceOnly<T>(isolation: isolated (any Actor)? = #isolation,
+                               _ read: () async throws -> T) async throws -> T? {
+        do {
+            return try await read()
+        } catch let error as RecorderError where error.unreachable {
+            throw error
+        } catch {
+            return nil
+        }
     }
 }

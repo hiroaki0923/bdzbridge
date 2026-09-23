@@ -246,7 +246,9 @@ turn them off. The system's dialog comes the first time a reservation is queued,
 when the reader asks for it in the settings, which say where permission stands and open the app's
 notification settings. Asking only when a reservation was queued, as the app used to, meant that somebody
 who only used it at home never heard about the disk. The low-space warning is said once per fall below the
-line, not once a night, and only counts as said when notifications were allowed to carry it.
+line, not once a night, and only counts as said when notifications were allowed to carry it. A recorder that
+does not say how big its disk is -- an answer in a shape the app cannot read, or a size of nothing -- is not
+warned about: reading such an answer as no room at all warned about a full disk that was not.
 
 ### Coming back to the app
 

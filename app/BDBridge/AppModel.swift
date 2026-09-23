@@ -26,6 +26,8 @@ final class AppModel {
     var serviceFilter: Int?
 
     private(set) var info: RecorderDescription?
+    /// Empty, and `storage` nil, when the recorder would not say. Both are only shown, and another model of
+    /// the series need not give them: see `attach`.
     private(set) var firmware = ""
     private(set) var storage: (free: Int, total: Int)?
     private(set) var counts: [String: GuideCounts] = [:]
@@ -604,6 +606,15 @@ final class AppModel {
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
     /// is the only case worth sending a magic packet for.
+    ///
+    /// Only the description decides whether this is a recorder the app is connected to. The firmware, the
+    /// MAC and the free space are read too, but the app is as connected without them, and another model of
+    /// the series may refuse one or answer it in a shape of its own. Failing on that failed the connect
+    /// with the recorder answering and described in the settings: an error on screen, the queue not sent,
+    /// the reservations and the guide never fetched, and a tutorial that waited for the recorder to be
+    /// reached stayed open. What such a read cannot give is left unknown instead
+    /// (`RecorderError.silenceOnly`). Silence still ends it, as it would anywhere.
+    ///
     /// `quiet` keeps a failure off the screen. A probe that is about to be answered with a magic packet has
     /// not failed at anything the reader should be told about, and saying so for the five seconds before the
     /// waking starts reads as a fault that then mysteriously heals.
@@ -621,16 +632,16 @@ final class AppModel {
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
             UserDefaults.standard.set(host, forKey: Self.hostKey)
-            firmware = try await client.firmwareVersion()
+            firmware = try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? ""
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once. With the address it was
             // read at, which is what lets the recorder be recognised by it somewhere else: see
             // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
-            if let settings = try? await client.networkSettings(), remember(mac: settings.mac), !demo {
+            if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }),
+               remember(mac: settings.mac), !demo {
                 UserDefaults.standard.set(host, forKey: Self.macHostKey)
             }
-            let capacity = try await client.recordDestinationInfo()
-            storage = (capacity.freeBytes, capacity.totalBytes)
+            storage = try await Self.storage(of: client)
             unreachable = false
             problem = nil
             await flushPending()
@@ -654,6 +665,27 @@ final class AppModel {
             // word the reader would have nothing but a strip saying it is not connected.
             if !quiet || !unreachable { problem = recorderError?.explanation ?? String(describing: error) }
             return false
+        }
+    }
+
+    /// The free space as the screens show it, or nil when the recorder will not say: see `attach`. A disk
+    /// of no size counts as not saying, since the screens would show it as 残り 0 GB -- a full disk, which is
+    /// the one thing it is not known to be. Throws only silence.
+    private static func storage(of client: RecorderClient) async throws -> (free: Int, total: Int)? {
+        guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
+              capacity.totalBytes > 0 else { return nil }
+        return (capacity.freeBytes, capacity.totalBytes)
+    }
+
+    /// The free space read again, after a delete or with the list of recordings. It is only shown, so a
+    /// recorder that will not say is not an error: the read used to be part of the delete, and failing it
+    /// put an error on screen, and reported the delete as failed, for a recording that had gone. Silence
+    /// is still silence, whatever was being asked.
+    private func refreshStorage(_ client: RecorderClient) async {
+        do {
+            storage = try await Self.storage(of: client)
+        } catch {
+            lostTheRecorder()
         }
     }
 
@@ -1112,9 +1144,7 @@ final class AppModel {
         } else {
             job?.lostRecorder = true
         }
-        if case .delete = kind, !unreachable, let capacity = try? await client.recordDestinationInfo() {
-            storage = (capacity.freeBytes, capacity.totalBytes)
-        }
+        if case .delete = kind, !unreachable { await refreshStorage(client) }
         // the sets were built from recordings that may no longer all be there
         if !duplicates.isEmpty { recomputeDuplicates() }
         job?.finished = true
@@ -1313,8 +1343,7 @@ final class AppModel {
             // The sets on screen were built from the list as it was. A copy one says it keeps may have gone
             // since, and deleting the others would then leave nothing.
             if !self.duplicates.isEmpty { self.recomputeDuplicates() }
-            let capacity = try await client.recordDestinationInfo()
-            self.storage = (capacity.freeBytes, capacity.totalBytes)
+            await self.refreshStorage(client)
         }
     }
 
@@ -1396,8 +1425,9 @@ final class AppModel {
         let deleted = await run("削除中", sending: true) {
             try await client.deleteTitle(id: title.id)
             self.titles.removeAll { $0.id == title.id }
-            let capacity = try await client.recordDestinationInfo()
-            self.storage = (capacity.freeBytes, capacity.totalBytes)
+            // Under the same line, but not able to fail the delete, which has happened whatever this says:
+            // see `refreshStorage`.
+            await self.refreshStorage(client)
         }
         // as for protecting: silence may have come after the recording had gone
         if !deleted, unreachable { titlesLoaded = false }

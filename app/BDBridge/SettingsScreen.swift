@@ -144,7 +144,10 @@ struct SettingsScreen: View {
                     Section("接続中のレコーダー") {
                         LabeledContent("機種", value: info.product)
                         LabeledContent("名前", value: info.friendlyName)
-                        LabeledContent("ファームウェア", value: model.firmware)
+                        // empty when the recorder would not say, which another model may not
+                        if !model.firmware.isEmpty {
+                            LabeledContent("ファームウェア", value: model.firmware)
+                        }
                         LabeledContent("番組表", value: info.epgCapable ? "対応" : "非対応")
                         if let storage = model.storage {
                             LabeledContent("残り容量",

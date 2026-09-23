@@ -295,12 +295,20 @@ public actor RecorderClient {
     }
 
     /// Capacity of a recording destination, in bytes.
+    ///
+    /// An answer without both numbers in it is thrown as `unexpectedAnswer`. It used to be read as nothing
+    /// of either, which is a full disk: 残り 0.0 GB on screen, and a warning that the recorder was running out
+    /// of room, from a recorder that had only said it differently.
     public func recordDestinationInfo(destination: String = "HDD") async throws -> (totalBytes: Int, freeBytes: Int) {
-        let root = try await call(Upnp.contentDirectoryControlURL, Upnp.contentDirectoryService,
-                                  "X_HDLnkGetRecordDestinationInfo", [("RecordDestinationID", destination)])
+        let action = "X_HDLnkGetRecordDestinationInfo"
+        let root = try await call(Upnp.contentDirectoryControlURL, Upnp.contentDirectoryService, action,
+                                  [("RecordDestinationID", destination)])
         guard let text = root.firstDescendantText("RecordDestinationInfo"),
-              let info = try? XmlNode.parse(text) else { return (0, 0) }
-        return (Int(info.attributes["totalCapacity"] ?? "") ?? 0, Int(info.attributes["availableCapacity"] ?? "") ?? 0)
+              let info = try? XmlNode.parse(text),
+              let total = info.attributes["totalCapacity"].flatMap({ Int($0) }),
+              let free = info.attributes["availableCapacity"].flatMap({ Int($0) })
+        else { throw RecorderError.unexpectedAnswer(action: action) }
+        return (total, free)
     }
 
     /// Raw DIDL-Lite for a container's children.
