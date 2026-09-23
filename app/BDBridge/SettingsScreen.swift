@@ -60,10 +60,10 @@ struct SettingsScreen: View {
                             model.host = tidied.host
                             Task { await model.connect() }
                         }
-                        .disabled(!RecorderAddress.isUsable(tidied.host) || model.busy != nil)
+                        .disabled(!RecorderAddress.isUsable(tidied.host) || model.busy != nil || model.jobRunning)
                     } else if !model.connected, !model.host.isEmpty {
                         Button("再接続") { Task { await model.connect() } }
-                            .disabled(model.busy != nil)
+                            .disabled(model.busy != nil || model.jobRunning)
                     }
                 } header: {
                     Text("レコーダー")

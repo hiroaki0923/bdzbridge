@@ -32,6 +32,11 @@ struct JobBarView: View {
                 }
                 if !job.finished {
                     ProgressView(value: job.progress)
+                    // Said while it runs, since nothing can say it once the reader has gone: iOS suspends the
+                    // app soon after it leaves, so the job finishes the recording it is on and waits there.
+                    Text("アプリを離れると一時停止し、戻ると再開します")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 if job.finished, !job.skipped.isEmpty {
                     ForEach(job.skipped.prefix(3)) { skip in

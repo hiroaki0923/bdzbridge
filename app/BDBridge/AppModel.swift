@@ -103,6 +103,12 @@ final class AppModel {
     /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
     /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
     private var connecting = false
+    /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
+    private var inBackground = false
+    /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
+    private var backInFront: CheckedContinuation<Void, Never>?
+    /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
+    private var stepTask = UIBackgroundTaskIdentifier.invalid
 
     private static let hostKey = "recorderHost"
     private static let macKey = "recorderMac"
@@ -421,7 +427,12 @@ final class AppModel {
     /// happens here rather than as a button — the address came from the recorder itself, the packet costs
     /// nothing, and the reader only wanted to see their guide.
     func connect() async {
-        guard !host.isEmpty, !connecting else { return }
+        // Not while a bulk job or the duplicate scan is running. It holds the client it started with, and a
+        // new one beside it is two queues talking at once to a recorder that answers 503 to the second --
+        // which the connect took for a device that is not a recorder and gave up on, putting "not connected"
+        // over a job that was still going. Here rather than at the callers, so that 再接続 and pulling down
+        // are held off as well. The job makes sure of the recorder by itself, and stops at the first silence.
+        guard !host.isEmpty, !connecting, !jobRunning else { return }
         // A check already waking this recorder with the client in hand is doing what this would do, and a
         // second client beside it would talk over it. Asked for meanwhile -- by pulling down, which is what a
         // screen of lists waiting on the waking invites -- this waits for its answer rather than start again.
@@ -466,7 +477,11 @@ final class AppModel {
         // Trying again by itself would only spend another half-minute arriving at the same silence. The
         // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
         // network asks again without being told to.
-        gaveUp = !reached
+        // Only silence, though. A recorder that answered, if only to refuse -- a 503 because something else
+        // was talking to it, a fault from a model without one of the calls -- is there, and has said what is
+        // wrong already. Giving up on it put "not connected" on screen beside a recorder that was answering,
+        // and kept the next return to the app from asking again.
+        gaveUp = !reached && unreachable
         if reached {
             // Before the guide, because the guide marks what is already set to record and the marks come
             // from this list. Reading it only when the reservations screen appeared meant that opening the
@@ -706,11 +721,9 @@ final class AppModel {
         }
         if await wakeAndAttach(client) { return true }
         // Given up, as a connect is when waking does not bring the recorder back. Something that answered
-        // only to refuse has said so already, and is not silence.
-        guard unreachable else {
-            gaveUp = true
-            return false
-        }
+        // only to refuse has said so already, and is not silence, so it is not given up on either: see
+        // `connect()`.
+        guard unreachable else { return false }
         lostTheRecorder()
         // Waking says why it gave up; without a MAC there was no waking to say it.
         if !canWake { problem = RecorderError.transport("no answer").explanation }
@@ -921,12 +934,19 @@ final class AppModel {
         // read would otherwise cost the first recording a timeout, and every one after it another.
         if await wakeIfDozing() {
             for id in ids {
+                guard await readyForNextStep() else {
+                    job?.lostRecorder = true
+                    break
+                }
+                // after the wait, so that 中止 tapped while the recorder was being woken is heeded
                 if job?.cancelled == true { break }
                 do {
-                    switch kind {
-                    case .delete: try await deleteOne(id, client)
-                    case .protecting(let on): try await protectOne(id, on, client)
-                    case .scanning: break
+                    try await keepingAlive {
+                        switch kind {
+                        case .delete: try await deleteOne(id, client)
+                        case .protecting(let on): try await protectOne(id, on, client)
+                        case .scanning: break
+                        }
                     }
                 } catch {
                     // Silence. Stop at the first, since every recording after it would wait out the same
@@ -949,6 +969,47 @@ final class AppModel {
         if !duplicates.isEmpty { recomputeDuplicates() }
         job?.finished = true
         jobTask = nil
+    }
+
+    /// Whether a bulk job or the scan may take its next step, having waited first for as long as the app is
+    /// in the background.
+    ///
+    /// No step is started while the reader is away. iOS suspends the app soon after it leaves, and a request
+    /// frozen with it comes back as a failure, which would stop the job for a recorder that had gone nowhere,
+    /// unsure whether the recording it was on had been deleted. So the job waits here, between two steps, and
+    /// goes on when the app is back -- after making sure of a recorder that has had all that time to fall
+    /// asleep. The step under way as the reader leaves is finished first, under `keepingAlive`.
+    ///
+    /// False when the recorder is not there to ask. Silence met by anything stops the job, not only silence
+    /// met by the job: a list another screen was loading may have met it first, and the next step would only
+    /// wait out the same timeout to find out again.
+    private func readyForNextStep() async -> Bool {
+        if inBackground {
+            await withCheckedContinuation { backInFront = $0 }
+            // A screen coming back may be waking the recorder already, and until that is over the app counts
+            // it as not answering. Its outcome is the one to go by.
+            if let wakeCheck { _ = await wakeCheck.value }
+            guard await wakeIfDozing() else { return false }
+        }
+        return !unreachable
+    }
+
+    /// Runs one step of a bulk job under a background task, so that a step under way when the reader leaves
+    /// the app is finished rather than frozen half way (see `readyForNextStep`). iOS allows half a minute or
+    /// so, which a step fits in with room to spare unless the recorder has gone quiet, and then the task is
+    /// ended when the time runs out, as iOS requires.
+    private func keepingAlive<T>(_ step: () async throws -> T) async rethrows -> T {
+        stepTask = UIApplication.shared.beginBackgroundTask(withName: "BulkStep") { [weak self] in
+            self?.endStepTask()
+        }
+        defer { endStepTask() }
+        return try await step()
+    }
+
+    private func endStepTask() {
+        guard stepTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(stepTask)
+        stepTask = .invalid
     }
 
     // MARK: - duplicates
@@ -978,9 +1039,13 @@ final class AppModel {
             for title in group {
                 if !answering || job?.cancelled == true { break scan }
                 if summaries[title.id] == nil {
+                    guard await readyForNextStep() else {
+                        answering = false
+                        break scan
+                    }
                     let summary: String
                     do {
-                        summary = try await client.titleDetail(id: title.id).summary
+                        summary = try await keepingAlive { try await client.titleDetail(id: title.id).summary }
                     } catch let error as RecorderError where error.unreachable {
                         // Stop at the first silence rather than wait it out once for every recording left,
                         // and keep nothing for this one: silence says nothing about what it is.
@@ -1349,13 +1414,29 @@ final class AppModel {
         }
     }
 
-    /// The app has come back to the front. The recorder may have gone to sleep while it was away -- a
-    /// BDZ-FBT4100 leaves the network after a quarter of an hour or so -- and the screens would otherwise
-    /// show what was true when the app was last looked at. Connecting again also sends anything queued.
+    /// The app has gone to the background, which is what makes coming back worth a reconnect. Only this
+    /// counts. Control Centre, Notification Centre, the app switcher and a system alert take the app out of
+    /// `.active` as well, without it going anywhere, and reconnecting after each of them sent a magic packet
+    /// for a glance at the time -- and, with a bulk job running, set a second client talking over the job's.
+    func wentToBackground() {
+        inBackground = true
+    }
+
+    /// The app is active again. The recorder may have gone to sleep while it was away -- a BDZ-FBT4100 leaves
+    /// the network after a quarter of an hour or so -- and the screens would otherwise show what was true
+    /// when the app was last looked at. Connecting again also sends anything queued. Called every time the
+    /// scene becomes active, and connects only when the app has really been away: see `wentToBackground`.
     func returnedToForeground() async {
+        let wasAway = inBackground
+        inBackground = false
+        // A bulk job waiting between two steps goes on, and makes sure of the recorder itself first.
+        backInFront?.resume()
+        backInFront = nil
         // Before any of the reasons below not to connect: a day may have gone by while the app was away,
         // with or without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
+        // Not after a moment in Control Centre and the like, which went nowhere: see `wentToBackground`.
+        guard wasAway else { return }
         // Nor while a check is making sure of the recorder: connecting would make a second client beside the
         // one the check is using. The conflict check has no line of its own to make `busy` say so.
         guard !host.isEmpty, busy == nil, wakeCheck == nil else { return }

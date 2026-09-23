@@ -58,8 +58,16 @@ struct RootView: View {
             welcoming = model.host.isEmpty
             await model.start()
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.returnedToForeground() } }
+        // From the first phase too, not only from changes. A window the system makes again for a process that
+        // stayed alive in the background can come up already active, and a bulk job waiting for the app to
+        // come back would then wait for good. An ordinary launch has not been away, so nothing connects from
+        // here then; `start()` does that.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            switch phase {
+            case .background: model.wentToBackground()
+            case .active: Task { await model.returnedToForeground() }
+            default: break
+            }
         }
         .fullScreenCover(isPresented: $welcoming) { WelcomeView() }
     }
@@ -136,10 +144,12 @@ struct RecorderActivityBar: View {
                 Image(systemName: "wifi.exclamationmark").font(.footnote)
                 Text("レコーダーに接続していません").font(.footnote)
                 Spacer()
+                // Not while a bulk job runs, when connecting does nothing: see `connect()`.
                 Button("再接続") { Task { await model.connect() } }
                     .font(.footnote.weight(.semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
+                    .disabled(model.jobRunning)
             }
         }
     }
@@ -226,6 +236,7 @@ struct NoRecorderView: View {
                 // there is nothing here about waking: trying again is the whole of it.
                 Button("再接続") { Task { await model.connect() } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(model.jobRunning)
             }
         }
     }
