@@ -69,6 +69,7 @@ struct WelcomeView: View {
                         ForEach(model.found, id: \.host) { recorder in
                             Button { Task { await take(recorder) } } label: { FoundRecorderRow(recorder: recorder) }
                                 .buttonStyle(.plain)
+                                .disabled(!model.canChangeRecorder)
                         }
                     }
                 }
@@ -83,13 +84,12 @@ struct WelcomeView: View {
                         Button("このアドレスに接続") {
                             // the field shows what is saved, so that what was taken off can be seen to be gone
                             typedHost = typed.host
-                            model.host = typed.host
                             Task {
-                                await model.connect()
+                                await model.adopt(host: typed.host)
                                 leaveIfConnected()
                             }
                         }
-                        .disabled(!RecorderAddress.isUsable(typed.host) || model.busy != nil)
+                        .disabled(!RecorderAddress.isUsable(typed.host) || !model.canChangeRecorder)
                     } else {
                         Button("IP アドレスを直接入力") { typing = true }
                     }
@@ -103,7 +103,7 @@ struct WelcomeView: View {
                             dismiss()
                         }
                     }
-                    .disabled(model.busy != nil)
+                    .disabled(!model.canChangeRecorder)
                 } footer: {
                     Text("レコーダーが無くても、架空の番組表と録画一覧でアプリの動きを確かめられます。"
                          + "実在の放送局・番組ではありません。いつでも設定から終了できます。")
@@ -134,7 +134,7 @@ struct WelcomeView: View {
     /// case where the screen was opened from the settings with a recorder already on the line, so the
     /// leaving is tied to the tap that did it.
     private func take(_ recorder: RecorderDescription) async {
-        await model.use(recorder)
+        await model.adopt(host: recorder.host)
         leaveIfConnected()
     }
 

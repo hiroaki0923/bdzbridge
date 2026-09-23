@@ -46,8 +46,10 @@ nobody's recordings. See `scripts/screenshots/README.md`.
 remembers what is done to it, so a reservation made in the demo turns up in the list. It is in the shipped
 build, offered at the end of the tutorial and in the settings, because the first thing the app asks for is a
 recorder on the network and not everybody has one to hand — an App Store reviewer least of all. Its guide
-goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back;
-`BDBridgeUITests/DemoModeTests` is there to keep that true.
+goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back.
+Choosing a recorder from inside the demo — one a scan found, or an address typed in — ends it as well, and
+keeps the recorder chosen rather than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests`
+is there to keep both true.
 
 ## On a real iPhone
 

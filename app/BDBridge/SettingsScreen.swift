@@ -45,8 +45,11 @@ struct SettingsScreen: View {
                         let typed = typedMac.trimmingCharacters(in: .whitespaces)
                         if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
                     }
+                    // Following the model when it forgets the MAC as well: ending the demo can leave none, and
+                    // the field went on showing the demo's, which is nobody's. A half-typed MAC is left alone,
+                    // since it is no MAC and so already agrees with none.
                     .onChange(of: model.mac, initial: true) {
-                        if let mac = model.mac, WakeOnLan.normalise(typedMac) != mac { typedMac = mac }
+                        if WakeOnLan.normalise(typedMac) != model.mac { typedMac = model.mac ?? "" }
                     }
                     // Connecting happens by itself at launch and after a scan, so a button is only for an
                     // address typed by hand, or for trying the saved one again after it failed. The field is
@@ -56,11 +59,11 @@ struct SettingsScreen: View {
                     if tidied.host != model.host || typedHost != model.host {
                         Button("このアドレスに接続") {
                             // the field shows what is saved, so that what was taken off can be seen to be gone
-                            typedHost = tidied.host
-                            model.host = tidied.host
-                            Task { await model.connect() }
+                            let host = tidied.host
+                            typedHost = host
+                            Task { await model.adopt(host: host) }
                         }
-                        .disabled(!RecorderAddress.isUsable(tidied.host) || model.busy != nil || model.jobRunning)
+                        .disabled(!RecorderAddress.isUsable(tidied.host) || !model.canChangeRecorder)
                     } else if !model.connected, !model.host.isEmpty {
                         Button("再接続") { Task { await model.connect() } }
                             .disabled(model.busy != nil || model.jobRunning)
@@ -72,17 +75,20 @@ struct SettingsScreen: View {
                 }
 
                 Section {
+                    // Not while a connect, a load or a job is under way: see `canChangeRecorder`.
                     if model.demo {
                         Button("サンプルデータを終了する", role: .destructive) {
                             Task { await model.leaveDemo() }
                         }
+                        .disabled(!model.canChangeRecorder)
                     } else {
                         Button("サンプルデータで試す") { Task { await model.enterDemo() } }
+                            .disabled(!model.canChangeRecorder)
                     }
                 } footer: {
                     Text(model.demo
                          ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表は削除され、"
-                           + "元のレコーダーの設定に戻ります。"
+                           + "元のレコーダーの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
                          : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
                 }
 
@@ -121,11 +127,12 @@ struct SettingsScreen: View {
                         ForEach(model.found, id: \.host) { recorder in
                             Button {
                                 typedHost = recorder.host
-                                Task { await model.use(recorder) }
+                                Task { await model.adopt(host: recorder.host) }
                             } label: {
                                 FoundRecorderRow(recorder: recorder)
                             }
                             .buttonStyle(.plain)
+                            .disabled(!model.canChangeRecorder)
                         }
                     }
                 }

@@ -113,10 +113,13 @@ struct RecorderActivityBar: View {
                 Image(systemName: "theatermasks").font(.footnote)
                 Text("サンプルデータを表示しています").font(.footnote)
                 Spacer()
+                // Not while a connect or a job is under way, which `busy` alone does not always show: see
+                // `canChangeRecorder`.
                 Button("終了") { Task { await model.leaveDemo() } }
                     .font(.footnote.weight(.semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
+                    .disabled(!model.canChangeRecorder)
             }
         } else if model.connectBlocked {
             // Not given up: the app connects the moment the permission comes. Giving it is the one thing the
