@@ -35,7 +35,7 @@ VPN 前提の構成も要らずアプリがレコーダーと直接話す形が 
 | `recorder/codes.py` | 放送種別・画質・毎回録画・ジャンルのコード表、EPG/ロゴのファイル名 | そのまま定数に | `port/codes.json` |
 | `recorder/epg.py` | EPG ファイルの復号（XOR 0x9D → 連結 zlib → @SRV/@DAY/@EVT）、ARIB 記号の置換 | 必須 | `port/epg-sample.{dat,json}` |
 | `recorder/logo.py` | 局ロゴファイルの復号、PLTE/tRNS の挿入 | 任意（見た目） | `port/logo-sample.{dat,json}` |
-| `recorder/series.py` | 録画タイトルからの番組名抽出（まとめ表示）、重複検出のキー | 必須（まとめ・重複を出すなら）。正規表現をそのまま移す | `port/series.json` |
+| `recorder/series.py` | 録画タイトルからの番組名抽出（まとめ表示）、重複検出のキー | 必須（まとめ・重複を出すなら）。正規表現をそのまま移す。結果はタイトルごとに覚えておく（まとめは描画のたびに全録画を通すので、毎回求めると 1,300 本で数十 ms かかる） | `port/series.json` |
 | `recorder/wol.py` | Wake-on-LAN | **必須に近い**。レコーダーは時間の 4 分の 3 を寝て過ごすので例外処理ではなく通常の経路。**MAC はレコーダー自身が教えてくれる**（`X_GetPrivateIp`、または `description.xml` の UDN 末尾）ので、利用者に入力させる必要はない | — |
 | `store/guide.py` | SQLite の番組表キャッシュ（検索用正規化、サブチャンネルの参照解決、放送日 04:00 区切り） | 端末内 DB に作り直す。仕様は下記「番組表の扱い」 | — |
 | `store/rules.py` + `services/autorec.py` | 番組表からのキーワード自動予約（サーバー側の機能） | 任意。**iOS アプリでは作っていません**: レコーダー本体の「おまかせ・まる録」を読み書きできるので、アプリを閉じていても本体が録ってくれる方を採りました | — |

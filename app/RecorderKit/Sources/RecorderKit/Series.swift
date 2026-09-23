@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Groups recordings into programmes by their titles.
 ///
@@ -9,7 +10,13 @@ import Foundation
 /// down every case.
 public enum Series {
     /// The part of a title that names the programme, for showing to the reader.
-    public static func name(_ title: String) -> String {
+    public static func name(_ title: String) -> String { remembered(title).name }
+
+    /// The grouping key: NFKC, lower-cased, without spaces, so サンプルドラマ and サンプルドラマ group together.
+    public static func key(_ title: String) -> String { remembered(title).key }
+
+    /// What `name` and `key` are made from, worked out afresh.
+    private static func programmeName(_ title: String) -> String {
         let cleaned = clean(title)
         var text = cleaned
 
@@ -48,11 +55,6 @@ public enum Series {
         return cleaned.isEmpty ? title : cleaned
     }
 
-    /// The grouping key: NFKC, lower-cased, without spaces, so サンプルドラマ and サンプルドラマ group together.
-    public static func key(_ title: String) -> String {
-        replacingMatches(of: anyWhitespace, in: Search.normalise(name(title)))
-    }
-
     /// Key for "the same programme title", ignoring marks and spacing. Copies of one broadcast share it.
     public static func sameTitleKey(_ title: String) -> String {
         replacingMatches(of: allSpaces, in: Search.normalise(clean(title)))
@@ -70,6 +72,44 @@ public enum Series {
     static func clean(_ title: String) -> String {
         trimmed(replacingMatches(of: marks, in: replacingMatches(of: privateUse, in: title)))
     }
+
+    // MARK: - remembering
+
+    /// A title's name and key, worked out once.
+    ///
+    /// They are asked for far more often than titles change: the recordings screen groups every recording
+    /// each time it is drawn, and a programme's sheet picks its episodes out of all of them each time it is,
+    /// which is every tick in its selection. Each answer is half a dozen regular expressions and an NFKC
+    /// pass; for 1,300 recordings that came to 35 ms a grouping and 20 ms a sheet's picking out, on a Mac.
+    /// The answer depends on nothing but the title, so it can be kept.
+    private struct Remembered: Sendable {
+        let name: String
+        let key: String
+    }
+
+    /// Titles are the recorder's list of recordings, a few thousand at most, and a title deleted there stays
+    /// here. Starting again at the limit keeps that from growing for as long as the app runs, at the cost of
+    /// working the rest out again once.
+    static let rememberLimit = 8192
+
+    private static let memo = OSAllocatedUnfairLock(initialState: [String: Remembered]())
+
+    private static func remembered(_ title: String) -> Remembered {
+        if let known = memo.withLock({ $0[title] }) { return known }
+        // Worked out outside the lock, so that two threads grouping at once do not queue behind each other's
+        // expressions. Both may work out the same title; they arrive at the same answer.
+        let name = programmeName(title)
+        let found = Remembered(name: name, key: replacingMatches(of: anyWhitespace, in: Search.normalise(name)))
+        memo.withLock { memo in
+            if memo.count >= rememberLimit { memo.removeAll(keepingCapacity: true) }
+            memo[title] = found
+        }
+        return found
+    }
+
+    /// For the tests: whether a title's answer is being kept, and how many are kept.
+    static func isRemembered(_ title: String) -> Bool { memo.withLock { $0[title] != nil } }
+    static var rememberedCount: Int { memo.withLock { $0.count } }
 
     // MARK: - the pieces
 

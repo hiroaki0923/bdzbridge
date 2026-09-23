@@ -168,14 +168,17 @@ struct RecordingsScreen: View {
         } else if duplicating {
             DuplicatesView { opened = $0 }
         } else if grouped {
-            List(model.titleGroups) { group in
+            // Once for the list and its overlay: each read filters, sorts and groups every recording.
+            let groups = model.titleGroups
+            List(groups) { group in
                 Button { openedGroup = group } label: { GroupRowView(group: group).rowHitArea() }
                     .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .overlay { if model.titleGroups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if groups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         } else {
-            List(model.shownTitles) { title in
+            let listed = model.shownTitles
+            List(listed) { title in
                 Button { opened = title } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title)).rowHitArea()
@@ -185,7 +188,7 @@ struct RecordingsScreen: View {
                             unprotect: { Task { await model.setProtected(title, false) } })
             }
             .listStyle(.plain)
-            .overlay { if model.shownTitles.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if listed.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
         }
     }
 }
@@ -341,22 +344,28 @@ struct GroupSheet: View {
         case failed(String)
     }
 
-    private var shown: Shown? {
+    private func shown(among members: [RecordedTitle]) -> Shown? {
         if let failure { return .failed(failure) }
         if let id = removing, let title = members.first(where: { $0.id == id }) { return .one(title) }
         return confirmingDelete ? .bulk : nil
     }
 
-    private var members: [RecordedTitle] { model.members(of: group) }
-    private var chosen: [RecordedTitle] { members.filter { selected.contains($0.id) } }
-    private var chosenGB: Double { chosen.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024 }
+    private static func gigabytes(_ titles: [RecordedTitle]) -> Double {
+        titles.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024
+    }
 
     var body: some View {
+        // Read once here and handed to the parts that need them. Each read sorts every recording and picks
+        // this programme's out of them, and every tick in the selection draws the sheet again; read wherever
+        // they were wanted, that came to half a dozen reads a tap.
+        let members = model.members(of: group)
+        let chosen = members.filter { selected.contains($0.id) }
+        let shown = self.shown(among: members)
         NavigationStack {
             VStack(spacing: 0) {
                 JobBarView()
-                if selecting { selectionBar }
-                list
+                if selecting { selectionBar(members: members, chosen: chosen) }
+                list(members)
             }
             .navigationTitle(group.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -384,8 +393,8 @@ struct GroupSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
             }
-            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions } }
-            .alert(shownTitle,
+            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
+            .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { confirmingDelete = false; removing = nil
                                                         failure = nil } }),
@@ -415,7 +424,7 @@ struct GroupSheet: View {
                 switch shown {
                 case .bulk:
                     Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
-                                + "レコーダーから削除され、元に戻せません。", chosenGB))
+                                + "レコーダーから削除され、元に戻せません。", Self.gigabytes(chosen)))
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
                 case .failed(let reason): Text(reason)
                 }
@@ -423,7 +432,7 @@ struct GroupSheet: View {
         }
     }
 
-    private var shownTitle: String {
+    private func shownTitle(_ shown: Shown?, chosen: [RecordedTitle]) -> String {
         switch shown {
         case .bulk: "選択した \(chosen.count) 件を削除しますか？"
         case .failed: "エラー"
@@ -431,7 +440,7 @@ struct GroupSheet: View {
         }
     }
 
-    private var list: some View {
+    private func list(_ members: [RecordedTitle]) -> some View {
         List(members) { title in
             Button {
                 if selecting {
@@ -462,7 +471,7 @@ struct GroupSheet: View {
         .listStyle(.plain)
     }
 
-    private var selectionBar: some View {
+    private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
                 selected = Set(members.filter { !$0.protected && !$0.recording }.map(\.id))
@@ -477,18 +486,18 @@ struct GroupSheet: View {
         .background(Color(.secondarySystemBackground))
     }
 
-    private var actions: some View {
+    private func actions(_ chosen: [RecordedTitle]) -> some View {
         VStack(spacing: 8) {
             Button(role: .destructive) {
                 confirmingDelete = true
             } label: {
-                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, chosenGB))
+                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, Self.gigabytes(chosen)))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             HStack {
-                Button("保護する") { bulkProtect(true) }
-                Button("保護を解除") { bulkProtect(false) }
+                Button("保護する") { bulkProtect(true, chosen) }
+                Button("保護を解除") { bulkProtect(false, chosen) }
             }
             .buttonStyle(.bordered)
         }
@@ -505,7 +514,7 @@ struct GroupSheet: View {
         }
     }
 
-    private func bulkProtect(_ on: Bool) {
+    private func bulkProtect(_ on: Bool, _ chosen: [RecordedTitle]) {
         model.startBulk(.protecting(on), ids: chosen.map(\.id))
         selecting = false
         selected = []

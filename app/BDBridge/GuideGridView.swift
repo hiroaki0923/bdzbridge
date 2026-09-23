@@ -7,9 +7,14 @@ import SwiftUI
 /// across the top, a red line at the current time, and a time axis that pinches. Both rulers are drawn over
 /// the scrolling content and moved by its offset, which is how they stay put on iOS 17.
 struct GuideGridView: View {
-    let channels: [Channel]
-    let programs: [GuideProgramRow]
-    let day: Date
+    private typealias Column = (channel: Channel, programs: [GuideProgramRow])
+
+    /// Channels that have nothing on that day are left out, which drops the sub-channels that only mirror
+    /// their parent.
+    private let columns: [Column]
+    private let dayStart: Date
+    /// The channels' logos, decoded, by service id.
+    private let logos: [Int: UIImage]
     /// Counts the times the reader has asked to be taken back to now. Watched rather than acted on, so the
     /// grid can answer a second ask.
     let nowRequests: Int
@@ -35,6 +40,33 @@ struct GuideGridView: View {
         var unit: Double
     }
 
+    /// The columns, the start of the day and the logos are worked out here, once each time the guide screen
+    /// makes the grid, rather than in the body. The body runs on every frame of a scroll, since the rulers
+    /// follow the offset, and it made the columns afresh 28 times a frame and once more for each column,
+    /// which on CS came to about 9 ms, longer than a frame lasts at 120 Hz. Every logo was decoded from its
+    /// PNG each frame too.
+    init(channels: [Channel], programs: [GuideProgramRow], day: Date, nowRequests: Int,
+         reservationFor: @escaping (GuideProgramRow) -> Reservation?,
+         pendingFor: @escaping (GuideProgramRow) -> PendingReservation?,
+         onSelect: @escaping (GuideProgramRow) -> Void) {
+        let byService = Dictionary(grouping: programs, by: \.serviceID)
+        columns = channels.compactMap { channel in
+            guard let programs = byService[channel.serviceID], !programs.isEmpty else { return nil }
+            return (channel, programs)
+        }
+        dayStart = GuideStore.dayRange(containing: day).start
+        var logos: [Int: UIImage] = [:]
+        for entry in columns {
+            guard let logo = entry.channel.logo, let image = UIImage(data: logo) else { continue }
+            logos[entry.channel.serviceID] = image
+        }
+        self.logos = logos
+        self.nowRequests = nowRequests
+        self.reservationFor = reservationFor
+        self.pendingFor = pendingFor
+        self.onSelect = onSelect
+    }
+
     private let column = 132.0
     private let gutter = 30.0
     private let header = 54.0
@@ -43,24 +75,12 @@ struct GuideGridView: View {
     private let largest = 8.0
     private let space = "guide-grid"
 
-    /// Channels that have nothing on that day are left out, which drops the sub-channels that only mirror
-    /// their parent.
-    private var columns: [(channel: Channel, programs: [GuideProgramRow])] {
-        let byService = Dictionary(grouping: programs, by: \.serviceID)
-        return channels.compactMap { channel in
-            guard let programs = byService[channel.serviceID], !programs.isEmpty else { return nil }
-            return (channel, programs)
-        }
-    }
-
-    private var dayStart: Date { GuideStore.dayRange(containing: day).start }
     private var contentWidth: Double { gutter + Double(columns.count) * column }
     private var contentHeight: Double { header + dayMinutes * pointsPerMinute }
     private var nowMinutes: Double { Date().timeIntervalSince(dayStart) / 60 }
     private var showsNow: Bool { (0..<dayMinutes).contains(nowMinutes) }
 
     var body: some View {
-        let columns = columns
         if columns.isEmpty {
             // The guide screen says why before it makes a grid with no programmes. This is for programmes
             // with none of their channels shown, and says the same as the list would.
@@ -70,9 +90,9 @@ struct GuideGridView: View {
             // width upwards: everything around them would be stretched to it.
             GeometryReader { proxy in
                 ZStack(alignment: .topLeading) {
-                    scroller(columns)
+                    scroller
                     hourRuler(height: proxy.size.height)
-                    channelRuler(columns, width: proxy.size.width)
+                    channelRuler(width: proxy.size.width)
                     corner
                     zoomButtons
                 }
@@ -86,7 +106,7 @@ struct GuideGridView: View {
 
     // MARK: - the scrolling part
 
-    private func scroller(_ columns: [(channel: Channel, programs: [GuideProgramRow])]) -> some View {
+    private var scroller: some View {
         ScrollViewReader { scroller in
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
@@ -230,13 +250,12 @@ struct GuideGridView: View {
         .clipped()
     }
 
-    private func channelRuler(_ columns: [(channel: Channel, programs: [GuideProgramRow])],
-                              width: Double) -> some View {
+    private func channelRuler(width: Double) -> some View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 ForEach(columns, id: \.channel.serviceID) { entry in
                     VStack(spacing: 2) {
-                        if let logo = entry.channel.logo, let image = UIImage(data: logo) {
+                        if let image = logos[entry.channel.serviceID] {
                             Image(uiImage: image).resizable().scaledToFit().frame(width: 36, height: 18)
                         }
                         Text(entry.channel.name).font(.system(size: 10)).lineLimit(1)
