@@ -225,7 +225,46 @@ public actor RecorderClient {
     }
 
     /// Playback on the television attached to the recorder. `pause` toggles, so it resumes as well; `play`
-    /// with a position restarts from the beginning. The recorder has to be fully on.
+    /// starts from the beginning whatever position is given. The recorder has to be fully on: in network
+    /// standby it answers 880.
+    public func playControl(titleID: String, operation: String, position: Int = 0) async throws {
+        _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_PlayControlTitle",
+                           [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
+    }
+
+    /// Plays a recording on the television, turning the recorder on first if it is in network standby --
+    /// which is how it is usually found, since it keeps answering the LAN in standby and is only switched on
+    /// to be watched. Answered with 880, the play used to end there, and the reader had to turn the recorder
+    /// on, wait without being told for how long, and ask again.
+    ///
+    /// Only an 880 turns it on. The power state is not asked first: that would be one request more on every
+    /// play of a recorder that is already on, and the demo's recorder, which never answers 880, does not
+    /// report a power state at all. Once it has been told to come on, `X_GetPlayStatus` is asked every
+    /// `interval` until `powerstatus` says `PowerOn`, and the play is sent again. After `limit` it is sent
+    /// regardless, and a recorder still in standby answers it with 880, which is thrown to the caller.
+    ///
+    /// `waiting` is told how many seconds the wait has lasted, each time round, for the screen to say: the
+    /// recorder and the television coming on take long enough to look like nothing is happening.
+    public func play(titleID: String, limit: TimeInterval = RecorderClient.powerOnLimit,
+                     interval: Duration = .seconds(1), waiting: @Sendable (Int) async -> Void) async throws {
+        do {
+            try await playControl(titleID: titleID, operation: "play")
+            return
+        } catch let error as RecorderError where error.needsPowerOn {}
+        try await powerOn()
+        let started = Date()
+        while Date().timeIntervalSince(started) < limit {
+            await waiting(Int(Date().timeIntervalSince(started)))
+            try await Task.sleep(for: interval)
+            if try await playStatus()["powerstatus"] == "PowerOn" { break }
+        }
+        try await playControl(titleID: titleID, operation: "play")
+    }
+
+    /// How long `play` waits for a recorder in standby to come on. How long a BDZ-FBT4100 takes has not been
+    /// timed, so this is as generous as the wait for a magic packet; the wait ends as soon as it says it is on.
+    public static let powerOnLimit: TimeInterval = 30
+
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
     /// Filter must be "*": unlike the title and reservation lists this one honours it, and an empty one drops
@@ -246,11 +285,6 @@ public actor RecorderClient {
 
     public func deleteRecorderRule(id: String) async throws {
         _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_DeletePrefRecSetting", [("SearchSettingID", id)])
-    }
-
-    public func playControl(titleID: String, operation: String, position: Int = 0) async throws {
-        _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_PlayControlTitle",
-                           [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
     }
 
     public func liveChannelIDs(broadcastingType: Int) async throws -> [Int] {

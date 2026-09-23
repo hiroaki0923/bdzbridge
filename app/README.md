@@ -191,6 +191,13 @@ The recordings screen lists what the recorder holds, as a flat list or gathered 
 space, the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the
 television, protects it against the recorder's own tidying, and deletes it behind a confirmation.
 
+Playing a recording is one tap even when the recorder is in network standby, which is how it is found
+whenever nobody is watching it. The recorder answers the play with 880; only then does the app turn it on,
+wait for it to say it is on, with the seconds counting on the sheet, and play again. The power state is not
+asked beforehand, which would cost a request on every play of a recorder that is already on. The recorder
+cannot be told where to start -- `play` begins at the beginning whatever position is sent -- so the button
+on a recording watched partway says 最初から再生.
+
 The duplicate copies of one broadcast can be found: recordings with the same title and nearly the same
 length are candidates, and asking the recorder what each one is about confirms them. Where the text agrees,
 the copy to keep is suggested with the reason and the rest come ticked for deletion. Whatever is left

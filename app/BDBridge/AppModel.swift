@@ -1407,19 +1407,35 @@ final class AppModel {
     }
 
     /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
-    /// call resumes. A recorder in network standby answers 880, which is what `needsPower` reports.
+    /// call resumes.
+    ///
+    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying
+    /// on the line how long it has been: the recorder is in standby whenever nobody is watching it, and the
+    /// 880 it answers used to end the tap there. A recorder that has still not come on by the end of the wait,
+    /// or a pause or a stop sent to one in standby, answers 880 all the same, which is what `needsPower`
+    /// reports and the sheet offers to turn it on for.
     func play(_ title: RecordedTitle, _ operation: String) async {
         await start()
         guard let client else { return }
         needsPower = false
-        await run(operation == "stop" ? "停止中" : "再生を指示中") {
+        await run(operation == "stop" ? "停止中" : "再生を指示中") { activity in
             do {
-                try await client.playControl(titleID: title.id, operation: operation)
+                if operation == "play" {
+                    try await client.play(titleID: title.id) { @MainActor seconds in
+                        self.activities.update(activity, to: Self.poweringOnLine(seconds))
+                    }
+                } else {
+                    try await client.playControl(titleID: title.id, operation: operation)
+                }
             } catch let error as RecorderError where error.needsPowerOn {
                 self.needsPower = true
                 throw error
             }
         }
+    }
+
+    private static func poweringOnLine(_ seconds: Int) -> String {
+        "レコーダーの電源を入れています（\(seconds) 秒）"
     }
 
     /// Turns the recorder on, which also turns on the television attached to it.

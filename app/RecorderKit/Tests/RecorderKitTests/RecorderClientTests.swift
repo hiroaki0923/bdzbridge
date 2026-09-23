@@ -95,6 +95,89 @@ final class RecorderClientTests: XCTestCase {
         }
     }
 
+    /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,
+    /// and the play goes again. It used to stop at the 880 and take a second button and a second go.
+    func testPlayingInStandbyTurnsTheRecorderOnWaitsForItAndPlays() async throws {
+        let answers = [
+            Stub.fault("880"),
+            Stub.soap("X_PowerControl", result: "<power><powerstatus>PowerOn</powerstatus></power>"),
+            Stub.soap("X_GetPlayStatus", result: playStatus("PowerInternalOn")),
+            Stub.soap("X_GetPlayStatus", result: playStatus("PowerOn")),
+            Stub.soap("X_PlayControlTitle"),
+        ]
+        let transport = StubTransport { _, index in answers[min(index, answers.count - 1)] }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        let waits = Waits()
+
+        try await client.play(titleID: "0x1", interval: .milliseconds(1)) { await waits.add($0) }
+
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle", "X_PowerControl", "X_GetPlayStatus", "X_GetPlayStatus",
+                                 "X_PlayControlTitle"])
+        let bodies = await transport.bodies
+        XCTAssertTrue(bodies[1].contains("<Operation>on</Operation>"), bodies[1])
+        XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
+        XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
+        let said = await waits.seconds
+        XCTAssertEqual(said.count, 2, "the screen is told once for each look at the status")
+    }
+
+    /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual
+    /// case, and the demo's recorder does not report its power state at all.
+    func testPlayingOnARecorderThatIsOnSendsOnlyThePlay() async throws {
+        let transport = StubTransport(always: Stub.soap("X_PlayControlTitle"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        let waits = Waits()
+
+        try await client.play(titleID: "0x1") { await waits.add($0) }
+
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle"])
+        let said = await waits.seconds
+        XCTAssertEqual(said, [])
+    }
+
+    /// Only standby is worth turning the recorder on for. Anything else it answers -- here a recording it no
+    /// longer has -- is the answer.
+    func testPlayingSomethingTheRecorderRefusesDoesNotTurnItOn() async throws {
+        let transport = StubTransport(always: Stub.fault("820"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        do {
+            try await client.play(titleID: "0x1") { _ in }
+            XCTFail("a fault should throw")
+        } catch let error as RecorderError {
+            guard case .soap(_, _, let code, _) = error else { return XCTFail("wrong case") }
+            XCTAssertEqual(code, "820")
+        }
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle"])
+    }
+
+    /// The wait is bounded. A recorder that never says it is on is sent the play once more all the same, and
+    /// its 880 goes back to the caller, which offers to turn it on by hand.
+    func testARecorderThatStaysInStandbyIsGivenUpOnAfterTheLimit() async throws {
+        let transport = StubTransport { request, _ in
+            switch soapAction(request) {
+            case "X_PlayControlTitle": return Stub.fault("880")
+            case "X_PowerControl":
+                return Stub.soap("X_PowerControl", result: "<power><powerstatus>PowerOn</powerstatus></power>")
+            default: return Stub.soap("X_GetPlayStatus", result: playStatus("PowerInternalOn"))
+            }
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        do {
+            try await client.play(titleID: "0x1", limit: 0.05, interval: .milliseconds(5)) { _ in }
+            XCTFail("a recorder still in standby should throw")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.needsPowerOn)
+        }
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions.first, "X_PlayControlTitle")
+        XCTAssertEqual(actions.last, "X_PlayControlTitle")
+        XCTAssertEqual(actions.filter { $0 == "X_PowerControl" }.count, 1, "turned on once, not on every look")
+        XCTAssertTrue(actions.contains("X_GetPlayStatus"))
+    }
+
     func testRequestsNeverOverlapBecauseTheRecorderAnswers503ToConcurrentCalls() async throws {
         let item = try reservationItem()
         let transport = StubTransport { _, _ in
@@ -258,6 +341,23 @@ final class RecorderClientTests: XCTestCase {
         "<item id=\"\(id)\"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
             + "<scheduledDuration>60</scheduledDuration></item>"
     }
+}
+
+/// The action a request was for, from its `SOAPACTION` header.
+private func soapAction(_ request: HTTPRequest) -> String {
+    String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
+        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+}
+
+/// What `X_GetPlayStatus` says, in the shape the recorder says it (docs/xsrs-api.md).
+private func playStatus(_ power: String) -> String {
+    "<status><powerstatus>\(power)</powerstatus><playstatus>Stopped</playstatus></status>"
+}
+
+/// The seconds `play` said it had been waiting, collected across the actor boundary.
+private actor Waits {
+    private(set) var seconds: [Int] = []
+    func add(_ value: Int) { seconds.append(value) }
 }
 
 extension RecorderClientTests {

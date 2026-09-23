@@ -147,6 +147,11 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
   「録画中」と出すこと。完了したタイトルが `0` であることは実機で確認済み、`1` の観測は未了（予約一覧の
   同名フラグと同じ意味と解釈）。
 - 再生は `X_PlayControlTitle`（`play` / `stop` / `pause`、小文字。`pause` はトグルで再開も同じ）。テレビ側で再生される。
+  `Position` を付けても先頭から始まるので、途中まで見た録画のボタンは「最初から再生」にしてある。
+- ネットワークスタンバイ中の `play` は 880。アプリはそのときだけ `X_PowerControl` の `on` を送り、`X_GetPlayStatus` の
+  `powerstatus` が `PowerOn` になるまで 1 秒ごとに見て（最長 30 秒、経過秒数を画面に出す）、もう一度 `play` を送る
+  （`RecorderClient.play`）。先に電源状態は確かめない: 電源が入っているときに毎回 1 往復増えるうえ、サンプルデータの
+  レコーダーは `powerstatus` を返さない。待っても入らなければ 880 のまま返り、手で電源を入れるボタンが出る。
 - 残容量は ContentDirectory の `X_HDLnkGetRecordDestinationInfo`（バイト単位）。
 - サムネイルは全タイトル共通のダミー画像なので出さない。番組内容は `X_GetTitleDetail`（summary と detail 群）。
 - DLNA ツリーにはシリーズ ID がない。「まとめ」はタイトル文字列から `series.py` の規則で作る。公式クライアントも

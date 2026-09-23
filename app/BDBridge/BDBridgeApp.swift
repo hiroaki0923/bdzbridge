@@ -98,6 +98,10 @@ struct SheetCloseButton: View {
 /// only while something is under way and slides out when it is done.
 struct RecorderActivityBar: View {
     @Environment(AppModel.self) private var model
+    /// Set for the strip at the top of a sheet. The demo's strip is left to the screen underneath: its 終了
+    /// would end the demo under a sheet still showing one of the demo's recordings, whose buttons would then
+    /// go to whichever recorder came after it.
+    var inSheet = false
 
     var body: some View {
         if let busy = model.busy {
@@ -123,7 +127,7 @@ struct RecorderActivityBar: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("閉じる")
             }
-        } else if model.demo, DemoData.banner {
+        } else if model.demo, DemoData.banner, !inSheet {
             // Said on every screen, because everything on them is invented and a reader who forgets that
             // would take the free space, the recordings and the reservations for their own.
             strip {
@@ -181,8 +185,9 @@ struct RecorderActivityBar: View {
 }
 
 /// The waking, said inside a sheet. The strip that says it on the screens is underneath the sheet, and a sheet
-/// is where much of what wakes the recorder is asked for -- opening a programme, changing a reservation,
-/// playing a recording -- so without this half a minute went by with nothing moving but a greyed-out button.
+/// is where much of what wakes the recorder is asked for -- opening a programme, changing a reservation -- so
+/// without this half a minute went by with nothing moving but a greyed-out button. A recording's sheet has the
+/// strip itself instead (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play.
 struct WakingSection: View {
     @Environment(AppModel.self) private var model
 
@@ -199,10 +204,11 @@ struct WakingSection: View {
 }
 
 extension View {
-    /// Puts the activity strip above a screen's content, inside its navigation stack.
-    func recorderActivity() -> some View {
+    /// Puts the activity strip above a screen's content, inside its navigation stack. `inSheet` for a sheet's
+    /// own, which leaves out the demo's strip (see `RecorderActivityBar.inSheet`).
+    func recorderActivity(inSheet: Bool = false) -> some View {
         safeAreaInset(edge: .top, spacing: 0) {
-            RecorderActivityBar().animation(.default, value: true)
+            RecorderActivityBar(inSheet: inSheet).animation(.default, value: true)
         }
     }
 }
