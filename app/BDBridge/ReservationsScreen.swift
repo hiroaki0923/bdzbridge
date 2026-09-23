@@ -180,11 +180,22 @@ struct ReservationsScreen: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button("取り消す") { Task { await model.removePending(waiting) } }.tint(.red)
                             }
+                            // A refused one is not sent again by itself, since the answer would be the same;
+                            // the reader is the one who knows when whatever it names has changed.
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                if waiting.problem != nil {
+                                    Button("もう一度送る") { Task { await model.resend(waiting) } }
+                                        .tint(.blue)
+                                }
+                            }
                     }
                 } header: {
                     Text("送信待ち \(model.pending.count) 件")
                 } footer: {
-                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。")
+                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
+                         + (model.pending.contains { $0.problem != nil }
+                            ? "レコーダーが受け付けなかったものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+                            : ""))
                 }
             }
             ForEach(model.reservationSections) { section in

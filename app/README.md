@@ -254,7 +254,13 @@ recorder answers -- a launch at home, a pull on the reservations list, the overn
 waiting is sent, by one set of rules in `RecorderKit/PendingQueue.swift` that the screens and the overnight
 run share. A programme that has already finished is dropped rather than sent; one that is
 on air is still sent, since the recorder records what is left of it. A reservation the recorder refuses
-keeps its reason on the row rather than being retried silently for ever.
+with a reason of its own (a SOAP fault with an `errorCode`, such as 831 for a channel it cannot receive)
+keeps the reason on the row and is not sent again until the reader asks, with もう一度送る on the row or
+on the programme's sheet; a 503 or an answer with no code says nothing about the reservation, so that one
+is simply sent again next time. The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
+sheet offers to send it again or cancel it rather than the reservation form. What became of the queue is
+said in one line at the top of the screen when the app sent it, and in a notification when the overnight
+run did.
 
 Only silence is queued. A recorder that answers and says no has said something worth reading, so that is
 shown as it always was.

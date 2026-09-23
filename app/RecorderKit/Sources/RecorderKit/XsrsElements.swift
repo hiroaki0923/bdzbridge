@@ -69,7 +69,8 @@ public struct PendingReservation: Sendable, Equatable, Identifiable {
     /// The channel's name as the guide had it, so the row reads properly with the guide since replaced.
     public var serviceName: String
     public var queuedAt: Date
-    /// What the recorder said last time this was tried, if it has been tried and refused.
+    /// What the recorder said last time this was tried, if it has been tried and refused. While it is set the
+    /// queue does not send this again (`PendingQueue.flush`); clearing it is how the reader asks for another try.
     public var problem: String?
 
     /// One reservation per programme: the same programme queued twice replaces the first.

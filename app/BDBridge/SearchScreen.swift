@@ -138,7 +138,8 @@ struct SearchScreen: View {
             List(programs) { program in
                 Button { openedProgram = program } label: {
                     ProgramRowView(program: program, logo: model.logo(for: program),
-                                   reservation: model.reservation(for: program))
+                                   reservation: model.reservation(for: program),
+                                   pending: model.pending(for: program))
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)

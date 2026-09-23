@@ -1,8 +1,8 @@
 import RecorderKit
 import SwiftUI
 
-/// One programme: what it is, whether the recorder is already set to record it, and the two choices that go
-/// with a new reservation.
+/// One programme: what it is, whether the recorder is already set to record it -- or will be, once a
+/// reservation waiting on this phone reaches it -- and the two choices that go with a new reservation.
 struct ProgramSheet: View {
     let program: GuideProgramRow
     @Environment(AppModel.self) private var model
@@ -18,6 +18,7 @@ struct ProgramSheet: View {
     private enum Ask {
         case reserve
         case cancel(Reservation)
+        case cancelPending(PendingReservation)
         case failed(String)
         /// The recorder was not there, so the reservation is waiting instead of made.
         case queued
@@ -33,6 +34,7 @@ struct ProgramSheet: View {
     @State private var editing: Reservation?
 
     private var reservation: Reservation? { model.reservation(for: program) }
+    private var waiting: PendingReservation? { model.pending(for: program) }
     private var past: Bool { program.end <= Date() }
 
     /// A weekly repeat has to fall on the programme's own weekday, so only that one is offered.
@@ -68,7 +70,13 @@ struct ProgramSheet: View {
                         Button("予約を取り消す", role: .destructive) { ask = .cancel(reservation) }
                             .disabled(model.busy != nil)
                     }
-                } else if !past {
+                }
+                if let waiting {
+                    pendingSection(waiting)
+                }
+                // Not for a programme already waiting to be sent: a second reservation made here only replaced
+                // the first in the queue, and a sheet offering the form again said the first had not been kept.
+                if reservation == nil, waiting == nil, !past {
                     Section("録画予約") {
                         Picker("録画モード", selection: $quality) {
                             ForEach(Codes.qualityOrder, id: \.self) { code in
@@ -130,6 +138,13 @@ struct ProgramSheet: View {
                             if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
                         }
                     }
+                case .cancelPending(let waiting):
+                    Button("取り消す", role: .destructive) {
+                        Task {
+                            await model.removePending(waiting)
+                            done = true
+                        }
+                    }
                 case .failed, .queued:
                     EmptyView()
                 }
@@ -150,6 +165,9 @@ struct ProgramSheet: View {
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "レコーダーから削除されます。")
+                case .cancelPending(let waiting):
+                    Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
+                         + "この端末から削除し、レコーダーには送りません。")
                 case .failed(let reason):
                     Text(reason)
                 case .queued:
@@ -165,6 +183,7 @@ struct ProgramSheet: View {
     private var askTitle: String {
         switch ask {
         case .cancel: "この予約を取り消しますか？"
+        case .cancelPending: "送信待ちの予約を取り消しますか？"
         case .failed: "エラー"
         case .queued: "送信待ちにしました"
         case .reserve: model.offline ? "この番組を送信待ちにしますか？" : "この番組を録画予約しますか？"
@@ -173,6 +192,31 @@ struct ProgramSheet: View {
     }
 
     private var taskKey: String { "\(program.id)-\(quality)-\(repeating)" }
+
+    /// A reservation made while the recorder could not be reached. It shows what was asked for, since the
+    /// recorder has not made anything of it yet, and what the recorder said if it refused.
+    private func pendingSection(_ waiting: PendingReservation) -> some View {
+        Section("この番組は送信待ちです") {
+            LabeledContent("録画モード",
+                           value: Codes.quality(code: waiting.request.qualityCode)
+                               .map { Codes.qualityLabel[$0] ?? $0 } ?? "-")
+            LabeledContent("毎回録画",
+                           value: Codes.repeatLabel[Codes.repeatName(code: waiting.request.repeatCode) ?? ""]
+                               ?? "しない")
+            if let problem = waiting.problem {
+                // Refused, and not sent again by itself: asking again gets the same answer until whatever
+                // it names has changed, which only the reader can know.
+                Text(problem).foregroundStyle(.red).font(.callout)
+                Button("もう一度送る") { Task { await model.resend(waiting) } }
+                    .disabled(model.working)
+            } else {
+                Text("レコーダーに届いていない予約です。次にレコーダーにつながったときに登録します。")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
+            Button("送信待ちを取り消す", role: .destructive) { ask = .cancelPending(waiting) }
+        }
+    }
 
     @ViewBuilder
     private var conflictRow: some View {
@@ -199,7 +243,7 @@ struct ProgramSheet: View {
     }
 
     private func check() async {
-        guard reservation == nil, !past, model.connected else { return }
+        guard reservation == nil, waiting == nil, !past, model.connected else { return }
         checking = true
         conflicts = await model.conflicts(for: program, quality: quality, repeating: repeating)
         checking = false

@@ -106,6 +106,23 @@ struct RecorderActivityBar: View {
                 Text(busy).font(.footnote)
                 Spacer()
             }
+        } else if let report = model.flushReport {
+            // What became of the reservations that were waiting, whichever screen the app came back to. Ahead
+            // of 再接続 below: a flush the recorder walked out of says which were sent, and the strip goes back
+            // to offering the reconnect once this is closed.
+            strip {
+                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90").font(.footnote)
+                Text(report).font(.footnote).lineLimit(3)
+                Spacer(minLength: 0)
+                Button {
+                    model.flushReport = nil
+                } label: {
+                    Image(systemName: "xmark").font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("閉じる")
+            }
         } else if model.demo, DemoData.banner {
             // Said on every screen, because everything on them is invented and a reader who forgets that
             // would take the free space, the recordings and the reservations for their own.

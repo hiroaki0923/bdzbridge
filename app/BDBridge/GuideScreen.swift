@@ -23,7 +23,8 @@ struct GuideScreen: View {
                 } else if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
-                                  reservationFor: { model.reservation(for: $0) }) { tapped = $0 }
+                                  reservationFor: { model.reservation(for: $0) },
+                                  pendingFor: { model.pending(for: $0) }) { tapped = $0 }
                     .frame(maxHeight: .infinity)
                 } else {
                     list
@@ -170,7 +171,8 @@ struct GuideScreen: View {
                 List(shown) { program in
                     Button { tapped = program } label: {
                         ProgramRowView(program: program, logo: logo(for: program.serviceID),
-                                       reservation: model.reservation(for: program))
+                                       reservation: model.reservation(for: program),
+                                       pending: model.pending(for: program))
                             .rowHitArea()
                     }
                     .buttonStyle(.plain)
@@ -236,6 +238,9 @@ struct ProgramRowView: View {
     let program: GuideProgramRow
     let logo: Data?
     let reservation: Reservation?
+    /// A reservation for it waiting on this phone for the recorder. Marked as well, since it is as much the
+    /// reader's reservation as one the recorder holds; red when the recorder refused it.
+    let pending: PendingReservation?
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -256,6 +261,10 @@ struct ProgramRowView: View {
                         Text(reservation.recording ? "録画中" : "予約")
                             .font(.caption2)
                             .foregroundStyle(reservation.recording ? .red : .orange)
+                    } else if let pending {
+                        Text("送信待ち")
+                            .font(.caption2)
+                            .foregroundStyle(pending.problem == nil ? .orange : .red)
                     }
                     if let genre = program.genre?.label {
                         Text(genre).font(.caption2).foregroundStyle(.tertiary)

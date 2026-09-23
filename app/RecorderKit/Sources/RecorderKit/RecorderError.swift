@@ -67,6 +67,19 @@ public enum RecorderError: Error, Equatable, Sendable {
         }
     }
 
+    /// True when the recorder turned the request down for a reason of its own: a SOAP fault carrying a UPnP
+    /// `errorCode`, such as 402 for a request it will not take or 831 for a channel it cannot receive. Asking
+    /// again gets the same answer, so a reservation waiting in the queue is not sent again after one of these
+    /// until the reader says so.
+    ///
+    /// Not a 503, which is the recorder busy with somebody else's request; not an answer with no code in it,
+    /// which says nothing about the request; and not 880, which is about the recorder being in standby rather
+    /// than about what was asked. Those pass, and asking again later is right.
+    public var refusal: Bool {
+        guard case .soap(_, let status, let code?, _) = self else { return false }
+        return status != 503 && code != "880"
+    }
+
     /// True when the recorder needs powering on before this will work.
     public var needsPowerOn: Bool {
         if case .soap(_, _, "880", _) = self { return true }

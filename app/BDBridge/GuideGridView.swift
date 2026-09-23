@@ -14,6 +14,8 @@ struct GuideGridView: View {
     /// grid can answer a second ask.
     let nowRequests: Int
     let reservationFor: (GuideProgramRow) -> Reservation?
+    /// A reservation waiting on this phone for the recorder, marked beside the ones the recorder holds.
+    let pendingFor: (GuideProgramRow) -> PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
     @AppStorage("gridPointsPerMinute") private var pointsPerMinute = 3.0
@@ -203,7 +205,7 @@ struct GuideGridView: View {
         ForEach(programs.filter { visibleMinutes.overlaps(minutes(of: $0)) }) { program in
             ProgramBlock(program: program, height: height(of: program), width: column - 2,
                          labelOffset: labelOffset(for: program), reservation: reservationFor(program),
-                         onSelect: onSelect)
+                         pending: pendingFor(program), onSelect: onSelect)
                 .offset(x: gutter + Double(index) * column + 1, y: header + top(of: program))
         }
     }
@@ -340,6 +342,7 @@ private struct ProgramBlock: View {
     let width: Double
     let labelOffset: Double
     let reservation: Reservation?
+    let pending: PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
     private var ended: Bool { program.end <= Date() }
@@ -380,19 +383,33 @@ private struct ProgramBlock: View {
                 genreColor.opacity(0.16).frame(height: height * elapsed)
             }
         }
-        .background(reservation == nil ? Color(.secondarySystemGroupedBackground)
-                                       : Color.orange.opacity(0.14))
+        .background(background)
         .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: onAir ? 4 : 3) }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(ended ? 0.5 : 1)
     }
 
-    /// Reservations are marked in the text, because the block is too small for anything else.
+    /// Reservations are marked in the text, because the block is too small for anything else. One waiting on
+    /// this phone is marked too, red when the recorder refused it: it is still the reader's reservation.
     private var reservationMark: Text {
-        guard let reservation else { return Text("") }
-        return Text(" ") + Text(reservation.recording ? "録画中" : "予約")
+        let mark: (word: String, colour: Color)
+        if let reservation {
+            mark = reservation.recording ? ("録画中", .red) : ("予約", .orange)
+        } else if let pending {
+            mark = ("送信待ち", pending.problem == nil ? .orange : .red)
+        } else {
+            return Text("")
+        }
+        return Text(" ") + Text(mark.word)
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(reservation.recording ? .red : .orange)
+            .foregroundStyle(mark.colour)
+    }
+
+    /// Tinted for a reservation, and more faintly for one that has not reached the recorder yet.
+    private var background: Color {
+        if reservation != nil { return Color.orange.opacity(0.14) }
+        if pending != nil { return Color.orange.opacity(0.07) }
+        return Color(.secondarySystemGroupedBackground)
     }
 
     /// ARIB level-1 genre to an accent colour, the same mapping the web app uses.

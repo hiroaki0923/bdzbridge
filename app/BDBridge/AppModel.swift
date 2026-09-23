@@ -35,7 +35,12 @@ final class AppModel {
     private(set) var channelNames: [String: String] = [:]
     private(set) var channelLogos: [String: Data] = [:]
     private(set) var programs: [GuideProgramRow] = []
-    private(set) var reservations: [Reservation] = []
+    private(set) var reservations: [Reservation] = [] {
+        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled --
+        // taken out of the list by hand, and again after a reload that can be a moment behind the recorder
+        // -- went on being marked 予約 in the guide.
+        didSet { reservationsByProgram = Self.byProgram(reservations) }
+    }
     private(set) var titles: [RecordedTitle] = []
     /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
     private(set) var titlesLoaded = false
@@ -345,11 +350,11 @@ final class AppModel {
         storage = nil
         client = nil
         reservations = []
-        reservationsByProgram = [:]
         titles = []
         titlesLoaded = false
         recorderRules = []
         pending = []
+        flushReport = nil
         duplicates = []
         duplicatePicks = []
         unreadDuplicates = 0
@@ -914,15 +919,7 @@ final class AppModel {
     /// The load itself, for `connect()` and everything it reaches, which must not await `start()`: see there.
     private func loadReservationsNow() async {
         guard let client, !unreachable else { return }
-        await run("予約一覧を取得中") {
-            self.reservations = try await client.reservations()
-            self.reservationsByProgram = Dictionary(
-                self.reservations.compactMap { reservation in
-                    reservation.eventID.map { (Self.key(reservation.broadcastingType, reservation.serviceID, $0),
-                                               reservation) }
-                },
-                uniquingKeysWith: { first, _ in first })
-        }
+        await run("予約一覧を取得中") { self.reservations = try await client.reservations() }
     }
 
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
@@ -930,7 +927,18 @@ final class AppModel {
     private(set) var recorderRules: [RecorderRule] = []
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
-    private(set) var pending: [PendingReservation] = []
+    private(set) var pending: [PendingReservation] = [] {
+        didSet { pendingByProgram = Self.byProgram(pending) }
+    }
+
+    /// The same by the programme each is for, so that the guide, the search results and the programme's
+    /// sheet can say it is waiting. Without it a programme reserved away from home looked unreserved
+    /// everywhere but the reservations tab, and opening it again offered the reservation form again.
+    private var pendingByProgram: [String: PendingReservation] = [:]
+
+    /// What the last sending of the queue came to, for the strip to say in one line until the reader closes
+    /// it or leaves the app. See `flushPending`.
+    var flushReport: String?
 
     func loadRecorderRules() async {
         await start()
@@ -1479,12 +1487,37 @@ final class AppModel {
     /// The reservation that follows this programme, if there is one. Time-only reservations carry no
     /// programme id and so cannot be matched to one.
     func reservation(for program: GuideProgramRow) -> Reservation? {
-        guard let broadcastingType = Codes.broadcasting[program.broadcasting] else { return nil }
-        return reservationsByProgram[Self.key(broadcastingType, program.serviceID, program.eventID)]
+        guard let key = Self.key(program) else { return nil }
+        return reservationsByProgram[key]
+    }
+
+    /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,
+    /// so it always carries the programme id.
+    func pending(for program: GuideProgramRow) -> PendingReservation? {
+        guard let key = Self.key(program) else { return nil }
+        return pendingByProgram[key]
+    }
+
+    private static func key(_ program: GuideProgramRow) -> String? {
+        Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
     }
 
     private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
         "\(broadcastingType)-\(serviceID)-\(eventID)"
+    }
+
+    private static func byProgram(_ reservations: [Reservation]) -> [String: Reservation] {
+        Dictionary(reservations.compactMap { reservation in
+            reservation.eventID.map { (key(reservation.broadcastingType, reservation.serviceID, $0), reservation) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func byProgram(_ pending: [PendingReservation]) -> [String: PendingReservation] {
+        Dictionary(pending.compactMap { waiting in
+            waiting.request.eventID.map {
+                (key(waiting.request.broadcastingType, waiting.request.serviceID, $0), waiting)
+            }
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// What would be sent to the recorder to record this programme.
@@ -1532,16 +1565,14 @@ final class AppModel {
         // Known to be away: queue it now rather than spending a timeout finding out again. Thirty seconds
         // of a spinner before "送信待ちにしました" reads as a failure that was then made the best of.
         guard let client, !offline else {
-            await queue(request, serviceName: program.serviceName)
-            return true
+            return await queue(request, serviceName: program.serviceName)
         }
         let activity = activities.begin("予約を登録中")
         defer { activities.end(activity) }
         // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
         // cannot be, nothing has been sent, so the queue is the place for this.
         guard await wakeIfDozing() else {
-            await queue(request, serviceName: program.serviceName)
-            return true
+            return await queue(request, serviceName: program.serviceName)
         }
         do {
             _ = try await client.createReservation(request)
@@ -1568,6 +1599,9 @@ final class AppModel {
     /// for a glance at the time -- and, with a bulk job running, set a second client talking over the job's.
     func wentToBackground() {
         inBackground = true
+        // The line about the queue was for this visit. Coming back sends the queue again when there is
+        // anything to send, and says what became of that.
+        flushReport = nil
     }
 
     /// The app is active again. The recorder may have gone to sleep while it was away -- a BDZ-FBT4100 leaves
@@ -1628,9 +1662,14 @@ final class AppModel {
 
     // MARK: - reservations waiting for the recorder
 
-    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing.
-    private func queue(_ request: ReservationRequest, serviceName: String) async {
-        guard let store else { return }
+    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns
+    /// whether it was kept. One that could not be saved has been made nowhere, and the sheet closed on it as
+    /// though it had been reserved: the programme went unrecorded without a word.
+    private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
+        guard let store else {
+            problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+            return false
+        }
         let waiting = PendingReservation(request: request, serviceName: serviceName)
         do {
             try await store.queue(waiting)
@@ -1638,8 +1677,8 @@ final class AppModel {
             problem = nil
             queued = waiting
         } catch {
-            problem = String(describing: error)
-            return
+            problem = "予約を端末に保存できませんでした: \(error)"
+            return false
         }
         // The reader learns that this was finally sent through a notification, and a queued reservation is
         // the first moment that means anything, so this is where the system's dialog belongs. After the
@@ -1647,6 +1686,7 @@ final class AppModel {
         // of answering, and the reservation must not wait with it. Nor is there anything to be told about
         // when saving failed.
         await askForNotifications()
+        return true
     }
 
     func loadPending() async {
@@ -1658,6 +1698,19 @@ final class AppModel {
         guard let store else { return }
         try? await store.removePending(waiting.id)
         await loadPending()
+    }
+
+    /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
+    /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
+    /// since, an antenna put right -- and only the reader knows when it has. Sent now when the recorder can
+    /// be reached, and otherwise with the rest the next time it answers.
+    func resend(_ waiting: PendingReservation) async {
+        await start()
+        guard let store else { return }
+        try? await store.setPendingProblem(waiting.id, nil)
+        await loadPending()
+        guard !offline, await wakeIfDozing() else { return }
+        await flushPending()
     }
 
     /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
@@ -1676,6 +1729,11 @@ final class AppModel {
         if outcome.interrupted { lostTheRecorder() }
         await loadPending()
         if !outcome.sent.isEmpty { await loadReservationsNow() }
+        // Said on screen. The overnight run's notification is the only other place this is said, and a
+        // notification does not show while the app is in front (nothing here answers `willPresent`), so a
+        // reservation dropped because its programme had finished went without a word. A flush with nothing
+        // to say -- everything waiting had been refused before -- leaves the last line where it was.
+        if let summary = outcome.summary { flushReport = summary }
         return outcome.sent.count
     }
 

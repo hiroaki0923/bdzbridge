@@ -148,6 +148,115 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(left.first?.problem?.contains("831") ?? false, "with what the recorder said")
     }
 
+    /// Refused once is refused until the reader asks again: the recorder is not asked on every connect and
+    /// every night, and the reader is not told about it every morning.
+    func testARefusedReservationIsNotSentAgain() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        try await store.queue(pending("受信できない局の番組", eventID: 1, start: now.addingTimeInterval(3600)))
+        let transport = StubTransport(always: Stub.fault("831"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        _ = await PendingQueue.flush(client: client, store: store, now: now)
+        let asked = await transport.requests.count
+
+        let again = await PendingQueue.flush(client: client, store: store, now: now)
+
+        let askedAgain = await transport.requests.count
+        XCTAssertEqual(askedAgain, asked, "nothing is sent for it the second time")
+        XCTAssertTrue(again.refused.isEmpty, "and it is not news the second time")
+        XCTAssertTrue(again.isEmpty)
+        XCTAssertEqual(again.held.map(\.request.title), ["受信できない局の番組"])
+        let left = try await store.pendingReservations()
+        XCTAssertNotNil(left.first?.problem, "it keeps its reason")
+    }
+
+    /// Clearing the reason is the reader asking for another try, and the next flush sends it.
+    func testAClearedRefusalIsSentAgain() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let refused = pending("契約した局の番組", eventID: 1, start: now.addingTimeInterval(3600))
+        try await store.queue(refused)
+        try await store.setPendingProblem(refused.id, "このチャンネルは受信できません")
+        try await store.setPendingProblem(refused.id, nil)
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["契約した局の番組"])
+        let left = try await store.pendingReservations()
+        XCTAssertTrue(left.isEmpty)
+    }
+
+    /// A refused one whose programme has finished goes like any other, and the reader is told.
+    func testARefusedReservationStillExpires() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let over = pending("終わった番組", eventID: 1, start: now.addingTimeInterval(-7200))
+        try await store.queue(over)
+        try await store.setPendingProblem(over.id, "このチャンネルは受信できません")
+
+        let transport = StubTransport(always: Stub.fault("831"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.expired.map(\.request.title), ["終わった番組"])
+        XCTAssertTrue(outcome.held.isEmpty)
+        let left = try await store.pendingReservations()
+        XCTAssertTrue(left.isEmpty)
+    }
+
+    /// A recorder busy with somebody else's request, or answering without a reason, has said nothing about
+    /// the reservation: it waits as it was and goes next time, the ones after it are still tried, and
+    /// nothing is said about it overnight.
+    func testAFailureWithoutAReasonIsSentAgainNextTime() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        for (i, title) in ["503 の番組", "理由のない 500 の番組", "通る番組"].enumerated() {
+            try await store.queue(pending(title, eventID: i + 1, start: now.addingTimeInterval(3600 + Double(i))))
+        }
+        let noCode = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+            + "<s:Body><s:Fault><faultcode>s:Server</faultcode></s:Fault></s:Body></s:Envelope>"
+        let transport = StubTransport { _, index in
+            switch index {
+            case 0: return HTTPResponse(statusCode: 503)
+            case 1: return HTTPResponse(statusCode: 500, body: Data(noCode.utf8))
+            default: return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
+            }
+        }
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.deferred.map(\.request.title), ["503 の番組", "理由のない 500 の番組"])
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["通る番組"], "the ones after are still tried")
+        XCTAssertTrue(outcome.refused.isEmpty)
+        XCTAssertFalse(outcome.interrupted)
+        var left = try await store.pendingReservations()
+        XCTAssertEqual(left.count, 2)
+        XCTAssertTrue(left.allSatisfy { $0.problem == nil }, "no reason written, so nothing holds them back")
+
+        let next = await PendingQueue.flush(client: client, store: store, now: now)
+        XCTAssertEqual(next.sent.count, 2, "and they go the next time")
+        left = try await store.pendingReservations()
+        XCTAssertTrue(left.isEmpty)
+    }
+
+    /// What counts as the recorder turning a request down for good.
+    func testWhatCountsAsARefusal() {
+        let action = "X_CreateRecordSchedule"
+        XCTAssertTrue(RecorderError.soap(action: action, status: 500, code: "831", body: "").refusal)
+        XCTAssertTrue(RecorderError.soap(action: action, status: 500, code: "402", body: "").refusal)
+        XCTAssertFalse(RecorderError.soap(action: action, status: 500, code: nil, body: "").refusal,
+                       "no code, no reason")
+        XCTAssertFalse(RecorderError.soap(action: action, status: 503, code: "501", body: "").refusal,
+                       "busy is busy, whatever else it says")
+        XCTAssertFalse(RecorderError.soap(action: action, status: 500, code: "880", body: "").refusal,
+                       "standby is about the recorder, not the request")
+        XCTAssertFalse(RecorderError.badResponse(status: 503).refusal)
+        XCTAssertFalse(RecorderError.transport("gone").refusal)
+    }
+
     /// A recorder that goes away part way leaves the rest alone rather than marking them refused.
     func testTheRestStayQueuedWhenTheRecorderGoesAway() async throws {
         let store = try store()
