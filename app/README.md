@@ -224,9 +224,17 @@ renumbers the reservations its own automatic recording made, in blocks; the same
 
 Three things happen with nobody looking at the app, so they are the three it can notify about: the
 reservations that were waiting have gone to the recorder, some of them were refused or their programmes had
-finished, and the disk is filling up. Permission is asked the first time a reservation is queued, which is
-when any of it starts to matter; before that the app asks for nothing. The low-space warning is said once
-per fall below the line, not once a night.
+finished, and the disk is filling up. All of them come from the overnight run, so the notifications make no
+sound and do not light the screen; they wait in Notification Centre for the morning.
+
+Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
+which shows no dialog -- so nothing lands on the local network question that comes up around the first
+connect -- and lets the notifications reach Notification Centre quietly, where the reader can keep them or
+turn them off. The system's dialog comes the first time a reservation is queued, after it has been saved, or
+when the reader asks for it in the settings, which say where permission stands and open the app's
+notification settings. Asking only when a reservation was queued, as the app used to, meant that somebody
+who only used it at home never heard about the disk. The low-space warning is said once per fall below the
+line, not once a night, and only counts as said when notifications were allowed to carry it.
 
 ### Coming back to the app
 

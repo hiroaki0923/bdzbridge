@@ -2,6 +2,7 @@ import Foundation
 import Network
 import RecorderKit
 import SwiftUI
+import UserNotifications
 
 /// Everything the screens share: which recorder we talk to, the guide cache, and what is on screen now.
 ///
@@ -89,6 +90,10 @@ final class AppModel {
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     private(set) var mac: String?
+    /// Where notification permission stands, for the settings to say. Nil until it has been read. The app
+    /// changes it itself -- provisionally after the first connect, with the dialog when a reservation is
+    /// queued -- and the reader can change it in the Settings app, so it is read again after each.
+    private(set) var notifications: UNAuthorizationStatus?
 
     private var store: GuideStore?
     private var client: RecorderClient?
@@ -532,6 +537,15 @@ final class AppModel {
         // and kept the next return to the app from asking again.
         gaveUp = !reached && unreachable
         if reached {
+            // Provisional permission for notifications, now that there is a recorder for them to be about.
+            // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
+            // for the demo, whose recorder nobody will hear from overnight.
+            if !demo {
+                Task {
+                    await Notify.allowQuietly()
+                    await readNotifications()
+                }
+            }
             // Before the guide, because the guide marks what is already set to record and the marks come
             // from this list. Reading it only when the reservations screen appeared meant that opening the
             // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
@@ -1600,15 +1614,24 @@ final class AppModel {
         _ = await wakeIfDozing(evenIfRecent: true)
     }
 
+    // MARK: - notifications
+
+    func readNotifications() async {
+        notifications = await Notify.status()
+    }
+
+    /// The system's dialog, when the reader has not answered it yet. See `Notify.askIfNeeded`.
+    func askForNotifications() async {
+        await Notify.askIfNeeded()
+        await readNotifications()
+    }
+
     // MARK: - reservations waiting for the recorder
 
     /// Keeps a reservation the recorder never heard, and says so on screen rather than failing.
     private func queue(_ request: ReservationRequest, serviceName: String) async {
         guard let store else { return }
         let waiting = PendingReservation(request: request, serviceName: serviceName)
-        // The reader learns that this was finally sent through a notification, and a queued reservation is
-        // the first moment that means anything, so this is where the asking belongs.
-        await Notify.askIfNeeded()
         do {
             try await store.queue(waiting)
             pending = try await store.pendingReservations()
@@ -1616,7 +1639,14 @@ final class AppModel {
             queued = waiting
         } catch {
             problem = String(describing: error)
+            return
         }
+        // The reader learns that this was finally sent through a notification, and a queued reservation is
+        // the first moment that means anything, so this is where the system's dialog belongs. After the
+        // reservation is saved, not before: the dialog waits on the reader, who may leave the app instead
+        // of answering, and the reservation must not wait with it. Nor is there anything to be told about
+        // when saving failed.
+        await askForNotifications()
     }
 
     func loadPending() async {

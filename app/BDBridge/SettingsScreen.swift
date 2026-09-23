@@ -1,8 +1,11 @@
 import RecorderKit
 import SwiftUI
+import UserNotifications
 
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var typedHost = ""
     @State private var typedMac = ""
     @State private var showingGuide = false
@@ -170,6 +173,8 @@ struct SettingsScreen: View {
                     .disabled(!model.connected || model.busy != nil)
                 }
 
+                notificationsSection
+
                 Section {
                     Button("セットアップ手順を見る") { showingGuide = true }
                 }
@@ -197,8 +202,51 @@ struct SettingsScreen: View {
             // The app moves the address by itself when it finds the recorder somewhere else, and a field still
             // showing the old one would offer このアドレスに接続 to take it back there.
             .onChange(of: model.host) { typedHost = model.host }
+            // Read on the way in, and again on coming back, since the switch is in the Settings app.
+            .task { await model.readNotifications() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await model.readNotifications() } }
+            }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
+        }
+    }
+
+    /// Whether the overnight run can say anything, and the way to change it. The provisional permission the
+    /// app takes after the first connect happens without a word, and somebody who only uses the app at home
+    /// never queues a reservation and never sees the dialog, so this is the one place it shows.
+    @ViewBuilder
+    private var notificationsSection: some View {
+        let status = model.notifications
+        Section {
+            LabeledContent("通知") {
+                Text(status.map(Self.permissionLabel) ?? "")
+                    .foregroundStyle(.secondary)
+            }
+            // Until the reader has answered the dialog. Provisional permission is no answer: it was taken
+            // without asking.
+            if status == .notDetermined || status == .provisional {
+                Button("通知を許可する") { Task { await model.askForNotifications() } }
+            }
+            // Before the app has asked for anything, the Settings app has no notification switches for it.
+            if let status, status != .notDetermined {
+                Button("通知の設定を開く") {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                }
+            }
+        } footer: {
+            Text("送信待ちの予約をレコーダーに送ったときと、レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を"
+                 + "下回ったときにお知らせします。どちらも夜間の自動更新で起きることなので、音は鳴りません。")
+        }
+    }
+
+    private static func permissionLabel(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized, .ephemeral: "オン"
+        case .provisional: "通知センターのみ"
+        case .denied: "オフ"
+        case .notDetermined: "未設定"
+        @unknown default: ""
         }
     }
 
