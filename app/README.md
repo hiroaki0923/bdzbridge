@@ -175,7 +175,22 @@ along, 42 reservations before and 42 after.
 The guide is fetched again overnight on its own, a little after the recorder rebuilds its own guide files, so
 the morning's eight days are current without opening the app or being at home. iOS decides whether to run it:
 never while the app is force-quit, Background App Refresh is off, or the battery is in Low Power Mode, and
-nothing breaks when a night is missed. The settings screen shows when it last succeeded.
+nothing breaks when a night is missed. The settings screen shows when it last succeeded. When the system's
+time for it runs out, the task is completed there and then, and the work stops before the next broadcasting
+type rather than going on to the end.
+
+Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
+when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A
+type that fails, such as the 500 the recorder answers for a file it has not built yet, is passed over, said on
+screen a line per type, and fetched again at the next connect; only silence stops the refresh
+(`RecorderKit/GuideRefresh.swift`, shared with the overnight run).
+
+The cache is in `Application Support/Guide/`, a folder left out of the phone's backups: the guide is some
+28 MB that the recorder hands over again every night. The same file keeps the channel settings and the
+reservations waiting to be sent, which a restore to another phone therefore does not bring back either. A cache
+an earlier build left in Application Support itself is moved in, write-ahead log first, the first time the app
+opens it. Both the screens and the overnight run open it, and a write waits up to five seconds for the other's
+rather than failing with "database is locked".
 
 Searching, over any of three lists: programmes still to come, whose title, description or details contain the
 words, across every broadcasting type and all eight days; the reservations the recorder holds; and the
@@ -305,7 +320,9 @@ on air is still sent, since the recorder records what is left of it. A reservati
 with a reason of its own (a SOAP fault with an `errorCode`, such as 831 for a channel it cannot receive)
 keeps the reason on the row and is not sent again until the reader asks, with もう一度送る on the row or
 on the programme's sheet; a 503 or an answer with no code says nothing about the reservation, so that one
-is simply sent again next time. The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
+is simply sent again next time. (The client itself sends a request answered 503 twice more, half a second to
+a second apart, before it gives up on it.) Only one flush runs at a time in the app, whoever asks, so the
+screens and the overnight run cannot both send the same reservation. The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
 sheet offers to send it again or cancel it rather than the reservation form. What became of the queue is
 said in one line at the top of the screen when the app sent it, and in a notification when the overnight
 run did.

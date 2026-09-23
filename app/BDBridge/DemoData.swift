@@ -278,6 +278,12 @@ enum DemoData {
             _ = try await store.replace(services, broadcasting: broadcasting)
             try await store.replaceLogos(await logos(for: stations), broadcasting: broadcasting)
         }
+        // The demo's recorder answers every guide file with none, and these two are not invented here. Noting
+        // that keeps a connect from asking it for them each time: the guide is judged fresh a broadcasting type
+        // at a time, and one never answered for is always behind.
+        for broadcasting in ["cs", "bs4k"] {
+            try await store.noteNoGuide(broadcasting: broadcasting)
+        }
     }
 
     /// Invented station logos: a coloured tile with the first two characters of the name. A real recorder

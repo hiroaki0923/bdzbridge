@@ -35,8 +35,20 @@ public enum PendingQueue {
     /// morning that the recorder had not taken it. It waits for the reader, who can clear the reason to send
     /// it again (`GuideStore.setPendingProblem(_:nil)`) or cancel it. A failure that says nothing about the
     /// reservation -- a 503, an answer with no code -- leaves it waiting as it was, to be sent next time.
+    ///
+    /// One flush at a time in the process, whoever asks: a second waits for the first to finish and then
+    /// reads the queue afresh. The screens and the overnight run each have a client and a connection of their
+    /// own, and the system can start the one while the reader has the other open, so the two could read the
+    /// same waiting reservation and both send it -- and a reservation sent twice is made twice.
     public static func flush(client: RecorderClient, store: GuideStore,
                              now: Date = Date()) async -> Outcome {
+        // Nothing in it throws, so neither does running it.
+        (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
+    }
+
+    private static let oneAtATime = SerialQueue()
+
+    private static func send(client: RecorderClient, store: GuideStore, now: Date) async -> Outcome {
         var outcome = Outcome()
         let waiting = (try? await store.pendingReservations()) ?? []
         for pending in waiting {

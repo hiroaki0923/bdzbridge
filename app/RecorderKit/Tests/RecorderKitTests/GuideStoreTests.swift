@@ -350,8 +350,106 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["td"]?.channels, 2)
         XCTAssertEqual(counts["td"]?.programs, 4, "references are not counted as programmes")
         XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00")
+        XCTAssertEqual(counts["td"]?.checked, "2026-09-14T03:00:00+09:00", "a type fetched is a type answered")
         XCTAssertEqual(counts["bs"]?.channels, 0)
         XCTAssertNil(counts["bs"]?.refreshed)
+        XCTAssertNil(counts["bs"]?.lastAnswered, "never asked for")
+    }
+
+    /// A type the recorder has no file for is marked as answered, so that it is not asked for again until
+    /// the next rebuild, and what the cache holds for it is left alone.
+    func testATypeWithNoGuideIsMarkedAnsweredAndKeepsItsCache() async throws {
+        let store = try await loadedStore()
+        let later = jst("2026-09-15T03:00:00+09:00")
+        try await store.noteNoGuide(broadcasting: "td", at: later)
+        try await store.noteNoGuide(broadcasting: "bs4k", at: later)
+
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "nothing is thrown away")
+        XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00", "and the guide is as old as it was")
+        XCTAssertEqual(counts["td"]?.lastAnswered, later)
+        XCTAssertEqual(counts["bs4k"]?.programs, 0)
+        XCTAssertNil(counts["bs4k"]?.refreshed)
+        XCTAssertEqual(counts["bs4k"]?.lastAnswered, later)
+    }
+
+    /// A cache written before the mark was kept goes by when it was refreshed, rather than counting every type
+    /// as never asked for and fetching them all again.
+    func testACacheFromBeforeTheMarkGoesByWhenItWasRefreshed() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td", at: jst("2026-09-14T03:00:00+09:00"))
+        }
+        try Sqlite(path: path).run("DELETE FROM meta WHERE key LIKE 'epg_checked:%'")
+
+        let counts = try await GuideStore(path: path).counts()
+        XCTAssertNil(counts["td"]?.checked)
+        XCTAssertEqual(counts["td"]?.lastAnswered, jst("2026-09-14T03:00:00+09:00"))
+    }
+
+    /// Counting a type's programmes, asked each time the day changes, is answered from an index rather than by
+    /// reading every programme -- and a cache made before the index gets it when it is next opened.
+    func testCountsAreAnsweredFromAnIndexWhichAnOldCacheGetsOnOpening() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td")
+        }
+        let db = try Sqlite(path: path)
+        try db.run("DROP INDEX ix_programs_ref")
+
+        _ = try GuideStore(path: path)
+        let indexes = try db.query("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='programs'") {
+            $0.string("name")
+        }
+        XCTAssertTrue(indexes.contains("ix_programs_ref"), "\(indexes)")
+        let plan = try db.query("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM programs WHERE bt=? AND ref_event_id IS NULL",
+                                ["td"]) { $0.string("detail") }
+        XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX ix_programs_ref") }, "\(plan)")
+    }
+
+    /// The overnight run and the screens each open the file, and can write at once. The second waits for the
+    /// first rather than failing with "database is locked".
+    func testAWriteWaitsForAnotherConnectionsWriteRatherThanFailing() throws {
+        let path = try temporaryPath()
+        let holder = Holder(try Sqlite(path: path))
+        let waiter = try Sqlite(path: path)
+        try holder.db.execute("CREATE TABLE t (x INTEGER)")
+        try holder.db.execute("BEGIN IMMEDIATE")
+        try holder.db.run("INSERT INTO t VALUES (1)")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            try? holder.db.execute("COMMIT")
+        }
+
+        let started = Date()
+        try waiter.run("INSERT INTO t VALUES (2)")
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.2, "it waited for the other write")
+        XCTAssertEqual(try waiter.count("SELECT COUNT(*) FROM t"), 2)
+    }
+
+    /// Lets a connection be committed from another thread, which SQLite allows (it is opened fully mutexed).
+    private final class Holder: @unchecked Sendable {
+        let db: Sqlite
+        init(_ db: Sqlite) { self.db = db }
+    }
+
+    /// A full disk is the reader's to put right, so it is said in words they can use, with SQLite's code kept.
+    func testAFullDiskIsExplainedAndKeepsItsCode() throws {
+        let db = try Sqlite(path: try temporaryPath())
+        try db.execute("CREATE TABLE t (x BLOB)")
+        let pages = try db.count("PRAGMA page_count")
+        try db.execute("PRAGMA max_page_count=\(pages)")
+        do {
+            try db.run("INSERT INTO t VALUES (?)", [.blob(Data(count: 64 * 1024))])
+            XCTFail("there is no room for it")
+        } catch let error as SqliteError {
+            XCTAssertEqual(error.primaryCode, 13, "SQLITE_FULL")
+            XCTAssertTrue(error.explanation.contains("空き容量"), error.explanation)
+            XCTAssertTrue(error.explanation.hasSuffix("(SQLite 13)"), error.explanation)
+            XCTAssertEqual("\(error)", error.explanation, "what the screens interpolate is the explanation")
+            XCTAssertTrue(error.detail.contains("INSERT INTO t"), "the statement is kept for a log")
+        }
     }
 
     func testASchemaChangeRebuildsTheCacheButKeepsWhatTheUserSet() async throws {

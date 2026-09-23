@@ -517,40 +517,17 @@ final class AppModel {
         // Coming to the foreground connects too, and at launch it can get here before `start()` has opened
         // anything; without this that connect found no cache and quietly did neither.
         await openCache()
-        let client: RecorderClient
-        if DemoData.on {
-            let recorder = demoRecorder ?? DemoRecorder()
-            demoRecorder = recorder
-            client = RecorderClient(host: host, transport: recorder)
-        } else {
-            client = RecorderClient(host: host)
-        }
-        self.client = client
-        // The first ask is a short one. A recorder that has left the network does not refuse the
-        // connection, it says nothing, so a patient timeout means half a minute of silence before anything
-        // can be done about it — and that silence looked like the waking never happened.
-        // The packet is a hundred bytes and the probe takes five seconds to fail, so send it now rather
-        // than after: a recorder that is asleep is already on its way up while the first probe runs, and one
-        // that is awake ignores it. Waiting for the failure first is what made this look like a fault
-        // followed by a retry.
-        sendMagicPacket()
-        triedOn = LocalNetwork.signature()
-        var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
-        if !reached, unreachable, !demo, await lanIsBlocked() {
-            waitForPermission()
-            return
-        }
-        connectBlocked = false
-        if !reached { reached = await wakeAndAttach(client) }
-        // Not back where it was after the waking: it may be answering at another address. One look, here and
-        // nowhere else, so the rule below about not trying again stands.
-        if !reached, unreachable, let moved = await findMovedRecorder() {
-            host = moved.host
-            // It is the recorder the MAC was read from, which its UDN has just said.
-            UserDefaults.standard.set(moved.host, forKey: Self.macHostKey)
-            let found = RecorderClient(host: moved.host)
-            self.client = found
-            reached = await attach(found, timeout: RecorderClient.probeTimeout)
+        guard var reached = await reachTheRecorder() else { return }
+        // The network under this phone can change while a connect is under way -- the Wi-Fi joined on the way
+        // in through the door, a VPN coming up -- and the watcher that would ask again on a change stays out of
+        // a connect's way (`networkChangedWhileOpen`). What was tried was then tried on a network that had
+        // gone, and the app gave up on the one that had come instead, with nothing to ask again until the
+        // reader did. So a connect that got nowhere tries once more, here, when the network it started on is
+        // no longer the one under it. Once: a network still changing after that is left to the next return
+        // to the app, which asks again on a network it has not tried.
+        if !reached, networkChanged {
+            guard let again = await reachTheRecorder() else { return }
+            reached = again
         }
         // Trying again by itself would only spend another half-minute arriving at the same silence. The
         // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
@@ -577,6 +554,48 @@ final class AppModel {
             await loadReservationsNow()
             await refreshGuideIfStale()
         }
+    }
+
+    /// One attempt at the recorder, for `connect()`: a client of its own, the first probe, waking it, and a
+    /// look for it at another address. Returns whether it answered, or nil when local network privacy is why
+    /// it did not, and the app is now waiting for the permission instead.
+    private func reachTheRecorder() async -> Bool? {
+        let client: RecorderClient
+        if DemoData.on {
+            let recorder = demoRecorder ?? DemoRecorder()
+            demoRecorder = recorder
+            client = RecorderClient(host: host, transport: recorder)
+        } else {
+            client = RecorderClient(host: host)
+        }
+        self.client = client
+        // The first ask is a short one. A recorder that has left the network does not refuse the
+        // connection, it says nothing, so a patient timeout means half a minute of silence before anything
+        // can be done about it — and that silence looked like the waking never happened.
+        // The packet is a hundred bytes and the probe takes five seconds to fail, so send it now rather
+        // than after: a recorder that is asleep is already on its way up while the first probe runs, and one
+        // that is awake ignores it. Waiting for the failure first is what made this look like a fault
+        // followed by a retry.
+        sendMagicPacket()
+        triedOn = LocalNetwork.signature()
+        var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
+        if !reached, unreachable, !demo, await lanIsBlocked() {
+            waitForPermission()
+            return nil
+        }
+        connectBlocked = false
+        if !reached { reached = await wakeAndAttach(client) }
+        // Not back where it was after the waking: it may be answering at another address. One look per
+        // attempt, and only from here, so the rule in `connect()` about not trying again stands.
+        if !reached, unreachable, let moved = await findMovedRecorder() {
+            host = moved.host
+            // It is the recorder the MAC was read from, which its UDN has just said.
+            UserDefaults.standard.set(moved.host, forKey: Self.macHostKey)
+            let found = RecorderClient(host: moved.host)
+            self.client = found
+            reached = await attach(found, timeout: RecorderClient.probeTimeout)
+        }
+        return reached
     }
 
     /// Whether local network privacy is why the recorder said nothing. Aimed at the recorder's own address,
@@ -726,6 +745,7 @@ final class AppModel {
         // generous. Bounded by the clock rather than by a count of attempts, so that the line on screen and
         // the wait behind it are the same length -- and the line says how long it has been, because a
         // spinner that has been going for twenty seconds is otherwise indistinguishable from a hung one.
+        var sent = Date()
         while Date().timeIntervalSince(started) < Self.wakeLimit {
             activities.update(activity, to: Self.wakingLine(Int(Date().timeIntervalSince(started))))
             // Only the identity, and only for two seconds: asking for everything is what the attach below
@@ -734,6 +754,12 @@ final class AppModel {
                 return await attach(client, what: "接続中", timeout: RecorderClient.probeTimeout)
             }
             try? await Task.sleep(for: .seconds(1))
+            // Again every few seconds: one packet lost on the way was a recorder left asleep for the whole
+            // half minute. See `WakeOnLan.resendInterval`.
+            if Date().timeIntervalSince(sent) >= WakeOnLan.resendInterval {
+                sendMagicPacket()
+                sent = Date()
+            }
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
@@ -927,13 +953,21 @@ final class AppModel {
         return previous ?? now.addingTimeInterval(-24 * 3600)
     }
 
-    /// Whether the cache holds nothing, or nothing newer than that rebuild.
-    var guideIsStale: Bool {
-        guard counts.values.contains(where: { $0.programs > 0 }),
-              let newest = counts.values.compactMap(\.refreshed).compactMap(RecorderTime.parse).max()
-        else { return true }
-        return newest < Self.lastRebuild()
+    /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
+    /// worth fetching again. Each type by its own time. Judged by the newest of them, a type that failed while
+    /// the others came in counted as fresh and stayed missing until the next night; by the oldest, a type the
+    /// recorder cannot give would have every connect fetch all four again. A type it answered with no file for
+    /// is marked as asked (`GuideCounts.checked`), so it waits for the next rebuild like the rest.
+    var staleBroadcastingTypes: [String] {
+        let rebuilt = Self.lastRebuild()
+        return GuideRefresh.broadcastingTypes.filter { broadcasting in
+            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            return answered < rebuilt
+        }
     }
+
+    /// Whether any broadcasting type is behind the recorder's last rebuild.
+    var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
 
     /// How many guide downloads are under way. A count, so that one ending does not say the other has.
     private var guideDownloads = 0
@@ -955,27 +989,45 @@ final class AppModel {
         // alive behind it -- and deciding on the counts from the evening before fetched every broadcasting
         // type again each morning. What it wrote goes on screen as well.
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
-        guard guideIsStale else { return }
-        await refreshGuide()
+        let stale = staleBroadcastingTypes
+        guard !stale.isEmpty else { return }
+        await refreshGuide(only: stale)
     }
 
-    /// Downloads every broadcasting type the recorder has and replaces the cache.
+    /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
+    /// the cache holds for each.
     ///
     /// Each type goes on screen as soon as it is stored. Reading the cache only at the end left the first
     /// run with an empty guide until BS, CS and BS4K had come in behind the terrestrial programmes it opens
-    /// on, which were there all along.
-    func refreshGuide() async {
+    /// on, which were there all along. A type that fails is passed over (see `GuideRefresh.run`), said on
+    /// screen a line per type, and fetched again at the next connect.
+    func refreshGuide(only types: [String] = GuideRefresh.broadcastingTypes) async {
         guard let client, let store, !unreachable else { return }
         guideDownloads += 1
         defer { guideDownloads -= 1 }
+        var failed: [GuideRefresh.Failure] = []
         await run("番組表を取得中") { activity in
-            try await GuideRefresh.run(client: client, store: store, onType: { broadcasting in
-                let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
-                self.activities.update(activity, to: "番組表を取得中 (\(label))")
-            }, onStored: { _ in
-                await self.reloadFromCache()
-            })
+            // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
+            // connected is cancelled when its screen goes away, and the refresh stops between types when it
+            // is cancelled -- which is for the overnight run, whose time runs out.
+            let refresh = Task {
+                try await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
+                    let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
+                    self.activities.update(activity, to: "番組表を取得中 (\(label))")
+                }, onStored: { _ in
+                    await self.reloadFromCache()
+                })
+            }
+            failed = try await refresh.value.failed
         }
+        if !failed.isEmpty {
+            problem = failed.map { "\(GuideEmptyView.inSentence($0.broadcasting))の番組表：\($0.reason)" }
+                .joined(separator: "\n")
+        }
+        // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
+        // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
+        // not be asked for again, and which the model goes by.
+        await reloadFromCache()
     }
 
     func loadReservations() async {

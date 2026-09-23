@@ -18,6 +18,11 @@ public enum RecorderError: Error, Equatable, Sendable {
     case notHTTP
     /// The recorder was reached but is not the one we expect.
     case notARecorder(host: String)
+    /// The recorder answered 503 to the request and to both tries after it: it is busy with another one,
+    /// from the official app or another phone, or from a second client in this app. It is there, so this is
+    /// not `unreachable`, and it said nothing about the request, so not a `refusal` either. `action` is the
+    /// SOAP action, or the file asked for.
+    case busy(action: String)
     /// The saved address is not something a URL can be built on, so nothing was sent. Not `unreachable`:
     /// the recorder was never asked, and waking it would not make the address any better.
     case badAddress(host: String)
@@ -45,6 +50,9 @@ public enum RecorderError: Error, Equatable, Sendable {
                 + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
+        case .busy(let action):
+            "レコーダーがほかの要求を処理していて、応答できませんでした。"
+                + "しばらくしてから、もう一度お試しください (503: \(action))"
         case .badAddress(let host):
             "「\(host)」はレコーダーのアドレスとして使えません。"
                 + "設定の「IP アドレス」に、192.168.1.10 のような形で入力し直してください。"

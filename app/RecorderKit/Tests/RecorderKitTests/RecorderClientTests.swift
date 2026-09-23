@@ -199,6 +199,78 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(overlap, 1, "requests overlapped; the recorder would answer 503")
     }
 
+    /// A 503 is the recorder busy with somebody else's request, so the same request goes again, twice, and
+    /// an answer on the way is taken as if nothing had happened.
+    func testA503IsSentAgainAndAnAnswerAfterItIsTheAnswer() async throws {
+        let item = try reservationItem()
+        let transport = StubTransport { _, index in
+            index < 2 ? HTTPResponse(statusCode: 503)
+                : Stub.soap("X_GetRecordScheduleList", result: "<xsrs>\(item)</xsrs>", totalMatches: 1)
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0...0)
+
+        let reservations = try await client.reservations()
+        XCTAssertEqual(reservations.count, 1)
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 3, "the first try and the two after it")
+    }
+
+    /// Still busy after that, it is said to be busy: not a fault in the request, not silence, and not a
+    /// request the recorder refused.
+    func testA503ThatDoesNotClearIsThrownAsBusy() async throws {
+        let transport = StubTransport(always: HTTPResponse(statusCode: 503))
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0...0)
+
+        do {
+            _ = try await client.reservations()
+            XCTFail("busy all three times")
+        } catch let error as RecorderError {
+            XCTAssertEqual(error, .busy(action: "X_GetRecordScheduleList"))
+            XCTAssertFalse(error.unreachable, "the recorder answered")
+            XCTAssertFalse(error.refusal, "it said nothing about the request")
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 1 + RecorderClient.busyRetries)
+        let heard = await client.lastAnswer
+        XCTAssertNotNil(heard, "a 503 is an answer")
+    }
+
+    /// Nothing else of the client's goes in between a request and its tries after a 503, so they do not
+    /// meet a request of its own and make it busy in turn.
+    func testTheTriesAfterA503KeepTheirPlaceInTheQueue() async throws {
+        let item = try reservationItem()
+        let transport = StubTransport { request, index in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            if body.contains("X_GetRecordScheduleList"), index == 0 { return HTTPResponse(statusCode: 503) }
+            return body.contains("X_GetRecordScheduleList")
+                ? Stub.soap("X_GetRecordScheduleList", result: "<xsrs>\(item)</xsrs>", totalMatches: 1)
+                : Stub.soap("X_DeleteTitle")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0.05...0.05)
+
+        async let list = client.reservations()
+        try await Task.sleep(for: .milliseconds(10))
+        async let delete: Void = client.deleteTitle(id: "0x1")
+        _ = try await (list, delete)
+
+        let actions = await transport.bodies.map { $0.contains("X_DeleteTitle") ? "delete" : "list" }
+        XCTAssertEqual(actions, ["list", "list", "delete"])
+    }
+
+    /// A recorder busy answering somebody else is still a recorder. Read as any other answer that was not a
+    /// description, the app said the recorder at the saved address was not a Sony recorder.
+    func testDescribeAnswered503IsBusyRatherThanNotARecorder() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: HTTPResponse(statusCode: 503)),
+                                    busyRetryDelay: 0...0)
+        do {
+            _ = try await client.describe(timeout: RecorderClient.probeTimeout)
+            XCTFail("busy is not a description")
+        } catch let error as RecorderError {
+            XCTAssertEqual(error, .busy(action: "description.xml"))
+            XCTAssertFalse(error.explanation.contains("ソニー製レコーダーとして応答しませんでした"), error.explanation)
+        }
+    }
+
     func testGuideFileUrlHasTwoSlashesAndMissingChannelsAreNotAnError() async throws {
         let transport = StubTransport { _, index in
             index == 0 ? HTTPResponse(statusCode: 200, body: Data([0x01, 0x02])) : HTTPResponse(statusCode: 416)

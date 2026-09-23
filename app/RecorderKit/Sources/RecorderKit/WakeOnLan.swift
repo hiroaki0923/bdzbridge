@@ -71,6 +71,12 @@ public enum WakeOnLan {
         return sent
     }
 
+    /// How often to send the packet again while waiting for the recorder to answer it. Nothing acknowledges
+    /// a magic packet and nothing sends a lost one again, so a single packet lost on the way left the recorder
+    /// asleep for the whole wait, which then looked like a recorder that does not wake. Every five seconds is
+    /// half a dozen packets in the half minute the app waits, each a hundred bytes.
+    public static let resendInterval: TimeInterval = 5
+
     private static let log = Logger(subsystem: "RecorderKit", category: "wake")
 
     private static func send(_ packet: Data, to address: String, port: UInt16) -> Bool {

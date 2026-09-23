@@ -75,6 +75,13 @@ public struct GuideCounts: Sendable, Equatable {
     public var programs: Int
     /// When this broadcasting type was last refreshed, as the recorder's local time.
     public var refreshed: String?
+    /// When the recorder last answered for this broadcasting type, with its guide or with none to give: the
+    /// same as `refreshed` for a type it has, and the only mark on one it does not. What decides whether a
+    /// type is fetched again. Nil in a cache written before this was kept, where `refreshed` stands in.
+    public var checked: String?
+
+    /// When this broadcasting type was last asked for and answered, as a date.
+    public var lastAnswered: Date? { (checked ?? refreshed).flatMap(RecorderTime.parse) }
 }
 
 /// The guide cache on the device: channels, programmes, station logos, and which channels the user hides or
@@ -118,6 +125,7 @@ public actor GuideStore {
       quality_code INTEGER NOT NULL, event_id INTEGER, queued_at INTEGER NOT NULL, problem TEXT);
     CREATE INDEX IF NOT EXISTS ix_programs_time ON programs (bt, service_id, start);
     CREATE INDEX IF NOT EXISTS ix_programs_start ON programs (bt, start);
+    CREATE INDEX IF NOT EXISTS ix_programs_ref ON programs (bt, ref_event_id);
     """
 
     public init(path: String) throws {
@@ -135,6 +143,7 @@ public actor GuideStore {
             DROP TABLE IF EXISTS channels;
             DROP TABLE IF EXISTS logos;
             DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';
+            DELETE FROM meta WHERE key LIKE 'epg_checked:%';
             """)
             try db.execute(Self.schema)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -191,8 +200,21 @@ public actor GuideStore {
             try db.insertMany("INSERT OR REPLACE INTO programs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", programs)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                        [.text("epg_refreshed:\(broadcasting)"), .text(RecorderTime.format(now))])
+            try noteAnswered(broadcasting: broadcasting, at: now)
             return programs.count
         }
+    }
+
+    /// Notes that the recorder was asked for one broadcasting type's guide and had none to give -- a model
+    /// without that kind of tuner, or one not built yet -- so that the type is not asked for again on every
+    /// connect until the recorder next rebuilds its files. What is cached for it is left as it is.
+    public func noteNoGuide(broadcasting: String, at now: Date = Date()) throws {
+        try noteAnswered(broadcasting: broadcasting, at: now)
+    }
+
+    private func noteAnswered(broadcasting: String, at now: Date) throws {
+        try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                   [.text("epg_checked:\(broadcasting)"), .text(RecorderTime.format(now))])
     }
 
     /// Rewrites the search text of a cache written by an older build, once, from the text the cache already
@@ -434,17 +456,26 @@ public actor GuideStore {
                             [.text(broadcasting), seconds, seconds], Self.row)
     }
 
+    /// Asked each time the day on screen changes. The count of programmes is answered from `ix_programs_ref`
+    /// alone: without it SQLite read every programme of the type to count them, 11 ms a time on a Mac for a
+    /// synthetic guide of 34,000 programmes, against 0.7 ms with it. The index is made by the schema script,
+    /// so a cache from before it gets one when it is next opened.
     public func counts() throws -> [String: GuideCounts] {
         var out: [String: GuideCounts] = [:]
         for broadcasting in Codes.epgFiles.keys {
             let programs = try db.count("SELECT COUNT(*) FROM programs WHERE bt=? AND ref_event_id IS NULL",
                                         [.text(broadcasting)])
             let channels = try db.count("SELECT COUNT(*) FROM channels WHERE bt=?", [.text(broadcasting)])
-            let refreshed = try db.query("SELECT value FROM meta WHERE key=?",
-                                         [.text("epg_refreshed:\(broadcasting)")]) { $0.string("value") }.first
-            out[broadcasting] = GuideCounts(channels: channels, programs: programs, refreshed: refreshed)
+            let refreshed = try meta("epg_refreshed:\(broadcasting)")
+            let checked = try meta("epg_checked:\(broadcasting)")
+            out[broadcasting] = GuideCounts(channels: channels, programs: programs, refreshed: refreshed,
+                                            checked: checked)
         }
         return out
+    }
+
+    private func meta(_ key: String) throws -> String? {
+        try db.query("SELECT value FROM meta WHERE key=?", [.text(key)]) { $0.string("value") }.first
     }
 
     // MARK: - what a recording is about

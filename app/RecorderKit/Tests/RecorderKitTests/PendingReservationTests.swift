@@ -218,14 +218,15 @@ final class PendingQueueTests: XCTestCase {
         }
         let noCode = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
             + "<s:Body><s:Fault><faultcode>s:Server</faultcode></s:Fault></s:Body></s:Envelope>"
+        // The client sends a 503 again twice before it gives up on it, so the first reservation takes three.
         let transport = StubTransport { _, index in
             switch index {
-            case 0: return HTTPResponse(statusCode: 503)
-            case 1: return HTTPResponse(statusCode: 500, body: Data(noCode.utf8))
+            case 0...2: return HTTPResponse(statusCode: 503)
+            case 3: return HTTPResponse(statusCode: 500, body: Data(noCode.utf8))
             default: return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
             }
         }
-        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let client = RecorderClient(host: "192.0.2.1", transport: transport, busyRetryDelay: 0...0)
         let outcome = await PendingQueue.flush(client: client, store: store, now: now)
 
         XCTAssertEqual(outcome.deferred.map(\.request.title), ["503 の番組", "理由のない 500 の番組"])
@@ -255,6 +256,35 @@ final class PendingQueueTests: XCTestCase {
                        "standby is about the recorder, not the request")
         XCTAssertFalse(RecorderError.badResponse(status: 503).refusal)
         XCTAssertFalse(RecorderError.transport("gone").refusal)
+    }
+
+    /// The screens and the overnight run each flush with a client and a connection of their own, and can
+    /// be at it together in one process. The second waits for the first and reads the queue after it, so a
+    /// reservation is sent once, not once each.
+    func testTwoFlushesAtOnceSendAReservationOnce() async throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("flush-\(UUID().uuidString).sqlite3")
+            .path
+        let screens = try GuideStore(path: path)
+        let overnight = try GuideStore(path: path)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        try await screens.queue(pending("一度だけ送る番組", eventID: 1, start: now.addingTimeInterval(3600)))
+
+        let transport = StubTransport { _, _ in
+            // long enough for both flushes to have read the queue, were they let in together
+            try await Task.sleep(for: .milliseconds(100))
+            return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
+        }
+        let first = RecorderClient(host: "192.0.2.1", transport: transport)
+        let second = RecorderClient(host: "192.0.2.1", transport: transport)
+        async let one = PendingQueue.flush(client: first, store: screens, now: now)
+        async let other = PendingQueue.flush(client: second, store: overnight, now: now)
+        let outcomes = await [one, other]
+
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 1, "sent once, not by each")
+        XCTAssertEqual(outcomes.map(\.sent.count).sorted(), [0, 1])
+        let left = try await overnight.pendingReservations()
+        XCTAssertTrue(left.isEmpty)
     }
 
     /// A recorder that goes away part way leaves the rest alone rather than marking them refused.

@@ -21,6 +21,10 @@ public actor RecorderClient {
 
     private let transport: any HTTPTransport
     private let queue = SerialQueue()
+    /// How long to wait, in seconds, before sending again what the recorder answered 503 to. See `send`.
+    private let busyRetryDelay: ClosedRange<Double>
+    /// How many times a request answered 503 is sent again before the 503 is thrown.
+    static let busyRetries = 2
     private var streamPortConfirmed: Bool
     /// Whether the DLNA tree has already been walked looking for the port. A tree that gives nothing away
     /// leaves `streamPortConfirmed` false, and asking again for every one of the eight guide files would
@@ -40,10 +44,11 @@ public actor RecorderClient {
     public static let wakeProbeTimeout: TimeInterval = 2
 
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
-                upnpPort: Int = Upnp.port, streamPort: Int? = nil) {
+                upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1) {
         self.host = host
         self.upnpPort = upnpPort
         self.transport = transport
+        self.busyRetryDelay = busyRetryDelay
         self.streamPort = streamPort ?? Upnp.defaultStreamPort
         self.streamPortConfirmed = streamPort != nil
     }
@@ -57,11 +62,16 @@ public actor RecorderClient {
     /// never reached. On a recorder that had just woken -- or over a VPN -- a probe meant to cost two seconds
     /// cost minutes, which is what made waking look as though it had hung. The walk now happens where its
     /// answer is needed, in `guideFile`.
+    ///
+    /// A 503 is the recorder busy, not something else at its address: it is thrown as `busy` (see `send`).
+    /// Read as any other answer that was not a description, it had the app say the recorder was not a Sony
+    /// recorder, while it was answering somebody else.
     @discardableResult
     public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
         -> RecorderDescription {
         let location = try url(port: upnpPort, path: "/description.xml")
-        let response = try await send(HTTPRequest(url: location, timeout: timeout ?? Self.soapTimeout))
+        let response = try await send(HTTPRequest(url: location, timeout: timeout ?? Self.soapTimeout),
+                                      asking: "description.xml")
         guard response.statusCode == 200,
               let described = Discovery.parseDescription(response.text, host: host, port: upnpPort,
                                                          location: location.absoluteString, via: via)
@@ -359,7 +369,8 @@ public actor RecorderClient {
             streamPortTried = true
             _ = try? await detectStreamPort()
         }
-        let response = try await send(HTTPRequest(url: try guideFileURL(named: name), timeout: Self.fileTimeout))
+        let response = try await send(HTTPRequest(url: try guideFileURL(named: name), timeout: Self.fileTimeout),
+                                      asking: name)
         switch response.statusCode {
         case 200: return response.body
         case 404, 416: return nil
@@ -382,10 +393,30 @@ public actor RecorderClient {
         return url
     }
 
-    private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+    /// Every request goes through here, one at a time.
+    ///
+    /// A 503 is the recorder busy with another request -- from the official app, another phone, or the
+    /// overnight run's client beside the screens' -- and says nothing about this one, which it has not
+    /// looked at. So it is sent again, up to `busyRetries` times, after a pause of half a second to a second:
+    /// random, so that two clients that met are not in step when they ask again. Inside the queue, so that
+    /// nothing else of this client's goes in between. A 503 after that is thrown as `busy`, naming `asking`:
+    /// the callers read other statuses in their own ways, and every one of them read this one wrong -- as not
+    /// a recorder, as a guide file not built yet, as an answer that was not XML.
+    private func send(_ request: HTTPRequest, asking: String) async throws -> HTTPResponse {
         let transport = self.transport
-        let response = try await queue.run { try await transport.send(request) }
+        let delay = busyRetryDelay
+        let response = try await queue.run {
+            var response = try await transport.send(request)
+            var retries = 0
+            while response.statusCode == 503, retries < Self.busyRetries {
+                retries += 1
+                try await Task.sleep(for: .seconds(Double.random(in: delay)))
+                response = try await transport.send(request)
+            }
+            return response
+        }
         lastAnswer = Date()
+        if response.statusCode == 503 { throw RecorderError.busy(action: asking) }
         return response
     }
 
@@ -397,7 +428,7 @@ public actor RecorderClient {
                                   headers: Soap.headers(service: service, action: action),
                                   body: Data(Soap.body(service: service, action: action, arguments: arguments).utf8),
                                   timeout: Self.soapTimeout)
-        let response = try await send(request)
+        let response = try await send(request, asking: action)
         guard let root = try? XmlNode.parse(response.body) else {
             throw RecorderError.badResponse(status: response.statusCode)
         }
