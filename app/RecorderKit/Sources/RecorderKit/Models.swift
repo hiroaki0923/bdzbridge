@@ -95,6 +95,18 @@ public struct RecorderDescription: Equatable, Sendable {
     public var location: String
     /// How it was found: `ssdp`, `scan` or `manual`.
     public var via: String
+
+    /// Whether this is the recorder whose wired MAC is `mac`, written in any shape `WakeOnLan.normalise`
+    /// takes. A Sony recorder's UDN ends with that MAC (`uuid:XXXXXXXX-XXXX-XXXX-XXXX-<MAC>`, the same as
+    /// ARP on a BDZ-FBT4100), and it is the address `X_GetPrivateIp` reports as `macAddress` -- the one the
+    /// app keeps for waking the recorder. So a recorder the router has given another address can be told
+    /// from any other on the LAN by what was already saved, without its UDN ever having been written down.
+    public func hasMAC(_ mac: String) -> Bool {
+        guard let wanted = WakeOnLan.normalise(mac),
+              let tail = udn.split(separator: "-").last,
+              let own = WakeOnLan.normalise(String(tail)) else { return false }
+        return own == wanted
+    }
 }
 
 /// One of the recorder's own おまかせ・まる録 conditions: what the box records by itself, by keyword.

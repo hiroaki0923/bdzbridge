@@ -93,10 +93,6 @@ struct SheetCloseButton: View {
     }
 }
 
-/// What to say when there is no recorder to talk to. Two situations that look the same to the code and need
-/// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
-/// phone is away from home. Sending someone to Settings to correct an address that is already right is
-/// worse than saying nothing.
 /// What the app is doing with the recorder, on whatever screen the reader is looking at. Waking takes the
 /// better part of ten seconds and the screens otherwise sit there looking broken, so it says so; it appears
 /// only while something is under way and slides out when it is done.
@@ -191,12 +187,25 @@ extension View {
     }
 }
 
+/// What to say when there is no recorder to talk to. Two situations that look the same to the code and need
+/// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
+/// phone is away from home. Sending someone to Settings to correct an address that is already right is
+/// worse than saying nothing, which is why looking for the recorder again is offered below 再接続 and not
+/// instead of it.
 struct NoRecorderView: View {
     let icon: String
     @Environment(AppModel.self) private var model
     @State private var welcoming = false
 
+    /// The tutorial hangs on the whole view rather than on one of its states. Choosing a recorder there
+    /// connects, which turns this view to its busy state, and a sheet hung on the state it was opened from
+    /// closed with it, in the middle of the connect and before the tutorial could say how it went.
     var body: some View {
+        states.sheet(isPresented: $welcoming) { WelcomeView() }
+    }
+
+    @ViewBuilder
+    private var states: some View {
         if model.host.isEmpty {
             ContentUnavailableView {
                 Label("レコーダーが登録されていません", systemImage: icon)
@@ -206,7 +215,6 @@ struct NoRecorderView: View {
                 Button("レコーダーを探す") { welcoming = true }
                     .buttonStyle(.borderedProminent)
             }
-            .sheet(isPresented: $welcoming) { WelcomeView() }
         } else if let busy = model.busy {
             // While the app is working on it, this is not a failure and should not read as one
             ContentUnavailableView {
@@ -230,13 +238,24 @@ struct NoRecorderView: View {
             ContentUnavailableView {
                 Label("レコーダーに接続できません", systemImage: icon)
             } description: {
-                Text("レコーダーの電源と、同じネットワークに接続されているかを確認してください")
+                // What went wrong when the app knows, since this is where the guide says it now: an address
+                // that is not one, or a device there that is not a recorder, is not put right by checking
+                // the power.
+                Text(model.problem ?? "レコーダーの電源と、同じネットワークに接続されているかを確認してください")
             } actions: {
-                // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
-                // there is nothing here about waking: trying again is the whole of it.
-                Button("再接続") { Task { await model.connect() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.jobRunning)
+                VStack(spacing: 12) {
+                    // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
+                    // there is nothing here about waking: trying again is the whole of it.
+                    Button("再接続") { Task { await model.connect() } }
+                        .buttonStyle(.borderedProminent)
+                    // The address itself may be what is wrong: typed with a digit out -- which is saved all
+                    // the same, so the tutorial never comes back by itself -- or given to something else by
+                    // the router, where the connect's own look round had no MAC to go by. The way back was
+                    // otherwise only in the settings. Quieter than 再接続, which is still what usually works.
+                    Button("レコーダーを探す") { welcoming = true }
+                        .buttonStyle(.borderless)
+                }
+                .disabled(model.jobRunning)
             }
         }
     }

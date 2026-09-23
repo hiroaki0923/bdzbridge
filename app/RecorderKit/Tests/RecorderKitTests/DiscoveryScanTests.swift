@@ -138,6 +138,66 @@ final class DiscoveryScanTests: XCTestCase {
         XCTAssertEqual(hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
     }
 
+    /// A recorder the router has given another address is found by the MAC the app keeps for waking it, which
+    /// is the tail of its UDN, and not mistaken for any other recorder on the LAN.
+    func testARecorderThatMovedIsFoundByTheMACAtTheEndOfItsUDN() async throws {
+        let description = try Vectors.load("description.json").string("description_xml")
+        let recorder = { (mac: String) -> HTTPResponse in
+            let udn = "uuid:00000000-0000-0000-0000-" + mac
+            let xml = description.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+            return HTTPResponse(statusCode: 200, body: Data(xml.utf8))
+        }
+        let another = recorder("f84e17000001")   // somebody else's recorder, or a second one
+        let ours = recorder("f84e17000000")
+        let transport = StubTransport { request, _ in
+            switch request.url.host() {
+            case "192.0.2.10": return another
+            case "192.0.2.70": return ours
+            default:
+                try await Task.sleep(for: .milliseconds(50))
+                throw RecorderError.transport("no route")
+            }
+        }
+        let hosts = (1...200).map { "192.0.2.\($0)" }
+
+        let found = await Discovery.find(mac: "F8-4E-17-00-00-00", among: hosts, transport: transport,
+                                         timeout: 0.5, atOnce: 8)
+        XCTAssertEqual(found?.host, "192.0.2.70")
+        let asked = await transport.requests.count
+        XCTAssertLessThan(asked, hosts.count, "the rest of the subnet is not asked once it has answered")
+
+        let nobody = await Discovery.find(mac: "f8:4e:17:00:00:02", among: (1...20).map { "192.0.2.\($0)" },
+                                          transport: transport, timeout: 0.5)
+        XCTAssertNil(nobody, "a recorder with another MAC is not the one")
+    }
+
+    func testAUDNIsMatchedOnlyByTheMACItEndsWith() throws {
+        let description = try Vectors.load("description.json").string("description_xml")
+        var recorder = try XCTUnwrap(Discovery.parseDescription(description, host: "192.0.2.63",
+                                                                location: "", via: "scan"))
+        recorder.udn = "uuid:00000000-0000-0000-0000-f84e17000000"
+        XCTAssertTrue(recorder.hasMAC("f8:4e:17:00:00:00"))
+        XCTAssertTrue(recorder.hasMAC("F84E17000000"))
+        XCTAssertFalse(recorder.hasMAC("f8:4e:17:00:00:01"))
+        XCTAssertFalse(recorder.hasMAC("not a mac"))
+        recorder.udn = "uuid:x"
+        XCTAssertFalse(recorder.hasMAC("f8:4e:17:00:00:00"), "a UDN of another shape says nothing")
+    }
+
+    /// DHCP moves a recorder within its subnet, so that is the only place worth looking; from any other
+    /// network there is nothing to find and nobody else's LAN to scan.
+    func testARecorderThatMovedIsLookedForOnlyOnTheSubnetItWasOn() {
+        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
+                                          broadcasts: true)
+        let home = LocalNetwork.hostsToScan(near: "192.0.2.63", on: [wifi])
+        XCTAssertEqual(home, LocalNetwork.hosts(around: wifi))
+        XCTAssertTrue(home.contains("192.0.2.63"), "it may be back where it was by now")
+
+        XCTAssertEqual(LocalNetwork.hostsToScan(near: "198.51.100.63", on: [wifi]), [], "another network")
+        XCTAssertEqual(LocalNetwork.hostsToScan(near: "192.0.2.63", on: []), [], "no Wi-Fi at all")
+        XCTAssertEqual(LocalNetwork.hostsToScan(near: "recorder.local", on: [wifi]), [])
+    }
+
     func testThisDeviceReportsItsOwnInterfaces() {
         // whatever the machine running the tests happens to have, an address and a mask should parse
         for interface in LocalNetwork.interfaces() {

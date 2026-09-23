@@ -94,6 +94,25 @@ public enum LocalNetwork {
         lanInterfaces().flatMap { hosts(around: $0, maxHosts: maxHosts) }
     }
 
+    /// The addresses to look through for a recorder last seen at `host`: the subnet of each interface that
+    /// `host` belongs to, and nothing when it belongs to none. A router hands a lease out again within its
+    /// own subnet, so that is where the recorder has gone if it has moved. On any other network -- away from
+    /// home, a café's Wi-Fi, a VPN whose tunnel is not among `interfaces` -- the recorder is not there to be
+    /// found, and knocking on every address of somebody else's LAN is not this app's business.
+    public static func hostsToScan(near host: String, on interfaces: [Interface] = lanInterfaces(),
+                                   maxHosts: Int = 512) -> [String] {
+        guard let target = packed(host) else { return [] }
+        var out: [String] = []
+        for interface in interfaces {
+            guard let address = packed(interface.address), let mask = packed(interface.netmask),
+                  address & mask == target & mask else { continue }
+            for candidate in hosts(around: interface, maxHosts: maxHosts) where !out.contains(candidate) {
+                out.append(candidate)
+            }
+        }
+        return out
+    }
+
     /// Somebody else on the interface's subnet, to aim the local network check at (see `waitForAccess`):
     /// the first address of the subnet, which is usually the router, or the second when that is this
     /// device. Whether anything answers there does not matter; the check reads the path, not a reply.

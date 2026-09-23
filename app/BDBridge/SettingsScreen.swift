@@ -187,6 +187,9 @@ struct SettingsScreen: View {
             }
             .navigationTitle("設定")
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }
+            // The app moves the address by itself when it finds the recorder somewhere else, and a field still
+            // showing the old one would offer このアドレスに接続 to take it back there.
+            .onChange(of: model.host) { typedHost = model.host }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
         }

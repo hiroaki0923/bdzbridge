@@ -67,9 +67,10 @@ final class AppModel {
     private var activities = Activities()
     /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
     var busy: String? { activities.current }
-    /// Set while the app is only waiting for the recorder to come back from a magic packet. Nothing is
-    /// being written and nothing is being read, so the screens leave alive what they can: a reservation
-    /// made during these seconds goes to the queue, which is what the queue is for.
+    /// Set while the app is only waiting for the recorder to come back from a magic packet, or looking for it
+    /// at another address after that (`findMovedRecorder`). Nothing is being written and nothing is being
+    /// read, so the screens leave alive what they can: a reservation made during these seconds goes to the
+    /// queue, which is what the queue is for.
     private(set) var waking = false
     /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
     /// until either the network this device is on changes or the reader asks for it, because the answer
@@ -112,6 +113,8 @@ final class AppModel {
 
     private static let hostKey = "recorderHost"
     private static let macKey = "recorderMac"
+    /// The address the recorder was at when it reported the MAC. See `macWasReadHere`.
+    private static let macHostKey = "recorderMacHost"
 
     init() {
         demo = DemoData.on
@@ -477,6 +480,16 @@ final class AppModel {
         }
         connectBlocked = false
         if !reached { reached = await wakeAndAttach(client) }
+        // Not back where it was after the waking: it may be answering at another address. One look, here and
+        // nowhere else, so the rule below about not trying again stands.
+        if !reached, unreachable, let moved = await findMovedRecorder() {
+            host = moved.host
+            // It is the recorder the MAC was read from, which its UDN has just said.
+            UserDefaults.standard.set(moved.host, forKey: Self.macHostKey)
+            let found = RecorderClient(host: moved.host)
+            self.client = found
+            reached = await attach(found, timeout: RecorderClient.probeTimeout)
+        }
         // Trying again by itself would only spend another half-minute arriving at the same silence. The
         // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
         // network asks again without being told to.
@@ -553,8 +566,12 @@ final class AppModel {
             UserDefaults.standard.set(host, forKey: Self.hostKey)
             firmware = try await client.firmwareVersion()
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
-            // cannot read an ARP table, so it is read every time rather than once.
-            if let settings = try? await client.networkSettings() { remember(mac: settings.mac) }
+            // cannot read an ARP table, so it is read every time rather than once. With the address it was
+            // read at, which is what lets the recorder be recognised by it somewhere else: see
+            // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
+            if let settings = try? await client.networkSettings(), remember(mac: settings.mac), !demo {
+                UserDefaults.standard.set(host, forKey: Self.macHostKey)
+            }
             let capacity = try await client.recordDestinationInfo()
             storage = (capacity.freeBytes, capacity.totalBytes)
             unreachable = false
@@ -624,6 +641,50 @@ final class AppModel {
 
     private static func wakingLine(_ seconds: Int) -> String {
         "レコーダーを起動しています（\(seconds) 秒）"
+    }
+
+    // MARK: - a recorder that is not where it was
+
+    /// Looks for the recorder at another address, once, after waking it where it was came to nothing.
+    ///
+    /// The recorder's address is a DHCP lease, and the router hands it out again as it likes: after a power
+    /// cut, a restart of the router, a long sleep. The app went on knocking at the old address, and the only
+    /// thing on screen was 再接続, which knocked there again. The magic packet has already gone to the
+    /// subnet's broadcast, so a recorder that moved has had the half minute of waking to come up at its new
+    /// address, and a scan of the subnet finds it in a few seconds. It is told from any other recorder by the
+    /// MAC kept for waking it, which is the tail of its UDN (`RecorderDescription.hasMAC`), so an
+    /// installation that has only ever saved the MAC finds it too.
+    ///
+    /// Only from `connect()`, once, and never on a loop: when nothing is found the app gives up as before,
+    /// until the network changes or the reader asks. Only on a Wi-Fi whose subnet the saved address belongs
+    /// to, which is where DHCP would have moved it (`LocalNetwork.hostsToScan(near:)`). Never in the demo, and
+    /// never in the background, where the system refuses the local network without a word. The permission
+    /// itself has been looked at already: a connect that met silence asks it about the saved address, in this
+    /// same subnet, before waking anything, and waits for it rather than coming here.
+    private func findMovedRecorder() async -> RecorderDescription? {
+        guard !demo, !inBackground, let mac, macWasReadHere else { return nil }
+        let hosts = LocalNetwork.hostsToScan(near: host)
+        guard !hosts.isEmpty else { return nil }
+        // The waking's failure is not the last word yet, and a screen saying it while the search runs would
+        // be saying it too soon. It is put back if the search finds nothing either.
+        let failure = problem
+        problem = nil
+        waking = true
+        let activity = activities.begin("レコーダーを探しています")
+        defer { waking = false; activities.end(activity) }
+        let moved = await Discovery.find(mac: mac, among: hosts)
+        if moved == nil { problem = failure }
+        return moved
+    }
+
+    /// Whether the MAC is the one the recorder at the saved address reported, or nobody knows (a version
+    /// before this one did not write down where). Once the reader has typed the address of another recorder,
+    /// the MAC is still the old one's until the new one answers, and the magic packet addressed to it wakes
+    /// the old recorder: the search would find that, and quietly go back to the recorder the reader had just
+    /// left.
+    private var macWasReadHere: Bool {
+        guard let readAt = UserDefaults.standard.string(forKey: Self.macHostKey) else { return true }
+        return readAt == host
     }
 
     // MARK: - a recorder that falls asleep while the app is open
@@ -738,16 +799,19 @@ final class AppModel {
     var canWake: Bool { mac != nil }
 
     /// Keeps a MAC for waking the recorder. Anything that is not one is ignored rather than stored, so a
-    /// half-typed address never replaces a good one.
-    func remember(mac text: String) {
-        guard let normalised = WakeOnLan.normalise(text) else { return }
+    /// half-typed address never replaces a good one. Returns whether it was kept.
+    @discardableResult
+    func remember(mac text: String) -> Bool {
+        guard let normalised = WakeOnLan.normalise(text) else { return false }
         mac = normalised
         UserDefaults.standard.set(normalised, forKey: Self.macKey)
+        return true
     }
 
     func forgetMac() {
         mac = nil
         UserDefaults.standard.removeObject(forKey: Self.macKey)
+        UserDefaults.standard.removeObject(forKey: Self.macHostKey)
     }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent

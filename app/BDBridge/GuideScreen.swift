@@ -18,7 +18,9 @@ struct GuideScreen: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if grid {
+                if nothingAndNoRecorder {
+                    NoRecorderView(icon: "calendar")
+                } else if grid {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
                                   reservationFor: { model.reservation(for: $0) }) { tapped = $0 }
@@ -139,6 +141,15 @@ struct GuideScreen: View {
         return shown.first { $0.end > now }
     }
 
+    /// Nothing for the day on screen, and no recorder to fetch it from. The list said エラー over whatever had
+    /// failed last, with no button under it and nothing to do but find the settings, and the grid pointed to
+    /// the refresh button, which is greyed out while not connected. `NoRecorderView` says what is wrong and
+    /// offers 再接続 and レコーダーを探す. The grid shows every channel whatever the list is narrowed to, so it
+    /// is judged by all of the day's programmes.
+    private var nothingAndNoRecorder: Bool {
+        !model.connected && (grid ? model.programs : shown).isEmpty
+    }
+
     @ViewBuilder
     private var list: some View {
         // A guide that is in the cache is shown whatever the recorder is doing. It is the whole reason the
@@ -146,14 +157,13 @@ struct GuideScreen: View {
         // and still be reserved -- the reservation waits in the queue. An error in place of the guide left
         // nothing to do but go home.
         if shown.isEmpty {
+            // connected here: see `nothingAndNoRecorder`
             if let problem = model.problem {
                 ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle",
                                        description: Text(problem))
-            } else if model.connected {
+            } else {
                 ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
                                        description: Text("右上の更新ボタンでレコーダーから取得できます"))
-            } else {
-                NoRecorderView(icon: "calendar")
             }
         } else {
             ScrollViewReader { scroller in
