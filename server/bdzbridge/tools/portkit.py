@@ -309,7 +309,7 @@ def xsrs_vectors() -> dict:
     )
     rule_list = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rule_objects}</xsrs>'
     rule_cases = [
-        {"name": "keyword only, as accepted by a BDZ-FBT4100",
+        {"name": "keyword only on every wave: the quality goes in both elements, or the 4K waves get DR",
          "input": {"keywords": ["サンプル"], "quality_code": 220}},
         {"name": "every field: genre in hex before the keywords, exclusions after, text escaped",
          "input": {"keywords": ["a & b", "c"], "excluded": ["x"], "logic": "AND", "genre_level1": 3, "genre_level2": 0,
@@ -319,6 +319,8 @@ def xsrs_vectors() -> dict:
                    "quality_code": 220}},
         {"name": "a 4K wave, whose quality goes in the Advanced element instead",
          "input": {"keywords": ["x"], "time_scope": "MIDNIGHT", "broadcasting_scope": "ADVBSD", "quality_code": 220}},
+        {"name": "a scope the recorder does not know, which it takes for ALL: the quality goes in both elements",
+         "input": {"keywords": ["x"], "broadcasting_scope": "NOSUCHWAVE", "quality_code": 240}},
     ]
     for c in rule_cases:
         c["elements"] = build_recorder_rule_elements(**c["input"])

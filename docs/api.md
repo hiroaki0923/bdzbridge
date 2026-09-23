@@ -647,7 +647,7 @@ Stop after the item being processed; what is done stays done.
 - `broadcasting_scope`: string
 - `broadcasting_scope_label`: string
 - `quality`: string | null — 録画モード(地上/BS/CS)
-- `quality_4k`: string | null — 録画モード(BS4K/CS4K), filled in by the recorder
+- `quality_4k`: string | null — 録画モード(BS4K/CS4K); DR when the condition was made without one
 - `destination`: string
 
 ### RecorderRuleCreate
@@ -662,7 +662,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `genre_level2`: integer | null （省略可） — the sub-genre within level1
 - `time_scope`: string （省略可、既定 `"ALL"`） — ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT
 - `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder
-- `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
+- `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可） — the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, which the recorder would otherwise record in DR
 
 ### MonitorResult
 

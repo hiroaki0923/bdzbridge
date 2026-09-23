@@ -360,6 +360,8 @@ final class AppModel {
         titles = []
         titlesLoaded = false
         recorderRules = []
+        recorderRulesLoaded = false
+        recorderRulesFailure = nil
         pending = []
         flushReport = nil
         duplicates = []
@@ -980,6 +982,11 @@ final class AppModel {
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
     private(set) var recorderRules: [RecorderRule] = []
+    /// Whether `recorderRules` is the recorder's answer, and why the last read failed if it did. An empty list
+    /// is also what there is while the first read is on its way and after one that failed, and saying
+    /// 条件が登録されていません then tells the reader something the recorder never said.
+    private(set) var recorderRulesLoaded = false
+    private(set) var recorderRulesFailure: String?
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
     private(set) var pending: [PendingReservation] = [] {
@@ -997,9 +1004,25 @@ final class AppModel {
 
     func loadRecorderRules() async {
         await start()
-        guard let client, !unreachable else { return }
-        await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
+        guard let client, !unreachable else {
+            // A list read before stays on screen under the strip that says the recorder is not there; with
+            // none, the screen says why there is nothing rather than waiting for a read that is not coming.
+            if !recorderRulesLoaded { recorderRulesFailure = problem ?? Self.rulesNotAsked }
+            return
+        }
+        let read = await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
+        if read {
+            recorderRulesLoaded = true
+            recorderRulesFailure = nil
+        } else {
+            // With no message the recorder was never asked: the check before the read found the local network
+            // permission missing, which the strip explains. Saying the recorder returned an error would be
+            // saying something it did not do.
+            recorderRulesFailure = problem ?? Self.rulesNotAsked
+        }
     }
+
+    private static let rulesNotAsked = "レコーダーに接続していません"
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
@@ -1021,7 +1044,13 @@ final class AppModel {
         let removed = await run("レコーダーから削除中", sending: true) {
             try await client.deleteRecorderRule(id: rule.id)
         }
+        // The read that follows clears the message when it works, and for a delete that failed the message is
+        // the reason the screen shows. Without this it could say only that the recorder had returned an error.
+        // Put back only over nothing: a read that failed has said something newer, such as the recorder no
+        // longer answering, and that is what is true now.
+        let reason = problem
         await loadRecorderRules()
+        if !removed, problem == nil { problem = reason }
         return removed
     }
 

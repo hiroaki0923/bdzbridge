@@ -159,8 +159,9 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
   同じくクライアント側でタイトル文字列から鍵を作っている。
 - レコーダー本体の「おまかせ・まる録」（キーワード自動録画）は `X_GetPrefRecSettingList` で読め、
   `X_CreatePrefRecSetting` / `X_DeletePrefRecSetting` で作成・削除できる。**変更は実装しない**: 一覧には本体で設定した
-  対象チャンネルが含まれず、書き戻すとそれが消える（実測）。`Filter` は `*` を渡すこと。形と語彙は `xsrs-api.md`、
-  ベクタは `port/xsrs.json` の `recorder_rules`。
+  対象チャンネルが含まれず、書き戻すとそれが消える（実測）。`Filter` は `*` を渡すこと。録画モードは放送波ごとに
+  2 つあり、`ALL`（と知らない放送波）の条件では `desiredQualityMode` と `desiredQualityModeForAdvanced` の両方に
+  入れる。片方だけだと 4K 側が DR になる（実測）。形と語彙は `xsrs-api.md`、ベクタは `port/xsrs.json` の `recorder_rules`。
 
 **番組表**
 - 時刻は 1970-01-01 00:00 **JST** 起点の秒（unix 時刻 + 32400）。

@@ -30,9 +30,7 @@ struct RecorderRulesScreen: View {
     var body: some View {
         List {
             Section {
-                if model.recorderRules.isEmpty {
-                    Text("条件が登録されていません").foregroundStyle(.secondary)
-                }
+                listState
                 ForEach(model.recorderRules) { rule in
                     RecorderRuleRow(rule: rule)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -44,6 +42,9 @@ struct RecorderRulesScreen: View {
                      + "対象チャンネルの指定はレコーダー本体でのみ設定でき、ここには表示されません。")
             }
         }
+        // The screens' strip, which a screen pushed onto a stack does not get from the one it came from: the
+        // read and the delete said nothing here while they waited for the recorder.
+        .recorderActivity()
         .navigationTitle("おまかせ・まる録")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -54,7 +55,10 @@ struct RecorderRulesScreen: View {
             }
         }
         .refreshable { await model.loadRecorderRules() }
-        .task(id: model.connected) { await model.loadRecorderRules() }
+        // Keyed on what the read itself checks. `connected` turns true partway through a connect, while the
+        // recorder is still marked silent from before, so a read set going by it found nothing to ask and was
+        // not tried again -- after 再接続 the screen went on saying the list could not be read.
+        .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }
         .sheet(isPresented: $adding) { RecorderRuleSheet() }
         .alert(alertTitle,
                isPresented: Binding(get: { shown != nil },
@@ -82,6 +86,27 @@ struct RecorderRulesScreen: View {
             }
         }
     }
+
+    /// Above the conditions, what the list is: empty only once the recorder has said so. A failed read is
+    /// said even over a list read before, which is then what the recorder said last time rather than now.
+    @ViewBuilder
+    private var listState: some View {
+        if let failure = model.recorderRulesFailure {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("条件を読み込めませんでした")
+                Text(failure).font(.caption).foregroundStyle(.secondary)
+            }
+        } else if model.recorderRules.isEmpty {
+            if model.recorderRulesLoaded {
+                Text("条件が登録されていません").foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("読み込み中").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
 }
 
 struct RecorderRuleRow: View {
@@ -103,6 +128,10 @@ struct RecorderRuleRow: View {
         parts.append(rule.timeScopeLabel)
         if let genre = rule.genreLabel { parts.append(genre) }
         if let quality = rule.qualityName { parts.append(Codes.qualityLabel[quality] ?? quality) }
+        // The 4K waves have a mode of their own. A condition on every wave made without it records BS4K and
+        // CS4K in DR whatever the mode beside it says, and this is where such a condition is seen, to be made
+        // again.
+        if let quality = rule.qualityName4K { parts.append("4K: " + (Codes.qualityLabel[quality] ?? quality)) }
         return parts.joined(separator: " · ")
     }
 }
@@ -139,6 +168,12 @@ struct RecorderRuleSheet: View {
     private var subGenres: [Int] {
         genreLevel1 < 0 ? [] : (Codes.subGenreLabel[genreLevel1]?.keys.sorted() ?? [])
     }
+
+    /// The genres a condition can name: the twelve kinds of programme. The table also holds the extension
+    /// area (0xE), so that it is the whole standard, but that is not a kind of programme -- it says what the
+    /// bytes after it are for. It has sub-genres of its own, so the test for sub-genres, which keeps その他
+    /// (0xF) out, lets it in; it is left out by name.
+    private static let genres = Codes.genreLabel.keys.sorted().filter { $0 != 0xE && Codes.subGenreLabel[$0] != nil }
 
     private var problem: String? {
         if words.isEmpty && genreLevel1 < 0 { return "キーワードかジャンルを指定してください" }
@@ -187,7 +222,7 @@ struct RecorderRuleSheet: View {
                 Section {
                     Picker("ジャンル", selection: $genreLevel1) {
                         Text("指定しない").tag(-1)
-                        ForEach(Codes.genreLabel.keys.sorted().filter { Codes.subGenreLabel[$0] != nil }, id: \.self) { level in
+                        ForEach(Self.genres, id: \.self) { level in
                             Text(Codes.genreLabel[level] ?? "").tag(level)
                         }
                     }

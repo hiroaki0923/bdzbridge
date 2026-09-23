@@ -101,12 +101,21 @@ public enum XsrsElements {
         }
         let words = request.keywords.map { "<keyword>\(Soap.escape($0, quotes: false))</keyword>" }.joined()
         let excluded = request.excluded.map { "<excludeKeyword>\(Soap.escape($0, quotes: false))</excludeKeyword>" }.joined()
-        // The recorder keeps a quality per wave and reads only the one the scope covers: for a 4K-only
-        // condition desiredQualityMode is dropped, so the chosen quality goes in the Advanced element.
-        let qualityElement = Codes.advancedScopes.contains(request.broadcastingScope)
-            ? "desiredQualityModeForAdvanced" : "desiredQualityMode"
+        // The recorder keeps a quality per wave -- desiredQualityMode for 地上/BS/CS, the Advanced one for
+        // BS4K/CS4K -- and reads only those the scope covers. A 4K-only condition drops desiredQualityMode. A
+        // condition on every wave that carries desiredQualityMode alone gets DR on its 4K side, so one made as
+        // LSR recorded BS4K programmes at full size; it gets the chosen quality in both. So does a scope the
+        // recorder does not know, since that is a condition on every wave by the time the recorder has it.
+        let scope = request.broadcastingScope
+        var quality = ""
+        if !Codes.advancedScopes.contains(scope) {
+            quality += "<desiredQualityMode>\(request.qualityCode)</desiredQualityMode>"
+        }
+        if !Codes.ordinaryScopes.contains(scope) {
+            quality += "<desiredQualityModeForAdvanced>\(request.qualityCode)</desiredQualityModeForAdvanced>"
+        }
         return "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"><object type=\"SEARCH\">"
-            + "<\(qualityElement)>\(request.qualityCode)</\(qualityElement)>"
+            + quality
             + "<recordDestinationID>\(request.destination)</recordDestinationID>"
             + "<searchSetting type=\"MULTIPLE\" logic=\"\(request.logic)\">"
             + "<name>\(Soap.escape(request.keywords.first ?? "", quotes: false))</name>" + genre + words + excluded

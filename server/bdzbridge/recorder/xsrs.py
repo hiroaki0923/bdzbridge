@@ -316,6 +316,9 @@ def parse_recorder_rule(obj: ET.Element) -> RecorderRule:
 
 #: broadcastTypeScope values for the 4K waves, whose quality lives in its own element
 ADVANCED_SCOPES = ("ADVBSD", "ADVCSD")
+#: broadcastTypeScope values for one of the other waves alone. Every scope that is neither -- ALL, and a spelling
+#: the recorder does not know, which it takes for ALL -- covers both kinds of wave.
+ORDINARY_SCOPES = ("TRD", "BSD", "CSD")
 
 
 def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | tuple[str, ...] = (), logic: str = "OR",
@@ -334,13 +337,19 @@ def build_recorder_rule_elements(*, keywords: list[str], excluded: list[str] | t
         genre = f'<genreID type="3">{genre_level1:#x}*</genreID>'
     else:
         genre = f'<genreID type="2">{genre_level1 * 16 + genre_level2:#x}</genreID>'
-    # The recorder keeps a quality per wave and reads only the one the scope covers: for a 4K-only condition
-    # desiredQualityMode is dropped, so the chosen quality has to go in the Advanced element instead.
-    quality_element = ("desiredQualityModeForAdvanced" if broadcasting_scope in ADVANCED_SCOPES
-                       else "desiredQualityMode")
+    # The recorder keeps a quality per wave -- desiredQualityMode for 地上/BS/CS, the Advanced one for BS4K/CS4K --
+    # and reads only those the scope covers. A 4K-only condition drops desiredQualityMode. A condition on every
+    # wave that carries desiredQualityMode alone gets DR on its 4K side, so one made as LSR recorded BS4K
+    # programmes at full size; it gets the chosen quality in both. So does a scope the recorder does not know,
+    # since that is a condition on every wave by the time the recorder has it.
+    quality = ""
+    if broadcasting_scope not in ADVANCED_SCOPES:
+        quality += f"<desiredQualityMode>{quality_code}</desiredQualityMode>"
+    if broadcasting_scope not in ORDINARY_SCOPES:
+        quality += f"<desiredQualityModeForAdvanced>{quality_code}</desiredQualityModeForAdvanced>"
     return (
         f'<xsrs xmlns="{XSRS_NS}"><object type="SEARCH">'
-        f"<{quality_element}>{quality_code}</{quality_element}>"
+        f"{quality}"
         f"<recordDestinationID>{destination}</recordDestinationID>"
         f'<searchSetting type="MULTIPLE" logic="{logic}">'
         f"<name>{esc(keywords[0]) if keywords else ''}</name>{genre}"

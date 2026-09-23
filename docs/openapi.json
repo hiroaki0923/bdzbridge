@@ -3129,7 +3129,7 @@
        }
       ],
       "title": "Quality 4K",
-      "description": "録画モード(BS4K/CS4K), filled in by the recorder"
+      "description": "録画モード(BS4K/CS4K); DR when the condition was made without one"
      },
      "destination": {
       "type": "string",
@@ -3245,7 +3245,8 @@
         "type": "null"
        }
       ],
-      "title": "Quality"
+      "title": "Quality",
+      "description": "the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, which the recorder would otherwise record in DR"
      }
     },
     "type": "object",

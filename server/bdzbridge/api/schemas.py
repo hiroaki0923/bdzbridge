@@ -276,7 +276,8 @@ class RecorderRuleCreate(BaseModel):
     genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
     time_scope: str = Field("ALL", max_length=16, description="ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT")
     broadcasting_scope: str = Field("ALL", max_length=16, description="ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder")
-    quality: Quality | None = None
+    quality: Quality | None = Field(None, description="the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, "
+                                                      "which the recorder would otherwise record in DR")
 
     @field_validator("keywords", "excluded")
     @classmethod
@@ -308,7 +309,7 @@ class RecorderRule(BaseModel):
     broadcasting_scope: str
     broadcasting_scope_label: str
     quality: str | None = Field(description="録画モード(地上/BS/CS)")
-    quality_4k: str | None = Field(description="録画モード(BS4K/CS4K), filled in by the recorder")
+    quality_4k: str | None = Field(description="録画モード(BS4K/CS4K); DR when the condition was made without one")
     destination: str
 
 

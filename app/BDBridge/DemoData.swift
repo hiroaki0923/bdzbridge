@@ -538,6 +538,7 @@ enum DemoData {
         """,
         """
         <object type="SEARCH" id="0x0000570b"><desiredQualityMode>240</desiredQualityMode>\
+        <desiredQualityModeForAdvanced>240</desiredQualityModeForAdvanced>\
         <recordDestinationID>HDD</recordDestinationID>\
         <searchSetting type="MULTIPLE" logic="OR"><name>空色パズル</name>\
         <genreID type="3">0x7*</genreID><keyword>空色パズル</keyword>\

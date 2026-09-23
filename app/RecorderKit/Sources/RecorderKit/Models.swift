@@ -130,11 +130,13 @@ public struct RecorderRule: Equatable, Sendable, Identifiable {
     public var broadcastingScope: String
     /// 録画モード(地上/BS/CS); the recorder only sends it when asked with Filter "*".
     public var qualityCode: Int?
-    /// 録画モード(BS4K/CS4K); the recorder fills it in itself and omits it for a one-wave scope.
+    /// 録画モード(BS4K/CS4K); DR where the condition was made without one, and not reported for a scope
+    /// without the 4K waves.
     public var qualityCode4K: Int?
     public var destination: String
 
     public var qualityName: String? { qualityCode.flatMap(Codes.quality(code:)) }
+    public var qualityName4K: String? { qualityCode4K.flatMap(Codes.quality(code:)) }
     public var logicLabel: String { Codes.ruleLogicLabel[logic] ?? logic }
     public var timeScopeLabel: String { Codes.timeScopeLabel[timeScope] ?? timeScope }
     public var broadcastingScopeLabel: String { Codes.broadcastingScopeLabel[broadcastingScope] ?? broadcastingScope }

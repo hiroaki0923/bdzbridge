@@ -147,6 +147,7 @@ def test_recorder_rule_defaults_and_limits(client):
     made = r.json()
     assert made["logic"] == "OR" and made["time_scope"] == "ALL" and made["broadcasting_scope"] == "ALL"
     assert made["quality"] == "LSR" and made["genres"] == []   # the server's default quality
+    assert made["quality_4k"] == "LSR"   # every wave, so the 4K ones too rather than the recorder's DR
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": []}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level2": 0}).status_code == 422
     whole = client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level1": 5, "time_scope": "MORNING",
