@@ -54,7 +54,18 @@ class XsrsError(Exception):
             return f"{text} ({self.code}: {self.action})"
         if self.code:
             return f"レコーダーがエラーを返しました ({self.code}: {self.action}, HTTP {self.status})"
+        if self.busy:
+            return ("レコーダーがほかの要求を処理していて、応答できませんでした。"
+                    f"しばらくしてから、もう一度お試しください (503: {self.action})")
+        if self.status == 200:  # a 200 with no code in it is one whose body could not be read
+            return f"レコーダーの応答を読み取れませんでした ({self.action})"
         return f"レコーダーが HTTP {self.status} を返しました ({self.action})"
+
+    @property
+    def busy(self) -> bool:
+        """The recorder answered 503: it serves one request at a time, and this one arrived while it was busy with
+        somebody else's -- the official app, the iOS app. It said nothing about the request itself."""
+        return self.status == 503
 
 
 @dataclass
@@ -368,7 +379,13 @@ class XsrsClient:
     async def _call(self, ctrl: str, stype: str, action: str, args: list[tuple[str, object]]) -> ET.Element:
         headers = dict(_CLIENT_HEADERS, SOAPACTION=f'"{stype}#{action}"')
         r = await self.http.post(self.base + ctrl, content=_soap_body(stype, action, args), headers=headers, timeout=30)
-        root = ET.fromstring(r.text)
+        try:
+            root = ET.fromstring(r.text)
+        except ET.ParseError:
+            # A busy recorder answers 503 with no SOAP in it, and a request cut short can leave an empty body. Either
+            # is this request failing, which is what callers catch XsrsError for; a bare ParseError went past them
+            # and ended whatever they were in the middle of, an auto-reservation pass among them.
+            raise XsrsError(action, r.status_code, None, r.text[:500]) from None
         code = _find_text(root, "errorCode")
         if r.status_code != 200 or code:
             raise XsrsError(action, r.status_code, code, r.text[:500])
@@ -376,7 +393,11 @@ class XsrsClient:
 
     async def _result_items(self, ctrl, stype, action, args) -> tuple[list[ET.Element], ET.Element]:
         root = await self._call(ctrl, stype, action, args)
-        return _items(_find_text(root, "Result") or ""), root
+        result = _find_text(root, "Result") or ""
+        try:
+            return _items(result), root
+        except ET.ParseError:  # the list inside the answer, escaped as text, is parsed on its own
+            raise XsrsError(action, 200, None, result[:500]) from None
 
     # --- reservations ---
     async def list_reservations(self, count: int = 200) -> list[Reservation]:

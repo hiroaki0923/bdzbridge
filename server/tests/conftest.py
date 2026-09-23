@@ -5,6 +5,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,7 @@ from bdzbridge.recorder.xsrs import (
     RecordedTitle,
     RecorderRule,
     Reservation,
+    XsrsClient,
     XsrsError,
     parse_recorder_rule,
     parse_reservation,
@@ -242,3 +244,20 @@ def make_title(tid, title, start, duration=1800, **kw):
 
 async def free_space(free_bytes):
     return {"total_bytes": 4_000_000_000_000, "free_bytes": int(free_bytes)}
+
+
+# --- the real SOAP client, answered in the process ---
+
+def soap_answer(action: str, inner: str = "") -> str:
+    """A SOAP answer shaped as the recorder's services give one, with `inner` in the action's response element."""
+    return ('<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            f'<s:Body><u:{action}Response xmlns:u="urn:schemas-xsrs-org:service:X_ScheduledRecording:2">{inner}'
+            f"</u:{action}Response></s:Body></s:Envelope>")
+
+
+def recorder_answering(answer) -> XsrsClient:
+    """An XsrsClient whose requests go to `answer(action)`, which returns the (status, body) to reply with."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        status, body = answer(request.headers["SOAPACTION"].strip('"').split("#")[1])
+        return httpx.Response(status, text=body)
+    return XsrsClient("192.0.2.10", httpx.AsyncClient(transport=httpx.MockTransport(handler)))

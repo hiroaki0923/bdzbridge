@@ -1,14 +1,23 @@
 """Periodic checks reported through the notifier: HDD space running low, reservations the recorder flags as conflicting.
 
 Runs after every EPG refresh (and on demand). Each condition is reported once: the low-space warning re-arms after
-free space climbs back 20 % above the threshold, a conflict is reported when its reservation id is first seen.
+free space climbs back 20 % above the threshold, a conflict is reported when its reservation is first seen conflicting.
 """
 from __future__ import annotations
 
 import json
 import logging
 
+from ..recorder.xsrs import Reservation
+
 log = logging.getLogger("bdzbridge.monitor")
+
+
+def _conflict_key(r: Reservation) -> str:
+    """A reservation by what it is rather than by its id. The recorder renumbers the reservations its own automatic
+    recording made, the whole block at once (docs/xsrs-api.md), so a conflict remembered by id came back as a new one
+    each time. No two reservations share a channel and a start."""
+    return f"{r.broadcasting_type}:{r.service_id}:{int(r.start.timestamp())}"
 
 
 async def run_checks(bridge) -> dict:
@@ -35,14 +44,15 @@ async def run_checks(bridge) -> dict:
     try:
         async with rec.lock:
             items = await rec.xsrs.list_reservations()
+        # a list saved before the keys holds ids, which still count for the pass that replaces it
         seen = set(json.loads(store.get_meta("notified_conflicts") or "[]"))
         conflicts = [r for r in items if r.conflict]
-        new = [r for r in conflicts if r.id not in seen]
+        new = [r for r in conflicts if _conflict_key(r) not in seen and r.id not in seen]
         if new:
             parts.append("重複している予約（このままだと録画されない可能性があります）:\n"
                          + "\n".join(f"{r.start.strftime('%m/%d %H:%M')} {r.title}" for r in new))
             result["new_conflicts"] = [r.id for r in new]
-        store.set_meta("notified_conflicts", json.dumps([r.id for r in conflicts]))
+        store.set_meta("notified_conflicts", json.dumps([_conflict_key(r) for r in conflicts]))
     except Exception as e:
         log.warning("conflict check failed: %s", e)
     if parts:

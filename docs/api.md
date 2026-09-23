@@ -52,7 +52,7 @@ Default quality and repeat plus the label tables the web app uses (qualities, re
 
 ### POST /epg/refresh
 
-Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards.
+Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards. A recorder that has left the network is woken first when its MAC is known, and 503 means it did not answer even then.
 
 レスポンス:
 - 200: `dict`

@@ -3,14 +3,18 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import (
+    XsrsError,
     build_create_elements,
     build_recorder_rule_elements,
     build_update_elements,
     parse_recorder_rule,
     parse_reservation,
 )
+from tests.conftest import recorder_answering, soap_answer
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -152,3 +156,21 @@ def test_a_4k_condition_puts_its_quality_in_the_advanced_element():
     r = parse_recorder_rule(obj)
     assert r.quality_code is None and r.quality_code_4k == 100
     assert r.time_scope == "MIDNIGHT" and r.broadcasting_scope == "ADVBSD"
+
+
+async def test_an_answer_that_is_not_xml_is_an_xsrs_error():
+    # a busy recorder's 503 carries no SOAP, and nor does an empty body; both raised a ParseError that no caller catches
+    answers = {"X_GetRecordScheduleList": (503, "Service Unavailable"),
+               "X_DeleteRecordSchedule": (200, ""),
+               "X_GetConflictList": (200, soap_answer("X_GetConflictList", "<Result>&lt;DIDL-Lite</Result>"))}
+    x = recorder_answering(lambda action: answers[action])
+    with pytest.raises(XsrsError) as busy:
+        await x.list_reservations()
+    assert busy.value.busy and busy.value.explanation.endswith("(503: X_GetRecordScheduleList)")
+    with pytest.raises(XsrsError) as empty:
+        await x.delete_reservation("0x1")
+    assert not empty.value.busy and empty.value.explanation == "レコーダーの応答を読み取れませんでした (X_DeleteRecordSchedule)"
+    with pytest.raises(XsrsError) as garbled:  # the list inside a well-formed answer, parsed on its own
+        await x.conflicts("<xsrs/>")
+    assert (garbled.value.status, garbled.value.code, garbled.value.action) == (200, None, "X_GetConflictList")
+    await x.http.aclose()

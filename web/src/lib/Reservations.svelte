@@ -1,7 +1,7 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
   import { api, fmtDateTime, repeatOptions } from '../api.js'
-  import { app, loadReservations, toast } from '../store.svelte.js'
+  import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
   let error = $state('')
@@ -88,32 +88,20 @@
   let quality = $state('LSR')
   let repeat = $state('none')
   function startEdit() { quality = confirmTarget.quality; repeat = confirmTarget.repeat; editing = true }
+  // both find the reservation again first: the id in a list left open may be one the recorder has renumbered
   async function save() {
     busy = true; error = ''
-    try { await api(`/reservations/${confirmTarget.id}`, { method: 'PATCH', body: { quality, repeat } }); await loadReservations(); toast('予約を変更しました'); editing = false; confirmTarget = null }
-    catch (e) { error = e.message } finally { busy = false }
+    try {
+      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat } }))
+      toast('予約を変更しました'); editing = false; confirmTarget = null
+    } catch (e) { error = e.message } finally { busy = false }
   }
-  // The recorder renumbers the reservations its own automatic recording made, the whole block at once,
-  // whenever it works through the guide again (docs/xsrs-api.md). A list left open therefore holds ids that
-  // are already dead, and deleting one answers 804 — which reads as a broken delete rather than a stale
-  // row. So read the list again first and find this reservation by its channel and start time, which no two
-  // reservations can share.
   async function remove() {
+    if (!window.confirm('この予約を削除しますか？')) return
     busy = true; error = ''
     try {
-      await loadReservations()
-      const target = app.reservations.find((r) => r.id === confirmTarget.id)
-        ?? app.reservations.find((r) => r.broadcasting === confirmTarget.broadcasting
-          && r.service_id === confirmTarget.service_id && r.start === confirmTarget.start)
-      if (!target) {
-        error = 'この予約はレコーダーにもうありませんでした。一覧を取り直しました。'
-        confirmTarget = null
-        return
-      }
-      await api(`/reservations/${target.id}`, { method: 'DELETE' })
-      await loadReservations()
-      toast('予約を削除しました')
-      confirmTarget = null
+      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'DELETE' }))
+      toast('予約を削除しました'); confirmTarget = null
     } catch (e) { error = e.message } finally { busy = false }
   }
 </script>
