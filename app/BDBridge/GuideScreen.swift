@@ -3,10 +3,10 @@ import SwiftUI
 
 struct GuideScreen: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("guideMode") private var mode = "list"
+    @AppStorage(DefaultsKey.guideMode) private var mode = "list"
     /// The time of day the guide should open at instead of now, as `HH:mm`. Nothing in the app writes it;
     /// the store screenshots pass it on the command line. See `GuideClock`.
-    @AppStorage("guideOpenAt") private var openAt = ""
+    @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
     @State private var tapped: GuideProgramRow?
     @State private var arranging = false
 

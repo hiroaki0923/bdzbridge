@@ -93,7 +93,7 @@ enum Notify {
     /// said about it, and whether the warning has been given is left as it was.
     static func lowSpace(freeBytes: Int, totalBytes: Int, warnBelowGB: Double = lowSpaceGB) async {
         guard totalBytes > 0 else { return }
-        let key = "warnedLowSpace"
+        let key = DefaultsKey.warnedLowSpace
         let freeGB = Double(freeBytes) / 1e9
         let warned = UserDefaults.standard.bool(forKey: key)
         if freeGB >= warnBelowGB {

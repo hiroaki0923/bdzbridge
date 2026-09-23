@@ -82,8 +82,6 @@ enum Storage {
 /// fair thing to do this way.
 enum BackgroundWork {
     static let refreshIdentifier = "jp.hiroaki.bdbridge.guideRefresh"
-    /// Shown on the settings screen, so that something invisible can still be seen to be working.
-    static let lastRefreshKey = "lastBackgroundRefresh"
 
     /// Must be called before launching finishes.
     static func register() {
@@ -162,7 +160,9 @@ enum BackgroundWork {
     static func refreshNow() async -> Bool {
         // Nothing to fetch and nobody to wake while the demo is on the screen.
         guard !DemoData.on else { return false }
-        guard let host = UserDefaults.standard.string(forKey: "recorderHost"), !host.isEmpty else { return false }
+        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty else {
+            return false
+        }
         do {
             let store = try GuideStore(path: try Storage.guidePath())
             let client = RecorderClient(host: host)
@@ -179,7 +179,7 @@ enum BackgroundWork {
             // next connect: nothing marks it fetched.
             let refresh = try await GuideRefresh.run(client: client, store: store)
             if !refresh.answered.isEmpty {
-                UserDefaults.standard.set(RecorderTime.format(Date()), forKey: lastRefreshKey)
+                UserDefaults.standard.set(RecorderTime.format(Date()), forKey: DefaultsKey.lastBackgroundRefresh)
             }
             return refresh.stored > 0
         } catch {
@@ -201,7 +201,7 @@ enum BackgroundWork {
             // Nothing was asked, so waking the recorder would change nothing; the app says why on its screen.
             return false
         } catch {}
-        guard let mac = UserDefaults.standard.string(forKey: "recorderMac"),
+        guard let mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac),
               WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else { return false }
         var sent = Date()
         for _ in 0..<20 {

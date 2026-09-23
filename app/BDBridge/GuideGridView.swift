@@ -23,11 +23,11 @@ struct GuideGridView: View {
     let pendingFor: (GuideProgramRow) -> PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
-    @AppStorage("gridPointsPerMinute") private var pointsPerMinute = 3.0
+    @AppStorage(DefaultsKey.gridPointsPerMinute) private var pointsPerMinute = 3.0
     /// The time of day to open at instead of now, as `HH:mm`. Nothing in the app writes it; it is passed on
     /// the command line (`-guideOpenAt 19:00`) so that the store screenshots land on the evening whatever
     /// time of day they are taken. See app/scripts/screenshots.
-    @AppStorage("guideOpenAt") private var openAt = ""
+    @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
     @State private var offset = CGPoint.zero
     @State private var viewport = CGSize.zero
     @State private var pinchStart: Double?

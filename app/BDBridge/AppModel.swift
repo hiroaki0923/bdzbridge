@@ -11,9 +11,10 @@ import UserNotifications
 @MainActor
 @Observable
 final class AppModel {
-    /// The recorder's address on the LAN. Discovery by scanning comes later; for now it is typed in.
+    /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
+    /// has moved it since (`findMovedRecorder`).
     var host: String {
-        didSet { UserDefaults.standard.set(host, forKey: Self.hostKey) }
+        didSet { UserDefaults.standard.set(host, forKey: DefaultsKey.recorderHost) }
     }
 
     /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
@@ -28,18 +29,18 @@ final class AppModel {
     var broadcasting = "td" {
         didSet {
             if broadcasting != oldValue { serviceFilter = nil }
-            UserDefaults.standard.set(broadcasting, forKey: Self.broadcastingKey)
+            UserDefaults.standard.set(broadcasting, forKey: DefaultsKey.guideBroadcasting)
         }
     }
     var day: Date
     var reservationSort = ReservationSort.time {
-        didSet { UserDefaults.standard.set(reservationSort.rawValue, forKey: Self.reservationSortKey) }
+        didSet { UserDefaults.standard.set(reservationSort.rawValue, forKey: DefaultsKey.reservationSort) }
     }
     var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
     var titleSort = TitleSort.newest {
-        didSet { UserDefaults.standard.set(titleSort.rawValue, forKey: Self.titleSortKey) }
+        didSet { UserDefaults.standard.set(titleSort.rawValue, forKey: DefaultsKey.recordingsSort) }
     }
     var serviceFilter: Int?
 
@@ -141,30 +142,23 @@ final class AppModel {
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
     private var stepTask = UIBackgroundTaskIdentifier.invalid
 
-    private static let hostKey = "recorderHost"
-    private static let macKey = "recorderMac"
-    /// The address the recorder was at when it reported the MAC. See `macWasReadHere`.
-    private static let macHostKey = "recorderMacHost"
-    private static let broadcastingKey = "guideBroadcasting"
-    private static let reservationSortKey = "reservationSort"
-    private static let titleSortKey = "recordingsSort"
-
     init() {
         demo = DemoData.on
         let days = GuideStore.broadcastDays()
         self.days = days
-        host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
-        mac = UserDefaults.standard.string(forKey: Self.macKey)
+        host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost) ?? ""
+        mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
         let defaults = UserDefaults.standard
-        if let saved = defaults.string(forKey: Self.broadcastingKey), GuideRefresh.broadcastingTypes.contains(saved) {
+        if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
+           GuideRefresh.broadcastingTypes.contains(saved) {
             broadcasting = saved
         }
-        if let saved = defaults.string(forKey: Self.reservationSortKey).flatMap(ReservationSort.init(rawValue:)) {
+        if let saved = defaults.string(forKey: DefaultsKey.reservationSort).flatMap(ReservationSort.init(rawValue:)) {
             reservationSort = saved
         }
-        if let saved = defaults.string(forKey: Self.titleSortKey).flatMap(TitleSort.init(rawValue:)) {
+        if let saved = defaults.string(forKey: DefaultsKey.recordingsSort).flatMap(TitleSort.init(rawValue:)) {
             titleSort = saved
         }
         // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
@@ -312,7 +306,9 @@ final class AppModel {
         guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
         pathMonitor = monitor
-        monitor.pathUpdateHandler = { _ in
+        // Weak here as well as in the task: the monitor, which the model holds, keeps this handler, and a
+        // handler that names `self` only inside the task still holds it strongly.
+        monitor.pathUpdateHandler = { [weak self] _ in
             Task { @MainActor [weak self] in await self?.networkChangedWhileOpen() }
         }
         monitor.start(queue: .global(qos: .utility))
@@ -649,7 +645,7 @@ final class AppModel {
         if !reached, unreachable, let moved = await findMovedRecorder() {
             host = moved.host
             // It is the recorder the MAC was read from, which its UDN has just said.
-            UserDefaults.standard.set(moved.host, forKey: Self.macHostKey)
+            UserDefaults.standard.set(moved.host, forKey: DefaultsKey.recorderMacHost)
             let found = RecorderClient(host: moved.host)
             self.client = found
             reached = await attach(found, timeout: RecorderClient.probeTimeout)
@@ -721,7 +717,7 @@ final class AppModel {
             info = try await client.describe(timeout: timeout)
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
-            UserDefaults.standard.set(host, forKey: Self.hostKey)
+            UserDefaults.standard.set(host, forKey: DefaultsKey.recorderHost)
             firmware = try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? ""
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once. With the address it was
@@ -729,7 +725,7 @@ final class AppModel {
             // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
             if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }),
                remember(mac: settings.mac), !demo {
-                UserDefaults.standard.set(host, forKey: Self.macHostKey)
+                UserDefaults.standard.set(host, forKey: DefaultsKey.recorderMacHost)
             }
             storage = try await Self.storage(of: client)
             unreachable = false
@@ -779,8 +775,6 @@ final class AppModel {
         }
     }
 
-    /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
-    /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     /// Sends the packet, if there is a MAC to send it to. Nothing acknowledges it, so nothing is returned.
     private func sendMagicPacket() {
         if DemoData.on { return }   // nothing to wake, and no reason to shout on somebody's LAN
@@ -788,6 +782,8 @@ final class AppModel {
         _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
     }
 
+    /// The magic packet, then waiting for the recorder to answer. Nothing acknowledges the packet, so the
+    /// only way to know is to keep asking; a BDZ-FBT4100 is back in about ten seconds.
     @discardableResult
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
         guard let client = client ?? self.client, unreachable, mac != nil else { return false }
@@ -871,7 +867,7 @@ final class AppModel {
     /// the old recorder: the search would find that, and quietly go back to the recorder the reader had just
     /// left.
     private var macWasReadHere: Bool {
-        guard let readAt = UserDefaults.standard.string(forKey: Self.macHostKey) else { return true }
+        guard let readAt = UserDefaults.standard.string(forKey: DefaultsKey.recorderMacHost) else { return true }
         return readAt == host
     }
 
@@ -992,14 +988,14 @@ final class AppModel {
     func remember(mac text: String) -> Bool {
         guard let normalised = WakeOnLan.normalise(text) else { return false }
         mac = normalised
-        UserDefaults.standard.set(normalised, forKey: Self.macKey)
+        UserDefaults.standard.set(normalised, forKey: DefaultsKey.recorderMac)
         return true
     }
 
     func forgetMac() {
         mac = nil
-        UserDefaults.standard.removeObject(forKey: Self.macKey)
-        UserDefaults.standard.removeObject(forKey: Self.macHostKey)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.recorderMac)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
 
     /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
@@ -1974,9 +1970,6 @@ final class AppModel {
         return outcome.sent.count
     }
 
-    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
-    /// is left on screen rather than being reloaded away.
-    @discardableResult
     /// Changes the quality or the repeat of a reservation the recorder already holds.
     ///
     /// Found again by what it is rather than by the id in hand, for the same reason a deletion is: the
@@ -2033,6 +2026,10 @@ final class AppModel {
     /// 19 automatic reservations were renumbered in one go, the programmes themselves unchanged. So read
     /// the list again first and find this reservation by its channel and the moment it starts, which no two
     /// reservations can share. Only when it is not there at all has it really gone.
+    ///
+    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
+    /// is left on screen rather than being reloaded away.
+    @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()
         guard client != nil else { return false }

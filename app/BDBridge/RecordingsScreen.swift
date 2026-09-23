@@ -6,7 +6,7 @@ struct RecordingsScreen: View {
     @Environment(AppModel.self) private var model
     // A launch argument for this key pins it for the whole run: the argument domain outranks what is
     // written here, so a pick would appear to do nothing. See app/README.md.
-    @AppStorage("recordingsMode") private var mode = "list"
+    @AppStorage(DefaultsKey.recordingsMode) private var mode = "list"
     @State private var opened: RecordedTitle?
     @State private var openedGroup: TitleGroup?
     /// The row swiped, by id rather than by value: the recording is read back out of the model when the

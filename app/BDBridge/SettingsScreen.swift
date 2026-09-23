@@ -10,7 +10,7 @@ struct SettingsScreen: View {
     @State private var typedMac = ""
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
-    @AppStorage(DefaultQuality.key) private var defaultQuality = DefaultQuality.fallback
+    @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
     private var tidied: RecorderAddress.Typed { RecorderAddress.tidy(typedHost) }
@@ -188,7 +188,7 @@ struct SettingsScreen: View {
                     if let refreshed = model.counts["td"]?.refreshed {
                         LabeledContent("最終更新", value: Self.readable(refreshed))
                     }
-                    if let overnight = UserDefaults.standard.string(forKey: BackgroundWork.lastRefreshKey) {
+                    if let overnight = UserDefaults.standard.string(forKey: DefaultsKey.lastBackgroundRefresh) {
                         LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
@@ -285,12 +285,10 @@ struct SettingsScreen: View {
 /// sheets start their own picker from it and leave it alone, where they used to be bound to it, so that
 /// trying a mode on one programme quietly changed the next one's.
 enum DefaultQuality {
-    /// The key the sheets used to write, so a mode picked in an earlier version is where this starts.
-    static let key = "defaultQuality"
     static let fallback = "LSR"
 
     static var current: String {
-        let saved = UserDefaults.standard.string(forKey: key) ?? fallback
+        let saved = UserDefaults.standard.string(forKey: DefaultsKey.defaultQuality) ?? fallback
         return Codes.qualityOrder.contains(saved) ? saved : fallback
     }
 }

@@ -161,7 +161,8 @@ public enum LocalNetwork {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         var sin = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
         guard inet_ntop(AF_INET, &sin, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return String(cString: buffer)
+        // Up to the zero inet_ntop ends it with. `String(cString:)` taking an array is deprecated.
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     static func packed(_ dotted: String) -> UInt32? {

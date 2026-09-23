@@ -1,4 +1,5 @@
-# XcodeGen definition for the iOS app. The project file itself is generated and not committed:
+# XcodeGen definition for the iOS app. The project file and BDBridge/Info.plist are generated from it, and
+# committed all the same (see app/README.md). After editing it, run this and commit what it writes:
 #   brew install xcodegen && cd app && xcodegen generate
 #
 # The app is called BD Bridge. The target is BDBridge without the space, so that the product, the scheme and
@@ -82,8 +83,8 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - jp.hiroaki.bdbridge.guideRefresh
 
-  # Only the App Store screenshots live here, and they skip themselves unless BDBRIDGE_SHOTS is set. See
-  # app/scripts/screenshots.
+  # The demo's UI tests, and the App Store screenshots, which skip themselves unless BDBRIDGE_SHOTS is set.
+  # See app/scripts/screenshots.
   BDBridgeUITests:
     type: bundle.ui-testing
     platform: iOS

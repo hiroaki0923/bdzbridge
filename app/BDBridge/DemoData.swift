@@ -18,39 +18,33 @@ import UIKit
 /// The guide it writes goes in a database of its own, so that trying the demo leaves nothing behind in the
 /// cache of a real recorder.
 enum DemoData {
-    /// Also the name of the launch argument (`-demoData 1`), which is how the screenshots turn it on.
-    static let key = "demoData"
-    /// Where the real recorder's address is kept while the demo has the screen.
-    private static let savedHostKey = "hostBeforeDemo"
-    private static let savedMacKey = "macBeforeDemo"
-
-    static var on: Bool { UserDefaults.standard.bool(forKey: key) }
+    static var on: Bool { UserDefaults.standard.bool(forKey: DefaultsKey.demoData) }
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
     /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
     /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder, and where a strip
     /// about the demo would be a strip about something the buyer is not getting.
     static var banner: Bool {
-        UserDefaults.standard.object(forKey: "demoBanner") == nil
-            || UserDefaults.standard.bool(forKey: "demoBanner")
+        UserDefaults.standard.object(forKey: DefaultsKey.demoBanner) == nil
+            || UserDefaults.standard.bool(forKey: DefaultsKey.demoBanner)
     }
 
     /// Remembers the real recorder, if there is one, and turns the demo on.
     static func turnOn(realHost: String, realMac: String?) {
         let defaults = UserDefaults.standard
-        defaults.set(realHost, forKey: savedHostKey)
-        defaults.set(realMac ?? "", forKey: savedMacKey)
-        defaults.set(true, forKey: key)
+        defaults.set(realHost, forKey: DefaultsKey.hostBeforeDemo)
+        defaults.set(realMac ?? "", forKey: DefaultsKey.macBeforeDemo)
+        defaults.set(true, forKey: DefaultsKey.demoData)
     }
 
     /// Turns the demo off and hands back the recorder that was there before it, if any.
     static func turnOff() -> (host: String, mac: String?) {
         let defaults = UserDefaults.standard
-        let host = defaults.string(forKey: savedHostKey) ?? ""
-        let mac = defaults.string(forKey: savedMacKey) ?? ""
-        defaults.removeObject(forKey: savedHostKey)
-        defaults.removeObject(forKey: savedMacKey)
-        defaults.set(false, forKey: key)
+        let host = defaults.string(forKey: DefaultsKey.hostBeforeDemo) ?? ""
+        let mac = defaults.string(forKey: DefaultsKey.macBeforeDemo) ?? ""
+        defaults.removeObject(forKey: DefaultsKey.hostBeforeDemo)
+        defaults.removeObject(forKey: DefaultsKey.macBeforeDemo)
+        defaults.set(false, forKey: DefaultsKey.demoData)
         return (host, mac.isEmpty ? nil : mac)
     }
 

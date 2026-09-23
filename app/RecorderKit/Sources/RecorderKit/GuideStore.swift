@@ -478,10 +478,6 @@ public actor GuideStore {
         try db.query("SELECT value FROM meta WHERE key=?", [.text(key)]) { $0.string("value") }.first
     }
 
-    // MARK: - what a recording is about
-
-    /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.
-    /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale.
     // MARK: - reservations waiting for the recorder
 
     /// Adds one, or replaces the same programme queued before. Kept out of the tables the schema version
@@ -541,6 +537,10 @@ public actor GuideStore {
                    [SqlValue(problem), .text(id)])
     }
 
+    // MARK: - what a recording is about
+
+    /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.
+    /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale.
     public func titleSummary(_ id: String) throws -> String? {
         try db.query("SELECT summary FROM title_summaries WHERE id=?", [.text(id)]) { $0.string("summary") }
             .first

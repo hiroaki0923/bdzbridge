@@ -23,7 +23,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// `-startTab reservations` on the command line opens that tab, which is how the screens are checked in a
     /// simulator without tapping through them.
-    @State private var tab = UserDefaults.standard.string(forKey: "startTab") ?? "guide"
+    @State private var tab = UserDefaults.standard.string(forKey: DefaultsKey.startTab) ?? "guide"
     /// Up until a recorder has been chosen, the tutorial is the first thing on screen.
     @State private var welcoming = false
 

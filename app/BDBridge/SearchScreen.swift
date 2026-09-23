@@ -7,9 +7,9 @@ import SwiftUI
 struct SearchScreen: View {
     @Environment(AppModel.self) private var model
     // `-searchFor ニュース` fills the box at launch, which is how the results are checked without typing.
-    @State private var query = UserDefaults.standard.string(forKey: "searchFor") ?? ""
+    @State private var query = UserDefaults.standard.string(forKey: DefaultsKey.searchFor) ?? ""
     // `-searchScope recordings` picks which of the three to search, the same way `-startTab` picks a tab.
-    @State private var scope = Scope(rawValue: UserDefaults.standard.string(forKey: "searchScope") ?? "")
+    @State private var scope = Scope(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.searchScope) ?? "")
         ?? .guide
     @State private var guide = GuideSearchResults()
     /// The words `guide` is the answer to. While they differ from what is in the box the answer is on its

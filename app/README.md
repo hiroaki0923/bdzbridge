@@ -3,7 +3,8 @@
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle.
-- `BDBridgeUITests/` — only the App Store screenshots, which skip themselves unless `BDBRIDGE_SHOTS` is set.
+- `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
+  themselves unless `BDBRIDGE_SHOTS` is set.
 - `project.yml` — the Xcode project is generated from this by XcodeGen, and committed (see below).
 
 The app is called **BD Bridge**; the target, the scheme and the product are `BDBridge` without the space, so
