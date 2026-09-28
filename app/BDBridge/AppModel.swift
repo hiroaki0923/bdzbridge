@@ -818,35 +818,28 @@ final class AppModel {
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
         waking = true
-        let started = Date()
         let activity = activities.begin(Self.wakingLine(0))
         defer { waking = false; activities.end(activity) }
-        // A BDZ-FBT4100 takes six to eleven seconds to answer after the packet, so half a minute is
-        // generous. Bounded by the clock rather than by a count of attempts, so that the line on screen and
-        // the wait behind it are the same length -- and the line says how long it has been, because a
-        // spinner that has been going for twenty seconds is otherwise indistinguishable from a hung one.
-        var sent = Date()
-        while Date().timeIntervalSince(started) < Self.wakeLimit {
-            activities.update(activity, to: Self.wakingLine(Int(Date().timeIntervalSince(started))))
-            // Only the identity, and only for two seconds: asking for everything is what the attach below
-            // is for, and it is worth doing once, after the recorder has proved it is listening.
-            if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil {
-                return await attach(client, what: "接続中", timeout: RecorderClient.probeTimeout)
-            }
-            try? await Task.sleep(for: .seconds(1))
-            // Again every few seconds: one packet lost on the way was a recorder left asleep for the whole
-            // half minute. See `WakeOnLan.resendInterval`.
-            if Date().timeIntervalSince(sent) >= WakeOnLan.resendInterval {
-                sendMagicPacket()
-                sent = Date()
-            }
+        // The line says how long it has been, because a spinner that has been going for twenty seconds is
+        // otherwise indistinguishable from a hung one. The wait itself is RecorderKit's, shared with the
+        // overnight run and the Shortcuts action (`Waking`).
+        //
+        // It goes on whatever becomes of the caller, in a task of its own. `connect()` is also what pulling
+        // down the list does, and a pull abandoned half way, stopping the wait, would leave the app given up
+        // on a recorder that was coming up. The loop this replaced went on too, only without sleeping.
+        let outcome = await Task {
+            await Waking.waitForAnswer(from: client, limit: Waking.screenLimit,
+                                       resend: { @MainActor in self.sendMagicPacket() },
+                                       waited: { @MainActor seconds in
+                                           self.activities.update(activity, to: Self.wakingLine(seconds))
+                                       })
+        }.value
+        if outcome == .answered {
+            return await attach(client, what: "接続中", timeout: RecorderClient.probeTimeout)
         }
         problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         return false
     }
-
-    /// How long to wait for a recorder to come back from a magic packet before leaving it alone.
-    private static let wakeLimit: TimeInterval = 30
 
     private static func wakingLine(_ seconds: Int) -> String {
         "レコーダーを起動しています（\(seconds) 秒）"
