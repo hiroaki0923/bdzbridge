@@ -7,6 +7,10 @@ public enum RecorderError: Error, Equatable, Sendable {
     case transport(String)
     /// An answer that was not XML at all, usually a wrong path or a different device on that port.
     case badResponse(status: Int)
+    /// A well-formed answer without what was asked for in it, or not in the shape the BDZ-FBT4100 gives it:
+    /// most likely another model of the series, answering a call it shares in a way of its own. Not
+    /// `unreachable`, since the recorder is there, and not a `refusal` either.
+    case unexpectedAnswer(action: String)
     /// The recorder answered, but not with the guide file asked for. A BDZ-FBT4100 answers 500 here while
     /// it has no file to give: after the box is restarted or its channels are re-scanned, the files are
     /// gone until it builds them again, which it does in the small hours.
@@ -14,6 +18,14 @@ public enum RecorderError: Error, Equatable, Sendable {
     case notHTTP
     /// The recorder was reached but is not the one we expect.
     case notARecorder(host: String)
+    /// The recorder answered 503 to the request and to both tries after it: it is busy with another one,
+    /// from the official app or another phone, or from a second client in this app. It is there, so this is
+    /// not `unreachable`, and it said nothing about the request, so not a `refusal` either. `action` is the
+    /// SOAP action, or the file asked for.
+    case busy(action: String)
+    /// The saved address is not something a URL can be built on, so nothing was sent. Not `unreachable`:
+    /// the recorder was never asked, and waking it would not make the address any better.
+    case badAddress(host: String)
 
     /// What to put in front of the reader. Japanese, because this is the text the app shows; the code and
     /// the action stay in it so that a report of it can be looked up in docs/xsrs-api.md.
@@ -32,11 +44,18 @@ public enum RecorderError: Error, Equatable, Sendable {
             }
         case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確認してください"
         case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
+        case .unexpectedAnswer(let action): "レコーダーの応答を読み取れませんでした (\(action))"
         case .guideFileMissing(let name, let status):
             "レコーダーから番組表ファイルを取得できませんでした (HTTP \(status): \(name))。"
                 + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
+        case .busy(let action):
+            "レコーダーがほかの要求を処理していて、応答できませんでした。"
+                + "しばらくしてから、もう一度お試しください (503: \(action))"
+        case .badAddress(let host):
+            "「\(host)」はレコーダーのアドレスとして使えません。"
+                + "設定の「IP アドレス」に、192.168.1.10 のような形で入力し直してください。"
         }
     }
 
@@ -61,6 +80,19 @@ public enum RecorderError: Error, Equatable, Sendable {
         }
     }
 
+    /// True when the recorder turned the request down for a reason of its own: a SOAP fault carrying a UPnP
+    /// `errorCode`, such as 402 for a request it will not take or 831 for a channel it cannot receive. Asking
+    /// again gets the same answer, so a reservation waiting in the queue is not sent again after one of these
+    /// until the reader says so.
+    ///
+    /// Not a 503, which is the recorder busy with somebody else's request; not an answer with no code in it,
+    /// which says nothing about the request; and not 880, which is about the recorder being in standby rather
+    /// than about what was asked. Those pass, and asking again later is right.
+    public var refusal: Bool {
+        guard case .soap(_, let status, let code?, _) = self else { return false }
+        return status != 503 && code != "880"
+    }
+
     /// True when the recorder needs powering on before this will work.
     public var needsPowerOn: Bool {
         if case .soap(_, _, "880", _) = self { return true }
@@ -81,5 +113,28 @@ public enum RecorderError: Error, Equatable, Sendable {
     public var unreceivableChannel: Bool {
         if case .soap(_, _, "831", _) = self { return true }
         return false
+    }
+}
+
+public extension RecorderError {
+    /// Runs a read the app can do without -- the firmware version and the free space, which are only shown,
+    /// and the MAC, which is only kept for later -- and lets nothing out of it but silence.
+    ///
+    /// Every call this package makes is answered by a BDZ-FBT4100, but the rest of the series need not answer
+    /// all of them, or answer them in the same shape. A recorder that refuses a read like this one, or gives
+    /// an answer that cannot be read, is a recorder that is there, and the value is merely not known: nil,
+    /// for the caller to carry on without. Failing on it made the whole connection fail over a line in the
+    /// settings. Silence is thrown all the same, since it says the recorder is not there, whatever was asked.
+    ///
+    /// The read runs on the caller's actor, as if it had been written out in place.
+    static func silenceOnly<T>(isolation: isolated (any Actor)? = #isolation,
+                               _ read: () async throws -> T) async throws -> T? {
+        do {
+            return try await read()
+        } catch let error as RecorderError where error.unreachable {
+            throw error
+        } catch {
+            return nil
+        }
     }
 }

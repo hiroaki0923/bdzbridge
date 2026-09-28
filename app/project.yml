@@ -1,4 +1,5 @@
-# XcodeGen definition for the iOS app. The project file itself is generated and not committed:
+# XcodeGen definition for the iOS app. The project file and BDBridge/Info.plist are generated from it, and
+# committed all the same (see app/README.md). After editing it, run this and commit what it writes:
 #   brew install xcodegen && cd app && xcodegen generate
 #
 # The app is called BD Bridge. The target is BDBridge without the space, so that the product, the scheme and
@@ -37,7 +38,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
-        MARKETING_VERSION: "0.2"
+        MARKETING_VERSION: "0.3"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
@@ -82,8 +83,29 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - jp.hiroaki.bdbridge.guideRefresh
 
-  # Only the App Store screenshots live here, and they skip themselves unless BDBRIDGE_SHOTS is set. See
-  # app/scripts/screenshots.
+  # AppModel's unit tests. They run inside the app, which is how they reach its types, and the app leaves out
+  # its own start while they do (BDBridgeApp.hostingUnitTests). XcodeGen sets TEST_HOST and BUNDLE_LOADER
+  # from the dependency on the app. RecorderKit is left out on purpose: the tests use the app's copy, and a
+  # second one linked in here would put two of every RecorderKit type in the process (see app/README.md).
+  BDBridgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BDBridgeTests
+    dependencies:
+      - target: BDBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge.tests
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+
+  # The demo's UI tests, and the App Store screenshots, which skip themselves unless BDBRIDGE_SHOTS is set.
+  # See app/scripts/screenshots.
   BDBridgeUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -101,8 +123,8 @@ targets:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
 
-# Spelled out rather than left to Xcode, so that `xcodebuild test -only-testing:BDBridgeUITests` finds the
-# tests through the same scheme Xcode Cloud archives.
+# Spelled out rather than left to Xcode, so that `xcodebuild test -only-testing:BDBridgeTests` (or
+# BDBridgeUITests) finds the tests through the same scheme Xcode Cloud archives.
 schemes:
   BDBridge:
     build:
@@ -113,6 +135,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - BDBridgeTests
         - BDBridgeUITests
     profile:
       config: Release

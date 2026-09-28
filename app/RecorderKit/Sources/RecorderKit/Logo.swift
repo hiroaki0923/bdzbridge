@@ -92,15 +92,18 @@ public enum LogoFile {
             guard end > headerLength else { continue }
             let payload = record.subdata(in: record.startIndex + headerLength..<record.startIndex + end)
             guard payload.starts(with: pngSignature) else { continue }   // 1152 zero bytes: no logo received
-            logos.append(StationLogo(channelNo: channel & 0xFFFFFF, serviceID: serviceID,
-                                     png: try withPalette(payload)))
+            // A PNG that stops before the end of its header has nowhere to put the palette: that station goes
+            // without a logo, as one not received yet does, and the rest of the file is still read.
+            guard let png = try? withPalette(payload) else { continue }
+            logos.append(StationLogo(channelNo: channel & 0xFFFFFF, serviceID: serviceID, png: png))
         }
         return logos
     }
 
-    /// Inserts the standard palette after IHDR, unless the PNG already carries one.
+    /// Inserts the standard palette after IHDR, unless the PNG already carries one. Throws for anything that
+    /// is not a PNG at least as long as its signature and header, rather than reading past its end.
     public static func withPalette(_ png: Data) throws -> Data {
-        guard png.starts(with: pngSignature) else { throw GuideError.notAPng }
+        guard png.starts(with: pngSignature), png.count >= afterIHDR else { throw GuideError.notAPng }
         let typeStart = png.startIndex + afterIHDR + 4
         if png.count >= afterIHDR + 8, png.subdata(in: typeStart..<typeStart + 4) == Data("PLTE".utf8) {
             return png

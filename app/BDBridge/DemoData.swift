@@ -18,39 +18,34 @@ import UIKit
 /// The guide it writes goes in a database of its own, so that trying the demo leaves nothing behind in the
 /// cache of a real recorder.
 enum DemoData {
-    /// Also the name of the launch argument (`-demoData 1`), which is how the screenshots turn it on.
-    static let key = "demoData"
-    /// Where the real recorder's address is kept while the demo has the screen.
-    private static let savedHostKey = "hostBeforeDemo"
-    private static let savedMacKey = "macBeforeDemo"
+    static var on: Bool { on(in: .standard) }
 
-    static var on: Bool { UserDefaults.standard.bool(forKey: key) }
+    /// The same, in the defaults a model was given (`Surroundings.defaults`).
+    static func on(in defaults: UserDefaults) -> Bool { defaults.bool(forKey: DefaultsKey.demoData) }
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
     /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
     /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder, and where a strip
     /// about the demo would be a strip about something the buyer is not getting.
     static var banner: Bool {
-        UserDefaults.standard.object(forKey: "demoBanner") == nil
-            || UserDefaults.standard.bool(forKey: "demoBanner")
+        UserDefaults.standard.object(forKey: DefaultsKey.demoBanner) == nil
+            || UserDefaults.standard.bool(forKey: DefaultsKey.demoBanner)
     }
 
     /// Remembers the real recorder, if there is one, and turns the demo on.
-    static func turnOn(realHost: String, realMac: String?) {
-        let defaults = UserDefaults.standard
-        defaults.set(realHost, forKey: savedHostKey)
-        defaults.set(realMac ?? "", forKey: savedMacKey)
-        defaults.set(true, forKey: key)
+    static func turnOn(realHost: String, realMac: String?, in defaults: UserDefaults) {
+        defaults.set(realHost, forKey: DefaultsKey.hostBeforeDemo)
+        defaults.set(realMac ?? "", forKey: DefaultsKey.macBeforeDemo)
+        defaults.set(true, forKey: DefaultsKey.demoData)
     }
 
     /// Turns the demo off and hands back the recorder that was there before it, if any.
-    static func turnOff() -> (host: String, mac: String?) {
-        let defaults = UserDefaults.standard
-        let host = defaults.string(forKey: savedHostKey) ?? ""
-        let mac = defaults.string(forKey: savedMacKey) ?? ""
-        defaults.removeObject(forKey: savedHostKey)
-        defaults.removeObject(forKey: savedMacKey)
-        defaults.set(false, forKey: key)
+    static func turnOff(in defaults: UserDefaults) -> (host: String, mac: String?) {
+        let host = defaults.string(forKey: DefaultsKey.hostBeforeDemo) ?? ""
+        let mac = defaults.string(forKey: DefaultsKey.macBeforeDemo) ?? ""
+        defaults.removeObject(forKey: DefaultsKey.hostBeforeDemo)
+        defaults.removeObject(forKey: DefaultsKey.macBeforeDemo)
+        defaults.set(false, forKey: DefaultsKey.demoData)
         return (host, mac.isEmpty ? nil : mac)
     }
 
@@ -254,14 +249,20 @@ enum DemoData {
 
     // MARK: - filling the guide cache
 
-    /// Writes the invented guide into the app's own cache, which is where the screens read it from. Four
-    /// days, so stepping a day forward in the guide is not an empty screen.
+    /// How many days the invented guide covers: enough that stepping a day forward is not an empty screen.
+    static let guideDays = 4
+
+    /// What `seed` writes, in words, for the guide to say where the invented one runs out: a broadcasting type
+    /// or a day it does not cover is otherwise an empty screen pointing at a refresh that would not fill it.
+    static let guideCoverage = "サンプルデータの番組表は、地デジと BS の \(guideDays) 日分です"
+
+    /// Writes the invented guide into the app's own cache, which is where the screens read it from.
     static func seed(store: GuideStore) async throws {
         for (broadcasting, stations) in [("td", terrestrial), ("bs", satellite)] {
             var services: [GuideService] = []
             for station in stations {
                 var programs: [GuideProgram] = []
-                for day in 0..<4 {
+                for day in 0..<guideDays {
                     programs += station.schedule.enumerated().map { index, slot in
                         program(slot, on: day, of: station, index: index)
                     }
@@ -271,6 +272,12 @@ enum DemoData {
             }
             _ = try await store.replace(services, broadcasting: broadcasting)
             try await store.replaceLogos(await logos(for: stations), broadcasting: broadcasting)
+        }
+        // The demo's recorder answers every guide file with none, and these two are not invented here. Noting
+        // that keeps a connect from asking it for them each time: the guide is judged fresh a broadcasting type
+        // at a time, and one never answered for is always behind.
+        for broadcasting in ["cs", "bs4k"] {
+            try await store.noteNoGuide(broadcasting: broadcasting)
         }
     }
 
@@ -322,20 +329,34 @@ enum DemoData {
                             end: start.addingTimeInterval(TimeInterval(slot.minutes * 60)),
                             title: slot.title,
                             summary: slot.summary,
-                            extended: slot.summary.isEmpty ? "" : slot.summary + "\n（これはサンプルの番組情報です）",
+                            extended: details(of: slot),
                             genres: [Genre(level1: slot.level1, level2: slot.level2)],
                             copyControl: 2)
     }
 
+    /// The details, laid out as a broadcaster's are: the description again, and for a drama the cast, which
+    /// is where a search by a name finds it. The names are invented, the same two a recording's text gives.
+    private static func details(of slot: Slot) -> String {
+        var lines: [String] = []
+        if !slot.summary.isEmpty { lines.append(slot.summary) }
+        if slot.level1 == 3 { lines.append("出演　サンプル太郎、みほん花子") }
+        guard !lines.isEmpty else { return "" }
+        return (lines + ["（これはサンプルの番組情報です）"]).joined(separator: "\n")
+    }
+
     /// A time of day on the broadcast day that began at the last 04:00. Anything before 04:00 belongs to the
     /// night at the end of that day, which is how the recorder's own guide reads.
+    ///
+    /// The same first day as the guide's day strip, which until four in the morning is yesterday's date.
+    /// Starting from the calendar date put the whole invented guide a day ahead of the strip between
+    /// midnight and four, and left the strip's first day, the one the guide opens on, empty.
     private static func at(_ hhmm: String, dayOffset: Int) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         let parts = hhmm.split(separator: ":").compactMap { Int($0) }
         let hour = parts.first ?? 0
         let minute = parts.count > 1 ? parts[1] : 0
-        let today = calendar.startOfDay(for: Date())
+        let today = GuideStore.broadcastDay(containing: Date())
         let base = hour < 4 ? calendar.date(byAdding: .day, value: 1, to: today)! : today
         let start = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: base)!
         return calendar.date(byAdding: .day, value: dayOffset, to: start)!
@@ -343,7 +364,7 @@ enum DemoData {
 
     // MARK: - what the recorder is going to record
 
-    /// Today's date at a time of day, for the reservations and the recordings.
+    /// A time of day on the broadcast day on air, for the reservations and the recordings.
     private static func moment(_ hhmm: String, dayOffset: Int = 0) -> Date {
         at(hhmm, dayOffset: dayOffset)
     }
@@ -384,15 +405,20 @@ enum DemoData {
                quality: 220, weekly: true, size: 2900),
         Booked(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶", station: 1024,
                quality: 100, size: 5900),
-        // the recorder's own おまかせ・まる録 puts its reservations in the same list, under its own id
+        // The recorder's own おまかせ・まる録 puts its reservations in the same list, under its own creator id.
+        // 1100, as a real recorder writes it: with 1000 here the demo's list had no おまかせ in it at all, and the
+        // store screenshot meant to show that mark showed none.
         Booked(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集", station: 1024,
-               quality: 220, creator: "1000", size: 2700),
+               quality: 220, creator: "1100", size: 2700),
         Booked(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）", station: 1048,
                dayOffset: 1, quality: 240, weekly: true, size: 1600),
+        // Marked 重複 by the recorder, with another reservation at the same hours for its sheet to name.
         Booked(id: "0x00000000000a9435", title: "ひなたスポーツ特集", station: 1064,
                dayOffset: 1, quality: 220, conflict: true, size: 4200),
+        Booked(id: "0x00000000000a9436", title: "みほんスポーツ中継「サンプルリーグ」", station: 1056,
+               dayOffset: 1, quality: 220, size: 4300),
         Booked(id: "0x00000000000b1102", title: "BSサンプル劇場「星空紀行」", station: 2048,
-               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1000", size: 7400),
+               dayOffset: 2, broadcastingType: 3, quality: 220, creator: "1100", size: 7400),
     ]
 
     static var reservationItems: [String] {
@@ -534,6 +560,7 @@ enum DemoData {
         """,
         """
         <object type="SEARCH" id="0x0000570b"><desiredQualityMode>240</desiredQualityMode>\
+        <desiredQualityModeForAdvanced>240</desiredQualityModeForAdvanced>\
         <recordDestinationID>HDD</recordDestinationID>\
         <searchSetting type="MULTIPLE" logic="OR"><name>空色パズル</name>\
         <genreID type="3">0x7*</genreID><keyword>空色パズル</keyword>\

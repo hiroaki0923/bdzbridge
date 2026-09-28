@@ -95,6 +95,89 @@ final class RecorderClientTests: XCTestCase {
         }
     }
 
+    /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,
+    /// and the play goes again. It used to stop at the 880 and take a second button and a second go.
+    func testPlayingInStandbyTurnsTheRecorderOnWaitsForItAndPlays() async throws {
+        let answers = [
+            Stub.fault("880"),
+            Stub.soap("X_PowerControl", result: "<power><powerstatus>PowerOn</powerstatus></power>"),
+            Stub.soap("X_GetPlayStatus", result: playStatus("PowerInternalOn")),
+            Stub.soap("X_GetPlayStatus", result: playStatus("PowerOn")),
+            Stub.soap("X_PlayControlTitle"),
+        ]
+        let transport = StubTransport { _, index in answers[min(index, answers.count - 1)] }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        let waits = Waits()
+
+        try await client.play(titleID: "0x1", interval: .milliseconds(1)) { await waits.add($0) }
+
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle", "X_PowerControl", "X_GetPlayStatus", "X_GetPlayStatus",
+                                 "X_PlayControlTitle"])
+        let bodies = await transport.bodies
+        XCTAssertTrue(bodies[1].contains("<Operation>on</Operation>"), bodies[1])
+        XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
+        XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
+        let said = await waits.seconds
+        XCTAssertEqual(said.count, 2, "the screen is told once for each look at the status")
+    }
+
+    /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual
+    /// case, and the demo's recorder does not report its power state at all.
+    func testPlayingOnARecorderThatIsOnSendsOnlyThePlay() async throws {
+        let transport = StubTransport(always: Stub.soap("X_PlayControlTitle"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        let waits = Waits()
+
+        try await client.play(titleID: "0x1") { await waits.add($0) }
+
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle"])
+        let said = await waits.seconds
+        XCTAssertEqual(said, [])
+    }
+
+    /// Only standby is worth turning the recorder on for. Anything else it answers -- here a recording it no
+    /// longer has -- is the answer.
+    func testPlayingSomethingTheRecorderRefusesDoesNotTurnItOn() async throws {
+        let transport = StubTransport(always: Stub.fault("820"))
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        do {
+            try await client.play(titleID: "0x1") { _ in }
+            XCTFail("a fault should throw")
+        } catch let error as RecorderError {
+            guard case .soap(_, _, let code, _) = error else { return XCTFail("wrong case") }
+            XCTAssertEqual(code, "820")
+        }
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions, ["X_PlayControlTitle"])
+    }
+
+    /// The wait is bounded. A recorder that never says it is on is sent the play once more all the same, and
+    /// its 880 goes back to the caller, which offers to turn it on by hand.
+    func testARecorderThatStaysInStandbyIsGivenUpOnAfterTheLimit() async throws {
+        let transport = StubTransport { request, _ in
+            switch soapAction(request) {
+            case "X_PlayControlTitle": return Stub.fault("880")
+            case "X_PowerControl":
+                return Stub.soap("X_PowerControl", result: "<power><powerstatus>PowerOn</powerstatus></power>")
+            default: return Stub.soap("X_GetPlayStatus", result: playStatus("PowerInternalOn"))
+            }
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+        do {
+            try await client.play(titleID: "0x1", limit: 0.05, interval: .milliseconds(5)) { _ in }
+            XCTFail("a recorder still in standby should throw")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.needsPowerOn)
+        }
+        let actions = await transport.requests.map(soapAction)
+        XCTAssertEqual(actions.first, "X_PlayControlTitle")
+        XCTAssertEqual(actions.last, "X_PlayControlTitle")
+        XCTAssertEqual(actions.filter { $0 == "X_PowerControl" }.count, 1, "turned on once, not on every look")
+        XCTAssertTrue(actions.contains("X_GetPlayStatus"))
+    }
+
     func testRequestsNeverOverlapBecauseTheRecorderAnswers503ToConcurrentCalls() async throws {
         let item = try reservationItem()
         let transport = StubTransport { _, _ in
@@ -114,6 +197,78 @@ final class RecorderClientTests: XCTestCase {
         let overlap = await transport.maxConcurrent
         XCTAssertEqual(sent, 5)
         XCTAssertEqual(overlap, 1, "requests overlapped; the recorder would answer 503")
+    }
+
+    /// A 503 is the recorder busy with somebody else's request, so the same request goes again, twice, and
+    /// an answer on the way is taken as if nothing had happened.
+    func testA503IsSentAgainAndAnAnswerAfterItIsTheAnswer() async throws {
+        let item = try reservationItem()
+        let transport = StubTransport { _, index in
+            index < 2 ? HTTPResponse(statusCode: 503)
+                : Stub.soap("X_GetRecordScheduleList", result: "<xsrs>\(item)</xsrs>", totalMatches: 1)
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0...0)
+
+        let reservations = try await client.reservations()
+        XCTAssertEqual(reservations.count, 1)
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 3, "the first try and the two after it")
+    }
+
+    /// Still busy after that, it is said to be busy: not a fault in the request, not silence, and not a
+    /// request the recorder refused.
+    func testA503ThatDoesNotClearIsThrownAsBusy() async throws {
+        let transport = StubTransport(always: HTTPResponse(statusCode: 503))
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0...0)
+
+        do {
+            _ = try await client.reservations()
+            XCTFail("busy all three times")
+        } catch let error as RecorderError {
+            XCTAssertEqual(error, .busy(action: "X_GetRecordScheduleList"))
+            XCTAssertFalse(error.unreachable, "the recorder answered")
+            XCTAssertFalse(error.refusal, "it said nothing about the request")
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 1 + RecorderClient.busyRetries)
+        let heard = await client.lastAnswer
+        XCTAssertNotNil(heard, "a 503 is an answer")
+    }
+
+    /// Nothing else of the client's goes in between a request and its tries after a 503, so they do not
+    /// meet a request of its own and make it busy in turn.
+    func testTheTriesAfterA503KeepTheirPlaceInTheQueue() async throws {
+        let item = try reservationItem()
+        let transport = StubTransport { request, index in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            if body.contains("X_GetRecordScheduleList"), index == 0 { return HTTPResponse(statusCode: 503) }
+            return body.contains("X_GetRecordScheduleList")
+                ? Stub.soap("X_GetRecordScheduleList", result: "<xsrs>\(item)</xsrs>", totalMatches: 1)
+                : Stub.soap("X_DeleteTitle")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0.05...0.05)
+
+        async let list = client.reservations()
+        try await Task.sleep(for: .milliseconds(10))
+        async let delete: Void = client.deleteTitle(id: "0x1")
+        _ = try await (list, delete)
+
+        let actions = await transport.bodies.map { $0.contains("X_DeleteTitle") ? "delete" : "list" }
+        XCTAssertEqual(actions, ["list", "list", "delete"])
+    }
+
+    /// A recorder busy answering somebody else is still a recorder. Read as any other answer that was not a
+    /// description, the app said the recorder at the saved address was not a Sony recorder.
+    func testDescribeAnswered503IsBusyRatherThanNotARecorder() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: HTTPResponse(statusCode: 503)),
+                                    busyRetryDelay: 0...0)
+        do {
+            _ = try await client.describe(timeout: RecorderClient.probeTimeout)
+            XCTFail("busy is not a description")
+        } catch let error as RecorderError {
+            XCTAssertEqual(error, .busy(action: "description.xml"))
+            XCTAssertFalse(error.explanation.contains("ソニー製レコーダーとして応答しませんでした"), error.explanation)
+        }
     }
 
     func testGuideFileUrlHasTwoSlashesAndMissingChannelsAreNotAnError() async throws {
@@ -175,7 +330,7 @@ final class RecorderClientTests: XCTestCase {
 
         let detected = try await client.detectStreamPort()
         let remembered = await client.streamPort
-        let fileURL = await client.guideFileURL(named: "x.dat")
+        let fileURL = try await client.guideFileURL(named: "x.dat")
         XCTAssertEqual(detected, 60152)
         XCTAssertEqual(remembered, 60152)
         XCTAssertEqual(fileURL.absoluteString, "http://192.0.2.10:60152//x.dat")
@@ -219,6 +374,30 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(details, ["本文1", "本文2"])
     }
 
+    /// How long the recorder has been quiet is what decides whether to make sure it is up before asking it
+    /// for something, so every answer has to count -- a fault included, since only a recorder that is up
+    /// can refuse -- and silence must not.
+    func testTheLastAnswerIsKeptAndSilenceLeavesItAlone() async throws {
+        let silent = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        _ = try? await silent.reservations()
+        let never = await silent.lastAnswer
+        XCTAssertNil(never, "nothing answered, so nothing was heard")
+
+        let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("402")))
+        let before = Date()
+        _ = try? await refusing.reservations()
+        let heard = await refusing.lastAnswer
+        let refused = try XCTUnwrap(heard, "a fault is an answer")
+        XCTAssertGreaterThanOrEqual(refused, before)
+
+        let answering = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.soap("X_DeleteTitle")))
+        try await answering.deleteTitle(id: "0x1")
+        let answered = await answering.lastAnswer
+        XCTAssertNotNil(answered)
+    }
+
     func testFreeSpaceComesBackInBytes() async throws {
         // The capacity arrives in an element of its own, not in Result, and is escaped XML like Result is.
         let info = "<RecordDestinationInfo totalCapacity=\"4294967296000\" availableCapacity=\"790273982464\"/>"
@@ -230,10 +409,79 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertEqual(capacity.freeBytes, 790_273_982_464)
     }
 
+    /// Read as zeros, an answer in another shape was a full disk: 残り 0.0 GB, and a low-space warning.
+    func testFreeSpaceThatCannotBeReadIsThrownRatherThanReadAsZero() async throws {
+        let wrapped = { (inner: String) in "<RecordDestinationInfo>\(Soap.escape(inner))</RecordDestinationInfo>" }
+        let answers = [
+            "",
+            "<RecordDestinationInfo></RecordDestinationInfo>",
+            wrapped("<RecordDestinationInfo totalCapacity=\"4294967296000\""),
+            wrapped("<RecordDestinationInfo totalCapacity=\"4294967296000\"/>"),
+            wrapped("<RecordDestinationInfo totalCapacity=\"4 TB\" availableCapacity=\"790273982464\"/>"),
+        ]
+        for extra in answers {
+            let response = Stub.soap("X_HDLnkGetRecordDestinationInfo", extra: extra)
+            let client = RecorderClient(host: Stub.host, transport: StubTransport(always: response))
+            do {
+                let capacity = try await client.recordDestinationInfo()
+                XCTFail("\(extra) read as \(capacity)")
+            } catch let error as RecorderError {
+                XCTAssertEqual(error, .unexpectedAnswer(action: "X_HDLnkGetRecordDestinationInfo"), extra)
+                XCTAssertFalse(error.unreachable, "the recorder answered: \(extra)")
+            }
+        }
+    }
+
+    /// The firmware and the free space are only shown, and a model that will not give them is still a
+    /// recorder that is there. Whatever it answers leaves the value unknown; only silence gets out.
+    func testOnlySilenceGetsOutOfAReadTheAppCanDoWithout() async throws {
+        let firmware = Stub.soap("X_GetFirmwareVersion",
+                                 result: "<firmware><version>35.003.1</version></firmware>")
+        let answering = RecorderClient(host: Stub.host, transport: StubTransport(always: firmware))
+        let version = try await RecorderError.silenceOnly { try await answering.firmwareVersion() }
+        XCTAssertEqual(version, "35.003.1")
+
+        let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("401")))
+        let refused = try await RecorderError.silenceOnly { try await refusing.firmwareVersion() }
+        XCTAssertNil(refused, "a model without the call")
+
+        let unreadable = RecorderClient(host: Stub.host,
+                                        transport: StubTransport(always: Stub.soap("X_HDLnkGetRecordDestinationInfo")))
+        let capacity = try await RecorderError.silenceOnly { try await unreadable.recordDestinationInfo() }
+        XCTAssertNil(capacity, "an answer in another shape")
+
+        let silent = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        do {
+            _ = try await RecorderError.silenceOnly { try await silent.recordDestinationInfo() }
+            XCTFail("silence was taken for an answer")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+    }
+
     private func titleItem(id: String) -> String {
         "<item id=\"\(id)\"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
             + "<scheduledDuration>60</scheduledDuration></item>"
     }
+}
+
+/// The action a request was for, from its `SOAPACTION` header.
+private func soapAction(_ request: HTTPRequest) -> String {
+    String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
+        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+}
+
+/// What `X_GetPlayStatus` says, in the shape the recorder says it (docs/xsrs-api.md).
+private func playStatus(_ power: String) -> String {
+    "<status><powerstatus>\(power)</powerstatus><playstatus>Stopped</playstatus></status>"
+}
+
+/// The seconds `play` said it had been waiting, collected across the actor boundary.
+private actor Waits {
+    private(set) var seconds: [Int] = []
+    func add(_ value: Int) { seconds.append(value) }
 }
 
 extension RecorderClientTests {
@@ -269,7 +517,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(recording: true))
+        let outcome = try await client.deleteIfPresent(title(recording: true))
 
         XCTAssertEqual(outcome, .skipped(reason: "録画中です"))
         let sent = await transport.requests.count
@@ -280,7 +528,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_DeleteTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(protected: true))
+        let outcome = try await client.deleteIfPresent(title(protected: true))
 
         let sent = await transport.requests.count
         XCTAssertEqual(outcome, .skipped(reason: "保護されています"))
@@ -291,7 +539,7 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.fault("820"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title())
+        let outcome = try await client.deleteIfPresent(title())
 
         XCTAssertEqual(outcome, .skipped(reason: "すでに削除されています"))
         let bodies = await transport.bodies
@@ -308,7 +556,7 @@ final class BulkWorkTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title(id: "0x0000010000034d78"))
+        let outcome = try await client.deleteIfPresent(title(id: "0x0000010000034d78"))
 
         XCTAssertEqual(outcome, .changed)
         let bodies = await transport.bodies
@@ -324,7 +572,7 @@ final class BulkWorkTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let outcome = await client.deleteIfPresent(title())
+        let outcome = try await client.deleteIfPresent(title())
 
         XCTAssertEqual(outcome.reason?.contains("402"), true, outcome.reason ?? "-")
     }
@@ -333,18 +581,110 @@ final class BulkWorkTests: XCTestCase {
         let transport = StubTransport(always: Stub.soap("X_UpdateTitle"))
         let client = RecorderClient(host: Stub.host, transport: transport)
 
-        let already = await client.setProtected(title(protected: true), true)
+        let already = try await client.setProtected(title(protected: true), true)
         XCTAssertEqual(already, .skipped(reason: "すでに保護されています"))
-        let notProtected = await client.setProtected(title(protected: false), false)
+        let notProtected = try await client.setProtected(title(protected: false), false)
         XCTAssertEqual(notProtected, .skipped(reason: "保護されていません"))
         let untouched = await transport.requests.count
         XCTAssertEqual(untouched, 0)
 
-        let changed = await client.setProtected(title(id: "0x2", protected: false), true)
+        let changed = try await client.setProtected(title(id: "0x2", protected: false), true)
         XCTAssertEqual(changed, .changed)
         let bodies = await transport.bodies
         XCTAssertEqual(bodies.count, 1)
         // the payload travels as a SOAP argument, so it arrives escaped
         XCTAssertTrue(bodies[0].contains("&lt;item id=&quot;0x2&quot;&gt;&lt;titleProtectFlag&gt;1&lt;"), bodies[0])
+    }
+
+    /// A recorder that has gone to sleep says nothing to the question asked first, and the delete is then
+    /// not sent at all: it would only wait out the same silence, and the run has to stop rather than skip.
+    func testSilenceBeforeTheDeleteStopsTheRunWithoutDeleting() async throws {
+        let transport = StubTransport { _, _ in throw RecorderError.transport("timed out") }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.deleteIfPresent(title())
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])
+    }
+
+    /// Silence on the delete itself is thrown too. Whether it arrived is unknown, which is why it must not
+    /// come back as a skip that the caller could take for "not deleted" -- or send again.
+    func testSilenceOnTheDeleteIsThrownRatherThanSkipped() async throws {
+        let transport = StubTransport { request, _ in
+            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+            if body.contains("X_GetTitleDetail") { return Stub.soap("X_GetTitleDetail", result: "<detail/>") }
+            throw RecorderError.transport("timed out")
+        }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.deleteIfPresent(title())
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 2, "asked once and deleted once, and nothing sent again")
+    }
+
+    /// The duplicate scan keeps what it reads for good, so only an answer counts as read -- an empty text
+    /// included, since some recordings come with none.
+    func testTheTextIsReadAndAnEmptyOneIsAnAnswer() async throws {
+        let described = RecorderClient(host: Stub.host, transport: StubTransport(always:
+            Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")))
+        let read = try await described.summary(of: "0x1")
+        XCTAssertEqual(read, .read("あらすじ"))
+
+        let bare = RecorderClient(host: Stub.host,
+                                  transport: StubTransport(always: Stub.soap("X_GetTitleDetail", result: "<detail/>")))
+        let empty = try await bare.summary(of: "0x1")
+        XCTAssertEqual(empty, .read(""))
+    }
+
+    func testARecordingTheRecorderNoLongerHasIsGoneRatherThanRead() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("820")))
+        let outcome = try await client.summary(of: "0x1")
+        XCTAssertEqual(outcome, .gone)
+    }
+
+    /// A refusal is not a text. Kept as an empty one, it would be the same as every other failure's and make
+    /// copies of recordings that are nothing alike.
+    func testARefusedReadIsAFailureRatherThanAnEmptyText() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("402")))
+        let outcome = try await client.summary(of: "0x1")
+        guard case .failed(let reason) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertTrue(reason.contains("402"), reason)
+    }
+
+    func testSilenceWhileReadingIsThrown() async throws {
+        let client = RecorderClient(host: Stub.host, transport: StubTransport { _, _ in
+            throw RecorderError.transport("timed out")
+        })
+        do {
+            _ = try await client.summary(of: "0x1")
+            XCTFail("silence should be thrown, not turned into a failure to read")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+    }
+
+    func testSilenceOnProtectingIsThrown() async throws {
+        let transport = StubTransport { _, _ in throw RecorderError.transport("timed out") }
+        let client = RecorderClient(host: Stub.host, transport: transport)
+
+        do {
+            _ = try await client.setProtected(title(protected: false), true)
+            XCTFail("silence should be thrown, not turned into a skip")
+        } catch let error as RecorderError {
+            XCTAssertTrue(error.unreachable)
+        }
+        let sent = await transport.requests.count
+        XCTAssertEqual(sent, 1)
     }
 }

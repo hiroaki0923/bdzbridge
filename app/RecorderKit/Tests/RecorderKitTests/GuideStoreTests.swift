@@ -78,19 +78,191 @@ final class GuideStoreTests: XCTestCase {
         let store = try await loadedStore()
 
         for query in ["sample", "SAMPLE", "ＳＡＭＰＬＥ", "日曜劇場"] {
-            let found = try await store.programs(broadcasting: "td", query: query)
-            XCTAssertEqual(found.map(\.eventID), [14794], "searching for \(query)")
+            let found = try await store.search(query, broadcasting: "td")
+            XCTAssertEqual(found.hits.map(\.program.eventID), [14794], "searching for \(query)")
         }
-        let description = try await store.programs(broadcasting: "td", query: "朝のニュース")
-        XCTAssertEqual(description.map(\.eventID), [14792], "the short description is searched too")
-        let nothing = try await store.programs(broadcasting: "td", query: "そんな番組はない")
-        XCTAssertTrue(nothing.isEmpty)
+        let description = try await store.search("朝のニュース", broadcasting: "td")
+        XCTAssertEqual(description.hits.map(\.program.eventID), [14792], "the short description is searched too")
+        let details = try await store.search("詳細テキスト", broadcasting: "td")
+        XCTAssertEqual(details.hits.map(\.program.eventID), [14792], "and so are the details")
+        let nothing = try await store.search("そんな番組はない", broadcasting: "td")
+        XCTAssertTrue(nothing.hits.isEmpty)
+        XCTAssertFalse(nothing.more)
+        let blank = try await store.search(" 　", broadcasting: "td")
+        XCTAssertTrue(blank.hits.isEmpty, "spaces alone are not a search for everything")
     }
 
     func testSearchReachesReferencesThroughTheirParent() async throws {
         let store = try await loadedStore()
-        let found = try await store.programs(broadcasting: "td", query: "あさの放送", includeReferences: true)
-        XCTAssertEqual(found.map(\.serviceID), [1024, 1025])
+        let found = try await store.search("あさの放送", broadcasting: "td", includeReferences: true)
+        XCTAssertEqual(found.hits.map(\.program.serviceID), [1024, 1025])
+    }
+
+    // MARK: - searching by the cast, and the order results come in
+
+    /// Four programmes with the same name in them: in the title of two, in the description of one, and only
+    /// among the cast in the details of the earliest of them all.
+    private func castStore() async throws -> GuideStore {
+        let store = try GuideStore(path: ":memory:")
+        func program(_ id: Int, at hour: Int, _ title: String, summary: String = "",
+                     extended: String = "") -> GuideProgram {
+            let start = jst("2026-09-14T00:00:00+09:00").addingTimeInterval(TimeInterval(hour * 3600))
+            return GuideProgram(serviceID: 1024, eventID: id, start: start, end: start.addingTimeInterval(3600),
+                                title: title, summary: summary, extended: extended)
+        }
+        let programs = [
+            program(1, at: 8, "朝の連続ドラマ「みなと」", summary: "港町の一家の物語。",
+                    extended: "番組内容\n港町に暮らす一家の三代を描く。\n出演者\nサンプル太郎、みほん花子"),
+            program(2, at: 9, "サンプル太郎アワー"),
+            program(3, at: 10, "旅の時間", summary: "サンプル太郎が海辺の町を歩く。"),
+            program(4, at: 11, "特集　サンプル太郎の部屋", extended: "ゲスト　みほん花子"),
+            program(5, at: 12, "夜のニュース", extended: "出演：ＳＡＭＰＬＥ次郎"),
+        ]
+        try await store.replace([GuideService(serviceID: 1024, name: "サンプルテレビ", programs: programs)],
+                                broadcasting: "td")
+        return store
+    }
+
+    func testTitlesComeFirstThenDescriptionsThenDetailsAndTimeWithinEach() async throws {
+        let store = try await castStore()
+        let found = try await store.search("サンプル太郎")
+        XCTAssertEqual(found.hits.map(\.program.eventID), [2, 4, 3, 1],
+                       "the two titles by time, then the description, then the cast list, although it starts first")
+        XCTAssertEqual(found.hits.map(\.match), [.title, .title, .summary, .extended])
+        XCTAssertEqual(found.hits.map(\.snippet), [nil, nil, nil,
+                                                   Search.Snippet(before: "…出演者 ", match: "サンプル太郎",
+                                                                  after: "、みほん花子")],
+                       "only a programme found in its details says where; the heading on the line before is kept")
+    }
+
+    func testEveryWordHasToBeThereAndTheOneFoundFurthestDownRanks() async throws {
+        let store = try await castStore()
+
+        let both = try await store.search("ドラマ　みほん花子")
+        XCTAssertEqual(both.hits.map(\.program.eventID), [1], "the title has one word and the cast the other")
+        XCTAssertEqual(both.hits.first?.match, .extended)
+        XCTAssertEqual(both.hits.first?.snippet?.match, "みほん花子",
+                       "the snippet is about the word that is only in the details")
+
+        let two = try await store.search("サンプル太郎 部屋")
+        XCTAssertEqual(two.hits.map(\.program.eventID), [4])
+        XCTAssertEqual(two.hits.first?.match, .title)
+
+        let none = try await store.search("ドラマ 旅")
+        XCTAssertTrue(none.hits.isEmpty, "each word in a different programme is not a match")
+    }
+
+    func testADetailsMatchShowsTheTextAsBroadcast() async throws {
+        let store = try await castStore()
+        let found = try await store.search("sample次郎")
+        XCTAssertEqual(found.hits.map(\.program.eventID), [5])
+        XCTAssertEqual(found.hits.first?.snippet,
+                       Search.Snippet(before: "出演：", match: "ＳＡＭＰＬＥ次郎", after: ""),
+                       "found in half width, shown in the full width that was sent, with its label")
+    }
+
+    func testAWordDoesNotRunFromOneFieldIntoTheNext() async throws {
+        let store = try await castStore()
+        let found = try await store.search("みなと」港町")
+        XCTAssertTrue(found.hits.isEmpty, "the end of a title and the start of its description are not one word")
+    }
+
+    /// LIKE's wildcards in a query are the characters themselves.
+    func testPercentAndUnderscoreAreSearchedForAsTyped() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let start = jst("2026-09-14T08:00:00+09:00")
+        let titles = ["100%の力", "1000回目の朝", "a_b", "axb", "c\\d", "cd"]
+        let programs = titles.enumerated().map { index, title in
+            GuideProgram(serviceID: 1024, eventID: index + 1, start: start.addingTimeInterval(TimeInterval(index * 60)),
+                         end: start.addingTimeInterval(TimeInterval(index * 60 + 60)), title: title)
+        }
+        try await store.replace([GuideService(serviceID: 1024, name: "サンプルテレビ", programs: programs)],
+                                broadcasting: "td")
+
+        for (query, expected) in [("100%", ["100%の力"]), ("100", ["100%の力", "1000回目の朝"]), ("a_b", ["a_b"]),
+                                  ("c\\d", ["c\\d"]), ("%", ["100%の力"]), ("_", ["a_b"])] {
+            let found = try await store.search(query)
+            XCTAssertEqual(found.hits.map(\.program.title), expected, "searching for \(query)")
+        }
+    }
+
+    func testOneMoreThanTheLimitIsAskedForToTellThereAreMore() async throws {
+        let store = try await castStore()
+        let cut = try await store.search("サンプル太郎", limit: 3)
+        XCTAssertEqual(cut.hits.map(\.program.eventID), [2, 4, 3], "the best of them are the ones kept")
+        XCTAssertTrue(cut.more)
+        let whole = try await store.search("サンプル太郎", limit: 4)
+        XCTAssertEqual(whole.hits.count, 4)
+        XCTAssertFalse(whole.more, "exactly the limit is not more than it")
+    }
+
+    // MARK: - a cache from before the details were searched
+
+    /// What an older build left: the guide in place, its search text made of the title and the description
+    /// joined by a space, and no mark saying otherwise.
+    private func oldCache(at path: String) async throws {
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td")
+            try await store.setChannelPreferences(broadcasting: "td", hidden: [1025])
+        }
+        let db = try Sqlite(path: path)
+        try db.run("""
+        UPDATE programs SET search_text = lower(COALESCE(title,'') || ' ' || COALESCE(description,''))
+        WHERE ref_event_id IS NULL
+        """)
+        try db.run("DELETE FROM meta WHERE key='search_text_version'")
+    }
+
+    func testAnOldCacheIsBroughtUpToDateWhereItIsOnce() async throws {
+        let path = try temporaryPath()
+        try await oldCache(at: path)
+
+        let store = try GuideStore(path: path)
+        let before = try await store.counts()
+        XCTAssertEqual(before["td"]?.programs, 4, "opening it keeps the guide: the schema version is not bumped")
+        let rewritten = try await store.updateSearchText()
+        XCTAssertEqual(rewritten, 4, "every programme but the reference, which is searched through its parent")
+
+        let found = try await store.search("詳細テキスト", broadcasting: "td", includeReferences: true,
+                                           includeHidden: true)
+        XCTAssertEqual(found.hits.map(\.program.serviceID), [1024, 1025],
+                       "the details are searched, the simulcast on the sub-channel with them")
+        XCTAssertEqual(found.hits.first?.match, .extended)
+        let title = try await store.search("あさの放送", broadcasting: "td")
+        XCTAssertEqual(title.hits.first?.match, .title, "and the fields are told apart")
+
+        let after = try await store.counts()
+        XCTAssertEqual(after["td"], before["td"], "nothing was thrown away or fetched")
+        let channels = try await store.channels(broadcasting: "td")
+        XCTAssertEqual(channels.map(\.serviceID), [1024], "what the reader set is untouched")
+
+        let again = try await store.updateSearchText()
+        XCTAssertEqual(again, 0)
+        let reopened = try GuideStore(path: path)
+        let afterReopening = try await reopened.updateSearchText()
+        XCTAssertEqual(afterReopening, 0, "the mark is kept in the database, so it is done once")
+    }
+
+    func testASearchBringsAnOldCacheUpToDateItself() async throws {
+        let path = try temporaryPath()
+        try await oldCache(at: path)
+
+        let store = try GuideStore(path: path)
+        let found = try await store.search("詳細テキスト", broadcasting: "td")
+        XCTAssertEqual(found.hits.map(\.program.eventID), [14792],
+                       "a search made before the app got round to it waits for it rather than missing the details")
+        let rewritten = try await store.updateSearchText()
+        XCTAssertEqual(rewritten, 0, "and it is not done twice")
+    }
+
+    func testANewCacheHasNothingToBringUpToDate() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let rewritten = try await store.updateSearchText()
+        XCTAssertEqual(rewritten, 0)
+        try await store.replace(try sampleServices(), broadcasting: "td")
+        let later = try await store.updateSearchText()
+        XCTAssertEqual(later, 0, "what replace writes is already current")
     }
 
     func testHidingAChannelRemovesItAndItsProgrammes() async throws {
@@ -139,6 +311,29 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(next.map(\.eventID), [14800])
     }
 
+    /// The first day is the one on air, and until four in the morning that is yesterday's: a late-night
+    /// programme at half past midnight is on the previous day's guide, and has to be on a day in the strip.
+    func testTheDaysStartWithTheBroadcastDayOnAir() {
+        let cases = [
+            ("2026-09-23T00:30:00+09:00", "2026-09-22"),
+            ("2026-09-23T03:59:00+09:00", "2026-09-22"),
+            ("2026-09-23T04:00:00+09:00", "2026-09-23"),
+            ("2026-09-23T12:00:00+09:00", "2026-09-23"),
+        ]
+        for (now, first) in cases {
+            let moment = jst(now)
+            let days = GuideStore.broadcastDays(from: moment)
+            XCTAssertEqual(days.count, 8, now)
+            XCTAssertEqual(days.map(RecorderTime.format).first, "\(first)T00:00:00+09:00", now)
+            XCTAssertEqual(days.first, GuideStore.broadcastDay(containing: moment), now)
+            // and the day it names is the one that has this moment in it, which is what the guide shows
+            let range = GuideStore.dayRange(containing: days[0])
+            XCTAssertTrue(range.start <= moment && moment < range.end, now)
+            XCTAssertEqual(days.last.map { GuideStore.dayRange(containing: $0).end },
+                           range.start.addingTimeInterval(8 * 86400), "eight days on end, \(now)")
+        }
+    }
+
     func testNowOnAirTakesTheChannelOrderAndKeepsReferences() async throws {
         let store = try await loadedStore()
         let onAir = try await store.nowOnAir(broadcasting: "td", at: jst("2026-09-14T05:30:00+09:00"))
@@ -155,8 +350,106 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["td"]?.channels, 2)
         XCTAssertEqual(counts["td"]?.programs, 4, "references are not counted as programmes")
         XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00")
+        XCTAssertEqual(counts["td"]?.checked, "2026-09-14T03:00:00+09:00", "a type fetched is a type answered")
         XCTAssertEqual(counts["bs"]?.channels, 0)
         XCTAssertNil(counts["bs"]?.refreshed)
+        XCTAssertNil(counts["bs"]?.lastAnswered, "never asked for")
+    }
+
+    /// A type the recorder has no file for is marked as answered, so that it is not asked for again until
+    /// the next rebuild, and what the cache holds for it is left alone.
+    func testATypeWithNoGuideIsMarkedAnsweredAndKeepsItsCache() async throws {
+        let store = try await loadedStore()
+        let later = jst("2026-09-15T03:00:00+09:00")
+        try await store.noteNoGuide(broadcasting: "td", at: later)
+        try await store.noteNoGuide(broadcasting: "bs4k", at: later)
+
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "nothing is thrown away")
+        XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00", "and the guide is as old as it was")
+        XCTAssertEqual(counts["td"]?.lastAnswered, later)
+        XCTAssertEqual(counts["bs4k"]?.programs, 0)
+        XCTAssertNil(counts["bs4k"]?.refreshed)
+        XCTAssertEqual(counts["bs4k"]?.lastAnswered, later)
+    }
+
+    /// A cache written before the mark was kept goes by when it was refreshed, rather than counting every type
+    /// as never asked for and fetching them all again.
+    func testACacheFromBeforeTheMarkGoesByWhenItWasRefreshed() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td", at: jst("2026-09-14T03:00:00+09:00"))
+        }
+        try Sqlite(path: path).run("DELETE FROM meta WHERE key LIKE 'epg_checked:%'")
+
+        let counts = try await GuideStore(path: path).counts()
+        XCTAssertNil(counts["td"]?.checked)
+        XCTAssertEqual(counts["td"]?.lastAnswered, jst("2026-09-14T03:00:00+09:00"))
+    }
+
+    /// Counting a type's programmes, asked each time the day changes, is answered from an index rather than by
+    /// reading every programme -- and a cache made before the index gets it when it is next opened.
+    func testCountsAreAnsweredFromAnIndexWhichAnOldCacheGetsOnOpening() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td")
+        }
+        let db = try Sqlite(path: path)
+        try db.run("DROP INDEX ix_programs_ref")
+
+        _ = try GuideStore(path: path)
+        let indexes = try db.query("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='programs'") {
+            $0.string("name")
+        }
+        XCTAssertTrue(indexes.contains("ix_programs_ref"), "\(indexes)")
+        let plan = try db.query("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM programs WHERE bt=? AND ref_event_id IS NULL",
+                                ["td"]) { $0.string("detail") }
+        XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX ix_programs_ref") }, "\(plan)")
+    }
+
+    /// The overnight run and the screens each open the file, and can write at once. The second waits for the
+    /// first rather than failing with "database is locked".
+    func testAWriteWaitsForAnotherConnectionsWriteRatherThanFailing() throws {
+        let path = try temporaryPath()
+        let holder = Holder(try Sqlite(path: path))
+        let waiter = try Sqlite(path: path)
+        try holder.db.execute("CREATE TABLE t (x INTEGER)")
+        try holder.db.execute("BEGIN IMMEDIATE")
+        try holder.db.run("INSERT INTO t VALUES (1)")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            try? holder.db.execute("COMMIT")
+        }
+
+        let started = Date()
+        try waiter.run("INSERT INTO t VALUES (2)")
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.2, "it waited for the other write")
+        XCTAssertEqual(try waiter.count("SELECT COUNT(*) FROM t"), 2)
+    }
+
+    /// Lets a connection be committed from another thread, which SQLite allows (it is opened fully mutexed).
+    private final class Holder: @unchecked Sendable {
+        let db: Sqlite
+        init(_ db: Sqlite) { self.db = db }
+    }
+
+    /// A full disk is the reader's to put right, so it is said in words they can use, with SQLite's code kept.
+    func testAFullDiskIsExplainedAndKeepsItsCode() throws {
+        let db = try Sqlite(path: try temporaryPath())
+        try db.execute("CREATE TABLE t (x BLOB)")
+        let pages = try db.count("PRAGMA page_count")
+        try db.execute("PRAGMA max_page_count=\(pages)")
+        do {
+            try db.run("INSERT INTO t VALUES (?)", [.blob(Data(count: 64 * 1024))])
+            XCTFail("there is no room for it")
+        } catch let error as SqliteError {
+            XCTAssertEqual(error.primaryCode, 13, "SQLITE_FULL")
+            XCTAssertTrue(error.explanation.contains("空き容量"), error.explanation)
+            XCTAssertTrue(error.explanation.hasSuffix("(SQLite 13)"), error.explanation)
+            XCTAssertEqual("\(error)", error.explanation, "what the screens interpolate is the explanation")
+            XCTAssertTrue(error.detail.contains("INSERT INTO t"), "the statement is kept for a log")
+        }
     }
 
     func testASchemaChangeRebuildsTheCacheButKeepsWhatTheUserSet() async throws {
@@ -188,6 +481,54 @@ final class GuideStoreTests: XCTestCase {
         let reopened = try GuideStore(path: path)
         let counts = try await reopened.counts()
         XCTAssertEqual(counts["td"]?.programs, 4)
+    }
+
+    /// An empty text left by an older build may be a read that failed, so it is thrown away once and asked
+    /// about again. One read after that is the recorder saying there is no text, and stays.
+    func testEmptySummariesFromBeforeAreClearedOnceAndOnlyOnce() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.setTitleSummary("0x1", "")
+            try await store.setTitleSummary("0x2", "あらすじ")
+            // what a database written by an older build looks like: the rows, and no mark that they were seen to
+            try Sqlite(path: path).run("DELETE FROM meta WHERE key='blank_summaries_cleared'")
+        }
+
+        let upgraded = try GuideStore(path: path)
+        let cleared = try await upgraded.titleSummaries(["0x1", "0x2"])
+        XCTAssertEqual(cleared, ["0x2": "あらすじ"], "the empty one is asked about again; the text is kept")
+
+        try await upgraded.setTitleSummary("0x1", "")
+        let reopened = try GuideStore(path: path)
+        let kept = try await reopened.titleSummaries(["0x1"])
+        XCTAssertEqual(kept, ["0x1": ""], "an empty text read now is an answer, and is not thrown away again")
+    }
+
+    /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
+    /// and the store looks only at the titles asked about.
+    func testFixedBlurbsAreReadFromTheCachedGuide() async throws {
+        let vectors = try Vectors.load("titles.json").dictionary("duplicates")
+        let guide = vectors.dictionaries("guide")
+        let programs = guide.enumerated().map { index, row in
+            let start = jst(row.string("start"))
+            return GuideProgram(serviceID: 101, eventID: index + 1, start: start, end: start.addingTimeInterval(180),
+                                title: row.string("title"), summary: row.string("summary"))
+        }
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace([GuideService(serviceID: 101, name: "ＢＳサンプル", programs: programs)],
+                                broadcasting: "bs")
+
+        let expected = Set(vectors.dictionaries("fixed_blurbs").map {
+            Duplicates.Blurb(titleKey: $0.string("same_title_key"), summaryKey: $0.string("summary_key"))
+        })
+        let every = Set(guide.map { Series.sameTitleKey($0.string("title")) })
+        let found = try await store.fixedBlurbs(among: every)
+        XCTAssertEqual(found, expected)
+        let others = try await store.fixedBlurbs(among: every.subtracting(expected.map(\.titleKey)))
+        XCTAssertEqual(others, [], "the titles asked about, and no others")
+        let nothing = try await store.fixedBlurbs(among: [])
+        XCTAssertEqual(nothing, [])
     }
 
     func testLogosAreAttachedToTheirChannels() async throws {

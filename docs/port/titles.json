@@ -172,7 +172,7 @@
   ]
  },
  "duplicates": {
-  "note": "candidates are grouped by title and then by length within 120 seconds of each other; the programme text splits them further. reasons say why each recording is kept or offered up.",
+  "note": "candidates are grouped by title and then by length within 120 seconds of each other; the programme text splits them further. reasons say why each recording is kept or offered up. A set whose text is under 20 characters (summary_key), or whose title and text the guide shows on two or more broadcast days (04:00 to 04:00 JST; fixed_blurbs, from guide), is boilerplate rather than high.",
   "titles": [
    {
     "id": "0xd1",
@@ -185,7 +185,7 @@
     "recording": false,
     "resume_sec": null,
     "size_mb": 2000,
-    "summary": "架空市警のサンプル警部が挑む。"
+    "summary": "架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。"
    },
    {
     "id": "0xd2",
@@ -198,7 +198,7 @@
     "recording": false,
     "resume_sec": 300,
     "size_mb": 2000,
-    "summary": "（再放送）架空市警のサンプル警部が挑む。"
+    "summary": "（再放送）架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。"
    },
    {
     "id": "0xd3",
@@ -263,7 +263,7 @@
     "recording": false,
     "resume_sec": null,
     "size_mb": 900,
-    "summary": "生放送のサンプル。"
+    "summary": "今夜の生放送は、架空の町の夏祭りから中継でお届けします。"
    },
    {
     "id": "0xf2",
@@ -276,7 +276,102 @@
     "recording": true,
     "resume_sec": null,
     "size_mb": 900,
-    "summary": "生放送のサンプル。"
+    "summary": "今夜の生放送は、架空の町の夏祭りから中継でお届けします。"
+   },
+   {
+    "id": "0xb1",
+    "title": "サンプル体操[字]",
+    "start": "2026-09-05T21:00:00+09:00",
+    "duration_sec": 180,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": false,
+    "resume_sec": null,
+    "size_mb": 60,
+    "summary": "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。"
+   },
+   {
+    "id": "0xb2",
+    "title": "サンプル体操",
+    "start": "2026-09-06T21:00:00+09:00",
+    "duration_sec": 180,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": false,
+    "resume_sec": null,
+    "size_mb": 60,
+    "summary": "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。"
+   },
+   {
+    "id": "0xa1",
+    "title": "ミニアニメ　サンプルくん",
+    "start": "2026-09-05T21:00:00+09:00",
+    "duration_sec": 300,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": false,
+    "resume_sec": null,
+    "size_mb": 100,
+    "summary": "サンプルくんの毎日。"
+   },
+   {
+    "id": "0xa2",
+    "title": "ミニアニメ　サンプルくん",
+    "start": "2026-09-07T21:00:00+09:00",
+    "duration_sec": 300,
+    "quality_code": 230,
+    "protected": false,
+    "is_new": true,
+    "recording": false,
+    "resume_sec": null,
+    "size_mb": 100,
+    "summary": "サンプルくんの毎日。"
+   }
+  ],
+  "guide": [
+   {
+    "title": "サンプル体操[字]",
+    "summary": "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。",
+    "start": "2026-09-14T06:00:00+09:00"
+   },
+   {
+    "title": "サンプル体操",
+    "summary": "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。",
+    "start": "2026-09-15T06:00:00+09:00"
+   },
+   {
+    "title": "深夜のサンプル",
+    "summary": "深夜に届ける架空のサンプル番組、今夜のテーマは旅と音楽。",
+    "start": "2026-09-14T23:30:00+09:00"
+   },
+   {
+    "title": "深夜のサンプル",
+    "summary": "深夜に届ける架空のサンプル番組、今夜のテーマは旅と音楽。",
+    "start": "2026-09-15T01:30:00+09:00"
+   },
+   {
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "summary": "架空市警のサンプル警部が、消えた宝石の行方を追って港町へ向かう。",
+    "start": "2026-09-16T21:00:00+09:00"
+   },
+   {
+    "title": "刑事サンプル（４８）「幻の宝石」",
+    "summary": "拡大版のあらすじ。",
+    "start": "2026-09-17T21:00:00+09:00"
+   },
+   {
+    "title": "サンプル特番「今夜の生放送」",
+    "summary": "",
+    "start": "2026-09-18T20:00:00+09:00"
+   }
+  ],
+  "fixed_blurbs": [
+   {
+    "same_title_key": "サンプル体操",
+    "summary_key": "体を動かすサンプル体操。今日も元気に、腕を大きく回しましょう。"
    }
   ],
   "candidates": [
@@ -292,6 +387,14 @@
    [
     "0xf1",
     "0xf2"
+   ],
+   [
+    "0xb1",
+    "0xb2"
+   ],
+   [
+    "0xa1",
+    "0xa2"
    ]
   ],
   "sets": [
@@ -344,6 +447,40 @@
     "items": [
      "0xe1",
      "0xe2"
+    ]
+   },
+   {
+    "title": "ミニアニメ　サンプルくん",
+    "confidence": "boilerplate",
+    "size_mb": 200,
+    "keep": "0xa1",
+    "suggest_delete": [
+     "0xa2"
+    ],
+    "reasons": {
+     "0xa1": "先に放送",
+     "0xa2": "後の放送"
+    },
+    "items": [
+     "0xa1",
+     "0xa2"
+    ]
+   },
+   {
+    "title": "サンプル体操[字]",
+    "confidence": "boilerplate",
+    "size_mb": 120,
+    "keep": "0xb1",
+    "suggest_delete": [
+     "0xb2"
+    ],
+    "reasons": {
+     "0xb1": "先に放送",
+     "0xb2": "後の放送"
+    },
+    "items": [
+     "0xb1",
+     "0xb2"
     ]
    }
   ]

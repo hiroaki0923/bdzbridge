@@ -5,6 +5,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,7 @@ from bdzbridge.recorder.xsrs import (
     RecordedTitle,
     RecorderRule,
     Reservation,
+    XsrsClient,
     XsrsError,
     parse_recorder_rule,
     parse_reservation,
@@ -27,6 +29,9 @@ from tests.test_logo import make_png
 
 TOKEN = "t"
 H = {"Authorization": f"Bearer {TOKEN}"}
+# what the fake recorder says a recording is about, unless a test says otherwise: as long as a real one, since a
+# text under twenty characters is not taken to tell one broadcast from another
+SUMMARY = "録画したドラマのあらすじ。主人公が架空の町で起きた事件を追う。"
 
 
 def make_services() -> list[Service]:
@@ -121,7 +126,7 @@ class FakeXsrs:
 
     async def title_detail(self, title_id):
         summaries = getattr(self, "summaries", {})
-        return {"summary": summaries.get(title_id, "あらすじ"), "details": ["番組内容 本文"]}
+        return {"summary": summaries.get(title_id, SUMMARY), "details": ["番組内容 本文"]}
 
     async def power_on(self):
         self.powered = getattr(self, "powered", 0) + 1
@@ -239,3 +244,20 @@ def make_title(tid, title, start, duration=1800, **kw):
 
 async def free_space(free_bytes):
     return {"total_bytes": 4_000_000_000_000, "free_bytes": int(free_bytes)}
+
+
+# --- the real SOAP client, answered in the process ---
+
+def soap_answer(action: str, inner: str = "") -> str:
+    """A SOAP answer shaped as the recorder's services give one, with `inner` in the action's response element."""
+    return ('<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            f'<s:Body><u:{action}Response xmlns:u="urn:schemas-xsrs-org:service:X_ScheduledRecording:2">{inner}'
+            f"</u:{action}Response></s:Body></s:Envelope>")
+
+
+def recorder_answering(answer) -> XsrsClient:
+    """An XsrsClient whose requests go to `answer(action)`, which returns the (status, body) to reply with."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        status, body = answer(request.headers["SOAPACTION"].strip('"').split("#")[1])
+        return httpx.Response(status, text=body)
+    return XsrsClient("192.0.2.10", httpx.AsyncClient(transport=httpx.MockTransport(handler)))

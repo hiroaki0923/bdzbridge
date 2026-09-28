@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// Waking a recorder that has left the network.
 ///
@@ -35,9 +36,11 @@ public enum WakeOnLan {
     /// VPN. Nothing routes 255.255.255.255, and a device on a VPN cannot work out the home subnet from its
     /// own interfaces, so both of those have to come from the recorder's address.
     ///
-    /// Sending straight to the recorder only works while the router still remembers which machine that
-    /// address belongs to. A recorder that has left the network answers no ARP, so once that has expired
-    /// there is nothing on the far side to deliver to and only something already on the LAN can wake it.
+    /// Sending straight to the recorder's address needs something to know which machine that address
+    /// belongs to: this device's ARP cache on the same network, the gateway's from the far side of a VPN.
+    /// Whether a recorder that has left the network still answers ARP has not been measured -- some network
+    /// cards answer for a sleeping machine, some do not. If this one does not, the unicast goes nowhere once
+    /// the entry has expired, and only a broadcast from inside the LAN can wake it.
     public static func addresses(forRecorderAt host: String) -> [String] {
         var out = LocalNetwork.broadcastAddresses()
         for candidate in [LocalNetwork.broadcast(forHost: host), host].compacted() where !out.contains(candidate) {
@@ -48,7 +51,13 @@ public enum WakeOnLan {
 
     /// Sends the packet to every address on every port a recorder might be listening on. Returns how many
     /// sends the system accepted; anything above zero means the packet went out, which is as much as the
-    /// sender can ever know — nothing answers a magic packet.
+    /// sender can ever know — nothing answers a magic packet. With local network access refused, nothing
+    /// is accepted and this is zero.
+    ///
+    /// A plain BSD socket with `SO_BROADCAST`, not the Network framework, which has no way to broadcast.
+    /// What each destination did is logged at debug level (subsystem `RecorderKit`, category `wake`):
+    /// which of the broadcasts an iPhone lets out is known from reading the kernel rather than from
+    /// watching one, and the log is how to watch.
     @discardableResult
     public static func wake(_ mac: String, addresses: [String] = LocalNetwork.broadcastAddresses(),
                             ports: [UInt16] = [9, 7]) -> Int {
@@ -62,20 +71,36 @@ public enum WakeOnLan {
         return sent
     }
 
+    /// How often to send the packet again while waiting for the recorder to answer it. Nothing acknowledges
+    /// a magic packet and nothing sends a lost one again, so a single packet lost on the way left the recorder
+    /// asleep for the whole wait, which then looked like a recorder that does not wake. Every five seconds is
+    /// half a dozen packets in the half minute the app waits, each a hundred bytes.
+    public static let resendInterval: TimeInterval = 5
+
+    private static let log = Logger(subsystem: "RecorderKit", category: "wake")
+
     private static func send(_ packet: Data, to address: String, port: UInt16) -> Bool {
         let handle = socket(AF_INET, SOCK_DGRAM, 0)
-        guard handle >= 0 else { return false }
+        guard handle >= 0 else {
+            failed("socket", address, port)
+            return false
+        }
         defer { close(handle) }
 
         var on: Int32 = 1
-        guard setsockopt(handle, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size)) == 0
-        else { return false }
+        guard setsockopt(handle, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            failed("setsockopt", address, port)
+            return false
+        }
 
         var destination = sockaddr_in()
         destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         destination.sin_family = sa_family_t(AF_INET)
         destination.sin_port = port.bigEndian
-        guard inet_pton(AF_INET, address, &destination.sin_addr) == 1 else { return false }
+        guard inet_pton(AF_INET, address, &destination.sin_addr) == 1 else {
+            log.debug("magic packet: \(address, privacy: .public) is not an IPv4 address")
+            return false
+        }
 
         let count = withUnsafePointer(to: &destination) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddress in
@@ -85,7 +110,23 @@ public enum WakeOnLan {
                 }
             }
         }
-        return count == packet.count
+        guard count == packet.count else {
+            failed("sendto", address, port)
+            return false
+        }
+        log.debug("magic packet: sent to \(address, privacy: .public):\(port, privacy: .public)")
+        return true
+    }
+
+    /// Logs the errno the last call left, with where the packet was going. Read at once, before anything
+    /// else can overwrite it.
+    private static func failed(_ call: String, _ address: String, _ port: UInt16) {
+        let code = errno
+        let reason = String(cString: strerror(code))
+        log.debug("""
+            magic packet: \(call, privacy: .public) to \(address, privacy: .public):\(port, privacy: .public) \
+            failed, errno \(code, privacy: .public) (\(reason, privacy: .public))
+            """)
     }
 }
 

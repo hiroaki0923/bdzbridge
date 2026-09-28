@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+import json
 from datetime import datetime
 
 from fastapi.testclient import TestClient
@@ -18,6 +20,8 @@ from tests.conftest import (
     H,
     autorec_client,
     free_space,
+    recorder_answering,
+    soap_answer,
 )
 
 
@@ -55,6 +59,29 @@ def test_rules_report_conflicts_without_reserving(client):
     assert log["status"] == "conflict" and log["message"] == "別の予約"
     assert "重複" in c.bridge.notifier.sent[0][0]
 
+def test_an_unreadable_answer_costs_one_programme_and_a_busy_one_is_asked_again(client):
+    c = autorec_client(client)
+    # the conflict checks, in order: the first programme's answered 503, the second's with a page that is not
+    # XML, which used to end the pass with a ParseError; the next pass asks about the first again
+    checks = [(503, "Service Unavailable"), (500, "Internal Server Error"),
+              (200, soap_answer("X_GetConflictList", "<Result></Result>"))]
+
+    def answer(action):
+        if action == "X_GetConflictList":
+            return checks.pop(0)
+        if action == "X_CreateRecordSchedule":
+            return 200, soap_answer(action, "<RecordScheduleID>0x1</RecordScheduleID>")
+        return 200, soap_answer(action, "<Result></Result>")
+    c.bridge.recorder.xsrs = recorder_answering(answer)
+    rid = c.post("/api/v1/rules", headers=H, json={"query": "サンプル"}).json()["id"]
+    assert len(c.get(f"/api/v1/rules/{rid}/matches", headers=H).json()) == 2
+    first = c.post("/api/v1/rules/run", headers=H).json()
+    assert (first["checked"], first["reserved"], first["errors"]) == (2, 0, 1)
+    second = c.post("/api/v1/rules/run", headers=H).json()
+    assert (second["reserved"], second["errors"]) == (1, 0) and checks == []
+    log = c.get("/api/v1/rules/log", headers=H).json()
+    assert sorted(x["status"] for x in log) == ["error", "reserved"] and log[0]["event_id"] != log[1]["event_id"]
+
 def test_rules_run_after_epg_refresh(client):
     c = autorec_client(client)
     c.post("/api/v1/rules", headers=H, json={"query": "ニュース", "title_only": False})
@@ -78,6 +105,23 @@ def test_watch_state_and_monitor(client):
     r = c.post("/api/v1/monitor/run", headers=H).json()
     assert r["new_conflicts"] == ["0x7"] and "予約の重複 1 件" in c.bridge.notifier.sent[-1][0] and "重なる予約" in c.bridge.notifier.sent[-1][1]
     assert c.post("/api/v1/monitor/run", headers=H).json()["new_conflicts"] == [] and len(c.bridge.notifier.sent) == 2
+
+def test_a_renumbered_conflict_is_not_reported_again(client):
+    c = autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    auto = Reservation("0x7", "おまかせの予約", datetime(2026, 9, 14, 20, 0, tzinfo=JST), 900, "1", 2, 1040, 99, 240, False, True,
+                       "HDD", None, "1100")
+    x.reservations.append(auto)
+    # remembered by id, as a server before this one kept them: still not reported again
+    c.bridge.store.set_meta("notified_conflicts", json.dumps(["0x7"]))
+    assert c.post("/api/v1/monitor/run", headers=H).json()["new_conflicts"] == []
+    # the recorder works through the guide again and gives its own reservations new ids, the programmes unchanged
+    x.reservations = [dataclasses.replace(auto, id="0x2a")]
+    assert c.post("/api/v1/monitor/run", headers=H).json()["new_conflicts"] == []
+    # one at another hour is another conflict
+    x.reservations.append(dataclasses.replace(auto, id="0x2b", start=datetime(2026, 9, 15, 20, 0, tzinfo=JST)))
+    assert c.post("/api/v1/monitor/run", headers=H).json()["new_conflicts"] == ["0x2b"]
+    assert [s for s, _ in c.bridge.notifier.sent if "予約の重複" in s] == ["[bdzbridge] 予約の重複 1 件"]
 
 def test_monitor_warns_again_only_after_space_recovers(client):
     c = autorec_client(client)
@@ -147,6 +191,7 @@ def test_recorder_rule_defaults_and_limits(client):
     made = r.json()
     assert made["logic"] == "OR" and made["time_scope"] == "ALL" and made["broadcasting_scope"] == "ALL"
     assert made["quality"] == "LSR" and made["genres"] == []   # the server's default quality
+    assert made["quality_4k"] == "LSR"   # every wave, so the 4K ones too rather than the recorder's DR
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": []}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level2": 0}).status_code == 422
     whole = client.post("/api/v1/recorder-rules", headers=H, json={"keywords": [], "genre_level1": 5, "time_scope": "MORNING",

@@ -29,7 +29,12 @@ def create_app(settings: Settings | None = None, bridge: Bridge | None = None) -
         if b is None:
             settings.ensure_db_dir()
             b = Bridge(settings, None, Store(settings.db_path))
-            await session.resolve_recorder(b)
+            try:
+                await session.resolve_recorder(b)
+            except Exception:
+                # A recorder that cannot be found is no reason not to serve: the guide cache is still there
+                # to read, and the web app can look for the recorder and pick it again.
+                log.exception("could not select a recorder at startup; starting unconfigured")
         app.state.bridge = b
         task = asyncio.create_task(epg_service.refresh_loop(b)) if bridge is None else None
         try:

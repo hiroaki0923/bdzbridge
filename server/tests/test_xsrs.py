@@ -3,14 +3,18 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import (
+    XsrsError,
     build_create_elements,
     build_recorder_rule_elements,
     build_update_elements,
     parse_recorder_rule,
     parse_reservation,
 )
+from tests.conftest import recorder_answering, soap_answer
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -97,10 +101,12 @@ def test_parse_recorder_rule_reads_the_hex_genre_and_both_keyword_lists():
 
 
 def test_recorder_rule_elements_follow_the_recorders_own_order():
-    # the shape that went through X_CreatePrefRecSetting on the real recorder: keyword only, scopes wide open
+    # keyword only, scopes wide open, as went through X_CreatePrefRecSetting on the real recorder -- plus the
+    # quality for the 4K waves, after the ordinary one as the recorder lists them, without which they get DR
     assert build_recorder_rule_elements(keywords=["サンプル"], quality_code=220) == (
         '<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><object type="SEARCH">'
-        '<desiredQualityMode>220</desiredQualityMode><recordDestinationID>HDD</recordDestinationID>'
+        '<desiredQualityMode>220</desiredQualityMode><desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced>'
+        '<recordDestinationID>HDD</recordDestinationID>'
         '<searchSetting type="MULTIPLE" logic="OR"><name>サンプル</name><keyword>サンプル</keyword>'
         '<timeScope>ALL</timeScope><broadcastTypeScope>ALL</broadcastTypeScope></searchSetting></object></xsrs>')
     # everything at once: the genre in hex before the keywords, exclusions after, text escaped
@@ -127,10 +133,19 @@ def test_a_whole_genre_is_the_recorders_starred_form():
 
 def test_a_4k_condition_puts_its_quality_in_the_advanced_element():
     # the recorder keeps a quality per wave and drops desiredQualityMode for a 4K-only condition (measured)
-    assert '<desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced>' in build_recorder_rule_elements(
-        keywords=["x"], broadcasting_scope="ADVBSD", quality_code=220)
-    assert '<desiredQualityMode>220</desiredQualityMode>' in build_recorder_rule_elements(
-        keywords=["x"], broadcasting_scope="BSD", quality_code=220)
+    four_k = build_recorder_rule_elements(keywords=["x"], broadcasting_scope="ADVBSD", quality_code=220)
+    assert '<desiredQualityModeForAdvanced>220</desiredQualityModeForAdvanced>' in four_k
+    assert '<desiredQualityMode>' not in four_k
+    bs = build_recorder_rule_elements(keywords=["x"], broadcasting_scope="BSD", quality_code=220)
+    assert '<desiredQualityMode>220</desiredQualityMode>' in bs and 'ForAdvanced' not in bs
+    # every wave: given desiredQualityMode alone, the recorder fills the 4K side in as DR (measured), so both
+    every = build_recorder_rule_elements(keywords=["x"], broadcasting_scope="ALL", quality_code=240)
+    assert ('<desiredQualityMode>240</desiredQualityMode><desiredQualityModeForAdvanced>240'
+            '</desiredQualityModeForAdvanced>') in every
+    # and a scope the recorder does not know, which it widens to ALL (measured with NOSUCHWAVE)
+    unknown = build_recorder_rule_elements(keywords=["x"], broadcasting_scope="NOSUCHWAVE", quality_code=240)
+    assert ('<desiredQualityMode>240</desiredQualityMode><desiredQualityModeForAdvanced>240'
+            '</desiredQualityModeForAdvanced>') in unknown
     # what the box wrote for a BS4K condition at 深夜: no ordinary quality at all
     obj = ET.fromstring('<object type="SEARCH" id="0x0002470e">'
                         '<desiredQualityModeForAdvanced>100</desiredQualityModeForAdvanced>'
@@ -141,3 +156,21 @@ def test_a_4k_condition_puts_its_quality_in_the_advanced_element():
     r = parse_recorder_rule(obj)
     assert r.quality_code is None and r.quality_code_4k == 100
     assert r.time_scope == "MIDNIGHT" and r.broadcasting_scope == "ADVBSD"
+
+
+async def test_an_answer_that_is_not_xml_is_an_xsrs_error():
+    # a busy recorder's 503 carries no SOAP, and nor does an empty body; both raised a ParseError that no caller catches
+    answers = {"X_GetRecordScheduleList": (503, "Service Unavailable"),
+               "X_DeleteRecordSchedule": (200, ""),
+               "X_GetConflictList": (200, soap_answer("X_GetConflictList", "<Result>&lt;DIDL-Lite</Result>"))}
+    x = recorder_answering(lambda action: answers[action])
+    with pytest.raises(XsrsError) as busy:
+        await x.list_reservations()
+    assert busy.value.busy and busy.value.explanation.endswith("(503: X_GetRecordScheduleList)")
+    with pytest.raises(XsrsError) as empty:
+        await x.delete_reservation("0x1")
+    assert not empty.value.busy and empty.value.explanation == "レコーダーの応答を読み取れませんでした (X_DeleteRecordSchedule)"
+    with pytest.raises(XsrsError) as garbled:  # the list inside a well-formed answer, parsed on its own
+        await x.conflicts("<xsrs/>")
+    assert (garbled.value.status, garbled.value.code, garbled.value.action) == (200, None, "X_GetConflictList")
+    await x.http.aclose()

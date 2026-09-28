@@ -7,20 +7,27 @@ import SwiftUI
 /// across the top, a red line at the current time, and a time axis that pinches. Both rulers are drawn over
 /// the scrolling content and moved by its offset, which is how they stay put on iOS 17.
 struct GuideGridView: View {
-    let channels: [Channel]
-    let programs: [GuideProgramRow]
-    let day: Date
+    private typealias Column = (channel: Channel, programs: [GuideProgramRow])
+
+    /// Channels that have nothing on that day are left out, which drops the sub-channels that only mirror
+    /// their parent.
+    private let columns: [Column]
+    private let dayStart: Date
+    /// The channels' logos, decoded, by service id.
+    private let logos: [Int: UIImage]
     /// Counts the times the reader has asked to be taken back to now. Watched rather than acted on, so the
     /// grid can answer a second ask.
     let nowRequests: Int
     let reservationFor: (GuideProgramRow) -> Reservation?
+    /// A reservation waiting on this phone for the recorder, marked beside the ones the recorder holds.
+    let pendingFor: (GuideProgramRow) -> PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
-    @AppStorage("gridPointsPerMinute") private var pointsPerMinute = 3.0
+    @AppStorage(DefaultsKey.gridPointsPerMinute) private var pointsPerMinute = 3.0
     /// The time of day to open at instead of now, as `HH:mm`. Nothing in the app writes it; it is passed on
     /// the command line (`-guideOpenAt 19:00`) so that the store screenshots land on the evening whatever
     /// time of day they are taken. See app/scripts/screenshots.
-    @AppStorage("guideOpenAt") private var openAt = ""
+    @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
     @State private var offset = CGPoint.zero
     @State private var viewport = CGSize.zero
     @State private var pinchStart: Double?
@@ -33,6 +40,33 @@ struct GuideGridView: View {
         var unit: Double
     }
 
+    /// The columns, the start of the day and the logos are worked out here, once each time the guide screen
+    /// makes the grid, rather than in the body. The body runs on every frame of a scroll, since the rulers
+    /// follow the offset, and it made the columns afresh 28 times a frame and once more for each column,
+    /// which on CS came to about 9 ms, longer than a frame lasts at 120 Hz. Every logo was decoded from its
+    /// PNG each frame too.
+    init(channels: [Channel], programs: [GuideProgramRow], day: Date, nowRequests: Int,
+         reservationFor: @escaping (GuideProgramRow) -> Reservation?,
+         pendingFor: @escaping (GuideProgramRow) -> PendingReservation?,
+         onSelect: @escaping (GuideProgramRow) -> Void) {
+        let byService = Dictionary(grouping: programs, by: \.serviceID)
+        columns = channels.compactMap { channel in
+            guard let programs = byService[channel.serviceID], !programs.isEmpty else { return nil }
+            return (channel, programs)
+        }
+        dayStart = GuideStore.dayRange(containing: day).start
+        var logos: [Int: UIImage] = [:]
+        for entry in columns {
+            guard let logo = entry.channel.logo, let image = UIImage(data: logo) else { continue }
+            logos[entry.channel.serviceID] = image
+        }
+        self.logos = logos
+        self.nowRequests = nowRequests
+        self.reservationFor = reservationFor
+        self.pendingFor = pendingFor
+        self.onSelect = onSelect
+    }
+
     private let column = 132.0
     private let gutter = 30.0
     private let header = 54.0
@@ -41,35 +75,24 @@ struct GuideGridView: View {
     private let largest = 8.0
     private let space = "guide-grid"
 
-    /// Channels that have nothing on that day are left out, which drops the sub-channels that only mirror
-    /// their parent.
-    private var columns: [(channel: Channel, programs: [GuideProgramRow])] {
-        let byService = Dictionary(grouping: programs, by: \.serviceID)
-        return channels.compactMap { channel in
-            guard let programs = byService[channel.serviceID], !programs.isEmpty else { return nil }
-            return (channel, programs)
-        }
-    }
-
-    private var dayStart: Date { GuideStore.dayRange(containing: day).start }
     private var contentWidth: Double { gutter + Double(columns.count) * column }
     private var contentHeight: Double { header + dayMinutes * pointsPerMinute }
     private var nowMinutes: Double { Date().timeIntervalSince(dayStart) / 60 }
     private var showsNow: Bool { (0..<dayMinutes).contains(nowMinutes) }
 
     var body: some View {
-        let columns = columns
         if columns.isEmpty {
-            ContentUnavailableView("この日の番組表はありません", systemImage: "squareshape.split.3x3",
-                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
+            // The guide screen says why before it makes a grid with no programmes. This is for programmes
+            // with none of their channels shown, and says the same as the list would.
+            GuideEmptyView()
         } else {
             // A GeometryReader, because the rulers are as wide as the whole grid and must not report that
             // width upwards: everything around them would be stretched to it.
             GeometryReader { proxy in
                 ZStack(alignment: .topLeading) {
-                    scroller(columns)
+                    scroller
                     hourRuler(height: proxy.size.height)
-                    channelRuler(columns, width: proxy.size.width)
+                    channelRuler(width: proxy.size.width)
                     corner
                     zoomButtons
                 }
@@ -83,7 +106,7 @@ struct GuideGridView: View {
 
     // MARK: - the scrolling part
 
-    private func scroller(_ columns: [(channel: Channel, programs: [GuideProgramRow])]) -> some View {
+    private var scroller: some View {
         ScrollViewReader { scroller in
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
@@ -203,7 +226,7 @@ struct GuideGridView: View {
         ForEach(programs.filter { visibleMinutes.overlaps(minutes(of: $0)) }) { program in
             ProgramBlock(program: program, height: height(of: program), width: column - 2,
                          labelOffset: labelOffset(for: program), reservation: reservationFor(program),
-                         onSelect: onSelect)
+                         pending: pendingFor(program), onSelect: onSelect)
                 .offset(x: gutter + Double(index) * column + 1, y: header + top(of: program))
         }
     }
@@ -227,13 +250,12 @@ struct GuideGridView: View {
         .clipped()
     }
 
-    private func channelRuler(_ columns: [(channel: Channel, programs: [GuideProgramRow])],
-                              width: Double) -> some View {
+    private func channelRuler(width: Double) -> some View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 ForEach(columns, id: \.channel.serviceID) { entry in
                     VStack(spacing: 2) {
-                        if let logo = entry.channel.logo, let image = UIImage(data: logo) {
+                        if let image = logos[entry.channel.serviceID] {
                             Image(uiImage: image).resizable().scaledToFit().frame(width: 36, height: 18)
                         }
                         Text(entry.channel.name).font(.system(size: 10)).lineLimit(1)
@@ -269,10 +291,12 @@ struct GuideGridView: View {
             hold = holdingTime(atScreenY: viewport.height / 2, scale: pointsPerMinute)
             pointsPerMinute = min(largest, max(smallest, pointsPerMinute * factor))
         } label: {
+            // Drawn at 36 and tapped at 44, which is where the two areas meet in the gap between them.
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .background(.regularMaterial, in: Circle())
+                .hitArea(growingBy: 4)
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
@@ -340,6 +364,7 @@ private struct ProgramBlock: View {
     let width: Double
     let labelOffset: Double
     let reservation: Reservation?
+    let pending: PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
     private var ended: Bool { program.end <= Date() }
@@ -359,9 +384,13 @@ private struct ProgramBlock: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     + reservationMark
-                    + Text(" ")
+                    + Text(verbatim: " ")
                     + Text(program.title).font(.system(size: 11, weight: onAir ? .semibold : .regular))
             }
+            // For the spaces, which have no font of their own. They took the body size, 17 points, which made
+            // the first line of every block taller than the lines after it; the line count below reckons on
+            // 14 points a line.
+            .font(.system(size: 11))
             .multilineTextAlignment(.leading)
             .lineLimit(Int(max(1, (height - labelOffset - 4) / 14)))
             .padding(.horizontal, 4)
@@ -375,24 +404,53 @@ private struct ProgramBlock: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The channel is at the top of the column, where VoiceOver reaches it once and not again: without it a
+        // block read out as a time and a title, with nothing to say which channel they were on.
+        .accessibilityLabel(spoken)
         .background(alignment: .top) {
             if onAir {
                 genreColor.opacity(0.16).frame(height: height * elapsed)
             }
         }
-        .background(reservation == nil ? Color(.secondarySystemGroupedBackground)
-                                       : Color.orange.opacity(0.14))
+        .background(background)
         .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: onAir ? 4 : 3) }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(ended ? 0.5 : 1)
     }
 
-    /// Reservations are marked in the text, because the block is too small for anything else.
+    /// Reservations are marked in the text, because the block is too small for anything else. One waiting on
+    /// this phone is marked too, red when the recorder refused it: it is still the reader's reservation.
     private var reservationMark: Text {
-        guard let reservation else { return Text("") }
-        return Text(" ") + Text(reservation.recording ? "録画中" : "予約")
+        guard let mark else { return Text("") }
+        return Text(verbatim: " ") + Text(mark.word)
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(reservation.recording ? .red : .orange)
+            .foregroundStyle(mark.colour)
+    }
+
+    private var mark: (word: String, colour: Color)? {
+        if let reservation {
+            return reservation.recording ? ("録画中", .red) : ("予約", .legibleOrange)
+        } else if let pending {
+            return ("送信待ち", pending.problem == nil ? .legibleOrange : .red)
+        }
+        return nil
+    }
+
+    /// What VoiceOver reads for the block: the channel, when and for how long, the title, and the marks.
+    private var spoken: String {
+        var parts = [program.serviceName,
+                     "\(Format.time.string(from: program.start))から\(Format.duration(program.durationSec))",
+                     program.title]
+        if onAir { parts.append("放送中") }
+        if let mark { parts.append(mark.word) }
+        return parts.joined(separator: "、")
+    }
+
+    /// Tinted for a reservation, and more faintly for one that has not reached the recorder yet.
+    private var background: Color {
+        if reservation != nil { return Color.orange.opacity(0.14) }
+        if pending != nil { return Color.orange.opacity(0.07) }
+        return Color(.secondarySystemGroupedBackground)
     }
 
     /// ARIB level-1 genre to an accent colour, the same mapping the web app uses.

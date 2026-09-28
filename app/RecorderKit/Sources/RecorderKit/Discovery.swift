@@ -12,18 +12,23 @@ public enum Discovery {
     /// request per address does both jobs. A recorder that is there answers in milliseconds; the timeout is
     /// only ever paid on the addresses where nothing lives, which is why the two numbers below matter more
     /// than they look: 253 addresses take about six seconds on a home network.
+    ///
+    /// `until` ends the scan at the first recorder it accepts: the probes still out are cancelled and no
+    /// more addresses are asked.
     public static func scan(hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
                             port: Int = Upnp.port, timeout: TimeInterval = 1.2, atOnce: Int = 48,
                             progress: (@Sendable (Int, Int) -> Void)? = nil,
-                            found onFound: (@Sendable (RecorderDescription) -> Void)? = nil) async -> [RecorderDescription] {
+                            found onFound: (@Sendable (RecorderDescription) -> Void)? = nil,
+                            until: (@Sendable (RecorderDescription) -> Bool)? = nil) async -> [RecorderDescription] {
         guard !hosts.isEmpty else { return [] }
         var found: [RecorderDescription] = []
         var done = 0
 
         await withTaskGroup(of: RecorderDescription?.self) { group in
             var next = 0
+            var stopped = false
             func add() {
-                guard next < hosts.count else { return }
+                guard !stopped, next < hosts.count else { return }
                 let host = hosts[next]
                 next += 1
                 group.addTask {
@@ -37,11 +42,26 @@ public enum Discovery {
                 if let candidate {
                     found.append(candidate)
                     onFound?(candidate)
+                    if until?(candidate) == true {
+                        stopped = true
+                        group.cancelAll()
+                    }
                 }
                 add()
             }
         }
         return found.sorted { $0.host < $1.host }
+    }
+
+    /// Looks through the addresses for one recorder, the one whose UDN ends with `mac` (see
+    /// `RecorderDescription.hasMAC`), and stops as soon as it has answered. For a recorder that is no longer
+    /// where it was: its address is a DHCP lease, and the router hands it out again as it likes.
+    public static func find(mac: String, among hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
+                            port: Int = Upnp.port, timeout: TimeInterval = 1.2,
+                            atOnce: Int = 48) async -> RecorderDescription? {
+        let found = await scan(hosts: hosts, transport: transport, port: port, timeout: timeout, atOnce: atOnce,
+                               until: { $0.hasMAC(mac) })
+        return found.first { $0.hasMAC(mac) }
     }
 
     /// One address: a recorder, or nothing.

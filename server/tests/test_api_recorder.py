@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
-from bdzbridge.config import Settings
-from bdzbridge.recorder import wol
+from bdzbridge.config import PLACEHOLDER_TOKEN, Settings
+from bdzbridge.recorder import discovery, wol
 from bdzbridge.services import session
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
@@ -12,12 +12,57 @@ from tests.conftest import (
     TOKEN,
     FakeRecorder,
     H,
+    autorec_client,
 )
 
 
 def test_auth_required(client):
     assert client.get("/api/v1/channels").status_code == 401
     assert client.get("/api/v1/channels", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+def test_the_examples_placeholder_token_is_refused(tmp_path):
+    settings = Settings(recorder_host="", api_token=PLACEHOLDER_TOKEN, db_path=str(tmp_path / "p.sqlite3"),
+                        epg_refresh_on_start=False)
+    with TestClient(create_app(settings, Bridge(settings, None, Store(settings.db_path)))) as c:
+        assert c.get("/api/v1/channels", headers={"Authorization": f"Bearer {PLACEHOLDER_TOKEN}"}).status_code == 401
+        assert c.get("/api/v1/channels", headers={"Authorization": f"Bearer {settings.api_token}"}).status_code == 200
+    assert len(settings.api_token) >= 24
+
+async def test_a_saved_recorder_that_moved_is_found_again_by_udn(tmp_path, monkeypatch):
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "m.sqlite3"), epg_refresh_on_start=False)
+    store = Store(settings.db_path)
+    store.set_meta("recorder_host", "192.0.2.10")
+    store.set_meta("recorder_udn", "uuid:abc")
+    bridge = Bridge(settings, None, store)
+
+    async def silent(host, http, port=64220, via="manual"):
+        return None
+
+    async def found(http, networks=""):
+        return [discovery.Candidate("192.0.2.30", 64220, "BDR - Y", "BDZ-Y", "BDZ-2021", "uuid:other", True, "loc", "scan"),
+                discovery.Candidate("192.0.2.20", 64220, "BDR - X", "BDZ-X", "BDZ-2021", "uuid:abc", True, "loc", "scan")]
+    picked = []
+
+    async def pick(b, host, persist=True):
+        picked.append((host, persist))
+        b.recorder = FakeRecorder()
+        return b.recorder
+    monkeypatch.setattr(discovery, "probe", silent)
+    monkeypatch.setattr(discovery, "discover", found)
+    monkeypatch.setattr(session, "set_recorder", pick)
+    await session.resolve_recorder(bridge)
+    assert picked == [("192.0.2.20", True)]  # and saved, so that the next start goes straight there
+    await bridge.close()
+
+def test_the_server_starts_unconfigured_when_no_recorder_can_be_selected(tmp_path, monkeypatch):
+    async def broken(bridge):
+        raise RuntimeError("the network is not up yet")
+    monkeypatch.setattr(session, "resolve_recorder", broken)
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "s.sqlite3"), epg_refresh_on_start=False)
+    with TestClient(create_app(settings)) as c:
+        st = c.get("/api/v1/recorder", headers=H).json()
+        assert st["configured"] is False
+        assert c.get("/api/v1/channels", headers=H).status_code == 200
 
 def test_status_and_defaults(client):
     st = client.get("/api/v1/recorder", headers=H).json()
@@ -73,6 +118,43 @@ def test_epg_refresh_skips_recorders_without_epg(client):
     assert res["epg_capable"] is False
     st = client.get("/api/v1/recorder", headers=H).json()
     assert st["epg_capable"] is False
+
+def test_a_type_that_failed_stays_in_the_status_until_a_refresh_has_none(client):
+    client = autorec_client(client)  # a refresh ends with the monitor, which must not notify anybody for real
+    rec = client.bridge.recorder
+    fetch = rec.fetch_epg
+
+    async def bs_fails(bt):
+        if bt == "bs":
+            raise OSError("connection reset")
+        return await fetch(bt)
+    rec.fetch_epg = bs_fails
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs"] == {"error": "connection reset"} and res["td"]["programs"] > 0
+    assert client.get("/api/v1/recorder", headers=H).json()["epg"]["last_error"] == "bs: connection reset"
+    rec.fetch_epg = fetch
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert client.get("/api/v1/recorder", headers=H).json()["epg"]["last_error"] is None
+
+def test_a_refresh_wakes_a_recorder_that_has_left_the_network(client, monkeypatch):
+    client = autorec_client(client)
+    woke = []
+
+    async def _down(host, port, timeout=2.0):
+        return False
+
+    async def _wake(host, mac, port=64220, wait=25.0):
+        woke.append(mac)
+        return len(woke) == 1  # the first one wakes it, the second finds nothing
+    monkeypatch.setattr(wol, "port_open", _down)
+    monkeypatch.setattr(wol, "wake", _wake)
+    client.bridge.settings.recorder_mac = ""
+    client.bridge.store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
+    assert client.post("/api/v1/epg/refresh", headers=H).json()["td"]["programs"] > 0
+    assert woke == ["f8:4e:17:00:00:00"]
+    r = client.post("/api/v1/epg/refresh", headers=H)
+    assert r.status_code == 503 and len(woke) == 2
+    assert "Wake-on-LAN" in client.get("/api/v1/recorder", headers=H).json()["epg"]["last_error"]
 
 def test_recorder_wake(client, monkeypatch):
 

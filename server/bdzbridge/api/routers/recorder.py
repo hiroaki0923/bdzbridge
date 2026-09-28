@@ -93,5 +93,5 @@ async def defaults(request: Request):
 
 @router.post("/epg/refresh", response_model=dict)
 async def epg_refresh(request: Request):
-    """Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards."""
+    """Re-download the guide from the recorder now; the auto-reservation rules and the monitor run afterwards. A recorder that has left the network is woken first when its MAC is known, and 503 means it did not answer even then."""
     return await epg_service.refresh_epg(bridge_of(request))

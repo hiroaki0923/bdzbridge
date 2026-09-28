@@ -87,7 +87,7 @@ async def resolve_recorder(bridge) -> None:
             return
         log.warning("saved recorder %s not answering (or a different device); re-discovering", saved_host)
     if saved_udn:
-        for c in await bridge.discover():
+        for c in await discover(bridge):
             if c.udn == saved_udn:
                 log.info("recorder %s moved to %s", saved_udn, c.host)
                 await set_recorder(bridge, c.host)

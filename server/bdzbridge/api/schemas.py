@@ -153,7 +153,9 @@ class TitlesDeleteResult(BaseModel):
 
 class DuplicateSet(BaseModel):
     title: str
-    confidence: Literal["high", "low"] = Field(description="high: same title, length and programme text; low: same title and length only")
+    confidence: Literal["high", "boilerplate", "low"] = Field(
+        description="high: same title, length and programme text; boilerplate: the same, but the text is one the programme "
+                    "carries every time (under 20 characters, or repeated on other days in the guide); low: same title and length only")
     size_mb: int
     items: list[RecordedTitle]
     keep: str = Field(description="id of the copy worth keeping")
@@ -276,7 +278,8 @@ class RecorderRuleCreate(BaseModel):
     genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
     time_scope: str = Field("ALL", max_length=16, description="ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT")
     broadcasting_scope: str = Field("ALL", max_length=16, description="ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder")
-    quality: Quality | None = None
+    quality: Quality | None = Field(None, description="the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, "
+                                                      "which the recorder would otherwise record in DR")
 
     @field_validator("keywords", "excluded")
     @classmethod
@@ -308,7 +311,7 @@ class RecorderRule(BaseModel):
     broadcasting_scope: str
     broadcasting_scope_label: str
     quality: str | None = Field(description="録画モード(地上/BS/CS)")
-    quality_4k: str | None = Field(description="録画モード(BS4K/CS4K), filled in by the recorder")
+    quality_4k: str | None = Field(description="録画モード(BS4K/CS4K); DR when the condition was made without one")
     destination: str
 
 

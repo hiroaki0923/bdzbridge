@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import httpx
@@ -10,6 +12,7 @@ import httpx
 from ..api import schemas as S
 from ..api.serializers import title_out
 from ..jobs import Job
+from ..recorder.epg import JST
 from ..recorder.series import same_title_key, series_key, series_name, summary_key
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import XsrsError, build_title_update_elements
@@ -59,24 +62,71 @@ def duplicate_candidates(titles: list[XTitle]) -> list[list[XTitle]]:
     return candidates
 
 
-def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], store: Store | None = None) -> list[dict]:
+# A programme text shorter than this says what kind of programme it is (ニュース, 天気予報, a mini anime's one line)
+# rather than what one broadcast was about, so two recordings sharing it may be any two episodes.
+FIXED_BLURB_CHARS = 20
+
+
+def broadcast_day(moment: datetime) -> date:
+    """The broadcast day a moment belongs to: 04:00 to 04:00 JST, so a late-night show is on the evening before."""
+    return (moment.astimezone(JST) - timedelta(hours=4)).date()
+
+
+def fixed_blurbs(guide: Iterable[tuple[str, str, datetime]], title_keys: set[str] | None = None) -> set[tuple[str, str]]:
+    """The titles whose programme text the guide repeats on two or more broadcast days, as (same_title_key,
+    summary_key) pairs; `guide` is (title, description, start) for each programme.
+
+    Some programmes carry one blurb every time -- a daily three-minute show, a mini anime -- and two recordings
+    of them agree on the title, the length and the text without being the same broadcast. The guide is where
+    that shows: the same title with the same text on different days. Two showings on one day do not count, since
+    a programme shown again the same day is most likely the same episode. A re-run of one episode later in the
+    week looks the same as a fixed blurb and is taken for one, which errs the safe way: it is left unticked.
+    `title_keys` narrows it to the titles asked about, so that the rest of the guide's text is not normalised."""
+    keys: dict[str, str] = {}
+    days: dict[tuple[str, str], set[date]] = {}
+    for title, summary, start in guide:
+        tk = keys.get(title)
+        if tk is None:
+            tk = keys[title] = same_title_key(title)
+        if title_keys is not None and tk not in title_keys:
+            continue
+        sk = summary_key(summary)
+        if sk:
+            days.setdefault((tk, sk), set()).add(broadcast_day(start))
+    return {blurb for blurb, seen in days.items() if len(seen) > 1}
+
+
+def _confidence(title_key: str, key: str, fixed: set[tuple[str, str]]) -> str:
+    if not key:
+        return "low"
+    if len(key) < FIXED_BLURB_CHARS or (title_key, key) in fixed:
+        return "boilerplate"
+    return "high"
+
+
+def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], store: Store | None = None,
+                   fixed: set[tuple[str, str]] = frozenset()) -> list[dict]:
     """The sets themselves, once each candidate's programme text is known. Recordings whose text matches are
-    the same broadcast for certain ("high"); with no text at all only the title and the length agree ("low")."""
+    the same broadcast for certain ("high"), unless the text is one the programme carries every time
+    ("boilerplate": shorter than FIXED_BLURB_CHARS, or among `fixed`, from fixed_blurbs); with no text at all
+    only the title and the length agree ("low")."""
     sets: list[dict] = []
     for members in candidates:
+        title_key = same_title_key(members[0].title)  # a candidate is made of one title key
         keys = {t.id: summary_key(summaries.get(t.id, "")) for t in members}
         by_summary: dict[str, list[XTitle]] = {}
         for t in members:
             by_summary.setdefault(keys[t.id], []).append(t)
         for k, same in by_summary.items():
             if len(same) > 1:
-                sets.append(duplicate_set(store, same, "high" if k else "low"))
+                sets.append(duplicate_set(store, same, _confidence(title_key, k, fixed)))
     return sorted(sets, key=lambda s: s["size_mb"], reverse=True)
 
 
 async def scan_duplicates(bridge, job: Job) -> None:
     """Group recordings that look like copies of one broadcast (same title and length, then the same programme
-    text, which the recorder is asked for one title at a time and cached). Result: {"sets": [...]}."""
+    text, which the recorder is asked for one title at a time and cached; the guide tells a text that is the same
+    every time). Result: {"sets": [...]}."""
     rec = bridge.recorder
     candidates = duplicate_candidates(await all_titles(bridge))
     job.total = sum(len(c) for c in candidates)
@@ -94,7 +144,8 @@ async def scan_duplicates(bridge, job: Job) -> None:
                 bridge.store.set_title_summary(t.id, summ)
             summaries[t.id] = summ
             job.step()
-    job.result["sets"] = duplicate_sets(candidates, summaries, bridge.store)
+    fixed = fixed_blurbs(bridge.store.guide_blurbs(), {same_title_key(members[0].title) for members in candidates})
+    job.result["sets"] = duplicate_sets(candidates, summaries, bridge.store, fixed)
 
 
 async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> None:

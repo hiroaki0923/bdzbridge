@@ -1,5 +1,6 @@
 import CryptoKit
 import XCTest
+import zlib
 @testable import RecorderKit
 
 final class LogoVectorTests: XCTestCase {
@@ -58,6 +59,55 @@ final class LogoVectorTests: XCTestCase {
     func testTheColourTableMatchesTheVector() throws {
         let expected = try Vectors.load("codes.json")["logo_clut"] as? [[Int]]
         XCTAssertEqual(LogoFile.clut.map { [Int($0.red), Int($0.green), Int($0.blue), Int($0.alpha)] }, expected)
+    }
+
+    /// A PNG that stops before the end of its header has nowhere for the palette to go. It is refused rather
+    /// than read past its end, and in a logo file only that station goes without its logo.
+    func testAPngTooShortForItsHeaderIsSkippedAndTheRestAreRead() throws {
+        let short = LogoFile.pngSignature + Data([0x00, 0x00, 0x00, 0x0D]) + Data("IHDR".utf8)
+        XCTAssertLessThan(short.count, LogoFile.afterIHDR)
+        XCTAssertThrowsError(try LogoFile.withPalette(short)) { error in
+            XCTAssertEqual(error as? GuideError, .notAPng)
+        }
+
+        let (data, _) = try sample()
+        let good = try XCTUnwrap(try LogoFile.decode(data).first)
+        let file = try logoFile([record(channel: 11, serviceID: 1024, payload: short),
+                                 record(channel: UInt32(good.channelNo), serviceID: UInt16(good.serviceID),
+                                        payload: good.png)])
+        let logos = try LogoFile.decode(file)
+        XCTAssertEqual(logos.map(\.serviceID), [good.serviceID], "the short one is left out, the next one is read")
+        XCTAssertEqual(logos.first?.png, good.png)
+    }
+
+    /// A logo file as the recorder serves it: XOR 0x9D over zlib streams, an eight-byte header stream first.
+    private func logoFile(_ records: [Data]) throws -> Data {
+        var out = Data()
+        for stream in [Data(count: 8)] + records {
+            out += try deflate(stream)
+        }
+        return Data(out.map { $0 ^ 0x9D })
+    }
+
+    /// A 20-byte record header (length, broadcaster index, 0xFF, channel, zero, service id, payload length),
+    /// then the payload.
+    private func record(channel: UInt32, serviceID: UInt16, payload: Data) -> Data {
+        func bigEndian<T: FixedWidthInteger>(_ value: T) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
+        return bigEndian(UInt32(LogoFile.headerLength + payload.count)) + Data([0x00, 0xFF]) + bigEndian(channel)
+            + bigEndian(UInt32(0)) + bigEndian(serviceID) + bigEndian(UInt32(payload.count)) + payload
+    }
+
+    private func deflate(_ data: Data) throws -> Data {
+        var length = compressBound(uLong(data.count))
+        var out = Data(count: Int(length))
+        let status = out.withUnsafeMutableBytes { target in
+            data.withUnsafeBytes { source in
+                compress2(target.bindMemory(to: Bytef.self).baseAddress, &length,
+                          source.bindMemory(to: Bytef.self).baseAddress, uLong(data.count), Z_DEFAULT_COMPRESSION)
+            }
+        }
+        XCTAssertEqual(status, Z_OK)
+        return out.prefix(Int(length))
     }
 
     func testSomethingThatIsNotAPngIsRejected() {

@@ -129,6 +129,13 @@ class GuideMixin:
                                (bt, int(at.timestamp()), int(at.timestamp()))).fetchall()
         return [self._row(r) for r in rows]
 
+    def guide_blurbs(self) -> list[tuple[str, str, datetime]]:
+        """Title, short description and start of every programme with a description, for telling a programme text
+        that is the same every time (services.titles.fixed_blurbs). References carry no text of their own."""
+        rows = self.db.execute("SELECT title, description, start FROM programs"
+                               " WHERE ref_event_id IS NULL AND description<>''")
+        return [(r["title"] or "", r["description"], datetime.fromtimestamp(r["start"], JST)) for r in rows]
+
     def day_range(self, day: datetime) -> tuple[datetime, datetime]:
         """A TV day runs 04:00 to 04:00 JST (the convention Japanese guides use)."""
         start = day.astimezone(JST).replace(hour=4, minute=0, second=0, microsecond=0)
