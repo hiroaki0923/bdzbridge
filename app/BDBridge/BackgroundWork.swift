@@ -172,7 +172,8 @@ enum BackgroundWork {
         do {
             let store = try GuideStore(path: try Storage.guidePath())
             let client = RecorderClient(host: host)
-            guard await reach(client, at: host), !Task.isCancelled else { return false }
+            let mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac)
+            guard await reach(client, mac: mac), !Task.isCancelled else { return false }
 
             let outcome = await PendingQueue.flush(client: client, store: store)
             await Notify.queueFlushed(outcome)
@@ -193,13 +194,56 @@ enum BackgroundWork {
         }
     }
 
+    /// What sending the queue with nothing on screen came to, for the Shortcuts action to say.
+    enum Sending: Equatable {
+        case demo
+        case noRecorder
+        /// Nothing the recorder could be sent: the queue is empty, or holds only what it refused before, or
+        /// what has finished. The recorder was not asked.
+        case nothingWaiting
+        case unreachable
+        case sent(PendingQueue.Outcome)
+    }
+
+    /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`): run by an
+    /// automation as the phone joins the home Wi-Fi, which is the one way to have it happen on arriving. iOS
+    /// wakes no app for a network, so otherwise the queue goes when the app is next opened, or overnight.
+    /// The reader hears the outcome the way the overnight run tells it.
+    static func sendWaiting() async -> Sending {
+        guard !DemoData.on else { return .demo }
+        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
+              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
+            return .noRecorder
+        }
+        let sending = await sendWaiting(client: RecorderClient(host: host), store: store,
+                                        mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac))
+        if case .sent(let outcome) = sending { await Notify.queueFlushed(outcome) }
+        return sending
+    }
+
+    /// The same with its surroundings handed in, which is what the tests give it.
+    ///
+    /// The queue is read before anything goes on the network. The automation runs at every arrival home,
+    /// and most of them have nothing to send: a recorder woken for nothing is half a minute of a box
+    /// starting up in the living room for no reason. The screens may be sending the same queue at the same
+    /// moment -- the app open as the Wi-Fi comes back -- which `PendingQueue.flush` takes one at a time.
+    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
+                            now: Date = Date()) async -> Sending {
+        let waiting = (try? await store.pendingReservations()) ?? []
+        guard waiting.contains(where: { $0.problem == nil && $0.request.end >= now }) else {
+            return .nothingWaiting
+        }
+        guard await reach(client, mac: mac) else { return .unreachable }
+        return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+    }
+
     /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
     /// the recorder; without one there is nothing to send and nothing to wait for.
     ///
     /// The packet goes again every few seconds of the wait (`WakeOnLan.resendInterval`). A cancelled wait
     /// ends there: `try?` on the sleep had a cancelled one go round all twenty times without sleeping, a
     /// probe after a probe, with the task already completed.
-    private static func reach(_ client: RecorderClient, at host: String) async -> Bool {
+    private static func reach(_ client: RecorderClient, mac: String?) async -> Bool {
         do {
             try await client.describe(timeout: RecorderClient.probeTimeout)
             return true
@@ -207,8 +251,10 @@ enum BackgroundWork {
             // Nothing was asked, so waking the recorder would change nothing; the app says why on its screen.
             return false
         } catch {}
-        guard let mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac),
-              WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else { return false }
+        let host = client.host
+        guard let mac, WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else {
+            return false
+        }
         var sent = Date()
         for _ in 0..<20 {
             do {

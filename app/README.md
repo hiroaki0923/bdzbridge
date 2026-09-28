@@ -77,9 +77,12 @@ What they try is what went wrong once and was only ever seen on a phone: `start(
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
 waited on itself); the line on screen clearing once overlapping work has finished, including the order that
 left it stuck; a reservation made while offline going to the queue and to disk without the recorder being
-asked; and a recorder given up on not being asked again -- by coming back to the app, the network watcher or
-a screen's list -- until the network changes. A test of something that used to wait for ever fails after a
-few seconds rather than waiting with it.
+asked; a recorder given up on not being asked again -- by coming back to the app, the network watcher or
+a screen's list -- until the network changes; the app reconnecting when the Wi-Fi comes back, whether the
+phone's address arrives after the report of it or the Wi-Fi went and came back while a request was out; and
+the Shortcuts action sending what is waiting, leaving it where it was when the recorder says nothing, and not
+asking the recorder at all when nothing is waiting (`SendWaitingTests`). A test of something that used to wait
+for ever fails after a few seconds rather than waiting with it.
 
 The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
 it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would
@@ -425,6 +428,13 @@ back to the usual waking; a recorder that is up answers in milliseconds. A write
 queued, since it may have arrived all the same and a reservation sent twice can be made twice: the reader is
 told to look after reconnecting.
 
+A change of network is news, but iOS reports it before it has finished happening: on a network with IPv6 as
+well, the new path is usable, and reported, before the phone holds its IPv4 address there, and nothing more
+is said when the address arrives. The app tells networks apart by those addresses, so a report is followed
+by looks at them over the next half minute until one of them sets a try going. What the app saw since the
+last try is kept too: the Wi-Fi gone and back while a request was out is a network the silence was met on,
+though the phone is on the same Wi-Fi before and after it.
+
 ### Reservations made away from home
 
 The guide is on the phone and the recorder is not, so a reservation made away from home has nowhere to go.
@@ -443,6 +453,14 @@ screens and the overnight run cannot both send the same reservation. The guide, 
 sheet offers to send it again or delete it rather than the reservation form. What became of the queue is
 said in one line at the top of the screen when the app sent it, and in a notification when the overnight
 run did.
+
+Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
+Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
+home Wi-Fi, which since iOS 17 can run without asking; the settings say how to set one up. It runs in the
+background and reads the queue before anything goes on the network, so that the arrivals with nothing
+waiting -- most of them -- do not wake the recorder. Otherwise it wakes it, sends through `PendingQueue` as
+everything else does, one flush at a time with the screens, and says what became of it in a notification,
+as the overnight run does.
 
 Only silence is queued. A recorder that answers and says no has said something worth reading, so that is
 shown as it always was.

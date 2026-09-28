@@ -198,6 +198,7 @@ struct SettingsScreen: View {
                 }
 
                 notificationsSection
+                arrivingHomeSection
 
                 Section {
                     Button("セットアップ手順を見る") { showingGuide = true }
@@ -261,6 +262,23 @@ struct SettingsScreen: View {
         } footer: {
             Text("送信待ちの予約をレコーダーに送ったときと、レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を"
                  + "下回ったときにお知らせします。どちらも夜間の自動更新で起きることなので、音は鳴りません。")
+        }
+    }
+
+    /// How to have the queue sent on arriving home. Only the reader can set it up, in the Shortcuts app, and
+    /// nothing else in the app would tell them it can be done: see `SendWaitingIntent`.
+    private var arrivingHomeSection: some View {
+        Section {
+            Button("ショートカットを開く") {
+                if let url = URL(string: "shortcuts://") { openURL(url) }
+            }
+        } header: {
+            Text("帰宅したときに送る")
+        } footer: {
+            Text("送信待ちの予約は、アプリを開いたときか夜間の自動更新で送られます。家に着いてすぐ送るには、"
+                 + "ショートカット App のオートメーションで、自宅の Wi-Fi に接続したときにすぐに実行するものを作り、"
+                 + "アクションに BD Bridge の「送信待ちの予約を送る」を選んでください。送るものがないときは、"
+                 + "レコーダーには何もしません。")
         }
     }
 
