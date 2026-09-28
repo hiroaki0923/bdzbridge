@@ -34,7 +34,8 @@ final class Bench {
             defaults: defaults,
             folder: { folder },
             transport: { _ in recorder },
-            networkSignature: { [unowned self] in network },
+            // Weak: the looks after a network report can outlast the test that made them.
+            networkSignature: { [weak self] in self?.network ?? "" },
             reachesTheLAN: false,
             asksAboutNotifications: false))
     }
@@ -76,6 +77,42 @@ actor SilentRecorder: HTTPTransport {
         holding = false
         for request in held { request.resume() }
         held = []
+    }
+}
+
+/// The demo's recorder while the phone is at home, and silence while it is not -- which is how a recorder that
+/// is up looks from a phone that has left the Wi-Fi. It keeps its MAC to itself, so the model has nothing to
+/// wake and gives up at once instead of spending the half minute of waking a real app would. `holding` keeps
+/// what was sent while away waiting until `letGo()`, and then it fails however the phone is by then: a request
+/// that went out while the Wi-Fi was gone is lost even if the Wi-Fi comes back before it times out.
+actor RecorderAtHome: HTTPTransport {
+    private let recorder = DemoRecorder()
+    private var reachable = true
+    private var holding = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private(set) var asked = 0
+
+    func setReachable(_ value: Bool, holding: Bool = false) {
+        reachable = value
+        self.holding = holding
+    }
+
+    func letGo() {
+        holding = false
+        for request in held { request.resume() }
+        held = []
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        asked += 1
+        guard reachable else {
+            if holding { await withCheckedContinuation { held.append($0) } }
+            throw RecorderError.transport("The request timed out.")
+        }
+        if request.headers["SOAPACTION"]?.contains("#X_GetPrivateIp") == true {
+            return HTTPResponse(statusCode: 500)
+        }
+        return try await recorder.send(request)
     }
 }
 

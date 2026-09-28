@@ -143,9 +143,12 @@ final class AppModelTests: XCTestCase {
         model.wentToBackground()
         await model.returnedToForeground()
         await model.networkChangedWhileOpen()
+        model.networkReported()
         await model.loadReservations()
         await model.loadTitles()
         await model.loadRecorderRules()
+        // Long enough for the first several looks after the report, each of which found nothing new.
+        try await Task.sleep(for: .seconds(3))
         let askedOnTheSameNetwork = await recorder.asked
         XCTAssertEqual(askedOnTheSameNetwork, asked, "the app asked again on the network it had given up on")
         XCTAssertTrue(model.gaveUp)
@@ -156,5 +159,66 @@ final class AppModelTests: XCTestCase {
         let askedOnAnotherNetwork = await recorder.asked
         XCTAssertGreaterThan(askedOnAnotherNetwork, asked, "another network did not bring another try")
         XCTAssertTrue(model.gaveUp)
+    }
+
+    /// The phone leaves the Wi-Fi with the app open, the recorder falls silent and the app gives up, as it
+    /// should. Then the Wi-Fi comes back -- and iOS says so before the phone has its address on it: the report
+    /// of a new path arrives first, with IPv6 or with nothing yet, and the address a moment later, with no
+    /// report of its own. Looked at only when the report came, the network had not changed, and the app stayed
+    /// on 接続できません at home beside a recorder that was answering, until the reader pressed 再接続.
+    func testComingBackToTheWiFiReconnectsWhenTheAddressArrivesAfterTheReport() async throws {
+        let bench = try Bench()
+        defer { bench.throwAway() }
+        try await bench.cacheAGuide()
+        let recorder = RecorderAtHome()
+        let model = bench.model(recorder: recorder)
+        await model.start()
+        try await until("the first connect never finished") { model.connected && !model.connecting }
+
+        bench.network = ""
+        await recorder.setReachable(false)
+        model.networkReported()
+        try await until("the app never noticed the Wi-Fi had gone") { model.gaveUp && !model.connecting }
+
+        await recorder.setReachable(true)
+        model.networkReported()
+        try await Task.sleep(for: .milliseconds(1500))
+        bench.network = "home"
+        try await until("the app stayed given up at home", within: 15) { model.connected && !model.gaveUp }
+        try await until("the reconnect never finished") { !model.connecting && model.busy == nil }
+        let askedOnceBack = await recorder.asked
+        try await Task.sleep(for: .seconds(3))
+        let askedAfter = await recorder.asked
+        XCTAssertEqual(askedAfter, askedOnceBack, "the looks after the report went on asking once connected")
+    }
+
+    /// The Wi-Fi goes and comes back while the app is in the middle of something, and the something is what
+    /// meets the silence. By the time it gives up the phone is on the home Wi-Fi again, the one the app last
+    /// connected on, so comparing where it is with where it last tried says nothing has changed -- but the
+    /// silence was met on the way, not at home. The reports of the Wi-Fi going and coming, both of which
+    /// arrived while the app was busy, are what say so.
+    func testAWiFiThatWentAndCameBackDuringARequestIsTriedAgain() async throws {
+        let bench = try Bench()
+        defer { bench.throwAway() }
+        try await bench.cacheAGuide()
+        let recorder = RecorderAtHome()
+        let model = bench.model(recorder: recorder)
+        await model.start()
+        try await until("the first connect never finished") { model.connected && !model.connecting }
+
+        bench.network = ""
+        await recorder.setReachable(false, holding: true)
+        let asked = await recorder.asked
+        let loading = Task { await model.loadTitles(force: true) }
+        try await until("the recordings were never asked for") { await recorder.asked > asked }
+        model.networkReported()
+        bench.network = "home"
+        await recorder.setReachable(true)
+        model.networkReported()
+        await recorder.letGo()
+        await loading.value
+        XCTAssertTrue(model.gaveUp, "the request that met silence did not give up")
+
+        try await until("the app stayed given up at home", within: 15) { model.connected && !model.gaveUp }
     }
 }

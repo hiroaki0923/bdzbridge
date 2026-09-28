@@ -105,7 +105,20 @@ final class AppModel {
     /// of lists wanting to load turns into minutes of a spinner saying the wrong thing.
     private(set) var gaveUp = false
     /// The network we were on when we last tried. A different one is worth another try by itself.
-    private var triedOn: String?
+    private var triedOn: String? {
+        didSet {
+            sawAnotherNetwork = false
+            tries += 1
+        }
+    }
+    /// Counts the tries, so that a look after a network report can tell whether it set one going: `connect()`
+    /// returns without trying while another connect or a job is under way, or while a check is waking the
+    /// recorder, and a look that took that for a try would stop looking with nothing tried.
+    private var tries = 0
+    /// Set when a look at the network since the last try found the phone somewhere else, even if it is back
+    /// where it tried by now. The Wi-Fi going and coming back while a request was out is how a request meets
+    /// silence at home, and the network before and after it is the same one.
+    private var sawAnotherNetwork = false
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     private(set) var needsPower = false
     /// Set when the recorder answered nothing at all rather than answering with an error.
@@ -206,7 +219,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { surroundings.networkSignature() != triedOn }
+    var networkChanged: Bool { sawAnotherNetwork || surroundings.networkSignature() != triedOn }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
@@ -320,7 +333,7 @@ final class AppModel {
         // Weak here as well as in the task: the monitor, which the model holds, keeps this handler, and a
         // handler that names `self` only inside the task still holds it strongly.
         monitor.pathUpdateHandler = { [weak self] _ in
-            Task { @MainActor [weak self] in await self?.networkChangedWhileOpen() }
+            Task { @MainActor [weak self] in self?.networkReported() }
         }
         monitor.start(queue: .global(qos: .utility))
     }
@@ -896,11 +909,19 @@ final class AppModel {
     /// Nothing is sent again from here, and the callers do not send again either, not even once the recorder
     /// has been woken: a write that met silence may have reached the recorder all the same, and a reservation
     /// sent twice can be made twice. The reader is told to look once it is back.
+    ///
+    /// Where the app tried is left as it was, which is where the connect or the check before this began. Put
+    /// down as the network the silence ended on, a Wi-Fi that went while the request was out and came back
+    /// before it timed out was recorded as tried, and the app gave up at home on a recorder that was answering.
+    /// When the network did move meanwhile, the silence may be its doing rather than the recorder's, and the
+    /// looks that followed its report may have run out while this waited, so they are set going again. Leaving
+    /// home with a request out therefore costs one connect on the way out, as leaving with the app idle does
+    /// (`networkChangedWhileOpen`); that is the price of not giving up at home, and not a retry to take out.
     private func lostTheRecorder() {
         unreachable = true
         info = nil
         gaveUp = true
-        triedOn = surroundings.networkSignature()
+        if sawAnotherNetwork { networkReported() }
     }
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
@@ -958,6 +979,8 @@ final class AppModel {
         if !evenIfRecent, let last = await client.lastAnswer, Date().timeIntervalSince(last) < Self.dozeAfter {
             return true
         }
+        // Where it was asked, not where the phone is once the silence is over: see `lostTheRecorder`.
+        let network = surroundings.networkSignature()
         // The packet first and the probe after, as connecting does: a recorder that is asleep is on its way
         // up while the probe waits, and one that is awake ignores it.
         sendMagicPacket()
@@ -974,7 +997,7 @@ final class AppModel {
         // Where a connect's first probe leaves things too, and what waking starts from.
         unreachable = true
         info = nil
-        triedOn = surroundings.networkSignature()
+        triedOn = network
         if !demo, await lanIsBlocked() {
             waitForPermission()
             return false
@@ -1866,31 +1889,79 @@ final class AppModel {
         guard wasAway else { return }
         // Nor while a check is making sure of the recorder: connecting would make a second client beside the
         // one the check is using. The conflict check has no line of its own to make `busy` say so.
-        guard !host.isEmpty, busy == nil, wakeCheck == nil else { return }
+        guard !host.isEmpty else { return }
+        guard busy == nil, wakeCheck == nil else {
+            // The network may have moved while the app was away all the same, and the looks wait for this.
+            networkReported()
+            return
+        }
         // Not on every flick between apps: without this a glance at something else and back would send a
         // magic packet each time. Any answer counts, not only the connect's.
         if connected, let last = await client?.lastAnswer, Date().timeIntervalSince(last) < 60 { return }
         // Already tried on this very network and got nowhere. Coming back to the app is not news, and
         // spending half a minute waking a recorder that is not there -- every time -- is what made the app
         // look as though it never stopped searching.
-        if gaveUp, !networkChanged { return }
+        // It may be news all the same a moment from now: switching the Wi-Fi on in the Settings app and coming
+        // straight back is quicker than the phone gets its address, and the look is what catches it arriving.
+        if gaveUp, !networkChanged {
+            networkReported()
+            return
+        }
         await connect()
     }
 
+    /// The watcher's report, which is news of the network but not yet the network. iOS reports a path as
+    /// soon as it can be used -- on a network with IPv6 as well, before the phone has its IPv4 address there
+    /// -- and says nothing more when the address arrives, so looking only when the report came found the
+    /// network unchanged and left the app on 接続できません at home. A report can also come while the app is
+    /// busy, which the look waits out. So the network is looked at again for a minute after each report,
+    /// until something has been done about it. A report of nothing -- a route changing -- costs a few looks at
+    /// the addresses and nothing else.
+    func networkReported() {
+        // Now rather than in the first look: by then the Wi-Fi may be back, and that it went at all is lost.
+        noteTheNetwork()
+        settling?.cancel()
+        settling = Task { [weak self] in
+            for pause in Self.looksAfterAReport {
+                try? await Task.sleep(for: .seconds(pause))
+                guard !Task.isCancelled, let self else { return }
+                if await self.networkChangedWhileOpen() { return }
+            }
+        }
+    }
+
+    /// The looks that follow a report, as pauses in seconds, over the half minute an address can take to
+    /// arrive. What keeps the app busy for longer than that -- a guide file has two minutes -- ends in
+    /// `lostTheRecorder` if the network took the recorder away, which sets the looks going again.
+    private static let looksAfterAReport: [Double] = [0, 1, 1, 1, 2, 3, 4, 8, 10]
+
+    private func noteTheNetwork() {
+        if surroundings.networkSignature() != triedOn { sawAnotherNetwork = true }
+    }
+
+    private var settling: Task<Void, Never>?
+
     /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
-    /// over. That is the one thing that makes another attempt worth making without being asked.
+    /// over. That is the one thing that makes another attempt worth making without being asked. Returns
+    /// whether it made one, or made sure of the recorder.
     ///
     /// While connected, it is the one thing that makes the last answer worth nothing: leaving home with the
     /// app open left it looking connected to a recorder it could no longer reach, until something asked and
     /// waited out a timeout. The recorder is asked again with the client in hand, as before an operation.
-    func networkChangedWhileOpen() async {
-        guard !host.isEmpty, busy == nil, networkChanged else { return }
+    @discardableResult
+    func networkChangedWhileOpen() async -> Bool {
+        // Noted first, busy or not: a Wi-Fi that has gone and come back by the time the app is free to look
+        // is still a network the last try was not made on.
+        noteTheNetwork()
+        guard !host.isEmpty, busy == nil, networkChanged else { return false }
+        let before = tries
         guard connected else {
             await connect()
-            return
+            return tries != before
         }
         triedOn = surroundings.networkSignature()
         _ = await wakeIfDozing(evenIfRecent: true)
+        return true
     }
 
     // MARK: - notifications
