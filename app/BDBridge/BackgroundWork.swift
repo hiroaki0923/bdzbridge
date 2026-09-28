@@ -240,34 +240,31 @@ enum BackgroundWork {
     /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
     /// the recorder; without one there is nothing to send and nothing to wait for.
     ///
-    /// The packet goes again every few seconds of the wait (`WakeOnLan.resendInterval`). A cancelled wait
-    /// ends there: `try?` on the sleep had a cancelled one go round all twenty times without sleeping, a
-    /// probe after a probe, with the task already completed.
+    /// The packet goes before the first probe, as the screens send it (docs/porting.md): a recorder that is
+    /// asleep -- most of the time, and nearly always on arriving home -- is on its way up while the probe
+    /// waits, and one that is awake ignores it. Going after the probe had failed started the waking five
+    /// seconds later, which the Shortcuts action can ill afford: how long the system lets it run in the
+    /// background is not published. The wait is the one the screens use (`Waking`), with the longer limit, the
+    /// next packet due counting from this one, and a cancelled wait ends at once.
     private static func reach(_ client: RecorderClient, mac: String?) async -> Bool {
+        let host = client.host
+        let wake: @Sendable () -> Int = {
+            mac.map { WakeOnLan.wake($0, addresses: WakeOnLan.addresses(forRecorderAt: host)) } ?? 0
+        }
+        let wentAt = Date()
+        let went = wake() > 0
         do {
             try await client.describe(timeout: RecorderClient.probeTimeout)
             return true
         } catch RecorderError.badAddress {
-            // Nothing was asked, so waking the recorder would change nothing; the app says why on its screen.
+            // Nothing could be asked at an address that is not one, so waiting would change nothing; the app
+            // says why on its screen. The packet that went first reached only this device's own broadcast
+            // addresses, which is harmless.
             return false
         } catch {}
-        let host = client.host
-        guard let mac, WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 else {
-            return false
-        }
-        var sent = Date()
-        for _ in 0..<20 {
-            do {
-                try await Task.sleep(for: .seconds(1))
-            } catch {
-                return false
-            }
-            if Date().timeIntervalSince(sent) >= WakeOnLan.resendInterval {
-                WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
-                sent = Date()
-            }
-            if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil { return true }
-        }
-        return false
+        // No MAC, or not a packet out: nothing is coming up to wait for.
+        guard went else { return false }
+        return await Waking.waitForAnswer(from: client, limit: Waking.backgroundLimit, packetSentAt: wentAt,
+                                          resend: { _ = wake() }) == .answered
     }
 }
