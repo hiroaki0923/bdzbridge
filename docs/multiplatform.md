@@ -19,7 +19,7 @@ Android 版はないか、という問い合わせを受けての調査です。
 - **AppModel の規則は、起こして待つ処理を 0.3 で RecorderKit にまとめた**（`Waking.swift`）。画面側と深夜の
   処理で二重に書かれていて、すでに食い違っていたため。そのあと、テストの無かった 4 つの規則（番組表が古いかの判定、
   採番し直された予約の探し直し、予約の要求の組み立て、送信待ちに送るものがあるかの判定）も移した。接続、諦め、
-  ネットワーク変化の規則は、まだ AppModel にある。
+  ネットワーク変化の規則は、**判断だけ**を移した（`LinkRules.swift`）。手順と画面の状態は、まだ AppModel にある。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
   取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
@@ -37,11 +37,11 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-33 ファイル、4,828 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,259 行。
+34 ファイル、4,954 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,433 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,346 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, Activities |
+| 入出力を持たないロジック | 2,472 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, Activities |
 | SQLite の上のもの | 907 | GuideStore, Sqlite |
 | 非同期の段取り | 1,040 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking |
 | OS に縛られるもの | 535 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
@@ -51,8 +51,8 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,241 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（8 ファイルで 2,335 行、うち約 3 割がコメント。接続まわりは
+RecorderKit の外、アプリ（8,226 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
+一括処理の一時停止で、AppModel（8 ファイルで 2,320 行、うち約 3 割がコメント。接続まわりは
 `AppModelSession.swift`）と BackgroundWork、Notify、SendWaitingIntent を
 合わせて約 1,300 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
 
@@ -174,9 +174,15 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 `RecorderClient` は今あるメソッドの上でこれらに適合するので、呼び出し側は変わりません。プロトコルに入れたのは、
 いま共有の規則が使うものだけです。
 
-接続、諦め、ネットワーク変化の規則は、画面の状態（エラーの一行、起動中の表示、許可待ちの印）と絡み合っているので、
-まだ AppModel にあります。触るついでに、「もう一度試すべきか」の判断だけを状態を持たない型にして
-RecorderKit に置く手はあります。
+接続、諦め、ネットワーク変化の規則は、画面の状態（エラーの一行、起動中の表示、許可待ちの印）と絡み合っています。
+そこで先に、判断だけを状態を持たない関数にして RecorderKit に置きました（`LinkRules`）。接続が終わったときに
+諦めるか（無応答のときだけ）、途中でネットワークが変わっていたら 1 回だけやり直すか、操作の前に確かめるか
+（最後の応答から 90 秒）、アプリに戻ったときに何をするか（何もしない／ネットワークを見直す／接続する）、
+開いている間にネットワークが変わったら何をするか、通知のあとに見直す間隔、の 6 つです。「どのネットワークで
+最後に試したか、そのあと別のネットワークにいたか、何回試したか」は `LinkState` にまとめ、「試した」と
+「ネットワークを見た」の 2 つの操作でしか変わらないようにしました。AppModel は判断をここに聞き、接続する、起こす、画面に出す、を
+今までどおり自分で行います。手順（確かめる → 起こして待つ → 別のアドレスを探す）と画面の状態は、まだ
+AppModel にあります。
 
 ## 採らなかった案
 

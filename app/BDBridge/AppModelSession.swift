@@ -60,7 +60,7 @@ extension AppModel {
         // reader did. So a connect that got nowhere tries once more, here, when the network it started on is
         // no longer the one under it. Once: a network still changing after that is left to the next return
         // to the app, which asks again on a network it has not tried.
-        if !reached, networkChanged {
+        if LinkRules.triesOnceMore(reached: reached, networkChanged: networkChanged) {
             guard let again = await reachTheRecorder() else { return }
             reached = again
         }
@@ -71,7 +71,7 @@ extension AppModel {
         // was talking to it, a fault from a model without one of the calls -- is there, and has said what is
         // wrong already. Giving up on it put "not connected" on screen beside a recorder that was answering,
         // and kept the next return to the app from asking again.
-        gaveUp = !reached && unreachable
+        gaveUp = LinkRules.givesUp(reached: reached, silent: unreachable)
         if reached {
             // Provisional permission for notifications, now that there is a recorder for them to be about.
             // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
@@ -112,7 +112,7 @@ extension AppModel {
         // that is awake ignores it. Waiting for the failure first is what made this look like a fault
         // followed by a retry.
         sendMagicPacket()
-        triedOn = surroundings.networkSignature()
+        link.tried(on: surroundings.networkSignature())
         var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
         if !reached, unreachable, !demo, await lanIsBlocked() {
             waitForPermission()
@@ -370,7 +370,7 @@ extension AppModel {
         unreachable = true
         info = nil
         gaveUp = true
-        if sawAnotherNetwork { networkReported() }
+        if link.sawAnotherNetwork { networkReported() }
     }
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
@@ -383,12 +383,6 @@ extension AppModel {
         connectBlocked ? LocalNetworkNotice.title
             : "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
     }
-
-    /// How long the recorder may say nothing before it is worth making sure it is still up, ahead of something
-    /// the reader asked for. A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing
-    /// asked of it, and has been seen awake for as little as two minutes at a time; a minute and a half is
-    /// well inside both, and a recorder that is up answers the check in milliseconds.
-    private static let dozeAfter: TimeInterval = 90
 
     /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
     /// is not. Returns whether it is there to ask. When it is not, the app has been left offline, `problem`
@@ -421,7 +415,8 @@ extension AppModel {
     }
 
     private func makeSureItIsUp(_ client: RecorderClient, evenIfRecent: Bool) async -> Bool {
-        if !evenIfRecent, let last = await client.lastAnswer, Date().timeIntervalSince(last) < Self.dozeAfter {
+        // Only when it has been quiet long enough to have gone to sleep (`LinkRules.dozeAfter`).
+        if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
             return true
         }
         // Where it was asked, not where the phone is once the silence is over: see `lostTheRecorder`.
@@ -442,7 +437,7 @@ extension AppModel {
         // Where a connect's first probe leaves things too, and what waking starts from.
         unreachable = true
         info = nil
-        triedOn = network
+        link.tried(on: network)
         if !demo, await lanIsBlocked() {
             waitForPermission()
             return false
@@ -502,29 +497,30 @@ extension AppModel {
         // Before any of the reasons below not to connect: a day may have gone by while the app was away,
         // with or without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
-        // Not after a moment in Control Centre and the like, which went nowhere: see `wentToBackground`.
-        guard wasAway else { return }
-        // Nor while a check is making sure of the recorder: connecting would make a second client beside the
-        // one the check is using. The conflict check has no line of its own to make `busy` say so.
-        guard !host.isEmpty else { return }
-        guard busy == nil, wakeCheck == nil else {
-            // The network may have moved while the app was away all the same, and the looks wait for this.
-            networkReported()
-            return
+        // What coming back is worth is `LinkRules.onReturn`'s to say. In short: nothing after a moment in
+        // Control Centre and the like, which went nowhere (see `wentToBackground`). While something is under
+        // way, or a check is making sure of the recorder, connecting would make a second client beside the
+        // one at work -- the conflict check has no line of its own to make `busy` say so -- but the network
+        // may have moved while the app was away all the same, and the looks wait for this. Not on every flick
+        // between apps: any answer within the last minute counts, not only the connect's. And not when the
+        // recorder was already tried on this very network and said nothing: coming back is not news, and
+        // half a minute of waking a recorder that is not there, every time, is what made the app look as
+        // though it never stopped searching. It may be news a moment from now, though -- switching the Wi-Fi
+        // on in the Settings app and coming straight back is quicker than the phone gets its address -- and
+        // the look is what catches it arriving.
+        let hasAddress = !host.isEmpty, busyNow = busy != nil, checking = wakeCheck != nil
+        // The recorder's last answer is on its own actor, and asking for it gives up this one's turn: asked
+        // only where the rule will read it, so that nothing else waits for it. Any answer counts, not only
+        // the connect's.
+        let asksItsAge = wasAway && hasAddress && !busyNow && !checking && connected
+        let lastAnswer = asksItsAge ? await client?.lastAnswer : nil
+        switch LinkRules.onReturn(wasAway: wasAway, hasAddress: hasAddress, busy: busyNow, checking: checking,
+                                  connected: connected, lastAnswer: lastAnswer, now: Date(), gaveUp: gaveUp,
+                                  networkChanged: networkChanged) {
+        case .nothing: return
+        case .lookAtTheNetwork: networkReported()
+        case .connect: await connect()
         }
-        // Not on every flick between apps: without this a glance at something else and back would send a
-        // magic packet each time. Any answer counts, not only the connect's.
-        if connected, let last = await client?.lastAnswer, Date().timeIntervalSince(last) < 60 { return }
-        // Already tried on this very network and got nowhere. Coming back to the app is not news, and
-        // spending half a minute waking a recorder that is not there -- every time -- is what made the app
-        // look as though it never stopped searching.
-        // It may be news all the same a moment from now: switching the Wi-Fi on in the Settings app and coming
-        // straight back is quicker than the phone gets its address, and the look is what catches it arriving.
-        if gaveUp, !networkChanged {
-            networkReported()
-            return
-        }
-        await connect()
     }
 
     /// The watcher's report, which is news of the network but not yet the network. iOS reports a path as
@@ -533,13 +529,15 @@ extension AppModel {
     /// network unchanged and left the app on 接続できません at home. A report can also come while the app is
     /// busy, which the look waits out. So the network is looked at again for a minute after each report,
     /// until something has been done about it. A report of nothing -- a route changing -- costs a few looks at
-    /// the addresses and nothing else.
+    /// the addresses and nothing else. The looks last half a minute (`LinkRules.looksAfterAReport`); what
+    /// keeps the app busy for longer than that -- a guide file has two minutes -- ends in `lostTheRecorder`
+    /// if the network took the recorder away, which sets the looks going again.
     func networkReported() {
         // Now rather than in the first look: by then the Wi-Fi may be back, and that it went at all is lost.
         noteTheNetwork()
         settling?.cancel()
         settling = Task { [weak self] in
-            for pause in Self.looksAfterAReport {
+            for pause in LinkRules.looksAfterAReport {
                 try? await Task.sleep(for: .seconds(pause))
                 guard !Task.isCancelled, let self else { return }
                 if await self.networkChangedWhileOpen() { return }
@@ -547,13 +545,8 @@ extension AppModel {
         }
     }
 
-    /// The looks that follow a report, as pauses in seconds, over the half minute an address can take to
-    /// arrive. What keeps the app busy for longer than that -- a guide file has two minutes -- ends in
-    /// `lostTheRecorder` if the network took the recorder away, which sets the looks going again.
-    private static let looksAfterAReport: [Double] = [0, 1, 1, 1, 2, 3, 4, 8, 10]
-
     private func noteTheNetwork() {
-        if surroundings.networkSignature() != triedOn { sawAnotherNetwork = true }
+        link.noted(network: surroundings.networkSignature())
     }
 
     /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
@@ -568,15 +561,21 @@ extension AppModel {
         // Noted first, busy or not: a Wi-Fi that has gone and come back by the time the app is free to look
         // is still a network the last try was not made on.
         noteTheNetwork()
-        guard !host.isEmpty, busy == nil, networkChanged else { return false }
-        let before = tries
-        guard connected else {
+        switch LinkRules.onNetworkChange(hasAddress: !host.isEmpty, busy: busy != nil,
+                                         networkChanged: networkChanged, connected: connected) {
+        case .nothing:
+            return false
+        case .connect:
+            // `connect()` returns without trying while another connect or a job is under way, or while a
+            // check is waking the recorder; whether it tried is what the count says.
+            let before = link.tries
             await connect()
-            return tries != before
+            return link.tries != before
+        case .makeSure:
+            link.tried(on: surroundings.networkSignature())
+            _ = await wakeIfDozing(evenIfRecent: true)
+            return true
         }
-        triedOn = surroundings.networkSignature()
-        _ = await wakeIfDozing(evenIfRecent: true)
-        return true
     }
 
     // MARK: - notifications
