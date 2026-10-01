@@ -3,11 +3,19 @@ import Foundation
 /// What happened to one recording in a run of many.
 public enum ItemOutcome: Sendable, Equatable {
     case changed
+    /// The recorder no longer had it: deleted there since the list was read. Nothing went wrong, and the
+    /// caller's list should stop showing it. A case of its own so that the caller need not tell it from the
+    /// other reasons by the words of the sentence.
+    case gone
     case skipped(reason: String)
 
+    /// Why nothing was changed, for the run's list of what it passed over. Nil when something was.
     public var reason: String? {
-        if case .skipped(let reason) = self { return reason }
-        return nil
+        switch self {
+        case .changed: nil
+        case .gone: "すでに削除されています"
+        case .skipped(let reason): reason
+        }
     }
 }
 
@@ -42,7 +50,7 @@ public extension RecorderClient {
         do {
             _ = try await titleDetail(id: title.id)
         } catch let error as RecorderError {
-            if case .soap(_, _, "820", _) = error { return .skipped(reason: "すでに削除されています") }
+            if case .soap(_, _, "820", _) = error { return .gone }
             // nothing has been deleted yet, but the delete would only wait out the same silence
             if error.unreachable { throw error }
         } catch {

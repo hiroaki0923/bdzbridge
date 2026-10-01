@@ -92,6 +92,22 @@ public enum Duplicates {
         return stableSorted(found) { $0.sizeMB > $1.sizeMB }
     }
 
+    /// The sets among `titles`, from the recordings whose programme text has been read, and how many of the
+    /// candidates were left out because theirs has not. This is the one for a screen that offers to delete.
+    ///
+    /// A recording whose text is not in `summaries` -- the scan was stopped before it, the recorder could not
+    /// give it, or it was recorded since -- is left out rather than compared on nothing. `sets` takes a missing
+    /// text for an empty one, as the server its vectors come from does, and two recordings nobody has read
+    /// then agree on their title and length alone and come up as copies, one of them ticked for deletion. An
+    /// empty text that was read is an answer, and counts.
+    public static func readSets(_ titles: [RecordedTitle], summaries: [String: String],
+                                fixedBlurbs: Set<Blurb> = []) -> (sets: [DuplicateSet], unread: Int) {
+        let candidates = candidates(titles)
+        let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
+        let unread = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
+        return (sets(candidates: read, summaries: summaries, fixedBlurbs: fixedBlurbs), unread)
+    }
+
     /// A title and the programme text that goes with it, as they are compared: `Series.sameTitleKey` and
     /// `Series.summaryKey`.
     public struct Blurb: Hashable, Sendable {
