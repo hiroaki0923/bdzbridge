@@ -56,6 +56,32 @@ final class LogoVectorTests: XCTestCase {
         XCTAssertEqual(LogoFile.clut[8], LogoColor(0, 0, 0, 0))
     }
 
+    /// ARIB STD-B24 Vol.2 Part 2 App.2 Table 5-7, which TR-B15 App.1 makes the logos' table: every colour of the
+    /// 4-level cube once (index 8 is the transparent one), then all but black-transparent again at alpha 128.
+    /// That would be 129 entries; the standard drops (255, 255, 170, 128) to keep it at 128.
+    func testTheColourTableIsTheStandardCommonFixedColours() {
+        let levels: [UInt8] = [0, 85, 170, 255]
+        let cube = levels.flatMap { r in levels.flatMap { g in levels.map { b in [r, g, b] } } }
+        let clut = LogoFile.clut
+        XCTAssertEqual(clut.count, 128)
+
+        let opaque = Array(clut.prefix(65))
+        XCTAssertEqual(opaque[8], LogoColor(0, 0, 0, 0))
+        let others = opaque.enumerated().filter { $0.offset != 8 }.map(\.element)
+        XCTAssertTrue(others.allSatisfy { $0.alpha == 255 })
+        let rgb = others.map { [$0.red, $0.green, $0.blue] }
+        XCTAssertEqual(rgb.sorted { $0.lexicographicallyPrecedes($1) }, cube, "each colour of the cube exactly once")
+        // 0-7 and 9-15 are the eight caption colours at full and two-thirds level, 16-64 the rest of the cube in order
+        XCTAssertEqual(Array(rgb.dropFirst(15)), cube.filter { !rgb.prefix(15).contains($0) })
+        XCTAssertEqual(Array(clut.dropFirst(65)),
+                       opaque.prefix(64).enumerated().filter { $0.offset != 8 }
+                           .map { LogoColor($0.element.red, $0.element.green, $0.element.blue, 128) })
+
+        XCTAssertEqual(clut[54], LogoColor(255, 0, 170, 255))
+        XCTAssertEqual(clut[64], LogoColor(255, 255, 170, 255))
+        XCTAssertEqual(clut[118], LogoColor(255, 0, 170, 128))
+    }
+
     func testTheColourTableMatchesTheVector() throws {
         let expected = try Vectors.load("codes.json")["logo_clut"] as? [[Int]]
         XCTAssertEqual(LogoFile.clut.map { [Int($0.red), Int($0.green), Int($0.blue), Int($0.alpha)] }, expected)

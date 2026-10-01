@@ -40,6 +40,33 @@ def test_roundtrip_and_palette():
     assert trns[7] == 255 and trns[8] == 0  # white opaque, index 8 transparent
 
 
+def test_clut_is_the_common_fixed_colour_table():
+    """ARIB STD-B24 Vol.2 Part 2 App.2 Table 5-7, which TR-B15 App.1 makes the logos' table: every colour of
+    the 4-level cube once (index 8 is the transparent one), then all but black-transparent again at alpha 128.
+    That would be 129 entries; the standard drops (255, 255, 170, 128) to keep it at 128."""
+    levels = (0, 85, 170, 255)
+    cube = [(r, g, b) for r in levels for g in levels for b in levels]
+    assert len(LOGO_CLUT) == 128
+    opaque = LOGO_CLUT[:65]
+    assert opaque[8] == (0, 0, 0, 0)
+    assert all(a == 255 for i, (_r, _g, _b, a) in enumerate(opaque) if i != 8)
+    rgb = [(r, g, b) for i, (r, g, b, _a) in enumerate(opaque) if i != 8]
+    assert sorted(rgb) == sorted(cube)  # each colour of the cube exactly once
+    # 0-7 and 9-15 are the eight caption colours at full and two-thirds level, 16-64 the rest of the cube in order
+    assert rgb[16 - 1:] == [c for c in cube if c not in rgb[:16 - 1]]
+    assert LOGO_CLUT[65:] == tuple((r, g, b, 128) for i, (r, g, b, _a) in enumerate(opaque[:64]) if i != 8)
+    assert LOGO_CLUT[54] == (255, 0, 170, 255)
+    assert LOGO_CLUT[64] == (255, 255, 170, 255)
+    assert LOGO_CLUT[118] == (255, 0, 170, 128)
+
+
+def test_pale_yellow_pixels_are_not_drawn_white():
+    png = decode_logo_file(encode_logo_file([(11, 1024, make_png(64))]))[0].png
+    plte = png[png.index(b"PLTE") + 4:]
+    assert tuple(plte[3 * 64:3 * 64 + 3]) == (255, 255, 170)
+    assert tuple(plte[3 * 54:3 * 54 + 3]) == (255, 0, 170)
+
+
 def test_rejects_non_png():
     with pytest.raises(ValueError):
         with_palette(b"not a png")
