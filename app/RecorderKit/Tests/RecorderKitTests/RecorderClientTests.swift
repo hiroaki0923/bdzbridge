@@ -541,7 +541,8 @@ final class BulkWorkTests: XCTestCase {
 
         let outcome = try await client.deleteIfPresent(title())
 
-        XCTAssertEqual(outcome, .skipped(reason: "すでに削除されています"))
+        XCTAssertEqual(outcome, .gone)
+        XCTAssertEqual(outcome.reason, "すでに削除されています", "the run's list of what was passed over says why")
         let bodies = await transport.bodies
         XCTAssertEqual(bodies.count, 1, "it asked, and then knew better than to delete")
         XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])

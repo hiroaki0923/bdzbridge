@@ -232,16 +232,12 @@ extension AppModel {
 
     /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
     ///
-    /// A recording whose text has not been read -- the scan was stopped before it, the recorder could not
-    /// give it, or it was recorded since -- is left out rather than compared on nothing. With no text, two of
-    /// them would agree on their title and length alone, and one would come up ticked for deletion. This is
-    /// done here rather than in `Duplicates.sets`, which treats a missing text as an empty one, as the server
-    /// that its vectors come from does.
+    /// A recording whose text has not been read is left out rather than compared on nothing, and counted:
+    /// see `Duplicates.readSets`.
     func recomputeDuplicates() {
-        let candidates = Duplicates.candidates(titles)
-        let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
-        unreadDuplicates = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
-        setDuplicates(Duplicates.sets(candidates: read, summaries: summaries, fixedBlurbs: fixedBlurbs))
+        let found = Duplicates.readSets(titles, summaries: summaries, fixedBlurbs: fixedBlurbs)
+        unreadDuplicates = found.unread
+        setDuplicates(found.sets)
     }
 
     /// A set the reader has already seen keeps its ticks; a new or changed one is ticked as suggested, if its
@@ -262,9 +258,11 @@ extension AppModel {
         case .changed:
             titles.removeAll { $0.id == id }
             job?.changed.append(id)
-        case .skipped(let reason):
+        case .gone:
             // the recorder had already lost it, so the list should not keep showing it either
-            if reason == "すでに削除されています" { titles.removeAll { $0.id == id } }
+            titles.removeAll { $0.id == id }
+            job?.skipped.append(.init(id: id, reason: outcome.reason ?? ""))
+        case .skipped(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
         }
     }
@@ -274,15 +272,16 @@ extension AppModel {
             job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
             return
         }
-        switch try await client.setProtected(title, on) {
+        let outcome = try await client.setProtected(title, on)
+        switch outcome {
         case .changed:
             // Found again rather than by the place it had before the request: the list can change while the
             // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
             // may then be another recording's, which would be marked protected instead, or past the end.
             if let index = titles.firstIndex(where: { $0.id == id }) { titles[index].protected = on }
             job?.changed.append(id)
-        case .skipped(let reason):
-            job?.skipped.append(.init(id: id, reason: reason))
+        case .gone, .skipped:
+            job?.skipped.append(.init(id: id, reason: outcome.reason ?? ""))
         }
     }
 }

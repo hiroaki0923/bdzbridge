@@ -37,13 +37,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-33 ファイル、4,793 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,163 行。
+33 ファイル、4,828 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,259 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,325 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, Activities |
+| 入出力を持たないロジック | 2,346 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, Activities |
 | SQLite の上のもの | 907 | GuideStore, Sqlite |
-| 非同期の段取り | 1,026 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking |
+| 非同期の段取り | 1,040 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking |
 | OS に縛られるもの | 535 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 535 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -164,6 +164,8 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 だめなら局と開始。`[Reservation].current`）、予約の要求の組み立て（変更では題名・時刻・局・番組 ID を保つ。
 `ReservationRequest(program:)` と `(changing:)`）、送信待ちに送るものがあるかの判定
 （`PendingQueue.hasSomethingToSend`）です。中身はそのままで、アプリは同じ場所からそれを呼びます。
+続けて、重複検出で「本文を読めていない録画を候補から外す」安全規則（`Duplicates.readSets`）も移し、一括削除の
+「レコーダーにもう無かった」を表示文言の比較ではなく結果の種類（`ItemOutcome.gone`）で見分けるようにしました。
 
 同じときに、共有の規則がレコーダーの型（`RecorderClient`）を直接取るのをやめました。`Waking.waitForAnswer` は
 確かめられる機器（`DeviceEndpoint`）を、`PendingQueue.flush` は予約できる機器（`ReservationTarget`）を、
