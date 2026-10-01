@@ -115,21 +115,11 @@ final class AppModel {
     /// will be the same and each ask costs a timeout: the client serialises its requests, so a screen full
     /// of lists wanting to load turns into minutes of a spinner saying the wrong thing.
     var gaveUp = false
-    /// The network we were on when we last tried. A different one is worth another try by itself.
-    var triedOn: String? {
-        didSet {
-            sawAnotherNetwork = false
-            tries += 1
-        }
-    }
-    /// Counts the tries, so that a look after a network report can tell whether it set one going: `connect()`
-    /// returns without trying while another connect or a job is under way, or while a check is waking the
-    /// recorder, and a look that took that for a try would stop looking with nothing tried.
-    var tries = 0
-    /// Set when a look at the network since the last try found the phone somewhere else, even if it is back
-    /// where it tried by now. The Wi-Fi going and coming back while a request was out is how a request meets
-    /// silence at home, and the network before and after it is the same one.
-    var sawAnotherNetwork = false
+    /// Where the recorder was last tried, how many tries there have been, and whether the phone has been on
+    /// another network since: what "the network changed" is measured against. It changes only by a try
+    /// (`tried(on:)`) and by a look at the network (`noted(network:)`), so a network cannot be put down as
+    /// tried without a try on it.
+    var link = LinkState()
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     var needsPower = false
     /// Set when the recorder answered nothing at all rather than answering with an error.
@@ -230,7 +220,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { sawAnotherNetwork || surroundings.networkSignature() != triedOn }
+    var networkChanged: Bool { link.changed(now: surroundings.networkSignature()) }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
