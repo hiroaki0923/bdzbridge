@@ -2,7 +2,10 @@
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
-- `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle.
+- `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
+  `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
+  to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`).
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
@@ -69,9 +72,10 @@ databases go in, how a request reaches the recorder, which network it takes itse
 may put anything on the LAN by itself -- the magic packet, the look at the local network permission, the
 search for a recorder the router has moved, the watch on the network -- or ask about notifications. The app
 passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults suite and a
-temporary folder that are thrown away afterwards, the demo's `DemoRecorder` or a `SilentRecorder` that
-answers nothing as the transport, and a network it changes when the phone is meant to have moved. Nothing
-leaves the machine.
+temporary folder that are thrown away afterwards, an invented recorder as the transport -- the demo's
+`DemoRecorder`, a `SilentRecorder` that answers nothing, one that is at home or not as the test says, one
+that answers 503 to everything, one that refuses the calls named to it -- and a network it changes when the
+phone is meant to have moved. Nothing leaves the machine.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -83,6 +87,17 @@ phone's address arrives after the report of it or the Wi-Fi went and came back w
 the Shortcuts action sending what is waiting, leaving it where it was when the recorder says nothing, and not
 asking the recorder at all when nothing is waiting (`SendWaitingTests`). A test of something that used to wait
 for ever fails after a few seconds rather than waiting with it.
+
+`SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
+apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
+that refuses what is only shown is still connected; silence on any request leaves the app offline, and no
+screen asks again; a reservation that met silence after it was sent is neither sent again nor queued; one
+asked for while the recorder is being made sure of waits for that answer, and is queued unsent when the answer
+is silence; the queue is sent when the recorder answers again; the reader asking tries again on the same
+network; a connect tries once, and once more when the network changed under it; becoming active without
+having been away does not connect; nor does coming back within a minute of an answer. Each was seen to fail
+with its rule broken in `AppModel`. What they cannot reach is what the model keeps off the network in a test:
+waking with a magic packet, the local network permission, and the search for a recorder the router has moved.
 
 The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
 it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would

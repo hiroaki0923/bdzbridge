@@ -116,6 +116,35 @@ actor RecorderAtHome: HTTPTransport {
     }
 }
 
+/// A recorder that is there and busy with somebody else: every request is answered 503, as a BDZ answers one
+/// that arrives while it is serving another. An answer, so not silence.
+actor BusyRecorder: HTTPTransport {
+    private(set) var asked = 0
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        asked += 1
+        return HTTPResponse(statusCode: 503)
+    }
+}
+
+/// The demo's recorder, except that it turns down the SOAP actions named in `refusing` with a 500 and nothing
+/// in it: how another model of the series might answer a call the app only makes to show something.
+actor PickyRecorder: HTTPTransport {
+    private let recorder = DemoRecorder()
+    private let refusing: Set<String>
+
+    init(refusing: Set<String>) {
+        self.refusing = refusing
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if let action = request.headers["SOAPACTION"], refusing.contains(where: { action.contains("#\($0)") }) {
+            return HTTPResponse(statusCode: 500)
+        }
+        return try await recorder.send(request)
+    }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 
