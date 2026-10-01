@@ -140,8 +140,10 @@ def parse_service(rec: bytes) -> Service:
                 pr.genres = [(rec[e + 30 + 2 * i] >> 4, rec[e + 30 + 2 * i] & 0xF) for i in range(3)
                              if rec[e + 31 + 2 * i] != 0 or rec[e + 30 + 2 * i] != 0]
                 pr.copy_control = (rec[e + 40] & 0x0C) >> 2
+                # the recorder stores the minimum age itself (R15 is 0x0F), not the broadcast's rating
+                # (age - 3, ARIB STD-B10 table 6-23); ARIB's lowest age is 4, so less is no restriction
                 rating = rec[e + 41] & 0x1F
-                pr.parental_rating = 0 if rating < 4 else rating - 3
+                pr.parental_rating = rating if rating >= 4 else 0
                 n_title, n_desc, title_field, desc_end, n_ext = (_be16(rec, e + 44 + 2 * i) for i in range(5))
                 t = e + _EVT_HEADER_LEN
                 pr.title = _clean(rec[t:t + n_title])
@@ -178,7 +180,7 @@ def _encode_event(pr: Program) -> bytes:
     for l1, l2 in genres:
         body += bytes([(l1 << 4) | l2, 0xFF])
     body += b"\x00\x00" * (3 - len(genres))
-    body += b"\x00" * 4 + bytes([pr.copy_control << 2, 0 if pr.parental_rating == 0 else pr.parental_rating + 3]) + b"\x00" * 2
+    body += b"\x00" * 4 + bytes([pr.copy_control << 2, pr.parental_rating]) + b"\x00" * 2
     body += struct.pack(">HHHHH", len(title), len(desc), title_field, desc_end, len(ext)) + b"\x00" * 2
     assert len(body) == _EVT_HEADER_LEN
     body += title + b"\x00\x00" + desc + b"\x00\x00" + ext + b"\x00\x00"

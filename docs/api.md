@@ -517,7 +517,7 @@ Stop after the item being processed; what is done stays done.
 - `extended`: string （省略可、既定 `""`）
 - `genres`: list[Genre]
 - `copy_control`: integer
-- `parental_rating`: integer
+- `parental_rating`: integer — 0 when unrestricted, otherwise the minimum age (15 for R15)
 - `is_reference`: boolean （省略可、既定 `false`）
 - `ref_service_id`: integer | null （省略可）
 - `ref_event_id`: integer | null （省略可）

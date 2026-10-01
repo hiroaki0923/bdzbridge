@@ -55,7 +55,7 @@ GET http://<recorder>:60151//EPG_TRDLOGO_FILE.dat     局ロゴ（BS/CS/ADVBSD/A
   24   6 bytes
   30   3 × 2 bytes               ジャンル。各スロットの 1 バイト目が content_nibble（上位 level1 / 下位 level2）、2 バイト目は使用中なら 0xFF
   40   u8                        コピー制御 ((b & 0x0C) >> 2)
-  41   u8                        視聴年齢 (b & 0x1F)。4 未満は制限なし、それ以外は値−3 歳
+  41   u8                        視聴年齢 (b & 0x1F)。最低年齢そのもの（R15 は 0x0F = 15）。4 未満は制限なし。放送の parental_rating_descriptor の rating（年齢−3、ARIB STD-B10 表 6-23）ではない
   44   u16 title_len
   46   u16 desc_len
   48   u16 title_field           title の格納長。desc は +56+title_field から

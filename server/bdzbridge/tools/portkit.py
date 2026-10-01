@@ -74,7 +74,7 @@ def _sample_services() -> list[Service]:
         Program(1024, 14793, day + timedelta(hours=1), day + timedelta(hours=1, minutes=15), "あさのサンプル", "生活情報", "",
                 genres=[(2, 4)]),
         Program(1024, 14800, day + timedelta(days=1, hours=15), day + timedelta(days=1, hours=16), "翌日の番組", "", "x",
-                genres=[(3, 0)], copy_control=1, parental_rating=2),
+                genres=[(3, 0)], copy_control=1, parental_rating=15),
         Program(1024, 14794, day + timedelta(hours=16), day + timedelta(hours=17), "日曜劇場「ＳＡＭＰＬＥ」", "", ""),
     ])
     sub = Service(1025, "ＮＨＫ総合２・東京", [

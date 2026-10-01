@@ -28,6 +28,19 @@ def test_service_record_layout(services):
     assert parse_service(rec).service_id == 1024
 
 
+def test_parental_rating_byte_is_the_minimum_age(services):
+    # The recorder stores the age itself (an R15 programme carries 0x0F), not the broadcast's rating (age - 3).
+    rated = services[0].programs[0]
+    rated.parental_rating = 15
+    rec = bytearray(encode_service(epgmod.Service(1024, "サンプル局", [rated])))
+    evt = 156 + 16
+    assert rec[evt:evt + 4] == b"@EVT" and rec[evt + 41] == 0x0F
+    assert parse_service(bytes(rec)).programs[0].parental_rating == 15
+    # ARIB's lowest age rating is 4, so a smaller value is no restriction.
+    rec[evt + 41] = 0x02
+    assert parse_service(bytes(rec)).programs[0].parental_rating == 0
+
+
 @pytest.mark.skipif(not REAL.exists(), reason="set BDZBRIDGE_TEST_EPG_FILE to a captured EPG_TRDEPG_FILE.dat")
 def test_real_file_decodes():
     out = decode_epg_file(REAL.read_bytes())

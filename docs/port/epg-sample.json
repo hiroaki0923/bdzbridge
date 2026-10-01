@@ -1,6 +1,6 @@
 {
  "file": "epg-sample.dat",
- "sha256": "425dfb80fe26ee45ad1c37ec31be1f3e6e7755280149eacbf483a4dddff3a0fc",
+ "sha256": "18194f159b52572ef1374c6ae95a6e40773f2ea8a1314491a6d5c5abfaa592ef",
  "services": [
   {
    "service_id": 1024,
@@ -75,7 +75,7 @@
       ]
      ],
      "copy_control": 1,
-     "parental_rating": 2
+     "parental_rating": 15
     }
    ]
   },
