@@ -126,7 +126,7 @@ public enum Series {
 
     private static let privateUse = pattern("[\u{E000}-\u{F8FF}]")
     private static let marks = pattern(
-        #"\[(?:字|解|再|新|終|デ|二|多|SS|映|生|手|4K|HDR|5\.1|7\.1|22\.2|3D|2K|8K)\]"#
+        #"\[(?:字|解|再|新|終|デ|二|多|SS|映|生|手|HV|双|S|N|無|前|初|声|吹|4K|HDR|5\.1|7\.1|22\.2|3D|2K|8K)\]"#
         + "|[［【＜（](?:字|解|再|新|終|初|デ|二|多|双|映|生|手|吹|声|無料|無|料|鍵|天|交|販|演|他|前|後|HV|SD|SS|PPV|MV|W|[SBNPＳＢＮＰ])[］】＞）]")
     private static let episodeMarker = pattern(
         "(?:"

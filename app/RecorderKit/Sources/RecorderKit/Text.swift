@@ -1,12 +1,19 @@
 import Foundation
 
-/// ARIB additional symbols, which the recorder delivers as private-use code points. Most phone fonts have no
+/// ARIB additional symbols, which the recorder delivers as the private-use code points of ARIB STD-B62 vol.1
+/// part 2, Description 1, Table D1-2 (U+E182 is the recorder's own 90-58 slot). Most phone fonts have no
 /// glyphs for them, so they are spelled out. See docs/epg-format.md.
 public enum Arib {
     public static let symbols: [Unicode.Scalar: String] = [
         scalar(0xE0FD): "[手]", scalar(0xE0FE): "[字]", scalar(0xE180): "[デ]", scalar(0xE182): "[二]",
         scalar(0xE183): "[多]", scalar(0xE184): "[解]", scalar(0xE185): "[SS]", scalar(0xE18C): "[映]",
         scalar(0xE192): "[再]", scalar(0xE193): "[新]", scalar(0xE195): "[終]", scalar(0xE196): "[生]",
+        scalar(0xE0F8): "[HV]", scalar(0xE0FF): "[双]", scalar(0xE181): "[S]", scalar(0xE187): "[N]",
+        scalar(0xE18D): "[無]", scalar(0xE190): "[前]", scalar(0xE194): "[初]", scalar(0xE198): "[声]",
+        scalar(0xE199): "[吹]",
+        // Not marks but a word and a sign inside running text (a cast list ending in ほか, a © credit):
+        // written as text.
+        scalar(0xE19C): "ほか", scalar(0xE3A8): "\u{00A9}",
         // Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC.
         scalar(0x1F19B): "[3D]", scalar(0x1F19C): "[2nd]", scalar(0x1F19D): "[2K]", scalar(0x1F19E): "[4K]",
         scalar(0x1F19F): "[8K]", scalar(0x1F1A0): "[5.1]", scalar(0x1F1A1): "[7.1]", scalar(0x1F1A2): "[22.2]",

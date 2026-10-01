@@ -39,8 +39,17 @@ def test_real_file_decodes():
 def test_clean_maps_arib_symbols():
     from bdzbridge.recorder.epg import _clean
     assert _clean("ニュース\x00\x00".encode()) == "ニュース[字][手]"
-    assert _clean("謎の記号".encode()) == "謎の記号"
+    assert _clean("謎\ue999の記号".encode()) == "謎の記号"  # in neither table of ARIB STD-B62 (D1-1, D1-2)
 
 
 def test_clean_spells_out_broadcast_symbols():
     assert epgmod._clean("\U0001f19e\U0001f1a7ニュース[字]".encode()) == "[4K][HDR]ニュース[字]"
+
+
+def test_clean_spells_out_the_rest_of_the_symbols_the_recorder_sends():
+    # Marks around a title, the way 字 and 再 come.
+    assert epgmod._clean("\ue18d\ue194サンプル体操\ue181\ue199".encode()) == "[無][初]サンプル体操[S][吹]"
+    assert epgmod._clean("\ue0f8\ue0ff\ue187\ue190\ue198".encode()) == "[HV][双][N][前][声]"
+    # ほか ends a cast list and © starts a credit: words in the text, so they are written without brackets.
+    assert epgmod._clean("出演　架空太郎　\ue19c".encode()) == "出演　架空太郎　ほか"
+    assert epgmod._clean("\ue3a8架空製作委員会".encode()) == "©架空製作委員会"

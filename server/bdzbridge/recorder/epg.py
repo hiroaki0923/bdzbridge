@@ -62,10 +62,15 @@ def _ts(v: int) -> datetime:
     return datetime.fromtimestamp(v - _JST_OFFSET, JST)
 
 
-# ARIB additional symbols arrive as private-use code points (mapping: docs/epg-format.md).
+# ARIB additional symbols arrive as the private-use code points of ARIB STD-B62 vol.1 part 2, Description 1,
+# Table D1-2; U+E182 is the recorder's own 90-58 slot (mapping: docs/epg-format.md).
 ARIB_SYMBOLS = {
     "\ue0fd": "[手]", "\ue0fe": "[字]", "\ue180": "[デ]", "\ue182": "[二]", "\ue183": "[多]", "\ue184": "[解]",
     "\ue185": "[SS]", "\ue18c": "[映]", "\ue192": "[再]", "\ue193": "[新]", "\ue195": "[終]", "\ue196": "[生]",
+    "\ue0f8": "[HV]", "\ue0ff": "[双]", "\ue181": "[S]", "\ue187": "[N]", "\ue18d": "[無]", "\ue190": "[前]",
+    "\ue194": "[初]", "\ue198": "[声]", "\ue199": "[吹]",
+    # Not marks but a word and a sign inside running text (a cast list ending in ほか, a © credit): written as text.
+    "\ue19c": "ほか", "\ue3a8": "\u00a9",
     # Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC; most phone fonts have no glyphs for them.
     "\U0001f19b": "[3D]", "\U0001f19c": "[2nd]", "\U0001f19d": "[2K]", "\U0001f19e": "[4K]", "\U0001f19f": "[8K]",
     "\U0001f1a0": "[5.1]", "\U0001f1a1": "[7.1]", "\U0001f1a2": "[22.2]", "\U0001f1a3": "[60P]", "\U0001f1a4": "[120P]",

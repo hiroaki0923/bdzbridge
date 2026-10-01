@@ -28,4 +28,9 @@ final class SeriesVectorTests: XCTestCase {
         XCTAssertEqual(Series.sameTitleKey("ドラマＡ　第３話[再]"), Series.sameTitleKey("ドラマA 第3話"))
         XCTAssertNotEqual(Series.sameTitleKey("ドラマＡ　第３話"), Series.sameTitleKey("ドラマＡ　第４話"))
     }
+
+    func testEveryMarkTheGuideSpellsOutIsLeftOutOfTheKeys() {
+        XCTAssertEqual(Series.sameTitleKey("[無][初]サンプル体操[S][吹]"), Series.sameTitleKey("サンプル体操"))
+        XCTAssertEqual(Series.key("[HV][双][N][前][声]サンプル紀行"), Series.key("サンプル紀行"))
+    }
 }
