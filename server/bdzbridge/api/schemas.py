@@ -44,7 +44,7 @@ class Program(BaseModel):
     extended: str = ""
     genres: list[Genre]
     copy_control: int
-    parental_rating: int
+    parental_rating: int = Field(description="0 when unrestricted, otherwise the minimum age (15 for R15)")
     is_reference: bool = False
     ref_service_id: int | None = None
     ref_event_id: int | None = None

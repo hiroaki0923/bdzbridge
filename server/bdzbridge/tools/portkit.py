@@ -61,7 +61,7 @@ SERIES_TITLES = [
     "映画「サンプル物語」", "連続テレビ小説　空、晴れる（１２１）第２５週「空」", "３分サンプル料理", "",
     "サンプル野球　第３戦　架空対架空", "大相撲サンプル場所　１０日目", "サンプル選手権　決勝", "サンプル杯　準決勝　第２試合",
     "サンプルの秘密　その３", "【HV】サンプル紀行＜再＞", "サンプル劇場（後）", "サンプル初日の出中継", "サンプル講座　初回スペシャル",
-    "サンプルゴルフ女子▼架空杯争奪第４戦", "サンプル台所　Ｓｅａｓｏｎ２[終]▼最終話「南瓜」",
+    "サンプルゴルフ女子▼架空杯争奪第４戦", "サンプル台所　Ｓｅａｓｏｎ２[終]▼最終話「南瓜」", "[無][初]サンプル体操[S][吹]",
 ]
 SUMMARIES = ["（再放送）あらすじ　本文", "あらすじ本文[再]", "", "ドラマ[字]の　あらすじ。"]
 
@@ -74,7 +74,7 @@ def _sample_services() -> list[Service]:
         Program(1024, 14793, day + timedelta(hours=1), day + timedelta(hours=1, minutes=15), "あさのサンプル", "生活情報", "",
                 genres=[(2, 4)]),
         Program(1024, 14800, day + timedelta(days=1, hours=15), day + timedelta(days=1, hours=16), "翌日の番組", "", "x",
-                genres=[(3, 0)], copy_control=1, parental_rating=2),
+                genres=[(3, 0)], copy_control=1, parental_rating=15),
         Program(1024, 14794, day + timedelta(hours=16), day + timedelta(hours=17), "日曜劇場「ＳＡＭＰＬＥ」", "", ""),
     ])
     sub = Service(1025, "ＮＨＫ総合２・東京", [

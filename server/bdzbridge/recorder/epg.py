@@ -62,10 +62,15 @@ def _ts(v: int) -> datetime:
     return datetime.fromtimestamp(v - _JST_OFFSET, JST)
 
 
-# ARIB additional symbols arrive as private-use code points (mapping: docs/epg-format.md).
+# ARIB additional symbols arrive as the private-use code points of ARIB STD-B62 vol.1 part 2, Description 1,
+# Table D1-2; U+E182 is the recorder's own 90-58 slot (mapping: docs/epg-format.md).
 ARIB_SYMBOLS = {
     "\ue0fd": "[手]", "\ue0fe": "[字]", "\ue180": "[デ]", "\ue182": "[二]", "\ue183": "[多]", "\ue184": "[解]",
     "\ue185": "[SS]", "\ue18c": "[映]", "\ue192": "[再]", "\ue193": "[新]", "\ue195": "[終]", "\ue196": "[生]",
+    "\ue0f8": "[HV]", "\ue0ff": "[双]", "\ue181": "[S]", "\ue187": "[N]", "\ue18d": "[無]", "\ue190": "[前]",
+    "\ue194": "[初]", "\ue198": "[声]", "\ue199": "[吹]",
+    # Not marks but a word and a sign inside running text (a cast list ending in ほか, a © credit): written as text.
+    "\ue19c": "ほか", "\ue3a8": "\u00a9",
     # Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC; most phone fonts have no glyphs for them.
     "\U0001f19b": "[3D]", "\U0001f19c": "[2nd]", "\U0001f19d": "[2K]", "\U0001f19e": "[4K]", "\U0001f19f": "[8K]",
     "\U0001f1a0": "[5.1]", "\U0001f1a1": "[7.1]", "\U0001f1a2": "[22.2]", "\U0001f1a3": "[60P]", "\U0001f1a4": "[120P]",
@@ -135,8 +140,10 @@ def parse_service(rec: bytes) -> Service:
                 pr.genres = [(rec[e + 30 + 2 * i] >> 4, rec[e + 30 + 2 * i] & 0xF) for i in range(3)
                              if rec[e + 31 + 2 * i] != 0 or rec[e + 30 + 2 * i] != 0]
                 pr.copy_control = (rec[e + 40] & 0x0C) >> 2
+                # the recorder stores the minimum age itself (R15 is 0x0F), not the broadcast's rating
+                # (age - 3, ARIB STD-B10 table 6-23); ARIB's lowest age is 4, so less is no restriction
                 rating = rec[e + 41] & 0x1F
-                pr.parental_rating = 0 if rating < 4 else rating - 3
+                pr.parental_rating = rating if rating >= 4 else 0
                 n_title, n_desc, title_field, desc_end, n_ext = (_be16(rec, e + 44 + 2 * i) for i in range(5))
                 t = e + _EVT_HEADER_LEN
                 pr.title = _clean(rec[t:t + n_title])
@@ -173,7 +180,7 @@ def _encode_event(pr: Program) -> bytes:
     for l1, l2 in genres:
         body += bytes([(l1 << 4) | l2, 0xFF])
     body += b"\x00\x00" * (3 - len(genres))
-    body += b"\x00" * 4 + bytes([pr.copy_control << 2, 0 if pr.parental_rating == 0 else pr.parental_rating + 3]) + b"\x00" * 2
+    body += b"\x00" * 4 + bytes([pr.copy_control << 2, pr.parental_rating]) + b"\x00" * 2
     body += struct.pack(">HHHHH", len(title), len(desc), title_field, desc_end, len(ext)) + b"\x00" * 2
     assert len(body) == _EVT_HEADER_LEN
     body += title + b"\x00\x00" + desc + b"\x00\x00" + ext + b"\x00\x00"

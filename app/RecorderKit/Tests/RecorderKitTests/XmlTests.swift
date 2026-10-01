@@ -34,6 +34,15 @@ final class XmlTests: XCTestCase {
         XCTAssertEqual(Arib.clean("\u{1F19E}\u{1F1A7}ニュース"), "[4K][HDR]ニュース")
         XCTAssertEqual(Arib.clean("謎の\u{E999}記号\u{0000}"), "謎の記号")
     }
+
+    func testTheRestOfTheSymbolsTheRecorderSendsAreSpelledOut() {
+        // Marks around a title, the way 字 and 再 come.
+        XCTAssertEqual(Arib.clean("\u{E18D}\u{E194}サンプル体操\u{E181}\u{E199}"), "[無][初]サンプル体操[S][吹]")
+        XCTAssertEqual(Arib.clean("\u{E0F8}\u{E0FF}\u{E187}\u{E190}\u{E198}"), "[HV][双][N][前][声]")
+        // ほか ends a cast list and © starts a credit: words in the text, so they are written without brackets.
+        XCTAssertEqual(Arib.clean("出演　架空太郎　\u{E19C}"), "出演　架空太郎　ほか")
+        XCTAssertEqual(Arib.clean("\u{E3A8}架空製作委員会"), "©架空製作委員会")
+    }
 }
 
 final class WakeOnLanTests: XCTestCase {

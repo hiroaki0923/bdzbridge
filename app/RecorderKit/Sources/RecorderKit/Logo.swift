@@ -40,7 +40,9 @@ public enum LogoFile {
     /// Where the IHDR chunk ends: signature, length, type, 13 bytes of data, CRC.
     static let afterIHDR = 8 + 4 + 4 + 13 + 4
 
-    /// The fixed colour table for station logos. Opaque entries first, then the same colours at half alpha.
+    /// The common fixed colour table station logos are drawn with: ARIB STD-B24 Vol.2 Part 2 App.2 Table 5-7,
+    /// which TR-B15 App.1 makes the logos' table. 0-64 are the 4-level cube once each, opaque (8 is transparent);
+    /// 65-127 repeat 0-7 and 9-63 at alpha 128. That would be 129; the standard drops (255, 255, 170, 128).
     public static let clut: [LogoColor] = [
         LogoColor(0, 0, 0, 255), LogoColor(255, 0, 0, 255), LogoColor(0, 255, 0, 255), LogoColor(255, 255, 0, 255),
         LogoColor(0, 0, 255, 255), LogoColor(255, 0, 255, 255), LogoColor(0, 255, 255, 255), LogoColor(255, 255, 255, 255),
@@ -55,10 +57,10 @@ public enum LogoFile {
         LogoColor(85, 255, 255, 255), LogoColor(170, 0, 85, 255), LogoColor(170, 0, 255, 255), LogoColor(170, 85, 0, 255),
         LogoColor(170, 85, 85, 255), LogoColor(170, 85, 170, 255), LogoColor(170, 85, 255, 255), LogoColor(170, 170, 85, 255),
         LogoColor(170, 170, 255, 255), LogoColor(170, 255, 0, 255), LogoColor(170, 255, 85, 255), LogoColor(170, 255, 170, 255),
-        LogoColor(170, 255, 255, 255), LogoColor(255, 0, 85, 255), LogoColor(255, 0, 255, 255), LogoColor(255, 85, 0, 255),
+        LogoColor(170, 255, 255, 255), LogoColor(255, 0, 85, 255), LogoColor(255, 0, 170, 255), LogoColor(255, 85, 0, 255),
         LogoColor(255, 85, 85, 255), LogoColor(255, 85, 170, 255), LogoColor(255, 85, 255, 255), LogoColor(255, 170, 0, 255),
         LogoColor(255, 170, 85, 255), LogoColor(255, 170, 170, 255), LogoColor(255, 170, 255, 255), LogoColor(255, 255, 85, 255),
-        LogoColor(255, 255, 255, 255), LogoColor(0, 0, 0, 128), LogoColor(255, 0, 0, 128), LogoColor(0, 255, 0, 128),
+        LogoColor(255, 255, 170, 255), LogoColor(0, 0, 0, 128), LogoColor(255, 0, 0, 128), LogoColor(0, 255, 0, 128),
         LogoColor(255, 255, 0, 128), LogoColor(0, 0, 255, 128), LogoColor(255, 0, 255, 128), LogoColor(0, 255, 255, 128),
         LogoColor(255, 255, 255, 128), LogoColor(170, 0, 0, 128), LogoColor(0, 170, 0, 128), LogoColor(170, 170, 0, 128),
         LogoColor(0, 0, 170, 128), LogoColor(170, 0, 170, 128), LogoColor(0, 170, 170, 128), LogoColor(170, 170, 170, 128),
@@ -71,10 +73,9 @@ public enum LogoFile {
         LogoColor(85, 255, 255, 128), LogoColor(170, 0, 85, 128), LogoColor(170, 0, 255, 128), LogoColor(170, 85, 0, 128),
         LogoColor(170, 85, 85, 128), LogoColor(170, 85, 170, 128), LogoColor(170, 85, 255, 128), LogoColor(170, 170, 85, 128),
         LogoColor(170, 170, 255, 128), LogoColor(170, 255, 0, 128), LogoColor(170, 255, 85, 128), LogoColor(170, 255, 170, 128),
-        LogoColor(170, 255, 255, 128), LogoColor(255, 0, 85, 128), LogoColor(255, 0, 255, 128), LogoColor(255, 85, 0, 128),
+        LogoColor(170, 255, 255, 128), LogoColor(255, 0, 85, 128), LogoColor(255, 0, 170, 128), LogoColor(255, 85, 0, 128),
         LogoColor(255, 85, 85, 128), LogoColor(255, 85, 170, 128), LogoColor(255, 85, 255, 128), LogoColor(255, 170, 0, 128),
         LogoColor(255, 170, 85, 128), LogoColor(255, 170, 170, 128), LogoColor(255, 170, 255, 128), LogoColor(255, 255, 85, 128),
-        LogoColor(255, 255, 255, 128),
     ]
 
     public static func decode(_ data: Data) throws -> [StationLogo] {

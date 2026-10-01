@@ -70,6 +70,20 @@ final class EpgVectorTests: XCTestCase {
         XCTAssertTrue(title.hasSuffix("[字]"), title)
     }
 
+    /// Byte +41 holds the minimum age itself (an R15 programme carries 0x0F), not the broadcast's rating, which
+    /// is the age minus 3. ARIB's lowest age rating is 4, so a smaller value is no restriction.
+    func testTheRatingByteIsTheMinimumAge() throws {
+        let (data, _) = try sample()
+        var record = [UInt8](try XCTUnwrap(Epg.splitStreams(data).first))
+        let event = Epg.serviceHeaderLength + 16
+        XCTAssertEqual(String(decoding: record[event..<event + 4], as: UTF8.self), "@EVT")
+        for (byte, age) in [(0x0F, 15), (0x04, 4), (0x02, 0), (0x00, 0)] {
+            record[event + 41] = UInt8(byte)
+            let program = try XCTUnwrap(Epg.parseService(Data(record)).programs.first)
+            XCTAssertEqual(program.parentalRating, age, "byte \(byte)")
+        }
+    }
+
     func testAShortRecordIsRejectedRatherThanTrapping() {
         XCTAssertThrowsError(try Epg.parseService(Data([0x40, 0x44, 0x41, 0x59])))
         XCTAssertEqual(try? Epg.decode(Data([0x00, 0x01, 0x02])).count, nil)

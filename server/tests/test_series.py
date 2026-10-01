@@ -61,5 +61,7 @@ def test_series_name_on_real_titles(title, name):
 def test_same_title_and_summary_keys():
     assert same_title_key("ドラマＡ　第３話[再]") == same_title_key("ドラマA 第3話") == "ドラマa第3話"
     assert same_title_key("ドラマＡ　第３話") != same_title_key("ドラマＡ　第４話")
+    assert same_title_key("[無][初]サンプル体操[S][吹]") == same_title_key("サンプル体操")
+    assert series_key("[HV][双][N][前][声]サンプル紀行") == series_key("サンプル紀行")
     assert summary_key("（再放送）あらすじ　本文") == summary_key("あらすじ本文[再]") == "あらすじ本文"
     assert summary_key("") == "" and summary_key(None) == ""

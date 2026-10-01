@@ -84,8 +84,10 @@ public enum Epg {
             return Genre(level1: content >> 4, level2: content & 0xF)
         }
         program.copyControl = (bytes.byte(event + 40) & 0x0C) >> 2
+        // The recorder stores the minimum age itself (R15 is 0x0F), not the broadcast's rating (age - 3,
+        // ARIB STD-B10 table 6-23). ARIB's lowest age is 4, so anything less is no restriction.
         let rating = bytes.byte(event + 41) & 0x1F
-        program.parentalRating = rating < 4 ? 0 : rating - 3
+        program.parentalRating = rating < 4 ? 0 : rating
 
         let titleLength = bytes.be16(event + 44)
         let summaryLength = bytes.be16(event + 46)
