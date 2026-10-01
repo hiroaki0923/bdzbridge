@@ -5,7 +5,9 @@
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
   `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
   to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
-  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`).
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). What it knows of the recorder and of
+  the link to it -- described, unreachable, given up on, being woken -- is RecorderKit's `SessionState`,
+  which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
