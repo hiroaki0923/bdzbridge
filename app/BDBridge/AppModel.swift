@@ -1026,28 +1026,9 @@ final class AppModel {
         defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
 
-    /// The recorder builds its guide files again in the small hours, so a cache from before the most recent
-    /// rebuild is behind what the recorder would hand over now.
-    static func lastRebuild(before now: Date = Date()) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = RecorderTime.timeZone
-        let previous = calendar.nextDate(after: now, matching: DateComponents(hour: 1, minute: 0),
-                                         matchingPolicy: .nextTime, direction: .backward)
-        return previous ?? now.addingTimeInterval(-24 * 3600)
-    }
-
-    /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
-    /// worth fetching again. Each type by its own time. Judged by the newest of them, a type that failed while
-    /// the others came in counted as fresh and stayed missing until the next night; by the oldest, a type the
-    /// recorder cannot give would have every connect fetch all four again. A type it answered with no file for
-    /// is marked as asked (`GuideCounts.checked`), so it waits for the next rebuild like the rest.
-    var staleBroadcastingTypes: [String] {
-        let rebuilt = Self.lastRebuild()
-        return GuideRefresh.broadcastingTypes.filter { broadcasting in
-            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
-            return answered < rebuilt
-        }
-    }
+    /// The broadcasting types the recorder has not been asked for since it last rebuilt its guide files, or
+    /// never: the ones worth fetching again (`GuideRefresh.staleTypes`).
+    var staleBroadcastingTypes: [String] { GuideRefresh.staleTypes(counts) }
 
     /// Whether any broadcasting type is behind the recorder's last rebuild.
     var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
@@ -1783,13 +1764,7 @@ final class AppModel {
 
     /// What would be sent to the recorder to record this programme.
     func request(for program: GuideProgramRow, quality: String, repeating: String) -> ReservationRequest? {
-        guard let broadcastingType = Codes.broadcasting[program.broadcasting],
-              let qualityCode = Codes.quality[quality],
-              let repeatCode = Codes.repeatCodes[repeating] else { return nil }
-        return ReservationRequest(title: program.title, start: program.start, durationSec: program.durationSec,
-                                  repeatCode: repeatCode, broadcastingType: broadcastingType,
-                                  serviceID: program.serviceID, qualityCode: qualityCode,
-                                  eventID: program.eventID)
+        ReservationRequest(program: program, quality: quality, repeating: repeating)
     }
 
     /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
@@ -2068,12 +2043,8 @@ final class AppModel {
             return false
         }
         guard let client,
-              let qualityCode = Codes.quality[quality],
-              let repeatCode = Codes.repeatCodes[repeating] else { return false }
-        let request = ReservationRequest(title: target.title, start: target.start,
-                                         durationSec: target.durationSec, repeatCode: repeatCode,
-                                         broadcastingType: target.broadcastingType, serviceID: target.serviceID,
-                                         qualityCode: qualityCode, eventID: target.eventID)
+              let request = ReservationRequest(changing: target, quality: quality, repeating: repeating)
+        else { return false }
         let activity = activities.begin("予約を変更中")
         defer { activities.end(activity) }
         do {
@@ -2151,12 +2122,7 @@ final class AppModel {
     }
 
     /// The same reservation as the recorder holds it now, whatever it has renumbered it to.
-    private func current(_ wanted: Reservation) -> Reservation? {
-        reservations.first { $0.id == wanted.id }
-            ?? reservations.first { $0.broadcastingType == wanted.broadcastingType
-                                    && $0.serviceID == wanted.serviceID
-                                    && $0.start == wanted.start }
-    }
+    private func current(_ wanted: Reservation) -> Reservation? { reservations.current(wanted) }
 
     func channelName(for reservation: Reservation) -> String {
         channelNames["\(reservation.broadcastingType)-\(reservation.serviceID)"]

@@ -310,3 +310,37 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertNil(left.first?.problem, "not refused: it was never asked")
     }
 }
+
+/// Whether there is anything in the queue worth reaching the recorder for, which the Shortcuts action asks
+/// before it wakes one.
+final class PendingQueueWorthTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func pending(start: Date, problem: String? = nil) -> PendingReservation {
+        PendingReservation(request: ReservationRequest(title: "サンプル番組", start: start, durationSec: 3600,
+                                                       repeatCode: "1", broadcastingType: 2, serviceID: 0x428,
+                                                       qualityCode: 240, eventID: 1),
+                           serviceName: "サンプルテレビ", problem: problem)
+    }
+
+    func testOneStillToComeOrOnAirIsWorthSending() {
+        XCTAssertTrue(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(3600))], now: now))
+        XCTAssertTrue(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-600))], now: now))
+        // Ending this very second still counts, as it does for the flush.
+        XCTAssertTrue(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-3600))], now: now))
+    }
+
+    func testNothingRefusedOnlyAndFinishedOnlyAreNot() {
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([], now: now))
+        XCTAssertFalse(PendingQueue.hasSomethingToSend(
+            [pending(start: now.addingTimeInterval(3600), problem: "断られました")], now: now))
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-7200))], now: now))
+    }
+
+    func testOneWorthSendingAmongOthersIsEnough() {
+        XCTAssertTrue(PendingQueue.hasSomethingToSend(
+            [pending(start: now.addingTimeInterval(-7200)),
+             pending(start: now.addingTimeInterval(3600), problem: "断られました"),
+             pending(start: now.addingTimeInterval(7200))], now: now))
+    }
+}

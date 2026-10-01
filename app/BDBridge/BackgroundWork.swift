@@ -230,9 +230,7 @@ enum BackgroundWork {
     static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
                             now: Date = Date()) async -> Sending {
         let waiting = (try? await store.pendingReservations()) ?? []
-        guard waiting.contains(where: { $0.problem == nil && $0.request.end >= now }) else {
-            return .nothingWaiting
-        }
+        guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return .nothingWaiting }
         guard await reach(client, mac: mac) else { return .unreachable }
         return .sent(await PendingQueue.flush(client: client, store: store, now: now))
     }

@@ -39,6 +39,20 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     public var createdByRecorder: Bool { creator == "1100" }
 }
 
+public extension Array where Element == Reservation {
+    /// The same reservation as the device holds it now, in this list read from it, whatever it has been
+    /// renumbered to: by its id while that stands, and otherwise by its channel and its start.
+    ///
+    /// Anything that writes finds the reservation again with this first (see `Reservation.createdByRecorder`).
+    /// The id comes first so that two reservations of one programme are still told apart while their ids hold.
+    func current(_ wanted: Reservation) -> Reservation? {
+        first { $0.id == wanted.id }
+            ?? first { $0.broadcastingType == wanted.broadcastingType
+                       && $0.serviceID == wanted.serviceID
+                       && $0.start == wanted.start }
+    }
+}
+
 /// What the recorder says about its own place on the network.
 public struct NetworkSettings: Equatable, Sendable {
     /// The wired MAC. A BDZ-FBT4100 reports this whether it is wired or not, and it matches ARP.

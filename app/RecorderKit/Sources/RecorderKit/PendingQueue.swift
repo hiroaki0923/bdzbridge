@@ -46,6 +46,13 @@ public enum PendingQueue {
         (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
     }
 
+    /// Whether a flush would send anything: one that has not been refused and whose programme is not over.
+    /// What is worth asking before a device is woken for the queue's sake. The rest of what waits needs no
+    /// device: the refused ones wait for the reader, and the finished ones are dropped whenever a flush runs.
+    public static func hasSomethingToSend(_ waiting: [PendingReservation], now: Date = Date()) -> Bool {
+        waiting.contains { $0.problem == nil && $0.request.end >= now }
+    }
+
     private static let oneAtATime = SerialQueue()
 
     private static func send(client: some ReservationTarget, store: GuideStore, now: Date) async -> Outcome {

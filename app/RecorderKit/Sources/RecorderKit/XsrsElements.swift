@@ -29,6 +29,31 @@ public struct ReservationRequest: Equatable, Sendable {
     }
 }
 
+public extension ReservationRequest {
+    /// What would be sent to record this programme, following it by its programme id. `quality` and
+    /// `repeating` are the names in `Codes.quality` and `Codes.repeatCodes`; nil when the tables do not know
+    /// one of them, or the programme's broadcasting type.
+    init?(program: GuideProgramRow, quality: String, repeating: String) {
+        guard let broadcastingType = Codes.broadcasting[program.broadcasting],
+              let qualityCode = Codes.quality[quality],
+              let repeatCode = Codes.repeatCodes[repeating] else { return nil }
+        self.init(title: program.title, start: program.start, durationSec: program.durationSec,
+                  repeatCode: repeatCode, broadcastingType: broadcastingType, serviceID: program.serviceID,
+                  qualityCode: qualityCode, eventID: program.eventID)
+    }
+
+    /// What would be sent to change the mode or the repeat of a reservation the device holds. Everything
+    /// else is the reservation's own -- the title, the times, the channel and the programme id -- so one that
+    /// follows its programme goes on following it, and one made by time stays as it was.
+    init?(changing reservation: Reservation, quality: String, repeating: String) {
+        guard let qualityCode = Codes.quality[quality],
+              let repeatCode = Codes.repeatCodes[repeating] else { return nil }
+        self.init(title: reservation.title, start: reservation.start, durationSec: reservation.durationSec,
+                  repeatCode: repeatCode, broadcastingType: reservation.broadcastingType,
+                  serviceID: reservation.serviceID, qualityCode: qualityCode, eventID: reservation.eventID)
+    }
+}
+
 /// A condition to register on the recorder itself. The recorder composes the name, and the channel cannot be set
 /// this way (docs/xsrs-api.md).
 public struct RecorderRuleRequest: Equatable, Sendable {

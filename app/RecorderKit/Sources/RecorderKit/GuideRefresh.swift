@@ -81,6 +81,31 @@ public enum GuideRefresh {
         return outcome
     }
 
+    /// When the recorder last built its guide files again, which it does in the small hours: the most recent
+    /// one o'clock in the morning, its own time. A cache from before that is behind what the recorder would
+    /// hand over now.
+    public static func lastRebuild(before now: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let previous = calendar.nextDate(after: now, matching: DateComponents(hour: 1, minute: 0),
+                                         matchingPolicy: .nextTime, direction: .backward)
+        return previous ?? now.addingTimeInterval(-24 * 3600)
+    }
+
+    /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
+    /// worth fetching again. Each type by its own time. Judged by the newest of them, a type that failed while
+    /// the others came in counted as fresh and stayed missing until the next night; by the oldest, a type the
+    /// recorder cannot give would have every connect fetch all four again. A type it answered with no file for
+    /// is marked as asked (`GuideCounts.checked`), so it waits for the next rebuild like the rest.
+    public static func staleTypes(_ counts: [String: GuideCounts], now: Date = Date(),
+                                  types: [String] = broadcastingTypes) -> [String] {
+        let rebuilt = lastRebuild(before: now)
+        return types.filter { broadcasting in
+            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            return answered < rebuilt
+        }
+    }
+
     static func reason(for error: any Error) -> String {
         switch error {
         case let error as any DeviceError: error.explanation
