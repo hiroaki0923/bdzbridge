@@ -16,9 +16,14 @@ Android 版はないか、という問い合わせを受けての調査です。
   ライブラリの差し替えで済む見込み。
 - **それが駄目なら、Kotlin で独立に実装する。** `porting.md` が想定している道で、`docs/port` のベクタと Python
   サーバーで正しさを確かめる。
-- **AppModel の規則は、起こして待つ処理だけを 0.3 で RecorderKit にまとめた**（`Waking.swift`）。画面側と深夜の
-  処理で二重に書かれていて、すでに食い違っていたため。接続、諦め、ネットワーク変化の規則は、Android を作ると
-  決めてから考える。
+- **AppModel の規則は、起こして待つ処理を 0.3 で RecorderKit にまとめた**（`Waking.swift`）。画面側と深夜の
+  処理で二重に書かれていて、すでに食い違っていたため。そのあと、テストの無かった 4 つの規則（番組表が古いかの判定、
+  採番し直された予約の探し直し、予約の要求の組み立て、送信待ちに送るものがあるかの判定）も移した。接続、諦め、
+  ネットワーク変化の規則は、まだ AppModel にある。
+- **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
+  `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
+  取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
+  レコーダーに対する動きは変わらない。
 
 ## 比べた案
 
@@ -32,13 +37,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-31 ファイル、4,594 行（空行とコメントを含み、`Package.swift` を除く）。テストは 3,682 行。
+33 ファイル、4,793 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,163 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,208 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, Activities |
+| 入出力を持たないロジック | 2,325 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, Activities |
 | SQLite の上のもの | 907 | GuideStore, Sqlite |
-| 非同期の段取り | 944 | RecorderClient, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking |
+| 非同期の段取り | 1,026 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking |
 | OS に縛られるもの | 535 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 535 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -47,7 +52,7 @@ Android 版はないか、という問い合わせを受けての調査です。
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
 RecorderKit の外、アプリ（8,216 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（2,308 行、うち約 3 割がコメント）と BackgroundWork、Notify、SendWaitingIntent を
+一括処理の一時停止で、AppModel（2,274 行、うち約 3 割がコメント）と BackgroundWork、Notify、SendWaitingIntent を
 合わせて約 1,300 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの
@@ -153,8 +158,21 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 マジックパケットを最初のプローブより前に送るようにしました。エラーで答えたときの扱いの違い（深夜側はエラーでも
 起こして待つ）は残しています。
 
+そのあと、AppModel にあってテストの無かった規則を 4 つ移しました。番組表が古いかの判定（レコーダーが深夜 1 時に
+ファイルを作り直すより前に答えた種別は取り直す。`GuideRefresh.staleTypes`）、採番し直された予約の探し直し（id、
+だめなら局と開始。`[Reservation].current`）、予約の要求の組み立て（変更では題名・時刻・局・番組 ID を保つ。
+`ReservationRequest(program:)` と `(changing:)`）、送信待ちに送るものがあるかの判定
+（`PendingQueue.hasSomethingToSend`）です。中身はそのままで、アプリは同じ場所からそれを呼びます。
+
+同じときに、共有の規則がレコーダーの型（`RecorderClient`）を直接取るのをやめました。`Waking.waitForAnswer` は
+確かめられる機器（`DeviceEndpoint`）を、`PendingQueue.flush` は予約できる機器（`ReservationTarget`）を、
+`GuideRefresh.run` は番組表を取れる機器（`GuideSource`）を取ります。エラーは `RecorderError` の述語ではなく、
+機器に依らない分類（`DeviceFailure`: 無応答、混んでいる、この要求への断り、電源が要る、など）で読みます。
+`RecorderClient` は今あるメソッドの上でこれらに適合するので、呼び出し側は変わりません。プロトコルに入れたのは、
+いま共有の規則が使うものだけです。
+
 接続、諦め、ネットワーク変化の規則は、画面の状態（エラーの一行、起動中の表示、許可待ちの印）と絡み合っているので、
-Android を作ると決めてから考えます。触るついでに、「もう一度試すべきか」の判断だけを状態を持たない型にして
+まだ AppModel にあります。触るついでに、「もう一度試すべきか」の判断だけを状態を持たない型にして
 RecorderKit に置く手はあります。
 
 ## 採らなかった案
