@@ -30,7 +30,8 @@ public enum PendingQueue {
     /// A programme already over is dropped rather than sent; one on air is still sent, because the recorder
     /// records what is left of it. A recorder that goes away mid-flush leaves the rest queued.
     ///
-    /// One the recorder refused with a reason of its own (`RecorderError.refusal`) keeps that reason and is
+    /// One the recorder refused with a reason of its own (`DeviceFailure.turnsTheRequestDown`, which for a
+    /// recorder is `RecorderError.refusal`) keeps that reason and is
     /// not sent again: the answer would be the same, and the overnight run asked every night and said every
     /// morning that the recorder had not taken it. It waits for the reader, who can clear the reason to send
     /// it again (`GuideStore.setPendingProblem(_:nil)`) or cancel it. A failure that says nothing about the
@@ -40,15 +41,22 @@ public enum PendingQueue {
     /// reads the queue afresh. The screens and the overnight run each have a client and a connection of their
     /// own, and the system can start the one while the reader has the other open, so the two could read the
     /// same waiting reservation and both send it -- and a reservation sent twice is made twice.
-    public static func flush(client: RecorderClient, store: GuideStore,
+    public static func flush(client: some ReservationTarget, store: GuideStore,
                              now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.
         (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
     }
 
+    /// Whether a flush would send anything: one that has not been refused and whose programme is not over.
+    /// What is worth asking before a device is woken for the queue's sake. The rest of what waits needs no
+    /// device: the refused ones wait for the reader, and the finished ones are dropped whenever a flush runs.
+    public static func hasSomethingToSend(_ waiting: [PendingReservation], now: Date = Date()) -> Bool {
+        waiting.contains { $0.problem == nil && $0.request.end >= now }
+    }
+
     private static let oneAtATime = SerialQueue()
 
-    private static func send(client: RecorderClient, store: GuideStore, now: Date) async -> Outcome {
+    private static func send(client: some ReservationTarget, store: GuideStore, now: Date) async -> Outcome {
         var outcome = Outcome()
         let waiting = (try? await store.pendingReservations()) ?? []
         for pending in waiting {
@@ -62,13 +70,13 @@ public enum PendingQueue {
                 continue
             }
             do {
-                _ = try await client.createReservation(pending.request)
+                _ = try await client.create(pending.request)
                 try? await store.removePending(pending.id)
                 outcome.sent.append(pending)
-            } catch let error as RecorderError where error.unreachable {
+            } catch let error as any DeviceError where error.failure == .silent {
                 outcome.interrupted = true
                 break
-            } catch let error as RecorderError where error.refusal {
+            } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
                 try? await store.setPendingProblem(pending.id, error.explanation)
                 var refused = pending
                 refused.problem = error.explanation

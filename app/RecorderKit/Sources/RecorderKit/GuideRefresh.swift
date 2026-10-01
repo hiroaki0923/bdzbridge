@@ -44,7 +44,7 @@ public enum GuideRefresh {
     /// `onType` is called on the main actor as each broadcasting type starts, for the screen to say so, and
     /// `onStored` once its programmes and logos are in the cache, for the screen to show them without waiting
     /// for the rest.
-    public static func run(client: RecorderClient, store: GuideStore, types: [String] = broadcastingTypes,
+    public static func run(client: some GuideSource, store: GuideStore, types: [String] = broadcastingTypes,
                            onType: (@MainActor @Sendable (String) -> Void)? = nil,
                            onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async throws -> Outcome {
         var outcome = Outcome()
@@ -66,13 +66,13 @@ public enum GuideRefresh {
                     if let logos = try await client.logos(broadcasting) {
                         try await store.replaceLogos(logos, broadcasting: broadcasting)
                     }
-                } catch let error as RecorderError where error.unreachable {
+                } catch let error as any DeviceError where error.failure == .silent {
                     throw error
                 } catch {
                     // The logos are only looks, and the programmes are in: the type keeps the logos it had.
                 }
                 await onStored?(broadcasting)
-            } catch let error as RecorderError where error.unreachable {
+            } catch let error as any DeviceError where error.failure == .silent {
                 throw error
             } catch {
                 outcome.failed.append(Failure(broadcasting: broadcasting, reason: reason(for: error)))
@@ -81,9 +81,34 @@ public enum GuideRefresh {
         return outcome
     }
 
+    /// When the recorder last built its guide files again, which it does in the small hours: the most recent
+    /// one o'clock in the morning, its own time. A cache from before that is behind what the recorder would
+    /// hand over now.
+    public static func lastRebuild(before now: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let previous = calendar.nextDate(after: now, matching: DateComponents(hour: 1, minute: 0),
+                                         matchingPolicy: .nextTime, direction: .backward)
+        return previous ?? now.addingTimeInterval(-24 * 3600)
+    }
+
+    /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
+    /// worth fetching again. Each type by its own time. Judged by the newest of them, a type that failed while
+    /// the others came in counted as fresh and stayed missing until the next night; by the oldest, a type the
+    /// recorder cannot give would have every connect fetch all four again. A type it answered with no file for
+    /// is marked as asked (`GuideCounts.checked`), so it waits for the next rebuild like the rest.
+    public static func staleTypes(_ counts: [String: GuideCounts], now: Date = Date(),
+                                  types: [String] = broadcastingTypes) -> [String] {
+        let rebuilt = lastRebuild(before: now)
+        return types.filter { broadcasting in
+            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            return answered < rebuilt
+        }
+    }
+
     static func reason(for error: any Error) -> String {
         switch error {
-        case let error as RecorderError: error.explanation
+        case let error as any DeviceError: error.explanation
         case let error as SqliteError: error.explanation
         case is GuideError: "レコーダーから受け取った番組表ファイルを読み取れませんでした"
         default: String(describing: error)
