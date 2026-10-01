@@ -2,7 +2,10 @@
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
   cache. No UI, and testable from the command line. See its own README.
-- `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle.
+- `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
+  `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
+  to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`).
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.

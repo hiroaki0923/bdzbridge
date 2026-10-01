@@ -51,8 +51,9 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,180 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（2,274 行、うち約 3 割がコメント）と BackgroundWork、Notify、SendWaitingIntent を
+RecorderKit の外、アプリ（8,241 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
+一括処理の一時停止で、AppModel（8 ファイルで 2,335 行、うち約 3 割がコメント。接続まわりは
+`AppModelSession.swift`）と BackgroundWork、Notify、SendWaitingIntent を
 合わせて約 1,300 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの

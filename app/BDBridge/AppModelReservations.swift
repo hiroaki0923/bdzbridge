@@ -1,0 +1,400 @@
+import Foundation
+import RecorderKit
+import SwiftUI
+
+/// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
+/// cancelling one, and the queue of those waiting for the recorder.
+extension AppModel {
+    func loadReservations() async {
+        await start()
+        await loadReservationsNow()
+    }
+
+    /// The load itself, for `connect()` and everything it reaches, which must not await `start()`: see there.
+    func loadReservationsNow() async {
+        guard let client, !unreachable else { return }
+        await run("予約一覧を取得中") { self.reservations = try await client.reservations() }
+    }
+
+    enum ReservationSort: String, CaseIterable {
+        case time, genre, channel
+
+        var label: String {
+            switch self {
+            case .time: "日時"
+            case .genre: "ジャンル"
+            case .channel: "局"
+            }
+        }
+    }
+
+    /// The recorder keeps its own automatic recordings alongside the ones an app put in, and so does Sony's
+    /// app: two lists rather than one.
+    enum ReservationKind: String, CaseIterable {
+        case all, mine, automatic
+
+        var label: String {
+            switch self {
+            case .all: "すべて"
+            case .mine: "通常の予約"
+            case .automatic: "おまかせ"
+            }
+        }
+    }
+
+    struct ReservationSection: Identifiable {
+        var title: String
+        var items: [Reservation]
+        var id: String { title }
+    }
+
+    /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
+    /// within each, since a reservation is something that has not happened yet.
+    var shownReservations: [Reservation] {
+        switch reservationKind {
+        case .all: reservations
+        case .mine: reservations.filter { !$0.createdByRecorder }
+        case .automatic: reservations.filter(\.createdByRecorder)
+        }
+    }
+
+    var reservationSections: [ReservationSection] {
+        let byStart = shownReservations.sorted { $0.start < $1.start }
+        switch reservationSort {
+        case .time:
+            return sections(byStart) { Format.day.string(from: $0.start) }
+        case .genre:
+            return sections(byStart.sorted { key($0) < key($1) }) {
+                $0.genreCode.flatMap { Codes.genreLabel[$0 / 16] } ?? "ジャンルなし"
+            }
+        case .channel:
+            return sections(byStart.sorted { ($0.serviceID, $0.start) < ($1.serviceID, $1.start) }) {
+                self.channelName(for: $0)
+            }
+        }
+    }
+
+    private func key(_ reservation: Reservation) -> (Int, Date) {
+        (reservation.genreCode ?? 0xFF * 16, reservation.start)
+    }
+
+    /// Keeps the headings in the order they first appear, so the sort decides the order of the sections too.
+    private func sections(_ reservations: [Reservation],
+                          by heading: (Reservation) -> String) -> [ReservationSection] {
+        var order: [String] = []
+        var grouped: [String: [Reservation]] = [:]
+        for reservation in reservations {
+            let title = heading(reservation)
+            if grouped[title] == nil { order.append(title) }
+            grouped[title, default: []].append(reservation)
+        }
+        return order.map { ReservationSection(title: $0, items: grouped[$0] ?? []) }
+    }
+
+    /// The reservation that follows this programme, if there is one. Time-only reservations carry no
+    /// programme id and so cannot be matched to one.
+    func reservation(for program: GuideProgramRow) -> Reservation? {
+        guard let key = Self.key(program) else { return nil }
+        return reservationsByProgram[key]
+    }
+
+    /// The other reservations whose hours overlap this one's, soonest first, for a reservation the recorder
+    /// marks 重複. The recorder says that something clashes but not with what, and the sheet said only
+    /// 他の予約と重複しています, leaving the reader to go through the list by the clock. The sheet names them
+    /// as reservations at the same time rather than as the clash itself: the recorder has more than one tuner,
+    /// so hours in common are not by themselves what it is complaining about.
+    func overlapping(_ reservation: Reservation) -> [Reservation] {
+        reservations
+            .filter { $0.id != reservation.id && $0.start < reservation.end && reservation.start < $0.end }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,
+    /// so it always carries the programme id.
+    func pending(for program: GuideProgramRow) -> PendingReservation? {
+        guard let key = Self.key(program) else { return nil }
+        return pendingByProgram[key]
+    }
+
+    private static func key(_ program: GuideProgramRow) -> String? {
+        Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
+    }
+
+    private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
+        "\(broadcastingType)-\(serviceID)-\(eventID)"
+    }
+
+    static func byProgram(_ reservations: [Reservation]) -> [String: Reservation] {
+        Dictionary(reservations.compactMap { reservation in
+            reservation.eventID.map { (key(reservation.broadcastingType, reservation.serviceID, $0), reservation) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    static func byProgram(_ pending: [PendingReservation]) -> [String: PendingReservation] {
+        Dictionary(pending.compactMap { waiting in
+            waiting.request.eventID.map {
+                (key(waiting.request.broadcastingType, waiting.request.serviceID, $0), waiting)
+            }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// What would be sent to the recorder to record this programme.
+    func request(for program: GuideProgramRow, quality: String, repeating: String) -> ReservationRequest? {
+        ReservationRequest(program: program, quality: quality, repeating: repeating)
+    }
+
+    /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
+    /// it also proves the payload is one the recorder accepts, without recording anything.
+    func conflicts(for program: GuideProgramRow, quality: String, repeating: String) async -> [Reservation]? {
+        await start()
+        guard let client, !unreachable,
+              let request = request(for: program, quality: quality, repeating: repeating) else { return nil }
+        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
+        // not, so that the reservation which usually follows goes straight through.
+        guard await wakeIfDozing() else { return nil }
+        do {
+            return try await client.conflicts(elements: XsrsElements.create(request))
+        } catch let error as RecorderError {
+            if error.unreachable { lostTheRecorder() }
+            problem = error.explanation
+            return nil
+        } catch {
+            problem = String(describing: error)
+            return nil
+        }
+    }
+
+    /// Writes to the recorder: after this the box really will record the programme.
+    ///
+    /// Away from home the recorder is not there to write to, and the programme is still worth keeping: a
+    /// reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
+    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see —
+    /// and only silence before anything was sent. A reservation that went out and met silence may have been
+    /// made all the same, and the queue would make it a second time.
+    func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
+        await start()
+        guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
+        // Known to be away: queue it now rather than spending a timeout finding out again. Thirty seconds
+        // of a spinner before "送信待ちにしました" reads as a failure that was then made the best of.
+        guard let client, !offline else {
+            return await queue(request, serviceName: program.serviceName)
+        }
+        let activity = activities.begin("予約を登録中")
+        defer { activities.end(activity) }
+        // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
+        // cannot be, nothing has been sent, so the queue is the place for this.
+        guard await wakeIfDozing() else {
+            return await queue(request, serviceName: program.serviceName)
+        }
+        do {
+            _ = try await client.createReservation(request)
+            problem = nil
+            await loadReservations()
+            return true
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
+                + "再接続してから予約一覧で確かめてください。"
+            return false
+        } catch let error as RecorderError {
+            problem = error.explanation
+            return false
+        } catch {
+            problem = String(describing: error)
+            return false
+        }
+    }
+
+    // MARK: - reservations waiting for the recorder
+
+    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns
+    /// whether it was kept. One that could not be saved has been made nowhere, and the sheet closed on it as
+    /// though it had been reserved: the programme went unrecorded without a word.
+    private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
+        guard let store else {
+            problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+            return false
+        }
+        let waiting = PendingReservation(request: request, serviceName: serviceName)
+        do {
+            try await store.queue(waiting)
+            pending = try await store.pendingReservations()
+            problem = nil
+            queued = waiting
+        } catch {
+            problem = "予約を端末に保存できませんでした: \(error)"
+            return false
+        }
+        // The reader learns that this was finally sent through a notification, and a queued reservation is
+        // the first moment that means anything, so this is where the system's dialog belongs. After the
+        // reservation is saved, not before: the dialog waits on the reader, who may leave the app instead
+        // of answering, and the reservation must not wait with it. Nor is there anything to be told about
+        // when saving failed.
+        await askForNotifications()
+        return true
+    }
+
+    func loadPending() async {
+        guard let store else { return }
+        pending = (try? await store.pendingReservations()) ?? []
+    }
+
+    func removePending(_ waiting: PendingReservation) async {
+        guard let store else { return }
+        try? await store.removePending(waiting.id)
+        await loadPending()
+    }
+
+    /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
+    /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
+    /// since, an antenna put right -- and only the reader knows when it has. Sent now when the recorder can
+    /// be reached, and otherwise with the rest the next time it answers.
+    func resend(_ waiting: PendingReservation) async {
+        await start()
+        guard let store else { return }
+        try? await store.setPendingProblem(waiting.id, nil)
+        await loadPending()
+        guard !offline, await wakeIfDozing() else { return }
+        await flushPending()
+    }
+
+    /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
+    /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
+    /// await `start()`.
+    @discardableResult
+    func flushPending() async -> Int {
+        guard let client, let store else { return 0 }
+        await loadPending()
+        guard !pending.isEmpty, !unreachable else { return 0 }
+        let activity = activities.begin("送信待ちの予約を登録中")
+        let outcome = await PendingQueue.flush(client: client, store: store)
+        activities.end(activity)
+        // What had not been sent stays queued for the next answer, and the app goes offline as it does for
+        // any silence.
+        if outcome.interrupted { lostTheRecorder() }
+        await loadPending()
+        if !outcome.sent.isEmpty { await loadReservationsNow() }
+        // Said on screen. The overnight run's notification is the only other place this is said, and a
+        // notification does not show while the app is in front (nothing here answers `willPresent`), so a
+        // reservation dropped because its programme had finished went without a word. A flush with nothing
+        // to say -- everything waiting had been refused before -- leaves the last line where it was.
+        if let summary = outcome.summary { flushReport = summary }
+        return outcome.sent.count
+    }
+
+    /// Changes the quality or the repeat of a reservation the recorder already holds.
+    ///
+    /// Found again by what it is rather than by the id in hand, for the same reason a deletion is: the
+    /// recorder renumbers its own automatic reservations in blocks. The request keeps everything else,
+    /// including the programme id, so a reservation that follows its programme goes on following it.
+    func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
+        await start()
+        guard client != nil else { return false }
+        // Sending would only wait out a timeout, from a list that could not be read again first.
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
+        // The read makes sure of the recorder too, and wakes it if it has gone to sleep.
+        await loadReservations()
+        guard !offline else { return false }   // the load has said why
+        guard let target = current(reservation) else {
+            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+            return false
+        }
+        guard let client,
+              let request = ReservationRequest(changing: target, quality: quality, repeating: repeating)
+        else { return false }
+        let activity = activities.begin("予約を変更中")
+        defer { activities.end(activity) }
+        do {
+            try await client.updateReservation(id: target.id, request)
+        } catch let error as RecorderError where error.unreachable {
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
+        } catch let error as RecorderError where error.unknownReservation {
+            await loadReservations()
+            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+            return false
+        } catch {
+            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            return false
+        }
+        problem = nil
+        await loadReservations()
+        return true
+    }
+
+    /// Deletes one reservation, by what it is rather than by the id the app happens to be holding.
+    ///
+    /// The recorder rewrites the ids of the reservations its own automatic recording made — the whole block
+    /// of them at once, when it works through the guide again — so an id read a few hours ago can be dead
+    /// while the row on screen still looks right, and deleting it answers 804. Observed on a BDZ-FBT4100:
+    /// 19 automatic reservations were renumbered in one go, the programmes themselves unchanged. So read
+    /// the list again first and find this reservation by its channel and the moment it starts, which no two
+    /// reservations can share. Only when it is not there at all has it really gone.
+    ///
+    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
+    /// is left on screen rather than being reloaded away.
+    @discardableResult
+    func cancel(_ reservation: Reservation) async -> Bool {
+        await start()
+        guard client != nil else { return false }
+        // as for a change: the list has to be read first, and nothing can be read
+        guard !offline else {
+            problem = notConnected
+            return false
+        }
+        await loadReservations()
+        guard !offline else { return false }
+        guard let target = current(reservation) else {
+            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+            return false
+        }
+        guard let client else { return false }
+        let activity = activities.begin("予約を削除中")
+        do {
+            try await client.deleteReservation(id: target.id)
+        } catch let error as RecorderError where error.unreachable {
+            activities.end(activity)
+            lostTheRecorder()
+            problem = Self.mayHaveArrived
+            return false
+        } catch let error as RecorderError where error.unknownReservation {
+            // the list we just read was itself out of date, which is what happens when reading it failed
+            activities.end(activity)
+            await loadReservations()  // first, because a successful read clears `problem`
+            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+            return false
+        } catch {
+            activities.end(activity)
+            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            return false
+        }
+        activities.end(activity)
+        problem = nil
+        reservations.removeAll { $0.id == target.id }
+        await loadReservations()
+        // the reload asks the recorder again, and if it is a moment behind itself the row would come back
+        reservations.removeAll { $0.id == target.id }
+        return true
+    }
+
+    /// The same reservation as the recorder holds it now, whatever it has renumbered it to.
+    private func current(_ wanted: Reservation) -> Reservation? { reservations.current(wanted) }
+
+    func channelName(for reservation: Reservation) -> String {
+        channelNames["\(reservation.broadcastingType)-\(reservation.serviceID)"]
+            ?? Codes.broadcastingLabel[Codes.broadcasting(code: reservation.broadcastingType) ?? ""]
+            ?? "不明な局"
+    }
+
+    /// The programme a reservation follows, when it is still in the cached guide.
+    func program(for reservation: Reservation) async -> GuideProgramRow? {
+        guard let store, let eventID = reservation.eventID,
+              let broadcasting = Codes.broadcasting(code: reservation.broadcastingType) else { return nil }
+        return try? await store.program(broadcasting: broadcasting, serviceID: reservation.serviceID,
+                                        eventID: eventID)
+    }
+}
