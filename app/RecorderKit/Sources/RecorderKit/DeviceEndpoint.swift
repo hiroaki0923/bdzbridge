@@ -44,6 +44,8 @@ extension RecorderClient: DeviceEndpoint {
 extension RecorderClient: GuideSource {}
 
 extension RecorderClient: ReservationTarget {
+    /// The protocol's way in, for the rules that take any device. Code that knows it has a recorder and wants
+    /// the id calls `createReservation`, which this is.
     public func create(_ request: ReservationRequest) async throws -> ReservationReceipt {
         .id(try await createReservation(request))
     }

@@ -30,7 +30,8 @@ public enum PendingQueue {
     /// A programme already over is dropped rather than sent; one on air is still sent, because the recorder
     /// records what is left of it. A recorder that goes away mid-flush leaves the rest queued.
     ///
-    /// One the recorder refused with a reason of its own (`RecorderError.refusal`) keeps that reason and is
+    /// One the recorder refused with a reason of its own (`DeviceFailure.turnsTheRequestDown`, which for a
+    /// recorder is `RecorderError.refusal`) keeps that reason and is
     /// not sent again: the answer would be the same, and the overnight run asked every night and said every
     /// morning that the recorder had not taken it. It waits for the reader, who can clear the reason to send
     /// it again (`GuideStore.setPendingProblem(_:nil)`) or cancel it. A failure that says nothing about the

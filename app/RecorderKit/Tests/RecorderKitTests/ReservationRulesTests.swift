@@ -37,6 +37,15 @@ final class ReservationRulesTests: XCTestCase {
         XCTAssertEqual(list.current(held)?.id, "0x1")
     }
 
+    /// While the id stands it is the reservation, even if what it says about the channel or the start has
+    /// changed: a programme the recorder follows moves with its broadcast.
+    func testTheIdIsItEvenWhenTheStartHasMoved() {
+        let held = reservation(id: "0x1")
+        let moved = reservation(id: "0x1", start: start.addingTimeInterval(900))
+        let list = [reservation(id: "0x9"), moved]
+        XCTAssertEqual(list.current(held), moved)
+    }
+
     func testAnotherChannelAnotherTypeOrAnotherStartIsNotIt() {
         let held = reservation(id: "0x1")
         let list = [reservation(id: "0x2", serviceID: 0x408),

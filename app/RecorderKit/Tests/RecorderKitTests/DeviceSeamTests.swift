@@ -103,12 +103,26 @@ final class DeviceSeamTests: XCTestCase {
         XCTAssertEqual(asked, ["td", "bs", "cs", "bs4k"], "the type after the silent one was not asked for")
     }
 
-    /// The recorder is one of the things all three take, as it always was.
+    /// The recorder is one of the things all three take, as it always was. Nothing here can fail when run:
+    /// what it checks is that it compiles, which it stops doing if `RecorderClient` loses a conformance.
     func testTheRecorderIsADeviceOfEveryKindTheRulesTake() {
         let client = RecorderClient(host: Stub.host, transport: StubTransport(always: HTTPResponse(statusCode: 200)))
-        XCTAssertNotNil(client as any DeviceEndpoint)
-        XCTAssertNotNil(client as any GuideSource)
-        XCTAssertNotNil(client as any ReservationTarget)
+        let probed: any DeviceEndpoint = client
+        let asked: any GuideSource = client
+        let reserved: any ReservationTarget = client
+        _ = (probed, asked, reserved)
+    }
+
+    /// A device that is slower to say who it is than a recorder is asked with its own timeout.
+    func testTheProbeIsGivenTheTimeoutTheCallerNames() async throws {
+        let device = OtherDevice()
+
+        _ = await Waking.waitForAnswer(from: device, limit: 5, interval: .milliseconds(1), probeTimeout: 7,
+                                       resend: {})
+        _ = await Waking.waitForAnswer(from: device, limit: 5, interval: .milliseconds(1), resend: {})
+
+        let timeouts = await device.probeTimeouts
+        XCTAssertEqual(timeouts, [7, RecorderClient.wakeProbeTimeout])
     }
 }
 
@@ -126,6 +140,7 @@ private struct OtherError: DeviceError, Equatable {
 /// A device with nothing of a recorder about it: it is probed, asked for guides and reserved on.
 private actor OtherDevice: GuideSource, ReservationTarget {
     private(set) var probes = 0
+    private(set) var probeTimeouts: [TimeInterval] = []
     private(set) var created: [ReservationRequest] = []
     private(set) var guidesAsked: [String] = []
     private let silentProbes: Int
@@ -141,6 +156,7 @@ private actor OtherDevice: GuideSource, ReservationTarget {
 
     func probe(timeout: TimeInterval) async throws {
         probes += 1
+        probeTimeouts.append(timeout)
         if probes <= silentProbes { throw OtherError(failure: .silent) }
     }
 

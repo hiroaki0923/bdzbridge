@@ -30,17 +30,20 @@ public enum Waking {
     /// For the overnight run and the Shortcuts action, which nobody watches.
     public static let backgroundLimit: TimeInterval = 60
 
-    /// Asks the recorder for its description every `interval` until it answers or `limit` has passed, and has
+    /// Probes the device every `interval` until it answers or `limit` has passed -- for a recorder, asks it for
+    /// its description -- and has
     /// `resend` send the packet again whenever `resendEvery` has gone by since the last one, the first of which
     /// went at `packetSentAt`. `waited` is told the whole seconds waited so far before each ask, for a line on
     /// screen that counts them.
     ///
     /// Bounded by the clock rather than by a count of asks, so that the line on screen and the wait behind it
-    /// are the same length. Each ask is a short one (`RecorderClient.wakeProbeTimeout`), for the identity only:
-    /// asking for everything is for after the recorder has shown it is listening. There is no default limit;
-    /// the caller says whose wait it is.
+    /// are the same length. Each ask is a short one, `probeTimeout` long and for the identity only: asking for
+    /// everything is for after the device has shown it is listening. The default is the recorder's, which
+    /// answers in milliseconds once it is up; a device that is slower to say who it is gives its own. There is
+    /// no default limit; the caller says whose wait it is.
     public static func waitForAnswer(from client: some DeviceEndpoint, limit: TimeInterval,
                                      interval: Duration = .seconds(1),
+                                     probeTimeout: TimeInterval = RecorderClient.wakeProbeTimeout,
                                      resendEvery: TimeInterval = WakeOnLan.resendInterval,
                                      packetSentAt: Date = Date(),
                                      resend: @Sendable () async -> Void,
@@ -52,7 +55,7 @@ public enum Waking {
         while Date().timeIntervalSince(started) < limit {
             if Task.isCancelled { return .cancelled }
             await waited(Int(Date().timeIntervalSince(started)))
-            if (try? await client.probe(timeout: RecorderClient.wakeProbeTimeout)) != nil { return .answered }
+            if (try? await client.probe(timeout: probeTimeout)) != nil { return .answered }
             // A cancelled sleep throws at once. Passed over with `try?`, a cancelled wait went round without
             // sleeping, a probe after a probe, with the overnight task already completed.
             do {

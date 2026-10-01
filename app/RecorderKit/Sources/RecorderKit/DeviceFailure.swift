@@ -50,9 +50,14 @@ public protocol DeviceError: Error, Sendable {
 }
 
 extension RecorderError: DeviceError {
-    /// The same reading as `unreachable`, `refusal`, `needsPowerOn` and `unknownReservation`, which stay as they
-    /// are for the code that knows it is talking to a recorder. The order matters where two apply: 880 is
-    /// standby whatever the status, and a 503 is the recorder busy whatever code came with it.
+    /// The same reading as `unreachable`, `refusal` and `needsPowerOn`, which stay as they are for the code
+    /// that knows it is talking to a recorder; and what says `unknownReservation` is `unknownItem`.
+    ///
+    /// A fault with a 503 on it is read as busy, because `refusal` leaves a 503 out whatever code came with
+    /// it. The client never hands one over -- `RecorderClient.send` turns every 503 into `busy` before a fault
+    /// is read -- so that case is here only to keep the two readings in step, and it is the one place where
+    /// `unknownReservation` (which looks at the code alone) and this would differ. 880 is standby whatever the
+    /// status, as `needsPowerOn` has it.
     public var failure: DeviceFailure {
         switch self {
         case .transport, .notHTTP: .silent
