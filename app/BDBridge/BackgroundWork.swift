@@ -249,20 +249,37 @@ enum BackgroundWork {
         let wake: @Sendable () -> Int = {
             mac.map { WakeOnLan.wake($0, addresses: WakeOnLan.addresses(forRecorderAt: host)) } ?? 0
         }
-        let wentAt = Date()
-        let went = wake() > 0
-        do {
-            try await client.describe(timeout: RecorderClient.probeTimeout)
-            return true
-        } catch RecorderError.badAddress {
-            // Nothing could be asked at an address that is not one, so waiting would change nothing; the app
-            // says why on its screen. The packet that went first reached only this device's own broadcast
-            // addresses, which is harmless.
-            return false
-        } catch {}
-        // No MAC, or not a packet out: nothing is coming up to wait for.
-        guard went else { return false }
-        return await Waking.waitForAnswer(from: client, limit: Waking.backgroundLimit, packetSentAt: wentAt,
-                                          resend: { _ = wake() }) == .answered
+        // Both are set as the packet goes, which is the first step.
+        var wentAt = Date()
+        var went = false
+        // The order is `Reach.run`'s, the one the screens follow. Unlike them, this waits for a recorder that
+        // answered the first ask with an error too -- one still starting up may answer anything, and nobody
+        // is watching the wait -- except at an address that is not one: nothing could be asked there, so
+        // waiting would change nothing, and the app says why on its screen. (The packet that went first
+        // reached only this device's own broadcast addresses, which is harmless.) There is no screen to
+        // explain the local network permission on, and nowhere else is looked.
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: {
+                wentAt = Date()
+                went = wake() > 0
+            },
+            probe: {
+                do {
+                    try await client.describe(timeout: RecorderClient.probeTimeout)
+                    return nil
+                } catch let error as any DeviceError {
+                    return error.failure
+                } catch {
+                    return .unexpected(String(describing: error))
+                }
+            },
+            wake: {
+                // No MAC, or not a packet out: nothing is coming up to wait for.
+                guard went else { return .silent }
+                let waited = await Waking.waitForAnswer(from: client, limit: Waking.backgroundLimit,
+                                                        packetSentAt: wentAt, resend: { _ = wake() })
+                return waited == .answered ? nil : .silent
+            }), wakesAfterRefusal: true)
+        return outcome == .answered
     }
 }

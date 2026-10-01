@@ -94,6 +94,10 @@ extension AppModel {
     /// One attempt at the recorder, for `connect()`: a client of its own, the first probe, waking it, and a
     /// look for it at another address. Returns whether it answered, or nil when local network privacy is why
     /// it did not, and the app is now waiting for the permission instead.
+    ///
+    /// The order of the attempt is `Reach.run`'s, which the check before an operation and the overnight run
+    /// follow too. What each step does on the way -- the lines on the strip, reading what the recorder says
+    /// about itself -- is here.
     private func reachTheRecorder() async -> Bool? {
         let client: RecorderClient
         if demo {
@@ -111,26 +115,46 @@ extension AppModel {
         // than after: a recorder that is asleep is already on its way up while the first probe runs, and one
         // that is awake ignores it. Waiting for the failure first is what made this look like a fault
         // followed by a retry.
-        sendMagicPacket()
-        link.tried(on: surroundings.networkSignature())
-        var reached = await attach(client, timeout: RecorderClient.probeTimeout, quiet: canWake)
-        if !reached, unreachable, !demo, await lanIsBlocked() {
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: {
+                self.sendMagicPacket()
+                self.link.tried(on: self.surroundings.networkSignature())
+            },
+            probe: {
+                await self.attach(client, timeout: RecorderClient.probeTimeout, quiet: self.canWake)
+                    ? nil : self.whyNotAttached
+            },
+            blocked: {
+                if self.demo { return false }
+                return await self.lanIsBlocked()
+            },
+            wake: {
+                // The permission was not why, or was not asked about: either way the app is not waiting on it.
+                self.connectBlocked = false
+                return await self.wakeAndAttach(client) ? nil : self.whyNotAttached
+            },
+            // Not back where it was after the waking: it may be answering at another address. One look per
+            // attempt, and only from here, so the rule in `connect()` about not trying again stands.
+            elsewhere: {
+                guard let moved = await self.findMovedRecorder() else { return .silent }
+                self.host = moved.host
+                // It is the recorder the MAC was read from, which its UDN has just said.
+                self.defaults.set(moved.host, forKey: DefaultsKey.recorderMacHost)
+                let found = RecorderClient(host: moved.host, transport: self.surroundings.transport(moved.host))
+                self.client = found
+                return await self.attach(found, timeout: RecorderClient.probeTimeout) ? nil : self.whyNotAttached
+            }))
+        if outcome == .blocked {
             waitForPermission()
             return nil
         }
         connectBlocked = false
-        if !reached { reached = await wakeAndAttach(client) }
-        // Not back where it was after the waking: it may be answering at another address. One look per
-        // attempt, and only from here, so the rule in `connect()` about not trying again stands.
-        if !reached, unreachable, let moved = await findMovedRecorder() {
-            host = moved.host
-            // It is the recorder the MAC was read from, which its UDN has just said.
-            defaults.set(moved.host, forKey: DefaultsKey.recorderMacHost)
-            let found = RecorderClient(host: moved.host, transport: surroundings.transport(moved.host))
-            self.client = found
-            reached = await attach(found, timeout: RecorderClient.probeTimeout)
-        }
-        return reached
+        return outcome == .answered
+    }
+
+    /// Why the `attach` that has just failed did, as `Reach` asks it: silence, or something that answered.
+    private var whyNotAttached: DeviceFailure {
+        unreachable ? .silent : .refused(reason: problem ?? "")
     }
 
     /// Whether local network privacy is why the recorder said nothing. Aimed at the recorder's own address,
@@ -421,36 +445,52 @@ extension AppModel {
         }
         // Where it was asked, not where the phone is once the silence is over: see `lostTheRecorder`.
         let network = surroundings.networkSignature()
-        // The packet first and the probe after, as connecting does: a recorder that is asleep is on its way
-        // up while the probe waits, and one that is awake ignores it.
-        sendMagicPacket()
-        do {
-            try await client.describe(timeout: RecorderClient.probeTimeout)
+        // The packet first and the probe after, as connecting does (`Reach.run`): a recorder that is asleep
+        // is on its way up while the probe waits, and one that is awake ignores it. It is not looked for at
+        // another address from here: only a connect does that.
+        var answeredTheProbe = true
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: { self.sendMagicPacket() },
+            probe: {
+                do {
+                    try await client.describe(timeout: RecorderClient.probeTimeout)
+                    return nil
+                } catch {
+                    let failure = (error as? any DeviceError)?.failure ?? .unexpected(String(describing: error))
+                    if failure == .silent {
+                        // Silence, which is what waking is for. Where a connect's first probe leaves things
+                        // too, and what waking starts from.
+                        answeredTheProbe = false
+                        self.unreachable = true
+                        self.info = nil
+                        self.link.tried(on: network)
+                    }
+                    return failure
+                }
+            },
+            blocked: {
+                if self.demo { return false }
+                return await self.lanIsBlocked()
+            },
+            wake: { await self.wakeAndAttach(client) ? nil : self.whyNotAttached }))
+        switch outcome {
+        case .answered:
             return true
-        } catch let error as RecorderError where error.unreachable {
-            // silence, which is what waking is for
-        } catch {
-            // Something answered, so there is nothing to wake. What is wrong is for the request itself to
-            // run into and say.
-            return true
-        }
-        // Where a connect's first probe leaves things too, and what waking starts from.
-        unreachable = true
-        info = nil
-        link.tried(on: network)
-        if !demo, await lanIsBlocked() {
+        case .refused:
+            // On the probe: something answered, so there is nothing to wake, and what is wrong is for the
+            // request itself to run into and say. After the waking: it answered only to refuse, which the
+            // attach has said already; it is not silence, so it is not given up on either (see `connect()`).
+            return answeredTheProbe
+        case .blocked:
             waitForPermission()
             return false
+        case .silent:
+            // Given up, as a connect is when waking does not bring the recorder back.
+            lostTheRecorder()
+            // Waking says why it gave up; without a MAC there was no waking to say it.
+            if !canWake { problem = RecorderError.transport("no answer").explanation }
+            return false
         }
-        if await wakeAndAttach(client) { return true }
-        // Given up, as a connect is when waking does not bring the recorder back. Something that answered
-        // only to refuse has said so already, and is not silence, so it is not given up on either: see
-        // `connect()`.
-        guard unreachable else { return false }
-        lostTheRecorder()
-        // Waking says why it gave up; without a MAC there was no waking to say it.
-        if !canWake { problem = RecorderError.transport("no answer").explanation }
-        return false
     }
 
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
