@@ -39,7 +39,7 @@ public enum Waking {
     /// are the same length. Each ask is a short one (`RecorderClient.wakeProbeTimeout`), for the identity only:
     /// asking for everything is for after the recorder has shown it is listening. There is no default limit;
     /// the caller says whose wait it is.
-    public static func waitForAnswer(from client: RecorderClient, limit: TimeInterval,
+    public static func waitForAnswer(from client: some DeviceEndpoint, limit: TimeInterval,
                                      interval: Duration = .seconds(1),
                                      resendEvery: TimeInterval = WakeOnLan.resendInterval,
                                      packetSentAt: Date = Date(),
@@ -52,7 +52,7 @@ public enum Waking {
         while Date().timeIntervalSince(started) < limit {
             if Task.isCancelled { return .cancelled }
             await waited(Int(Date().timeIntervalSince(started)))
-            if (try? await client.describe(timeout: RecorderClient.wakeProbeTimeout)) != nil { return .answered }
+            if (try? await client.probe(timeout: RecorderClient.wakeProbeTimeout)) != nil { return .answered }
             // A cancelled sleep throws at once. Passed over with `try?`, a cancelled wait went round without
             // sleeping, a probe after a probe, with the overnight task already completed.
             do {

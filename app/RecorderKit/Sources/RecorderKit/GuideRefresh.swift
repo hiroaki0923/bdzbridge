@@ -44,7 +44,7 @@ public enum GuideRefresh {
     /// `onType` is called on the main actor as each broadcasting type starts, for the screen to say so, and
     /// `onStored` once its programmes and logos are in the cache, for the screen to show them without waiting
     /// for the rest.
-    public static func run(client: RecorderClient, store: GuideStore, types: [String] = broadcastingTypes,
+    public static func run(client: some GuideSource, store: GuideStore, types: [String] = broadcastingTypes,
                            onType: (@MainActor @Sendable (String) -> Void)? = nil,
                            onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async throws -> Outcome {
         var outcome = Outcome()
@@ -66,13 +66,13 @@ public enum GuideRefresh {
                     if let logos = try await client.logos(broadcasting) {
                         try await store.replaceLogos(logos, broadcasting: broadcasting)
                     }
-                } catch let error as RecorderError where error.unreachable {
+                } catch let error as any DeviceError where error.failure == .silent {
                     throw error
                 } catch {
                     // The logos are only looks, and the programmes are in: the type keeps the logos it had.
                 }
                 await onStored?(broadcasting)
-            } catch let error as RecorderError where error.unreachable {
+            } catch let error as any DeviceError where error.failure == .silent {
                 throw error
             } catch {
                 outcome.failed.append(Failure(broadcasting: broadcasting, reason: reason(for: error)))
@@ -83,7 +83,7 @@ public enum GuideRefresh {
 
     static func reason(for error: any Error) -> String {
         switch error {
-        case let error as RecorderError: error.explanation
+        case let error as any DeviceError: error.explanation
         case let error as SqliteError: error.explanation
         case is GuideError: "レコーダーから受け取った番組表ファイルを読み取れませんでした"
         default: String(describing: error)

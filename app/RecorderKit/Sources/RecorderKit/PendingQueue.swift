@@ -40,7 +40,7 @@ public enum PendingQueue {
     /// reads the queue afresh. The screens and the overnight run each have a client and a connection of their
     /// own, and the system can start the one while the reader has the other open, so the two could read the
     /// same waiting reservation and both send it -- and a reservation sent twice is made twice.
-    public static func flush(client: RecorderClient, store: GuideStore,
+    public static func flush(client: some ReservationTarget, store: GuideStore,
                              now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.
         (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
@@ -48,7 +48,7 @@ public enum PendingQueue {
 
     private static let oneAtATime = SerialQueue()
 
-    private static func send(client: RecorderClient, store: GuideStore, now: Date) async -> Outcome {
+    private static func send(client: some ReservationTarget, store: GuideStore, now: Date) async -> Outcome {
         var outcome = Outcome()
         let waiting = (try? await store.pendingReservations()) ?? []
         for pending in waiting {
@@ -62,13 +62,13 @@ public enum PendingQueue {
                 continue
             }
             do {
-                _ = try await client.createReservation(pending.request)
+                _ = try await client.create(pending.request)
                 try? await store.removePending(pending.id)
                 outcome.sent.append(pending)
-            } catch let error as RecorderError where error.unreachable {
+            } catch let error as any DeviceError where error.failure == .silent {
                 outcome.interrupted = true
                 break
-            } catch let error as RecorderError where error.refusal {
+            } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
                 try? await store.setPendingProblem(pending.id, error.explanation)
                 var refused = pending
                 refused.problem = error.explanation
