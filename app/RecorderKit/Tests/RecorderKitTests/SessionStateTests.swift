@@ -210,7 +210,10 @@ final class SessionStateTests: XCTestCase {
         session.waitingForPermission()
         // Described again, as it is part way through a reconnect: the description is one of the things to go.
         session.described(description())
+        // And it had asked to be powered on, which the next device has not.
+        session.powerNeeded(true)
         session.forgotTheDevice()
+        XCTAssertFalse(session.needsPower, "the next device is offered a power button for what the last one said")
         XCTAssertFalse(session.connected)
         XCTAssertEqual(session.firmware, "")
         XCTAssertNil(session.storage)

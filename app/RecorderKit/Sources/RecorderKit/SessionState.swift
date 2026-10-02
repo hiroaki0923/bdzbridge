@@ -154,8 +154,9 @@ public final class SessionState {
 
     public func forgetMac() { mac = nil }
 
-    /// Another device is in play: what the last one said of itself is forgotten, and so is having given up on
-    /// it. The MAC and where the app last tried are the caller's to change.
+    /// Another device is in play: what the last one said of itself is forgotten -- that it wanted powering on
+    /// among it -- and so is having given up on it. The MAC and where the app last tried are the caller's to
+    /// change.
     public func forgotTheDevice() {
         info = nil
         firmware = ""
@@ -163,5 +164,6 @@ public final class SessionState {
         unreachable = false
         gaveUp = false
         connectBlocked = false
+        needsPower = false
     }
 }
