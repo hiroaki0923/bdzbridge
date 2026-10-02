@@ -493,39 +493,23 @@ public actor GuideStore {
         description.recognised(as: try owner())
     }
 
-    /// Makes the cache the recorder's that has just described itself, and says who it is to it. Called at
-    /// every attach, before anything of the cache is sent to the recorder or judged against it.
+    /// Makes the cache the recorder's that has just described itself, and says who it is to it. For every
+    /// attach, before anything of the cache is sent to the recorder or judged against it.
     ///
-    /// The address is only where to knock: the cache is the recorder's that filled it, known by its UDN. The
-    /// same recorder -- at the address it had or another -- finds everything as it left it. Another one takes
-    /// the cache over, and in the same transaction what the other left in it goes:
+    /// The same recorder, at any address, finds everything as it left it. It is told by reading alone and
+    /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
+    /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
+    /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
+    /// its logos, and the marks of when each type was fetched -- and every reservation waiting is held with
+    /// `reason`, as one a recorder refused is, until the reader sends it again. What the reader set stays:
+    /// which channels are hidden, and their order.
     ///
-    /// - the programme texts of its recordings, which are kept by the recording's number alone, and each
-    ///   recorder numbers its own. Left, the duplicate scan took them for this recorder's recordings of the
-    ///   same numbers, without asking it;
-    /// - the guide and the logos, and the marks of when each type was last answered for. Left, the marks
-    ///   kept the new recorder from being asked for its guide until the next night, and a type it has no
-    ///   file for kept the other's programmes for good;
-    /// - and with `reason`, every reservation waiting is held with it, as one a recorder refused is: it was
-    ///   made for the other recorder, and is not sent to this one until the reader asks. One the other had
-    ///   refused is held for this reason too: what that recorder said of it, this one has not.
-    ///
-    /// What the reader set stays -- which channels are hidden and their order. The first recorder to answer is
-    /// written down and nothing goes.
-    ///
-    /// That holds for a cache from before its owner was written down, which does not say whose it is.
-    /// Nothing in it is guessed at -- by the MAC kept for waking, say, which is the tail of the UDN on the one
-    /// model looked at and may not be on the next: for nearly every phone the first to answer is the one
-    /// recorder it has ever had, and a guess that went wrong would cost it its texts and hold its queue on
-    /// the day the app was updated. `knownToBeAnother` is for a caller that does know: the session keeps
-    /// which recorder its lists were read from (`SessionState.device`), and when another one answers it, a
-    /// cache with no owner written is that other's all the same. An owner that is written down is what
-    /// counts, whatever the caller says.
-    ///
-    /// The recorder the cache is of already, which is nearly every answer there is, is told by reading alone
-    /// and nothing is written. A write waits behind whoever else is writing to the cache -- the overnight run
-    /// storing a guide, the queue being sent from a connection of its own -- for as long as the busy timeout,
-    /// and then fails: the caller's connect would be held up, and what waits not sent by it.
+    /// A cache from before its owner was written down does not say whose it is, and nothing is guessed: the
+    /// first to answer is put down as its owner and finds it as it is. (The MAC kept for waking would tell
+    /// some recorders apart, but a wrong guess costs a household with one recorder its texts and its queue.)
+    /// `knownToBeAnother` is for a caller that does know -- the session, whose lists were read from another
+    /// recorder -- and then such a cache is taken over all the same. An owner that is written down counts,
+    /// whatever the caller says.
     @discardableResult
     public func claim(for description: RecorderDescription, holdingTheQueueWith reason: String? = nil,
                       knownToBeAnother: Bool = false) throws -> Recognition {

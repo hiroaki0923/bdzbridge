@@ -244,10 +244,9 @@ final class AppModel {
     var nowRequests = 0
 
     /// Bumped each time what a recorder said is let go of (`forgetWhatTheRecorderSaid`), for the screens to
-    /// let go of what they hold of it themselves: a sheet open on one of its recordings or reservations, a
-    /// row picked for a dialog. A sheet holds a value, and stays up over an emptied list; when the lists go
-    /// because another recorder has answered where the last one was, its buttons would send that value's
-    /// number to the newcomer. The sheets that hold such a value close themselves (`closesWithItsRecorder`).
+    /// let go of what they hold of it: a row picked for a dialog, and the sheets on a recording or a
+    /// reservation, which close themselves (`closesWithItsRecorder`). Left up over an emptied list, a sheet's
+    /// buttons would send its row's number to the next recorder.
     var timesForgotten = 0
 
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
@@ -333,19 +332,15 @@ final class AppModel {
     /// everywhere but the reservations tab, and opening it again offered the reservation form again.
     var pendingByProgram: [String: PendingReservation] = [:]
 
-    /// What the last sending of the queue came to, for the strip to say in one line until the reader closes
-    /// it or leaves the app. See `flushPending`. Also what became of the queue when another recorder took the
-    /// place of the one it was made for: see `settle(whoAnswered:)`.
+    /// What the last sending of the queue came to, and how many reservations are held for another recorder,
+    /// for the strip to say until the reader closes it or leaves the app. See `flushPending`.
     var flushReport: String?
 
-    /// Set when another recorder has answered where the last one had been and nobody had chosen it: at a
-    /// connect made while the app held the last one's lists (`settle(whoAnswered:)`), or at the check before
-    /// something the reader asked for (`makeSureItIsUp`). For the strip to say, on whatever screen is in front
-    /// and until the reader closes it or leaves the app, why the lists under them are other ones -- and that
-    /// what they had asked for when it answered was not done. The failure line says that only until the
-    /// connect that follows. An alert says it where the sheet the reader asked from stays up -- a
-    /// programme's, a condition being typed -- and not where it was a sheet on one of the last recorder's
-    /// recordings or reservations, which close with the lists (`timesForgotten`).
+    /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect
+    /// made over the last one's lists (`settle(whoAnswered:)`), or at the check before an operation
+    /// (`makeSureItIsUp`). The strip says so until the reader closes it or leaves the app: the failure line
+    /// lasts only until the connect that follows, and an alert goes with its sheet when that closes with
+    /// the lists.
     var anotherTookOver = false
 
     /// The lists the reader had read when another recorder answered a connect made while the app was

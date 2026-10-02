@@ -200,10 +200,9 @@ extension AppModel {
         let activity = activities.begin("予約を登録中")
         defer { activities.end(activity) }
         // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
-        // cannot be, nothing has been sent, so the queue is the place for this -- unless another recorder
-        // answered in its place, which the check has said, letting go of the one this was for. Queued, the
-        // reservation would be held as one made for the recorder before, the moment the newcomer is taken
-        // up; the reader makes it again once that one's guide is on screen.
+        // cannot be, nothing has been sent, so the queue is the place for this -- unless the check heard
+        // another recorder and let go of this one: queued, the reservation would be held as one made for
+        // the recorder before.
         guard await wakeIfDozing() else {
             guard client === self.client else { return false }
             return await queue(request, serviceName: program.serviceName)
@@ -315,9 +314,8 @@ extension AppModel {
         // reservation dropped because its programme had finished went without a word. A flush with nothing
         // to say -- everything waiting had been refused before -- leaves the last line where it was.
         //
-        // What is held back because another recorder took the place of the one it was made for is said each
-        // time, for as long as any is: read from the rows and not from the attach that held them, which
-        // need not have got this far. It goes first, as the greater news on a strip of three lines.
+        // What is held for another recorder is said each time, for as long as any is, and first: counted
+        // from the rows, since the attach that held them need not have got this far.
         let held = pending.filter { $0.problem == Self.heldForAnotherRecorder }.count
         let heldBack = held == 0 ? nil
             : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"

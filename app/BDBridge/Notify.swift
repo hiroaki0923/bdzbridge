@@ -80,10 +80,9 @@ enum Notify {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: summary)
     }
 
-    /// The queue was not sent because another recorder than the one it was made for answered, and with no
-    /// screen nothing is taken up (`BackgroundWork.isTheOneKnown`). Said so that the reader opens the app,
-    /// which is where it is settled; under the queue's own identifier, so that it is said once however many
-    /// nights or arrivals home it takes.
+    /// The queue was not sent, because another recorder than the one it was made for answered and with no
+    /// screen nothing is taken up (`BackgroundWork.isTheOneKnown`). Said so that the reader opens the app;
+    /// under the queue's own identifier, so that it is one entry however many nights it takes.
     static func queueHeldBack() async {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: anotherRecorderAnswered)
     }

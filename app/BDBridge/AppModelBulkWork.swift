@@ -131,11 +131,9 @@ extension AppModel {
     /// met by the job: a list another screen was loading may have met it first, and the next step would only
     /// wait out the same timeout to find out again.
     ///
-    /// A check of the recorder that is out is heard first, in front as well as on coming back: the network
-    /// changing under a job asks the recorder whether it is still there, and the ask waits its turn behind
-    /// the step under way. Its verdict may be that another recorder answers here now, which stops the job
-    /// (`makeSureItIsUp`), and a next step begun meanwhile reached that recorder ahead of the verdict, by
-    /// the last one's number. The caller looks at whether the job was stopped once this returns.
+    /// A check of the recorder that is out is heard first, in front as well as on coming back. Its ask waits
+    /// its turn behind the step under way, and its verdict may be that another recorder answers here now,
+    /// which stops the job (`makeSureItIsUp`); a next step begun meanwhile reached that recorder first.
     private func readyForNextStep() async -> Bool {
         if inBackground {
             await withCheckedContinuation { backInFront = $0 }

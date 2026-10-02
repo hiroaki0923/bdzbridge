@@ -230,14 +230,10 @@ extension AppModel {
         let activity = what.map { activities.begin($0) }
         defer { if let activity { activities.end(activity) } }
         do {
-            // A cache that is another recorder's and could not be made over to this one is no recorder to be
-            // connected to: the app would go on over the other's guide and the texts of the other's
-            // recordings. It says so instead, and the next connect tries again.
-            //
-            // The client goes with the rest. Left in hand, it was a recorder there to be asked and not
-            // connected to, and a programme reserved from the guide on screen -- the other's -- was sent to
-            // it. With nobody to ask, that reservation waits, and is held with the others once the cache is
-            // made over. That another recorder answered is still to be said when that one is taken up.
+            // A cache that is another recorder's and could not be made over to this one is no recorder to
+            // connect to: the app would go on over the other's guide and texts. It says so, and lets go of
+            // the client as well -- left in hand, a programme reserved from the guide still on screen was
+            // sent to this recorder. That another one answered is still to be said once it is taken up.
             guard await settle(whoAnswered: try await client.describe(timeout: timeout)) else {
                 let another = anotherTookOver
                 forgetTheRecorder()
@@ -281,51 +277,40 @@ extension AppModel {
         }
     }
 
-    /// A recorder has said who it is, and that decides what the app keeps of the one before it. The address
-    /// is only where to knock: the same recorder keeps everything wherever it answers, and another one --
-    /// chosen by the reader, or found at the address the first one had -- gets nothing that was the first's.
+    /// A recorder has said who it is, which decides what the app keeps of the one before it: the same
+    /// recorder keeps everything wherever it answers, and another one gets nothing that was the last one's.
     /// Asked at every attach, before anything is read from the recorder or sent to it.
     ///
-    /// In memory, by the session (`SessionState.described`): another recorder's lists go in the same turn as
-    /// its description arrives, so that no screen draws this recorder's name over the other one's recordings.
-    /// The strip says that it happened (`anotherTookOver`).
+    /// In memory (`SessionState.described`), another recorder's lists go in the turn its description arrives,
+    /// and the strip says so. On the phone (`GuideStore.claim`), its texts, its guide and the queue are seen
+    /// to, and with them the two marks the defaults keep about one disk and one guide; the MAC goes unless
+    /// this recorder carries it. What was held is said by the sending of the queue that follows.
     ///
-    /// On the phone, by the cache (`GuideStore.claim`), which keeps whose it is: the other's programme texts,
-    /// its guide and the marks of when it was fetched go, the reservations waiting are held with a reason,
-    /// and with them go what the defaults keep about one disk and one guide -- that a low-space warning was
-    /// given, and when the overnight run last fetched. The MAC kept for waking goes unless this recorder
-    /// carries it; its own is read a moment later. What was held is said on the strip by the sending of the
-    /// queue that follows (`flushPending`).
-    ///
-    /// Returns whether the cache is this recorder's now: as it was, or taken over from another. False when it
-    /// is another's and could not be made over, and then the caller does not go on.
+    /// False when the cache is another's and could not be made over: the caller does not go on.
     private func settle(whoAnswered recorder: RecorderDescription) async -> Bool {
         let wasConnected = connected
         let had = (recordings: titlesLoaded, rules: recorderRulesLoaded)
         let inMemory = session.described(recorder)
         if inMemory == .another {
             forgetWhatTheRecorderSaid()
-            // Nobody chose this one, or the last would have been forgotten at the choice: the reader is told
-            // why the lists under them are other ones.
+            // Nobody chose it, or the last one would have been forgotten at the choice: the strip says so.
             anotherTookOver = true
             // The screens read their lists when the app becomes connected, and it never stopped being.
             if wasConnected { listsToReadAgain = had }
         }
         // The demo's cache is a file of its own, made for the invented recorder and deleted with it.
         guard !demo, let store else { return true }
-        // A cache with no owner written is the first answerer's, and nothing in it is guessed at. Unless
-        // the session knows better: its lists were read from another recorder than this, and so was what
-        // that cache holds.
+        // What the session knows goes with it: a cache with no owner written is the last recorder's when the
+        // lists were.
         let lastWasAnother = inMemory == .another
         let onDisk: Recognition
         do {
             onDisk = try await store.claim(for: recorder, holdingTheQueueWith: Self.heldForAnotherRecorder,
                                            knownToBeAnother: lastWasAnother)
         } catch {
-            // The cache could not be written to. That costs the recorder it is of nothing, nor the first one
-            // heard from, whose name only failed to be put down. Another one's it stays -- by the owner
-            // written in it, or by what the session knows of one with none -- nor is it known whose it is
-            // when it cannot even be read.
+            // The cache could not be written to. For the recorder it is of, or the first heard from, that
+            // costs nothing. Another one's it stays -- by its owner, or by what the session knows -- and one
+            // that cannot even be read is nobody's to go on over.
             guard let asked = try? await store.recognises(recorder),
                   asked == .same || (asked == .first && !lastWasAnother) else { return false }
             onDisk = asked
@@ -348,11 +333,8 @@ extension AppModel {
         + "少し待ってから、もう一度お試しください。"
 
     /// Written on each reservation that was waiting when another recorder took the place of the one it was
-    /// made for. It holds the reservation as a refusal does (`PendingQueue.flush`), until the reader sends
-    /// it again or deletes it.
-    ///
-    /// It does not say how: the row shows it under a swipe and the programme's sheet over a button, and the
-    /// reservations screen's footer says which way to swipe.
+    /// made for, which holds it as a refusal does (`PendingQueue.flush`). How to send it again is said by the
+    /// row's swipe, the programme's sheet and the reservations screen's footer.
     static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
         + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
 
@@ -361,10 +343,9 @@ extension AppModel {
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
 
-    /// What the strip says while `anotherTookOver` is set, and only while the app is connected, which is
-    /// when it is true. Nobody need have asked for anything -- the network changing asks the recorder whether
-    /// it is still there, and so does coming back to the app -- so it does not say that something was not
-    /// done, only what to do if something was being.
+    /// What the strip says while `anotherTookOver` is set and the app is connected. Nobody need have asked
+    /// for anything -- a change of network asks the recorder whether it is still there -- so it says what to
+    /// do if something was being done, not that something was not.
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
@@ -585,24 +566,18 @@ extension AppModel {
             wake: { await self.wakeAndAttach(client) ? nil : self.whyNotAttached }))
         switch outcome {
         case .answered:
-            // Another recorder answers where the one in play was: on the probe, or after a waking, whose
-            // attach has turned the app to it already. What the reader asked for names something of the
-            // last recorder's by its number, and is not sent. With nobody known beforehand there was no
-            // other, and nothing of one to send.
+            // Another recorder answers where the one in play was -- on the probe, or after a waking, whose
+            // attach has turned the app to it already. What the reader asked for names something of the last
+            // recorder's by its number, and is not sent.
             if stranger || (known != nil && session.device != known) {
-                // Its lists go at once, and the newcomer is taken up as a recorder just chosen is, by a
-                // connect of its own: that is what reads its reservations and fetches its guide, which a
-                // waking's attach does not.
-                //
-                // A bulk job or a scan under way was the last recorder's. It is stopped before its next
-                // step -- a scan asks for each recording by its number with the client it began with, and
-                // would go on reading the newcomer's by the other's numbers -- and the connect waits for it
-                // to end, since a connect does not start beside a job. What the job came to goes with it:
-                // it finished after the lists it was about had gone.
+                // Its lists go at once, and the newcomer is taken up by a connect of its own, which reads its
+                // reservations and its guide as a waking's attach does not. A job under way was the last
+                // recorder's: it is stopped before its next step, and the connect waits for it to end, since
+                // one does not start beside a job. What the job came to goes with the lists it was about.
                 forgetTheRecorder()
                 cancelBulk()
-                // Said twice. The failure line is for whoever asked and reads it at once; the connect below
-                // takes it away, and the strip is what says it after that (`anotherTookOver`).
+                // Said twice: the failure line for whoever asked, which the connect below takes away, and the
+                // strip after that.
                 problem = Self.anotherAnswered
                 anotherTookOver = true
                 let running = jobTask
