@@ -231,9 +231,7 @@ struct GuideScreen: View {
                 // four in the morning, and at nine at night that is seventeen hours of scrolling before
                 // anything worth reading.
                 .task(id: openingKey) {
-                    try? await Task.sleep(for: .milliseconds(120))
-                    guard let target = opening else { return }
-                    withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                    await scroll(scroller, after: 120) { opening }
                 }
                 // The tab bar's own answer to a tap on the tab already showing is the top of the list, and
                 // there is no declining it: `UIScrollView.scrollsToTop` is honoured for the status bar but
@@ -248,14 +246,31 @@ struct GuideScreen: View {
                 .onChange(of: model.nowRequests) {
                     Task {
                         for wait in Self.homeWaits {
-                            try? await Task.sleep(for: .milliseconds(wait))
-                            guard let target = onAirOrNext else { return }
-                            withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
+                            await scroll(scroller, after: wait) { onAirOrNext }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Puts `target` at the top of the list once `wait` milliseconds have gone by -- unless the list has
+    /// changed meanwhile, and not while the guide is being read again.
+    ///
+    /// SwiftUI keeps a scroll it is asked for as a row's place and makes it at its next update. If the rows
+    /// are replaced before that, in the same turn of the main queue, the place is one the new list need not
+    /// have, and UIKit ends the app (`NSInternalInconsistencyException` from the list's collection view).
+    /// Changing the broadcasting type did it: the opening scroll over the programmes still listed came due
+    /// together with the new type's programmes. A cancelled wait ends at once, so that is looked for as well.
+    /// Nothing is lost by leaving a scroll out: a change of the list starts the opening scroll again.
+    private func scroll(_ scroller: ScrollViewProxy, after wait: Int, to target: () -> GuideProgramRow?) async {
+        let listed = openingKey
+        guard (try? await Task.sleep(for: .milliseconds(wait))) != nil else { return }
+        while model.guideReads > 0 {
+            guard (try? await Task.sleep(for: .milliseconds(50))) != nil else { return }
+        }
+        guard listed == openingKey, let target = target() else { return }
+        withAnimation(.none) { scroller.scrollTo(target.id, anchor: .top) }
     }
 
     private var shown: [GuideProgramRow] { model.filteredPrograms }

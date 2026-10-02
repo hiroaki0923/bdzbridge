@@ -113,6 +113,8 @@ extension AppModel {
 
     func reloadFromCache() async {
         guard let store else { return }
+        guideReads += 1
+        defer { guideReads -= 1 }
         do {
             counts = try await store.counts()
             channels = try await store.channels(broadcasting: broadcasting)
