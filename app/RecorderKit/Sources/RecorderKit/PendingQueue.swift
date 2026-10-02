@@ -2,6 +2,9 @@ import Foundation
 
 /// Sending the reservations that were made while the recorder could not be reached. It lives here rather than
 /// in the app so that the screens and the overnight run follow the same rules.
+///
+/// What it sends is what waits for the recorder (`PendingReservation.target`). A reservation waiting for
+/// another device is left as it is: not sent, not dropped, no reason written on it.
 public enum PendingQueue {
     public struct Outcome: Sendable, Equatable {
         /// Sent to the recorder, and gone from the queue.
@@ -41,18 +44,19 @@ public enum PendingQueue {
         (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
     }
 
-    /// Whether a flush would send anything: one that has not been refused and whose programme is not over.
-    /// What is worth asking before a device is woken for the queue's sake. The rest of what waits needs no
-    /// device: the refused ones wait for the reader, and the finished ones are dropped whenever a flush runs.
+    /// Whether a flush would send anything: one that waits for the recorder, has not been refused and whose
+    /// programme is not over. What is worth asking before the recorder is woken for the queue's sake. The rest
+    /// of what waits for it needs no recorder: the refused ones wait for the reader, and the finished ones are
+    /// dropped whenever a flush runs. What waits for another device is not the recorder's to be woken for.
     public static func hasSomethingToSend(_ waiting: [PendingReservation], now: Date = Date()) -> Bool {
-        waiting.contains { $0.problem == nil && $0.request.end >= now }
+        waiting.contains { $0.target == .recorder && $0.problem == nil && $0.request.end >= now }
     }
 
     private static let oneAtATime = SerialQueue()
 
     private static func send(client: some ReservationTarget, store: GuideStore, now: Date) async -> Outcome {
         var outcome = Outcome()
-        let waiting = (try? await store.pendingReservations()) ?? []
+        let waiting = ((try? await store.pendingReservations()) ?? []).filter { $0.target == .recorder }
         for pending in waiting {
             if pending.request.end < now {
                 try? await store.removePending(pending.id)
