@@ -2,12 +2,9 @@ import Foundation
 
 /// One attempt at a device: the order in which it is woken, asked, waited for and looked for.
 ///
-/// The screens' connect, the check before an operation and the overnight run each made an attempt of their
-/// own, and what was learnt in one did not reach the others (docs/porting.md, 待っていることを画面に出す): the
-/// packet goes before the first ask, a device that answers with an error is there, silence may be the local
-/// network permission rather than sleep, and a device that does not wake may be at another address. The order
-/// is here once. The steps are the caller's: the screens say what they are doing on the way and read what
-/// the device says about itself, the overnight run does neither.
+/// The order is here once, for the screens' connect, the check before an operation and the overnight run
+/// (docs/porting.md, 待っていることを画面に出す). The steps are the caller's: the screens say what they are
+/// doing on the way and read what the device says about itself, the overnight run does neither.
 public enum Reach {
     public enum Outcome: Sendable, Equatable {
         /// It answered: at once, after waking, or at another address.

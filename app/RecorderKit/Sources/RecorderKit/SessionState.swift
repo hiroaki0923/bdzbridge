@@ -3,23 +3,16 @@ import Observation
 
 /// What the app knows of a device and of its link to it, for the screens to read.
 ///
-/// The screens read it and nothing sets a field of it: it changes by what happened. A device described
-/// itself, it went silent, an attempt ended, the permission was missing -- each is one call, and puts every
-/// field it bears on where that event leaves it. Set a field at a time, from a dozen places, an event could
-/// be half put down: a device that went silent left described, a wait for the permission not given up.
-/// Which calls there are is the list of what can happen to a session.
+/// Nothing sets a field of it: it changes by what happened. A device described itself, it went silent, an
+/// attempt ended, the permission was missing -- each is one call, which puts every field it bears on where that
+/// event leaves it, so that no event is half put down. The order of the calls is still the caller's, and some
+/// pairs of fields disagree for a while by design: a device that has described itself is connected at once and
+/// stays marked unreachable from before until `answered()`, once the rest has been read, and having given up
+/// stands through the next connect until `finishedTrying`.
 ///
-/// The order of the calls is still the caller's, and some pairs of fields disagree for a while by design. A
-/// device that has described itself is connected at once, and stays marked unreachable from before until
-/// `answered()`, once the rest has been read. Having given up stands through the next connect until
-/// `finishedTrying`.
-///
-/// The client, the tasks under way and what is said on screen are the caller's. This is the part that can be
-/// said without them, and so tried without a device.
-///
-/// A class bound to the main actor, and the one type in the package that is: it is the screens' state, read
-/// field by field as they draw (`@Observable`), so that a screen is told of the field it reads and not of the
-/// rest. The other shared state here is values and actors.
+/// The client, the tasks under way and what is said on screen are the caller's, so this can be tried without a
+/// device. A class bound to the main actor, the one type in the package that is: the screens read it field by
+/// field as they draw (`@Observable`), and a screen is told of the field it reads and not of the rest.
 @MainActor
 @Observable
 public final class SessionState {
@@ -52,11 +45,10 @@ public final class SessionState {
     public private(set) var mac: String?
     /// Where the device was last tried, and whether the phone has been elsewhere since (`LinkState`).
     public private(set) var link = LinkState()
-    /// Which device this is all about: the UDN of the last one that described itself. Its firmware, its free
-    /// space and its wish for power are the ones above, and the lists the caller holds were read from it. It
-    /// stands through silence -- a device that has stopped answering is still the one they were read from --
-    /// until another device describes itself (`described`) or the caller lets go of it (`forgotTheDevice`).
-    /// Nil before any has, and for a device that gives no UDN.
+    /// Which device this is all about: the UDN of the last one that described itself. The firmware, the free
+    /// space and the wish for power above are its own, and so are the lists the caller holds, so it stands
+    /// through silence, until another device describes itself (`described`) or the caller lets go of it
+    /// (`forgotTheDevice`). Nil before any has, and for a device that gives no UDN.
     public private(set) var device: String?
 
     /// `mac` is what was saved, as it was saved.
@@ -98,13 +90,10 @@ public final class SessionState {
     }
 
     /// The device said who it is. That alone decides that the app is connected; the rest is read after, and
-    /// having been unreachable stands until `answered()`.
-    ///
-    /// Who it is is measured against the device known before, by its UDN and not by the address it answered
-    /// at (`Recognition`). When it is another one, what the last one said of itself goes before this one's
-    /// description is put down -- its firmware and its free space, which are read again in a moment, and that
-    /// it wanted powering on, which is not -- and the caller is told, since the lists it holds are the other
-    /// one's as well.
+    /// having been unreachable stands until `answered()`. Who it is is measured against the device known
+    /// before, by its UDN and not by its address (`Recognition`): when it is another one, what the last one
+    /// said of itself goes before this one's description is put down, and the caller is told, since the lists
+    /// it holds are the other one's as well.
     @discardableResult
     public func described(_ description: RecorderDescription) -> Recognition {
         let who = recognises(description)
@@ -126,12 +115,11 @@ public final class SessionState {
     /// The attach is through.
     public func attached() { timesAttached += 1 }
 
-    /// An attach failed, with `failure` when a device's error says which kind and nil when it does not.
-    /// Silence leaves the device unreachable and no longer described. An address that is not one leaves it
-    /// undescribed too: the last device's description standing would have the app look connected, to a device
-    /// it is no longer set to. Anything else answered, so the device is there and what is known of it stands
-    /// -- which is nothing when another device has just been chosen: the caller forgets the last one at the
-    /// choice (`forgotTheDevice`), before anything is asked at the new address.
+    /// An attach failed, with `failure` when a device's error says which kind and nil when it does not. Silence
+    /// leaves the device unreachable and no longer described. An address that is not one leaves it undescribed
+    /// too, or the app would look connected to a device it is no longer set to. Anything else answered, so the
+    /// device is there and what is known of it stands -- which is nothing when another has just been chosen:
+    /// the caller forgets the last one at the choice (`forgotTheDevice`).
     public func attachFailed(_ failure: DeviceFailure?) {
         unreachable = failure == .silent
         if failure == .silent || failure == .badAddress { info = nil }
@@ -147,10 +135,9 @@ public final class SessionState {
         link.tried(on: network)
     }
 
-    /// A request met silence and nothing brought the device back: not connected, and given up until the
-    /// network changes or the reader asks. Where it was tried is left as it was, which is where the attempt
-    /// began: a Wi-Fi that went while the request was out and came back before it timed out must not be put
-    /// down as tried.
+    /// A request met silence and nothing brought the device back: not connected, and given up until the network
+    /// changes or the reader asks. Where it was tried is left as it was, where the attempt began: a Wi-Fi that
+    /// went and came back while the request was out must not be put down as tried.
     public func lost() {
         unreachable = true
         info = nil

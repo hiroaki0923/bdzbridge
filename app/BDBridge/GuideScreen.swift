@@ -22,9 +22,8 @@ struct GuideScreen: View {
                 if nothingAndNoRecorder {
                     NoRecorderView(icon: "calendar")
                 } else if nothing, !nothingByChoice, model.guideOnItsWay {
-                    // The first run lands here as soon as the recorder answers. Saying there was nothing for the
-                    // day, and pointing at a refresh button greyed out meanwhile, read as though the download
-                    // had come to nothing.
+                    // The first run lands here as soon as the recorder answers. Saying there is nothing for the
+                    // day would read as though the download had come to nothing.
                     ContentUnavailableView {
                         Label("番組表を取得しています", systemImage: "calendar")
                     } description: {
@@ -85,8 +84,7 @@ struct GuideScreen: View {
                             .disabled(dayIndex <= 0)
                             .accessibilityLabel("前の日")
                         Menu {
-                            // Where a tap on the guide's tab already showing goes, which few would guess. It
-                            // was the only way back to what is on now.
+                            // Where a tap on the guide's tab already showing goes, which few would guess.
                             Button { model.goToNow() } label: { Label("今", systemImage: "clock") }
                             Divider()
                             Picker("日付", selection: dayChoice) {
@@ -120,8 +118,7 @@ struct GuideScreen: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("番組表を更新")
-                    // Not for a model that has no guide to give, which the empty guide says in so many words:
-                    // a button left alive beside that looked like the way to put it right.
+                    // Not for a model that has no guide to give, which the empty guide says in so many words.
                     .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }
             }
@@ -142,11 +139,9 @@ struct GuideScreen: View {
     /// The navigation bar has room for a word, not for 地上デジタル. Nor has a segmented control.
     static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
 
-    /// An arrow beside the day, which was a glyph and answered only to a tap on the glyph. Its area runs up
-    /// and down as far towards the 44 points a finger needs as the bar lets an item be tall, which takes
-    /// nothing from anything beside it. Not across: on a narrow iPhone the arrows already all but touch the
-    /// buttons on the right. Nor can the area reach past the arrow instead, as the strip's buttons do: the bar
-    /// answers only to taps inside what its items take up.
+    /// An arrow beside the day. Its area runs up and down as far towards the 44 points a finger needs as the
+    /// bar lets an item be tall. Not across: on a narrow iPhone the arrows all but touch the buttons on the
+    /// right. Nor past the arrow, as the strip's buttons do: the bar answers only to taps inside its items.
     private func dayArrow(_ symbol: String) -> some View {
         Image(systemName: symbol).frame(minHeight: 44).contentShape(Rectangle())
     }
@@ -182,9 +177,7 @@ struct GuideScreen: View {
         return shown.first { $0.end > now }
     }
 
-    /// Nothing for the day on screen, and no recorder to fetch it from. The list said エラー over whatever had
-    /// failed last, with no button under it and nothing to do but find the settings, and the grid pointed to
-    /// the refresh button, which is greyed out while not connected. `NoRecorderView` says what is wrong and
+    /// Nothing for the day on screen, and no recorder to fetch it from: `NoRecorderView` says what is wrong and
     /// offers 再接続 and レコーダーを探す.
     private var nothingAndNoRecorder: Bool {
         !model.connected && nothing && !nothingByChoice
@@ -206,12 +199,9 @@ struct GuideScreen: View {
         model.everyChannelHidden || (narrowed && !model.programs.isEmpty)
     }
 
-    /// The day's programmes. Only reached with some to show: the empty states are the body's.
-    ///
-    /// A guide that is in the cache is shown whatever the recorder is doing. It is the whole reason the cache
-    /// exists: away from home the recorder cannot be reached, and a programme can still be read and still be
-    /// reserved -- the reservation waits in the queue. An error in place of the guide left nothing to do but
-    /// go home.
+    /// The day's programmes. Only reached with some to show: the empty states are the body's. A guide in the
+    /// cache is shown whatever the recorder is doing, which is what the cache is for: away from home a
+    /// programme can still be read and still be reserved, and the reservation waits in the queue.
     private var list: some View {
         // Drawn again each minute, so that the programme on air is marked as it starts and the one before it
         // dimmed as it ends, with nobody touching the list.
@@ -298,20 +288,16 @@ struct GuideScreen: View {
     }
 }
 
-/// What the guide says when there is nothing to show for the day, in the list and in the grid alike. It used
-/// to say この日の番組表はありません and point at the refresh button whatever the reason -- in the grid always,
-/// in the list unless something had failed -- and most of the reasons are not put right by a refresh: a
-/// broadcasting type or a day the demo's guide does not cover, every channel hidden, the list narrowed to a
-/// channel with nothing that day, a recorder with no guide to give.
-///
-/// Not for a recorder that cannot be reached, nor for a guide on its way, which the screen says before this.
+/// What the guide says when there is nothing to show for the day, in the list and in the grid alike. It says
+/// why, since most of the reasons are not put right by a refresh: every channel hidden, the list narrowed to a
+/// channel with nothing that day, a recorder with no guide to give. Not for a recorder that cannot be reached,
+/// nor for a guide on its way, which the screen says before this.
 struct GuideEmptyView: View {
     @Environment(AppModel.self) private var model
     /// The list narrowed to one channel. The grid shows every channel, whatever the list is set to.
     var narrowed = false
-    /// Opens the channel settings, for a guide with every channel hidden. The sheet belongs to the screen
-    /// rather than to this view: the first channel turned back on takes this view away, and a sheet hung on
-    /// it closed with it, under the reader's finger.
+    /// Opens the channel settings, for a guide with every channel hidden. The sheet belongs to the screen: the
+    /// first channel turned back on takes this view away, and a sheet hung on it would close with it.
     var arrange: (() -> Void)? = nil
 
     @ViewBuilder
@@ -379,14 +365,12 @@ struct ProgramRowView: View {
     /// The time the marks are worked out for. The guide's list passes the minute it was last drawn at.
     var now = Date()
 
-    /// The time column, as wide as the time needs at the reader's text size. At a fixed 52 points it split
-    /// 18:0 / 0 two sizes above the default.
+    /// The time column, as wide as the time needs at the reader's text size.
     @ScaledMetric(relativeTo: .callout) private var timeWidth = 52.0
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 12.0
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// Marked the way the grid marks it, which the list did not: a day's list opens at what is on now, and
-    /// nothing said which of the rows at the top that was.
+    /// Marked as in the grid: a day's list opens at what is on now, and this says which row that is.
     private var onAir: Bool { program.start <= now && now < program.end }
     /// Dimmed, as in the grid, so that the eye goes past what can no longer be watched or reserved.
     private var ended: Bool { program.end <= now }
@@ -432,9 +416,8 @@ struct ProgramRowView: View {
         }
     }
 
-    /// The channel and the marks as one line of text, which wraps as a line does. As separate views side by
-    /// side, a large text size gave each a narrow column of its own. The genre is in the secondary grey with
-    /// the rest: it was fainter still, too faint to read, and it is the only place the list says it.
+    /// The channel and the marks as one text, which wraps as a line does: views side by side each get a narrow
+    /// column at a large text size. The genre is as grey as the rest, being the only place the list says it.
     private var meta: Text {
         var line = Text(program.serviceName)
         if onAir {

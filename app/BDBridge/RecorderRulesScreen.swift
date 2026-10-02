@@ -42,8 +42,7 @@ struct RecorderRulesScreen: View {
                      + "対象チャンネルの指定はレコーダー本体でのみ設定でき、ここには表示されません。")
             }
         }
-        // The screens' strip, which a screen pushed onto a stack does not get from the one it came from: the
-        // read and the delete said nothing here while they waited for the recorder.
+        // The screens' strip, which a screen pushed onto a stack does not get from the one it came from.
         .recorderActivity()
         .navigationTitle("おまかせ・まる録")
         .navigationBarTitleDisplayMode(.inline)
@@ -55,10 +54,8 @@ struct RecorderRulesScreen: View {
             }
         }
         .refreshable { await model.loadRecorderRules() }
-        // Keyed on `connected`, and on what the read itself checks. `connected` turns true partway through a
-        // connect, while the recorder is still marked silent from before, so a read set going by it found
-        // nothing to ask and was not tried again -- after 再接続 the screen went on saying the list could not
-        // be read.
+        // Keyed on `connected`, and on what the read itself checks, since `connected` turns true while the
+        // recorder is still marked silent: see `RecordingsScreen`.
         .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }
         .sheet(isPresented: $adding) { RecorderRuleSheet() }
         // The condition picked for deletion is the last recorder's when its lists are let go of: see
@@ -133,8 +130,7 @@ struct RecorderRuleRow: View {
         if let genre = rule.genreLabel { parts.append(genre) }
         if let quality = rule.qualityName { parts.append(Codes.qualityLabel[quality] ?? quality) }
         // The 4K waves have a mode of their own. A condition on every wave made without it records BS4K and
-        // CS4K in DR whatever the mode beside it says, and this is where such a condition is seen, to be made
-        // again.
+        // CS4K in DR whatever the mode beside it says, and this is where one is seen, to be made again.
         if let quality = rule.qualityName4K { parts.append("4K: " + (Codes.qualityLabel[quality] ?? quality)) }
         return parts.joined(separator: " · ")
     }
@@ -175,9 +171,8 @@ struct RecorderRuleSheet: View {
     }
 
     /// The genres a condition can name: the twelve kinds of programme. The table also holds the extension
-    /// area (0xE), so that it is the whole standard, but that is not a kind of programme -- it says what the
-    /// bytes after it are for. It has sub-genres of its own, so the test for sub-genres, which keeps その他
-    /// (0xF) out, lets it in; it is left out by name.
+    /// area (0xE), which says what the bytes after it are for and is no kind of programme. It has sub-genres
+    /// of its own, so the test for those, which keeps その他 (0xF) out, lets it in: it is left out by name.
     private static let genres = Codes.genreLabel.keys.sorted().filter { $0 != 0xE && Codes.subGenreLabel[$0] != nil }
 
     private var problem: String? {
@@ -304,7 +299,7 @@ struct RecorderRuleSheet: View {
 struct WordRow: View {
     let placeholder: String
     @Binding var text: String
-    /// nil when this row cannot go: the last keyword of a condition that has no genre.
+    /// nil when this row gets no button: the only keyword row left.
     let remove: (() -> Void)?
 
     var body: some View {

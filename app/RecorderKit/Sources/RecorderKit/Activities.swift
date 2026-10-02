@@ -2,16 +2,10 @@ import Foundation
 
 /// What the app is doing with the recorder, as a list of lines rather than a single one.
 ///
-/// The app used to keep one line, and each piece of work saved the line it found, put up its own, and put
-/// the saved one back when it finished. That is right only for work that nests, and work here does not:
-/// the client answers its requests in the order they arrive, so the piece of work begun first is usually
-/// the one to finish first. It then puts back the line from before either of them started -- nothing, say
-/// -- while the second is still going; and when the second finishes it puts back the line of the first,
-/// which has finished already. That line then stays on screen for good, and everything that waits for the
-/// app to be idle waits for ever.
-///
-/// So each piece of work holds a token for a line of its own, changes only that line, and takes only that
-/// line away. Here rather than in the app so that `swift test` can check it without a simulator.
+/// Saving one shared line and putting it back afterwards is right only for work that nests, and work here
+/// does not: the client answers its requests in the order they arrive, so the piece begun first usually
+/// finishes first. So each piece of work holds a token for a line of its own, and changes and takes away
+/// only that line. Here rather than in the app so that `swift test` can check it without a simulator.
 public struct Activities: Sendable, Equatable {
     /// Which line is whose. Issued by `begin` and good for nothing else.
     public struct Token: Hashable, Sendable {

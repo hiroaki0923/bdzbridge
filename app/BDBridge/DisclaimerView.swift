@@ -1,10 +1,7 @@
 import SwiftUI
 
-/// What the reader should know before this app writes to their recorder.
-///
-/// The one that matters is the deletion: a recording deleted here is gone from the recorder, and the
-/// recorder has no undo. The rest is the honest surroundings -- this is not Sony's app, the lists are what
-/// was read a moment ago rather than what is true now, and one model is all this has been tried on.
+/// What the reader should know before this app writes to their recorder: above all that a recording deleted
+/// here is gone from the recorder, which has no undo.
 ///
 /// The same words are in `docs/disclaimer.md`, which is where the store links to. Change both.
 struct DisclaimerView: View {

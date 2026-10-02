@@ -43,14 +43,12 @@ struct ReservationsScreen: View {
         NavigationStack {
             Group {
                 // Away from home there is still something to show: what the recorder said last time, and
-                // above all what is waiting to be sent to it. Hiding the queue behind a connection is
-                // hiding it exactly when it is in use.
+                // above all the queue, which is in use exactly then.
                 if !model.connected, model.reservations.isEmpty, model.pending.isEmpty {
                     NoRecorderView(icon: "clock")
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
-                    // down still reloads: a reservation just made on the box is exactly what an empty
-                    // screen is waiting for, and a plain placeholder has nothing to pull.
+                    // down still reloads: a plain placeholder has nothing to pull.
                     list.overlay {
                         if model.shownReservations.isEmpty, model.pending.isEmpty {
                             ContentUnavailableView("予約はありません", systemImage: "clock",
@@ -102,18 +100,13 @@ struct ReservationsScreen: View {
             // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
             // the app is not connected to.
             .refreshable { await model.refreshReservations() }
-            // Keyed as the recordings and the keyword conditions are: on `connected`, and on what the load
-            // itself checks. This list was never left empty by `connected` turning true while the recorder
-            // was still marked silent: a connect reads it by itself, and silence does not empty it. But the
-            // waking that a check before an operation does reads this list only when it has sent something
-            // from the queue, where a connect always reads it; unless the operation reads it itself, as
-            // cancelling and changing do, this screen went on showing what was read before the recorder
-            // slept. A connect that follows silence, made with this tab in front, now reads the list twice,
-            // one read after the other.
+            // Keyed as the recordings are, on `connected` and on what the load itself checks. A connect reads
+            // this list by itself, but the waking that a check before an operation does reads it only when it
+            // has sent something from the queue, and the screen would go on showing what was read before the
+            // recorder slept. A connect that follows silence, with this tab in front, reads the list twice.
             .task(id: model.connected && !model.offline) {
                 // The queue is on this device and costs nothing to read, so it is read first: behind the
-                // reservations it would have waited out a timeout before appearing, which looked like a
-                // queue that had swallowed the reservation.
+                // reservations it would wait out a timeout before appearing.
                 await model.loadPending()
                 await model.loadReservations()
             }
@@ -199,8 +192,7 @@ struct ReservationsScreen: View {
                 Section {
                     ForEach(model.pending) { waiting in
                         PendingRowView(waiting: waiting)
-                            // 削除, as on the reservations below it, and asked first like every other delete:
-                            // the programme's sheet asked before letting one go, and this swipe did not.
+                            // 削除, as on the reservations below it, and asked first like every other delete.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button("削除") { removingPending = waiting.id }.tint(.red)
                             }
@@ -232,9 +224,8 @@ struct ReservationsScreen: View {
                                 .rowHitArea()
                         }
                         .buttonStyle(.plain)
-                        // `role: .destructive` would animate the row away as it is swiped, before there
-                        // is an answer, and it stays away when the answer is no. The colour is all that is
-                        // wanted here. A full swipe is off for the same reason: this one asks first.
+                        // Red without `role: .destructive`, which would animate the row away before there
+                        // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
                             Button("削除") { removing = reservation.id }.tint(.red)
                         }
@@ -298,8 +289,7 @@ struct ReservationRowView: View {
             .clipShape(Capsule())
     }
 
-    /// The channel and how it records, as one line of text for the same reason. The genre is in the secondary
-    /// grey with the rest: it was fainter still, too faint to read.
+    /// The channel and how it records, as one line of text for the same reason.
     private var meta: Text {
         var parts: [Text] = []
         if !channel.isEmpty { parts.append(Text(channel)) }

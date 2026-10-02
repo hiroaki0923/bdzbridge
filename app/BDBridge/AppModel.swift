@@ -15,15 +15,9 @@ import UserNotifications
 /// `AppModelReservations` (with the queue), `AppModelRecorderRules`, `AppModelRecordings` and
 /// `AppModelBulkWork` (with the duplicates).
 ///
-/// A stored property has to be declared in the class, and an extension in another file can reach it only if
-/// it is not private. So much of the state below is internal, and settable, where it used to be private or
-/// `private(set)`: that is for the extensions, not for the screens. The screens read the state and call the
-/// methods; nothing outside the `AppModel` files should set it.
-///
-/// What is known of the recorder and of the link to it is the exception, and the way out of that: it is
-/// `session`, a `SessionState` from RecorderKit, which no file here can set a field of. It changes by what
-/// happened to it, and the properties the screens read it through (`gaveUp`, `connected`, `waking` and the
-/// rest) are read-only.
+/// An extension in another file cannot reach what is private, so much of the state below is internal and
+/// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
+/// set it. The exception is `session`, which no file here can set a field of.
 @MainActor
 @Observable
 final class AppModel {
@@ -33,15 +27,13 @@ final class AppModel {
         didSet { defaults.set(host, forKey: DefaultsKey.recorderHost) }
     }
 
-    /// Changing it lets go of the channel the list was narrowed to. A channel belongs to one broadcasting type,
-    /// so one chosen on another left the list empty, pointing at the refresh button as though the guide were
-    /// missing, and the channel menu no longer named what it was narrowed to.
+    /// Changing it lets go of the channel the list was narrowed to: a channel belongs to one broadcasting
+    /// type, and one chosen on another would leave the list empty.
     ///
-    /// Kept across launches, as the two orders below are: somebody who reads the BS guide found terrestrial
-    /// back every time the app started. The filters are not kept -- a list opened narrowed to a genre, a watch
-    /// state or one kind of reservation, with nothing but a filled-in icon to say so, reads as recordings or
-    /// reservations gone missing. A launch argument for any of the three keys pins it, which is how the UI
-    /// tests start from the same screen.
+    /// Kept across launches, as the two orders below are. The filters are not: a list opened narrowed to a
+    /// genre, a watch state or one kind of reservation, with only a filled-in icon to say so, reads as
+    /// recordings or reservations gone missing. A launch argument for any of the three keys pins it, which
+    /// is how the UI tests start from the same screen.
     var broadcasting = "td" {
         didSet {
             if broadcasting != oldValue { serviceFilter = nil }
@@ -61,14 +53,11 @@ final class AppModel {
     var serviceFilter: Int?
 
     /// What is known of the recorder and of the link to it: whether it is described, unreachable, given up
-    /// on, being woken, and the rest. It changes only by what happened to it (`SessionState`), which the model
-    /// tells it from `AppModelSession`, and from `AppModelSetup` and `AppModelRecordings` where another
-    /// recorder is chosen and where one asks to be powered on. The screens read it through the properties
-    /// below, which cannot be set.
+    /// on, being woken, and the rest. It changes only by what happened to it (`SessionState`), and the screens
+    /// read it through the properties below, which cannot be set.
     ///
-    /// What happened is the model's to say, not a screen's: some of it has more to it than the session keeps.
-    /// A screen that wants the MAC gone calls `forgetMac()` here, which also takes it out of the defaults the
-    /// overnight run reads.
+    /// What happened is the model's to say, not a screen's, since some of it has more to it than the session
+    /// keeps: `forgetMac()` here also takes the MAC out of the defaults the overnight run reads.
     let session: SessionState
 
     var info: RecorderDescription? { session.info }
@@ -100,8 +89,7 @@ final class AppModel {
     var found: [RecorderDescription] = []
     var scanning: (done: Int, total: Int)?
     /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
-    /// which every screen shows as a failure: a scan that found nothing was said at the foot of the
-    /// tutorial, below the fold on most iPhones, and after "あとで設定" the guide showed it as an error.
+    /// which every screen shows as a failure.
     var scanOutcome: ScanOutcome?
     /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
     /// answered no -- so that the screens can say so and offer the Settings app.
@@ -118,21 +106,17 @@ final class AppModel {
     var scanRun = 0
     /// Waits for the local network permission after a connect ran into it, and connects when it comes.
     var accessWatch: Task<Void, Never>?
-    /// Everything under way with the recorder, each with a line of its own. Work overlaps -- a tab asking
-    /// for its list while another is still loading -- and the client finishes it first come, first served,
-    /// so nothing here can save one shared line and put it back afterwards. See `Activities`.
+    /// Everything under way with the recorder, each with a line of its own, since work overlaps (`Activities`).
     var activities = Activities()
     /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
     var busy: String? { activities.current }
     /// Set while the app is only waiting for the recorder to come back from a magic packet, or looking for it
-    /// at another address after that (`findMovedRecorder`). Nothing is being written and nothing is being
-    /// read, so the screens leave alive what they can: a reservation made during these seconds goes to the
-    /// queue, which is what the queue is for.
+    /// at another address after that (`findMovedRecorder`). Nothing is being written or read, so the screens
+    /// leave alive what they can: a reservation made meanwhile goes to the queue.
     var waking: Bool { session.waking }
     /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
-    /// until either the network this device is on changes or the reader asks for it, because the answer
-    /// will be the same and each ask costs a timeout: the client serialises its requests, so a screen full
-    /// of lists wanting to load turns into minutes of a spinner saying the wrong thing.
+    /// until the network this device is on changes or the reader asks: the answer would be the same, and
+    /// each ask costs a timeout, one after another in a client that serialises its requests.
     var gaveUp: Bool { session.gaveUp }
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
     var needsPower: Bool { session.needsPower }
@@ -204,16 +188,12 @@ final class AppModel {
     var connected: Bool { session.connected }
 
     /// Bumped each time a connect reaches the recorder (`attach`), which is before it goes on to read the
-    /// reservations and the guide. A count rather than a flag, so that a screen where a recorder has just been
-    /// chosen can tell the answer to that choice from a connection that was already up. See `WelcomeView`.
+    /// reservations and the guide. A count rather than a flag: see `WelcomeView`.
     var timesAttached: Int { session.timesAttached }
 
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
-    /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
-    ///
-    /// A copy of `DemoData.on` rather than a read of it: that lives in UserDefaults, where no screen sees it
-    /// change, and ending the demo left the strip saying the data was invented -- with a 終了 that did
-    /// nothing -- until something else on the model happened to move.
+    /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards. A copy
+    /// of `DemoData.on` rather than a read of it: that lives in UserDefaults, where no screen sees it change.
     var demo: Bool
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
@@ -221,14 +201,12 @@ final class AppModel {
     var working: Bool { busy != nil && !waking }
 
     /// Whether the recorder in play may be changed now: into the demo or out of it, or to another address.
-    /// Not while anything is under way with the one in play. A connect or a load carries on with the client
-    /// it started with, and what it reads lands on the screens of whichever recorder came after it -- a real
-    /// recorder's details in the demo. `busy` alone leaves gaps inside a connect, such as the check of the
-    /// local network permission, so `connecting` counts as well. Nor while a bulk job runs: it holds the
-    /// client and the list it started from, and would go on marking rows in a list that is no longer its own.
-    /// Nor while the recorder is being made sure of (`wakeIfDozing`), whose first ask has no line of its own:
-    /// it goes on with the client it began with, and a recorder it wakes is attached as whichever recorder is
-    /// in play by then.
+    /// Not while anything is under way with the one in play: a connect or a load carries on with the client
+    /// it started with, and what it reads lands on the screens of whichever recorder came after it. `busy`
+    /// alone leaves gaps inside a connect, such as the check of the local network permission, so `connecting`
+    /// counts as well. Nor while a bulk job runs, which holds the client and the list it started from. Nor
+    /// while the recorder is being made sure of (`wakeIfDozing`), whose first ask has no line of its own: a
+    /// recorder it wakes would be attached as whichever recorder is in play by then.
     var canChangeRecorder: Bool { busy == nil && !connecting && !jobRunning && wakeCheck == nil }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
@@ -252,13 +230,10 @@ final class AppModel {
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
     /// only the first caller does the work.
     ///
-    /// The first call also sets the first connect going, without waiting for it. Waiting was a deadlock:
-    /// the connect ran inside the task this awaited, and reading the reservations -- which the connect does
-    /// -- awaited this, so the connect waited for itself and the app spun until it was quit. Only a race
-    /// with coming to the foreground, which usually got its own connect in first, kept it from being seen.
-    /// So nothing `connect()` reaches may await this; it uses the `...Now` loads, which do not. Not waiting
-    /// also lets a search, which needs nothing but the cache, answer at once rather than after half a
-    /// minute of waking a recorder that is not there.
+    /// The first call also sets the first connect going, without waiting for it. Waiting was a deadlock when
+    /// something the connect did awaited this in turn, so nothing `connect()` reaches may await this; it uses
+    /// the `...Now` loads, which do not. Not waiting also lets a search, which needs nothing but the cache,
+    /// answer at once rather than after half a minute of waking a recorder that is not there.
     func start() async {
         // The days were worked out when the model was made, and a process the system started in the night
         // for the overnight run is still here when the app is opened in the morning.
@@ -328,8 +303,7 @@ final class AppModel {
     }
 
     /// The same by the programme each is for, so that the guide, the search results and the programme's
-    /// sheet can say it is waiting. Without it a programme reserved away from home looked unreserved
-    /// everywhere but the reservations tab, and opening it again offered the reservation form again.
+    /// sheet can say it is waiting.
     var pendingByProgram: [String: PendingReservation] = [:]
 
     /// What the last sending of the queue came to, and how many reservations are held for another recorder,

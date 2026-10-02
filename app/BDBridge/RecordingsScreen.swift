@@ -94,12 +94,10 @@ struct RecordingsScreen: View {
             }
             // Keyed on `connected`, and on what the load itself checks, as the keyword conditions' screen is.
             // `connected` turns true partway through a connect, while the recorder is still marked silent
-            // from before, so a load set going by it alone found nothing to ask and was not tried again: a
-            // recorder woken with this tab open ended on an empty list, until it was pulled down.
+            // from before, and a load set going by it alone finds nothing to ask and is not tried again.
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
-            // pulling down reads the list again from the recorder; not while a bulk job is walking it
-            // Pulling down while the app has given up on the recorder is the reader asking for another go
-            // at it, which is the same thing the strip's 再接続 does.
+            // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
+            // With the recorder given up on, it is the reader asking for another go, as the strip's 再接続 is.
             .refreshable {
                 guard !model.jobRunning else { return }
                 if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
@@ -202,10 +200,8 @@ extension View {
     /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
     /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
     ///
-    /// A protected recording cannot be deleted at all; the recorder refuses it. So rather than offering a
-    /// button that can only fail, the swipe offers the thing that has to happen first, and deleting is one
-    /// more swipe away.
-    /// `title` is nil where the row should not be swipeable at all.
+    /// The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has
+    /// to happen first. `title` is nil where the row should not be swipeable at all.
     func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -241,8 +237,7 @@ struct TitleRowView: View {
         .padding(.vertical, 2)
     }
 
-    /// The title after the lock and 録画中, in one text for the same reason as the line under it: beside
-    /// 録画中 the title was left a column a few characters wide.
+    /// The title after the lock and 録画中, in one text for the same reason as the line under it.
     private var heading: Text {
         var line = Text(title.title).font(.subheadline)
         if title.recording {
@@ -332,9 +327,8 @@ struct GroupSheet: View {
     let group: TitleGroup
     @Environment(AppModel.self) private var model
 
-    /// The episode opened, in a sheet over this one. It was handed to the screen underneath, which meant
-    /// closing this sheet to open it: back from one episode, the reader was on the list of programmes and had
-    /// to find the programme again for the next.
+    /// The episode opened, in a sheet over this one, so that closing it comes back to this programme rather
+    /// than to the list of programmes.
     @State private var opened: RecordedTitle?
     @State private var selecting = false
     @State private var selected: Set<String> = []
@@ -362,9 +356,8 @@ struct GroupSheet: View {
     }
 
     var body: some View {
-        // Read once here and handed to the parts that need them. Each read sorts every recording and picks
-        // this programme's out of them, and every tick in the selection draws the sheet again; read wherever
-        // they were wanted, that came to half a dozen reads a tap.
+        // Read once here and handed to the parts that need them: each read sorts every recording and picks
+        // this programme's out of them, and every tick in the selection draws the sheet again.
         let members = model.members(of: group)
         let chosen = members.filter { selected.contains($0.id) }
         let shown = self.shown(among: members)

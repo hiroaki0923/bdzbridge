@@ -29,13 +29,10 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     /// An app on the network set this up: this one, or the official one.
     public var createdByApp: Bool { creator == "2200" }
 
-    /// The recorder set this up by itself, which is what its own automatic recording does. Observed on a
-    /// BDZ-FBT4100: deleting one of these does work, and then the recorder makes it again with a new id the
-    /// next time it reads the guide. Telling the reader beats letting them wonder.
-    ///
-    /// The renumbering takes the whole block of them at once, not one at a time — 19 in one go, the
-    /// programmes themselves unchanged — so an id of one of these goes stale on its own, without anything
-    /// on screen looking different. Anything that writes has to find the reservation again first.
+    /// The recorder set this up by itself, which is what its own automatic recording does. On a BDZ-FBT4100
+    /// deleting one works, and the recorder makes it again with a new id the next time it reads the guide.
+    /// It renumbers the whole block of them at once, the programmes unchanged, so an id of one of these goes
+    /// stale on its own: anything that writes has to find the reservation again first.
     public var createdByRecorder: Bool { creator == "1100" }
 }
 
@@ -112,9 +109,8 @@ public struct RecorderDescription: Equatable, Sendable {
 
     /// Whether this is the recorder whose wired MAC is `mac`, written in any shape `WakeOnLan.normalise`
     /// takes. A Sony recorder's UDN ends with that MAC (`uuid:XXXXXXXX-XXXX-XXXX-XXXX-<MAC>`, the same as
-    /// ARP on a BDZ-FBT4100), and it is the address `X_GetPrivateIp` reports as `macAddress` -- the one the
-    /// app keeps for waking the recorder. So a recorder the router has given another address can be told
-    /// from any other on the LAN by what was already saved, without its UDN ever having been written down.
+    /// ARP on a BDZ-FBT4100), and it is the address `X_GetPrivateIp` reports as `macAddress`, which the app
+    /// keeps for waking it. So a recorder given another address can be told from any other by what was saved.
     public func hasMAC(_ mac: String) -> Bool {
         guard let wanted = WakeOnLan.normalise(mac),
               let tail = udn.split(separator: "-").last,
@@ -124,8 +120,7 @@ public struct RecorderDescription: Equatable, Sendable {
 
     /// Who this is, measured against the device whose UDN is `known`. A device that gives no UDN cannot be
     /// told from any other and is taken for the one known: read the other way, everything kept of the
-    /// recorder would be forgotten each time it answered. A UDN is a UUID, which reads the same in either
-    /// case, so one spelled another way is the same device and not a stranger.
+    /// recorder would be forgotten each time it answered. A UDN is a UUID, so its case does not matter.
     public func recognised(as known: String?) -> Recognition {
         guard let known, !known.isEmpty else { return .first }
         return udn.isEmpty || udn.caseInsensitiveCompare(known) == .orderedSame ? .same : .another
@@ -134,12 +129,10 @@ public struct RecorderDescription: Equatable, Sendable {
 
 /// Who a device that has just described itself is, measured against the one known before.
 ///
-/// The address is only where to knock. What the app keeps of a recorder -- its lists in memory, and on the
-/// phone the programme texts, the guide and when each type of it was fetched -- was said by one device, and
-/// is that device's wherever it answers and nobody else's: each recorder numbers its recordings, its
-/// reservations and its keyword conditions for itself, so a row kept from one names something else on the
-/// next. A recorder says which it is in its description (`RecorderDescription.udn`), and that is what is
-/// compared: by `SessionState` for what is in memory, by `GuideStore` for what is on the phone.
+/// The address is only where to knock. What the app keeps of a recorder is that device's wherever it
+/// answers and nobody else's: each recorder numbers its recordings, its reservations and its keyword
+/// conditions for itself, so a row kept from one names something else on the next. `RecorderDescription.udn`
+/// is what is compared: by `SessionState` for what is in memory, by `GuideStore` for what is on the phone.
 public enum Recognition: Sendable, Equatable {
     /// Nobody was known before.
     case first

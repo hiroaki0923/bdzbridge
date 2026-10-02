@@ -8,8 +8,7 @@ public enum RecorderError: Error, Equatable, Sendable {
     /// An answer that was not XML at all, usually a wrong path or a different device on that port.
     case badResponse(status: Int)
     /// A well-formed answer without what was asked for in it, or not in the shape the BDZ-FBT4100 gives it:
-    /// most likely another model of the series, answering a call it shares in a way of its own. Not
-    /// `unreachable`, since the recorder is there, and not a `refusal` either.
+    /// most likely another model of the series, answering a call it shares in a way of its own.
     case unexpectedAnswer(action: String)
     /// The recorder answered, but not with the guide file asked for. A BDZ-FBT4100 answers 500 here while
     /// it has no file to give: after the box is restarted or its channels are re-scanned, the files are
@@ -18,10 +17,9 @@ public enum RecorderError: Error, Equatable, Sendable {
     case notHTTP
     /// The recorder was reached but is not the one we expect.
     case notARecorder(host: String)
-    /// The recorder answered 503 to the request and to both tries after it: it is busy with another one,
-    /// from the official app or another phone, or from a second client in this app. It is there, so this is
-    /// not `unreachable`, and it said nothing about the request, so not a `refusal` either. `action` is the
-    /// SOAP action, or the file asked for.
+    /// The recorder answered 503 to the request and to both tries after it: it is busy with another one, from
+    /// the official app or another phone, or from a second client in this app. `action` is the SOAP action, or
+    /// the file asked for.
     case busy(action: String)
     /// The saved address is not something a URL can be built on, so nothing was sent. Not `unreachable`:
     /// the recorder was never asked, and waking it would not make the address any better.
@@ -82,12 +80,11 @@ public enum RecorderError: Error, Equatable, Sendable {
 
     /// True when the recorder turned the request down for a reason of its own: a SOAP fault carrying a UPnP
     /// `errorCode`, such as 402 for a request it will not take or 831 for a channel it cannot receive. Asking
-    /// again gets the same answer, so a reservation waiting in the queue is not sent again after one of these
-    /// until the reader says so.
+    /// again gets the same answer, so a reservation in the queue is not sent again until the reader says so.
     ///
     /// Not a 503, which is the recorder busy with somebody else's request; not an answer with no code in it,
-    /// which says nothing about the request; and not 880, which is about the recorder being in standby rather
-    /// than about what was asked. Those pass, and asking again later is right.
+    /// which says nothing about the request; and not 880, which is about standby rather than what was asked.
+    /// Those pass, and asking again later is right.
     public var refusal: Bool {
         guard case .soap(_, let status, let code?, _) = self else { return false }
         return status != 503 && code != "880"
@@ -120,11 +117,9 @@ public extension RecorderError {
     /// Runs a read the app can do without -- the firmware version and the free space, which are only shown,
     /// and the MAC, which is only kept for later -- and lets nothing out of it but silence.
     ///
-    /// Every call this package makes is answered by a BDZ-FBT4100, but the rest of the series need not answer
-    /// all of them, or answer them in the same shape. A recorder that refuses a read like this one, or gives
-    /// an answer that cannot be read, is a recorder that is there, and the value is merely not known: nil,
-    /// for the caller to carry on without. Failing on it made the whole connection fail over a line in the
-    /// settings. Silence is thrown all the same, since it says the recorder is not there, whatever was asked.
+    /// A BDZ-FBT4100 answers every call this package makes, but the rest of the series need not, or not in the
+    /// same shape. A recorder that refuses such a read, or gives an answer that cannot be read, is there, and
+    /// the value is merely not known: nil. Silence is still thrown, since it says the recorder is not there.
     ///
     /// The read runs on the caller's actor, as if it had been written out in place.
     static func silenceOnly<T>(isolation: isolated (any Actor)? = #isolation,

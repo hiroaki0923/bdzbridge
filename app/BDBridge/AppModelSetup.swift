@@ -7,9 +7,7 @@ import SwiftUI
 extension AppModel {
     // MARK: - the demo
 
-    /// Shows the invented recorder. Offered in the tutorial, because the first thing the app asks for is a
-    /// recorder on the network, and not everyone has one to hand when they are deciding whether this is
-    /// worth setting up -- the reviewer who has to judge it least of all.
+    /// Shows the invented recorder, offered in the tutorial to anyone with no recorder to hand (`DemoData`).
     func enterDemo() async {
         guard !demo, canChangeRecorder else { return }
         // A scan still waiting on the local network question has nothing to do with the invented recorder,
@@ -139,11 +137,8 @@ extension AppModel {
 
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
-    /// reach the local network.
-    ///
-    /// The scan waits for that answer before it starts. It used to go straight ahead behind the question,
-    /// where every request failed at once and the scan came back with nothing; the reader allowed it and had
-    /// to tap a second time, under a red line saying no recorder had been found.
+    /// reach the local network. The scan waits for that answer before it starts: behind the question every
+    /// request fails at once, and the scan would come back with nothing.
     func scanForRecorders() {
         scanTask?.cancel()
         scanTask = Task { await scan() }
@@ -199,10 +194,9 @@ extension AppModel {
             }
         })
         guard scanRun == run, !Task.isCancelled else { return }
-        // The list stays in the order the recorders answered, which is the order the reader has been looking
-        // at while the scan ran. Taking the scan's own list here put it in the order of the addresses as text
-        // -- .100 before .63 -- and moved the row under a finger about to tap it. Anything the scan found whose
-        // row has not arrived yet goes at the end.
+        // The list stays in the order the recorders answered, which the reader has been looking at while the
+        // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
+        // under a finger about to tap it. Anything it found whose row has not arrived yet goes at the end.
         for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
             found.append(recorder)
         }
@@ -240,9 +234,8 @@ extension AppModel {
             }
         }
 
-        /// What usually lies behind finding nothing, for the reader to go through. A single line asking them
-        /// to check the power and the Wi-Fi left out the two causes nobody would think of: a guest network,
-        /// and a recorder that is not one of Sony's BDZ series.
+        /// What usually lies behind finding nothing, for the reader to go through. Two of them nobody would
+        /// think of: a guest network, and a recorder that is not one of Sony's BDZ series.
         ///
         /// Nothing here says a recorder in standby cannot be found. It answers in network standby; what goes
         /// silent is one left off a while, which leaves the network (`docs/porting.md`).

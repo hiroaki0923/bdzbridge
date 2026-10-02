@@ -75,13 +75,10 @@ public enum Series {
 
     // MARK: - remembering
 
-    /// A title's name and key, worked out once.
-    ///
-    /// They are asked for far more often than titles change: the recordings screen groups every recording
-    /// each time it is drawn, and a programme's sheet picks its episodes out of all of them each time it is,
-    /// which is every tick in its selection. Each answer is half a dozen regular expressions and an NFKC
-    /// pass; for 1,300 recordings that came to 35 ms a grouping and 20 ms a sheet's picking out, on a Mac.
-    /// The answer depends on nothing but the title, so it can be kept.
+    /// A title's name and key, worked out once. They are asked for far more often than titles change -- the
+    /// recordings screen groups every recording each time it is drawn -- and each answer is half a dozen
+    /// regular expressions and an NFKC pass: 35 ms a grouping for 1,300 recordings, on a Mac. The answer
+    /// depends on nothing but the title, so it can be kept.
     private struct Remembered: Sendable {
         let name: String
         let key: String

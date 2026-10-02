@@ -8,9 +8,8 @@ extension AppModel {
     /// Today, at this minute. Tapping the guide tab while already on it scrolls to the top of the day by
     /// itself, and the top of a broadcast day is four in the morning, which is nobody's idea of home.
     ///
-    /// The programmes are read again when that changed the day. Moving the day alone put today's date over
-    /// whichever day had been open, and the grid, finding none of it on today, came up empty. The ask to
-    /// go to now waits for them, so that it is answered from the day it names.
+    /// The programmes are read again when that changed the day, and the ask to go to now waits for them, so
+    /// that it is answered from the day it names.
     func goToNow() {
         let before = day
         followTheClock()
@@ -25,17 +24,13 @@ extension AppModel {
         }
     }
 
-    /// Moves the day strip on when the broadcast day on air is no longer its first. A process the system
-    /// kept alive overnight comes back to the days it worked out the evening before: it opened on
-    /// yesterday, going back to now went to yesterday, and the eighth day was out of reach. The day on screen
-    /// stays if it is still in the strip -- tomorrow, looked at last night, is today now -- and otherwise
-    /// goes to the first.
+    /// Moves the day strip on when the broadcast day on air is no longer its first: a process the system
+    /// kept alive overnight comes back to the days it worked out the evening before. The day on screen
+    /// stays if it is still in the strip, and otherwise goes to the first.
     ///
     /// Asked wherever the reader arrives -- the app starting, coming back to it, going back to now -- because
     /// nothing says when four in the morning has passed: `significantTimeChangeNotification` comes at
-    /// midnight.
-    ///
-    /// Returns whether `day` moved, since the programmes on screen are then those of a day no longer shown.
+    /// midnight. Returns whether `day` moved, which leaves on screen the programmes of a day no longer shown.
     @discardableResult
     func followTheClock() -> Bool {
         let current = GuideStore.broadcastDays()
@@ -55,20 +50,17 @@ extension AppModel {
 
     /// Whether the guide is on its way: being downloaded, or about to be, by a connect that has reached the
     /// recorder and found the cache behind -- it reads the reservations first (see `connect()`). An empty
-    /// guide says so then, rather than that there is nothing for the day. On the first run that is what the
-    /// reader sees as soon as the tutorial closes, for as long as the first broadcasting type takes.
+    /// guide says so then, rather than that there is nothing for the day.
     var guideOnItsWay: Bool { guideDownloads > 0 || (connecting && connected && guideIsStale) }
 
-    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run
-    /// otherwise lands on an empty guide with nothing to say that anything has to be fetched, and a cache
-    /// the overnight run never got to would quietly stay a day behind. A cache that is already current
-    /// costs nothing, which is what makes this safe on every launch.
+    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run would
+    /// otherwise land on an empty guide, and a cache the overnight run never got to would stay a day behind.
+    /// A cache that is already current costs nothing, which is what makes this safe on every launch.
     func refreshGuideIfStale() async {
         guard connected else { return }
-        // Judged by what the cache holds now, not by what this model read from it last. The overnight run
-        // writes the cache without going through the model -- in this very process, when the app was kept
-        // alive behind it -- and deciding on the counts from the evening before fetched every broadcasting
-        // type again each morning. What it wrote goes on screen as well.
+        // Judged by what the cache holds now, not by what this model read from it last, which would fetch
+        // every type again each morning: the overnight run writes the cache without going through the model,
+        // in this very process when the app was kept alive behind it. What it wrote goes on screen as well.
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
         let stale = staleBroadcastingTypes
         guard !stale.isEmpty else { return }
@@ -78,10 +70,9 @@ extension AppModel {
     /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
     /// the cache holds for each.
     ///
-    /// Each type goes on screen as soon as it is stored. Reading the cache only at the end left the first
-    /// run with an empty guide until BS, CS and BS4K had come in behind the terrestrial programmes it opens
-    /// on, which were there all along. A type that fails is passed over (see `GuideRefresh.run`), said on
-    /// screen a line per type, and fetched again at the next connect.
+    /// Each type goes on screen as soon as it is stored, so that the first run does not wait for BS, CS and
+    /// BS4K behind the terrestrial programmes it opens on. A type that fails is passed over (see
+    /// `GuideRefresh.run`), said on screen a line per type, and fetched again at the next connect.
     func refreshGuide(only types: [String] = GuideRefresh.broadcastingTypes) async {
         guard let client, let store, !unreachable else { return }
         guideDownloads += 1
@@ -161,8 +152,7 @@ extension AppModel {
 
     /// Programmes still to come with every word of this in their title, description or details, across every
     /// broadcasting type: the ones named for it first. The search runs against the cache, so it works away
-    /// from home too. At most 300, which is more than anyone reads down; `more` says the words should be
-    /// narrowed, rather than letting the list pass for all there is.
+    /// from home too. At most 300, which is more than anyone reads down; `more` says when any were left out.
     func search(_ query: String) async -> GuideSearchResults {
         await start()
         guard let store else { return GuideSearchResults() }

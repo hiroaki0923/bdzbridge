@@ -38,11 +38,9 @@ public struct LinkState: Sendable, Equatable {
     }
 }
 
-/// The decisions about a device that may have stopped answering, with nothing in them but the decision: what
-/// to do is the caller's, which has the client, the screen and the clock.
-///
-/// They were learnt on a phone beside a recorder, one at a time, and are set out in docs/porting.md
-/// (端末側の設計メモ). Here they can be read in one place and tried without either.
+/// The decisions about a device that may have stopped answering, with nothing in them but the decision: what to
+/// do is the caller's, which has the client, the screen and the clock. They are set out in docs/porting.md
+/// (端末側の設計メモ), and can be tried here without a phone or a recorder.
 public enum LinkRules {
     /// How long a device may say nothing before it is worth making sure it is still up, ahead of something
     /// the reader asked for. A BDZ-FBT4100 leaves the network after a quarter of an hour or so with nothing
@@ -89,14 +87,13 @@ public enum LinkRules {
         case connect
     }
 
-    /// What the app becoming active is worth.
-    ///
-    /// Nothing, unless it has really been away: Control Centre, a notification pulled down and a system alert
-    /// take an app out of being active without it going anywhere. Nothing with no device set. While something
-    /// is under way (`busy`) or the device is being made sure of (`checking`), connecting would make a second
-    /// client beside the one at work, so the network is only looked at. A device that is connected and
-    /// answered within `freshAnswer` is left alone. One given up on, on the network it was given up on, is
-    /// not news either, though it may be a moment from now. Otherwise, connect.
+    /// What the app becoming active is worth. Nothing, unless it has really been away: Control Centre, a
+    /// notification pulled down and a system alert take an app out of being active without it going anywhere.
+    /// Nothing with no device set. While something is under way (`busy`) or the device is being made sure of
+    /// (`checking`), connecting would make a second client beside the one at work, so the network is only
+    /// looked at. A device that is connected and answered within `freshAnswer` is left alone. One given up on,
+    /// on the network it was given up on, is not news either, though it may be a moment from now. Otherwise,
+    /// connect.
     public static func onReturn(wasAway: Bool, hasAddress: Bool, busy: Bool, checking: Bool, connected: Bool,
                                 lastAnswer: Date?, now: Date, gaveUp: Bool, networkChanged: Bool) -> OnReturn {
         guard wasAway, hasAddress else { return .nothing }

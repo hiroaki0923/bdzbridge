@@ -83,12 +83,9 @@ public struct RecorderRuleRequest: Equatable, Sendable {
     }
 }
 
-/// A reservation made while the recorder could not be reached, kept until it can be.
-///
-/// Away from home the guide is on the phone but the recorder is not, so a reservation has nowhere to go. It
-/// waits here instead, and is sent the next time the recorder answers. What it holds is the request itself
-/// plus enough to show a row without the guide: nothing is looked up again at sending time, so a reservation
-/// made on Tuesday is the one the recorder gets on Thursday.
+/// A reservation made while the recorder could not be reached, kept until it can be and sent the next time
+/// it answers. It holds the request itself plus enough to show a row without the guide: nothing is looked up
+/// again at sending time, so the reservation made is the one the recorder gets.
 public struct PendingReservation: Sendable, Equatable, Identifiable {
     public var request: ReservationRequest
     /// The channel's name as the guide had it, so the row reads properly with the guide since replaced.
@@ -128,9 +125,8 @@ public enum XsrsElements {
         let excluded = request.excluded.map { "<excludeKeyword>\(Soap.escape($0, quotes: false))</excludeKeyword>" }.joined()
         // The recorder keeps a quality per wave -- desiredQualityMode for 地上/BS/CS, the Advanced one for
         // BS4K/CS4K -- and reads only those the scope covers. A 4K-only condition drops desiredQualityMode. A
-        // condition on every wave that carries desiredQualityMode alone gets DR on its 4K side, so one made as
-        // LSR recorded BS4K programmes at full size; it gets the chosen quality in both. So does a scope the
-        // recorder does not know, since that is a condition on every wave by the time the recorder has it.
+        // condition on every wave that carries desiredQualityMode alone gets DR on its 4K side, so it gets the
+        // chosen quality in both; so does a scope the recorder does not know, which it takes for every wave.
         let scope = request.broadcastingScope
         var quality = ""
         if !Codes.advancedScopes.contains(scope) {

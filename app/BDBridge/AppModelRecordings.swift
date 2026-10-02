@@ -75,10 +75,9 @@ extension AppModel {
         do {
             return try await client.titleDetail(id: title.id)
         } catch let error as RecorderError where error.unreachable {
-            // Nothing on the strip says this is out, so another recorder can be chosen meanwhile, and a
-            // connect can make a new client. Silence met by a client the model no longer holds says nothing
-            // of the recorder in play: taken for its own, it left the app given up on a recorder that had
-            // just answered.
+            // Nothing on the strip says this is out, so another recorder can be chosen meanwhile, and a connect
+            // can make a new client. Silence met by a client the model no longer holds says nothing of the
+            // recorder in play, and is not taken for its own.
             if client === self.client { lostTheRecorder() }
             return nil
         } catch {
@@ -133,11 +132,9 @@ extension AppModel {
     /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
     /// call resumes.
     ///
-    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying
-    /// on the line how long it has been: the recorder is in standby whenever nobody is watching it, and the
-    /// 880 it answers used to end the tap there. A recorder that has still not come on by the end of the wait,
-    /// or a pause or a stop sent to one in standby, answers 880 all the same, which is what `needsPower`
-    /// reports and the sheet offers to turn it on for.
+    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying on
+    /// the line how long it has been. One still not on by the end of the wait, or a pause or a stop sent to one
+    /// in standby, answers 880, which is what `needsPower` reports and the sheet offers to turn it on for.
     func play(_ title: RecordedTitle, _ operation: String) async {
         await start()
         guard let client else { return }

@@ -121,19 +121,14 @@ extension AppModel {
     /// Whether a bulk job or the scan may take its next step, having waited first for as long as the app is
     /// in the background.
     ///
-    /// No step is started while the reader is away. iOS suspends the app soon after it leaves, and a request
-    /// frozen with it comes back as a failure, which would stop the job for a recorder that had gone nowhere,
-    /// unsure whether the recording it was on had been deleted. So the job waits here, between two steps, and
-    /// goes on when the app is back -- after making sure of a recorder that has had all that time to fall
-    /// asleep. The step under way as the reader leaves is finished first, under `keepingAlive`.
+    /// No step is started while the reader is away: iOS suspends the app soon after it leaves, and a request
+    /// frozen with it comes back as a failure. The job waits here, between two steps, and goes on when the app
+    /// is back, after making sure of a recorder that has had all that time to fall asleep. The step under way
+    /// as the reader leaves is finished first, under `keepingAlive`.
     ///
-    /// False when the recorder is not there to ask. Silence met by anything stops the job, not only silence
-    /// met by the job: a list another screen was loading may have met it first, and the next step would only
-    /// wait out the same timeout to find out again.
-    ///
-    /// A check of the recorder that is out is heard first, in front as well as on coming back. Its ask waits
-    /// its turn behind the step under way, and its verdict may be that another recorder answers here now,
-    /// which stops the job (`makeSureItIsUp`); a next step begun meanwhile reached that recorder first.
+    /// False when the recorder is not there to ask: silence met by anything stops the job, not only silence met
+    /// by the job. A check of the recorder that is out is heard first: its verdict may be that another recorder
+    /// answers here now, which stops the job (`makeSureItIsUp`).
     private func readyForNextStep() async -> Bool {
         if inBackground {
             await withCheckedContinuation { backInFront = $0 }
@@ -237,10 +232,8 @@ extension AppModel {
         jobTask = nil
     }
 
-    /// Rebuilds the sets from what is still on the recorder, using the text already gathered.
-    ///
-    /// A recording whose text has not been read is left out rather than compared on nothing, and counted:
-    /// see `Duplicates.readSets`.
+    /// Rebuilds the sets from what is still on the recorder, using the text already gathered. A recording whose
+    /// text has not been read is left out rather than compared on nothing, and counted (`Duplicates.readSets`).
     func recomputeDuplicates() {
         let found = Duplicates.readSets(titles, summaries: summaries, fixedBlurbs: fixedBlurbs)
         unreadDuplicates = found.unread

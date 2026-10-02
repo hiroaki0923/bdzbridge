@@ -8,9 +8,7 @@ import RecorderKit
 /// The app has one of these, `app`, and passes no other. It is here for the unit tests (`BDBridgeTests`),
 /// which make models of their own: settings in a suite they throw away, a database in a folder of their own,
 /// an invented recorder for a transport -- the demo's, or one that never answers -- and a network that
-/// changes when the test says so. The model is where the bugs worth a test have been, a launch that waited on
-/// itself and a line on screen that never cleared among them, and until a model could be made this way none
-/// of it could be tried without a phone and a recorder.
+/// changes when the test says so.
 ///
 /// Only what the tests need is here. The overnight run, the demo's own switch and the screens still read the
 /// shared defaults for themselves.
@@ -28,8 +26,7 @@ struct Surroundings {
     /// Whether the model may put anything on the local network by itself besides its requests to the
     /// recorder -- the magic packet, the probe that looks at the local network permission, the search of the
     /// subnet for a recorder the router has moved -- and whether it watches for the network changing. Off,
-    /// no packet is sent, the permission is taken as given and a recorder that is silent where it was is not
-    /// looked for elsewhere. The tests run on somebody's network, where none of that may happen.
+    /// the permission is taken as given. The tests run on somebody's network, where none of that may happen.
     var reachesTheLAN: Bool
     /// Whether the model asks the system about notifications. The dialog waits for a tap, and in a test
     /// there is nobody to give it.

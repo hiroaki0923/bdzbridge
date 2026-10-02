@@ -1,19 +1,16 @@
 import Foundation
 
-/// What went wrong, in the terms the rules care about, whichever device said it.
-///
-/// The queue, the waking loop and the guide refresh do not read an error for what it is but for what to do
-/// about it: wake the device, try again later, hold the request back, tell the reader. Those are the same
-/// questions for a recorder answering SOAP faults and for a television answering JSON error codes, so each
-/// device's own error says which of these it is (`DeviceError.failure`) and the rules read only that.
+/// What went wrong, in the terms the rules care about, whichever device said it -- a recorder with a SOAP
+/// fault, a television with a JSON error code. The queue, the waking loop and the guide refresh read an error
+/// only for what to do about it: wake the device, try again later, hold the request back, tell the reader. So
+/// each device's own error says which of these it is (`DeviceError.failure`), and the rules read only that.
 public enum DeviceFailure: Sendable, Equatable {
     /// Nothing answered at all. The one failure worth waking a device for, and the one that makes the app give
     /// up on it until the network changes or the reader asks.
     case silent
     /// The device is there and busy with somebody else's request. It said nothing about this one: ask later.
     case busy
-    /// The device turned this request down for a reason of its own. Asking again gets the same answer, so a
-    /// reservation waiting in the queue keeps the reason and is not sent again until the reader says so.
+    /// The device turned this request down for a reason of its own: asking again gets the same answer.
     case refused(reason: String)
     /// The device cannot do it as it stands -- nowhere to record to, no room for another reservation -- which
     /// is about the device rather than the request: every request would get the same answer.
@@ -53,11 +50,10 @@ extension RecorderError: DeviceError {
     /// The same reading as `unreachable`, `refusal` and `needsPowerOn`, which stay as they are for the code
     /// that knows it is talking to a recorder; and what says `unknownReservation` is `unknownItem`.
     ///
-    /// A fault with a 503 on it is read as busy, because `refusal` leaves a 503 out whatever code came with
-    /// it. The client never hands one over -- `RecorderClient.send` turns every 503 into `busy` before a fault
-    /// is read -- so that case is here only to keep the two readings in step, and it is the one place where
-    /// `unknownReservation` (which looks at the code alone) and this would differ. 880 is standby whatever the
-    /// status, as `needsPowerOn` has it.
+    /// A fault with a 503 on it is read as busy, because `refusal` leaves a 503 out whatever code came with it.
+    /// The client never hands one over (`RecorderClient.send` turns every 503 into `busy` first), so that case
+    /// only keeps the two readings in step, and is the one place where `unknownReservation`, which looks at the
+    /// code alone, would differ. 880 is standby whatever the status, as `needsPowerOn` has it.
     public var failure: DeviceFailure {
         switch self {
         case .transport, .notHTTP: .silent

@@ -8,14 +8,11 @@ import UserNotifications
 /// were waiting, and finds out how much room is left -- so a notification is the only way the reader learns
 /// of it.
 ///
-/// Permission comes in two steps. Once the app has reached a real recorder, it asks for provisional
-/// permission, which shows no dialog and lets the notifications reach Notification Centre quietly, where
-/// the reader can keep them or turn them off. Asking only when a reservation was queued, as the app used
-/// to, meant that somebody who only ever used it at home was never asked, and the low-space warning -- the
-/// one thing here that matters to everybody -- never reached them. No dialog also means it cannot land on
-/// top of the system's local network question, which comes up around the first connect. The dialog itself
-/// waits for the first queued reservation, the moment being told starts to matter, or for the reader to
-/// ask for it in the settings.
+/// Permission comes in two steps. Once the app has reached a real recorder, it asks for provisional permission,
+/// which shows no dialog and lets the notifications reach Notification Centre quietly, where the reader can
+/// keep them or turn them off. So the low-space warning reaches a reader who never queues a reservation, and
+/// nothing lands on the system's local network question, which comes up around the first connect. The dialog
+/// itself waits for the first queued reservation, or for the reader to ask for it in the settings.
 enum Notify {
     /// Provisional permission, the first time and only then: no dialog, see above. Nothing is asked of a
     /// reader who has already answered, whichever way.
@@ -27,9 +24,8 @@ enum Notify {
 
     /// Asks with the system's dialog, unless the reader has already answered. Provisional permission is not
     /// an answer: the reader has not been asked anything, and the notifications only reach Notification
-    /// Centre, so this asks for them to be shown properly. Returns whether notifications may be sent.
-    ///
-    /// No sound is asked for, since nothing here plays one.
+    /// Centre, so this asks for them to be shown properly. Returns whether notifications may be sent. No
+    /// sound is asked for, since nothing here plays one.
     @discardableResult
     static func askIfNeeded() async -> Bool {
         let centre = UNUserNotificationCenter.current()
@@ -59,9 +55,8 @@ enum Notify {
 
     /// Posts one straight away. Silent when permission was never given, which is the reader's answer.
     ///
-    /// Without a sound, and passive, which does not light the screen either: everything here is posted by
-    /// the overnight run, soon after two in the morning, and none of it needs an answer before the reader
-    /// picks the phone up anyway. It waits in Notification Centre until then.
+    /// Without a sound, and passive, which does not light the screen either: the overnight run posts soon after
+    /// two in the morning, and nothing here needs an answer before the reader picks the phone up anyway.
     private static func post(id: String, title: String, body: String) async {
         guard await mayPost() else { return }
         let content = UNMutableNotificationContent()
@@ -96,10 +91,8 @@ enum Notify {
     static let lowSpaceGB: Double = 50
 
     /// Warned once per fall below the line, not every night: `warnedLowSpace` holds whether it has been said.
-    ///
-    /// It counts as said only when it could be heard. Marking it said while notifications were not allowed
-    /// spent the warning on nobody, and allowing them afterwards brought nothing until the disk had been cleared
-    /// above the line and filled below it again.
+    /// It counts as said only when it could be heard, or allowing notifications afterwards would bring nothing
+    /// until the disk had been cleared above the line and filled below it again.
     ///
     /// A disk of no size is a recorder that has not said how full it is, not one that is full: nothing is
     /// said about it, and whether the warning has been given is left as it was.

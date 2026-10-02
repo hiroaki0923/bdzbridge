@@ -163,8 +163,7 @@ struct DuplicatesView: View {
             // is working from them, and a scan builds the sets again when it ends.
             .disabled(!deletable || model.jobRunning)
             // Read out as what the tick does, and whether it is on, rather than as the name of a circle. Worded
-            // as a choice: 「…を削除」 sounded as if a double tap deleted the recording there and then, when it
-            // only marks it for the delete at the foot of the screen, which asks first.
+            // as a choice: a double tap only marks the recording for the delete at the foot of the screen.
             .accessibilityLabel("\(Format.dateTime.string(from: title.start))の録画を削除する対象に選ぶ")
             .accessibilityAddTraits(keeping ? [] : .isSelected)
 

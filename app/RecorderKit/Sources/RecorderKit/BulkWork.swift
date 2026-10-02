@@ -33,10 +33,9 @@ public enum SummaryRead: Sendable, Equatable {
 /// belongs to the caller, which is what gives it the progress and the stop button; what lives here is the
 /// decision about each recording, including the recorder's two traps.
 ///
-/// Silence is thrown rather than reported as a skip. A recorder that has gone to sleep part way through
-/// would otherwise turn every recording left into a skip of its own, each after a thirty-second timeout, and
-/// the run would end saying it had finished. The caller stops at the first one instead, and does not send
-/// that recording again: a write that met silence may have arrived all the same.
+/// Silence is thrown rather than reported as a skip: a recorder gone to sleep part way through would otherwise
+/// turn every recording left into a skip of its own, each after a thirty-second timeout. The caller stops at
+/// the first, and does not send that recording again: a write that met silence may have arrived all the same.
 public extension RecorderClient {
     /// The recorder refuses a protected recording, and answers success for an id it no longer has. So the
     /// recording is asked about first: an id the recorder does not know comes back as UPnP error 820, which
@@ -69,10 +68,8 @@ public extension RecorderClient {
         }
     }
 
-    /// The text the duplicate scan compares, and caches for good. So only what the recorder actually said
-    /// counts as read. A failure used to be kept as an empty text and never asked about again, and two
-    /// recordings the recorder had failed to describe then agreed with each other on nothing and came up as
-    /// copies, one of them ticked for deletion.
+    /// The text the duplicate scan compares, and caches for good, so only what the recorder actually said
+    /// counts as read: two failures kept as empty texts would agree with each other and come up as copies.
     func summary(of id: String) async throws -> SummaryRead {
         do {
             return .read(try await titleDetail(id: id).summary)

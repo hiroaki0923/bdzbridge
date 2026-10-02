@@ -25,14 +25,12 @@ enum Storage {
         }
     }
 
-    /// A folder of their own under Application Support, left out of the phone's backups. The guide is some
-    /// 28 MB that the recorder hands over again every night, and it went into every iCloud backup. The mark
-    /// is on the folder rather than on the files because SQLite deletes its write-ahead log and shared-memory
-    /// file and makes them again, and a new file does not carry the mark the old one had.
-    ///
-    /// The same database holds the reader's channel settings and the reservations waiting to be sent, which a
-    /// restore to another phone therefore does not bring back either. The settings take a minute to make
-    /// again, and a reservation waiting for the recorder belongs to the phone it was made on.
+    /// A folder of their own under Application Support, left out of the phone's backups: the guide is some
+    /// 28 MB that the recorder hands over again every night. The mark is on the folder rather than on the
+    /// files because SQLite deletes its write-ahead log and shared-memory file and makes them again, and a
+    /// new file does not carry the mark the old one had. The reader's channel settings and the reservations
+    /// waiting to be sent are in the same database, so a restore to another phone brings back neither: the
+    /// settings take a minute to make again, and a waiting reservation belongs to the phone it was made on.
     ///
     /// Made once per process, on the first ask: the overnight run and the screens can both ask at once, and
     /// the databases an earlier build kept in Application Support itself are moved in before either opens them.
@@ -84,8 +82,7 @@ enum Storage {
 /// The recorder rebuilds its own guide and logo files in the small hours, so this asks for them after that and
 /// the reader wakes up to a guide that is current for the whole eight days, without the app or the LAN. iOS
 /// decides whether to run it at all: it will not while the app is force-quit, while Background App Refresh is
-/// switched off, or in Low Power Mode. Nothing breaks when a night is missed, which is what makes the guide a
-/// fair thing to do this way.
+/// switched off, or in Low Power Mode. Nothing breaks when a night is missed.
 enum BackgroundWork {
     static let refreshIdentifier = "jp.hiroaki.bdbridge.guideRefresh"
 
@@ -102,8 +99,7 @@ enum BackgroundWork {
             // The system wants the task completed as soon as its time is up, and does not wait long for it.
             // Cancelling the work is only a request: the answer under way is waited for whatever the task says
             // (`SerialQueue`), and the work looks for the request only between one step and the next, which on
-            // a guide file can be two minutes away. Completing when the work ended kept the system waiting for
-            // all of it, since nothing looked for the request at all.
+            // a guide file can be two minutes away. So this completes the task without waiting for the work.
             handle.onExpire {
                 work.cancel()
                 handle.complete(false)
@@ -154,11 +150,9 @@ enum BackgroundWork {
     }
 
     /// The work itself, with no screen behind it: the address comes from what the app saved, and the cache is
-    /// opened directly.
-    ///
-    /// The recorder is asleep most of the time -- measured over twelve hours, it was answering for a quarter
-    /// of it -- so this wakes it rather than giving up, which is what it used to do at two in the morning.
-    /// Whatever is waiting in the queue goes out while the recorder is up, and the reader is told.
+    /// opened directly. The recorder is asleep most of the time -- measured over twelve hours, it was answering
+    /// for a quarter of it -- so this wakes it rather than give up. Whatever is waiting in the queue goes out
+    /// while the recorder is up, and the reader is told.
     ///
     /// Stops between steps once its time is up (see `register`): the task has been completed by then, and
     /// what the system allows after that is not to be counted on.
@@ -236,10 +230,8 @@ enum BackgroundWork {
         case sent(PendingQueue.Outcome)
     }
 
-    /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`): run by an
-    /// automation as the phone joins the home Wi-Fi, which is the one way to have it happen on arriving. iOS
-    /// wakes no app for a network, so otherwise the queue goes when the app is next opened, or overnight.
-    /// The reader hears the outcome the way the overnight run tells it.
+    /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`), which an automation
+    /// runs as the phone joins the home Wi-Fi. The reader hears the outcome the way the overnight run tells it.
     static func sendWaiting() async -> Sending {
         guard !DemoData.on else { return .demo }
         guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
@@ -286,12 +278,10 @@ enum BackgroundWork {
     /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
     /// the recorder; without one there is nothing to send and nothing to wait for.
     ///
-    /// The packet goes before the first probe, as the screens send it (docs/porting.md): a recorder that is
-    /// asleep -- most of the time, and nearly always on arriving home -- is on its way up while the probe
-    /// waits, and one that is awake ignores it. Going after the probe had failed started the waking five
-    /// seconds later, which the Shortcuts action can ill afford: how long the system lets it run in the
-    /// background is not published. The wait is the one the screens use (`Waking`), with the longer limit, the
-    /// next packet due counting from this one, and a cancelled wait ends at once.
+    /// The packet goes before the first probe, as the screens send it (docs/porting.md): a recorder asleep is
+    /// on its way up while the probe waits, and one awake ignores it. That saves five seconds the Shortcuts
+    /// action can ill afford: how long the system lets it run in the background is not published. The wait is
+    /// the one the screens use (`Waking`), with the longer limit and the next packet timed from this one.
     private static func reach(_ client: RecorderClient, mac: String?) async -> Bool {
         let host = client.host
         let wake: @Sendable () -> Int = {
@@ -302,10 +292,8 @@ enum BackgroundWork {
         var went = false
         // The order is `Reach.run`'s, the one the screens follow. Unlike them, this waits for a recorder that
         // answered the first ask with an error too -- one still starting up may answer anything, and nobody
-        // is watching the wait -- except at an address that is not one: nothing could be asked there, so
-        // waiting would change nothing, and the app says why on its screen. (The packet that went first
-        // reached only this device's own broadcast addresses, which is harmless.) There is no screen to
-        // explain the local network permission on, and nowhere else is looked.
+        // is watching the wait -- except at an address that is not one, where nothing could be asked. There
+        // is no screen to explain the local network permission on, and nowhere else is looked.
         let outcome = await Reach.run(Reach.Steps(
             sendPacket: {
                 wentAt = Date()

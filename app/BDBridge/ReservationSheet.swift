@@ -101,9 +101,8 @@ struct ReservationSheet: View {
                     }
                 }
 
-                // 削除, the word the list's swipe and every other delete in the app use. 取り消す here put
-                // 取り消す beside キャンセル in the dialog, two words for going back on something, one of them
-                // meaning the reservation and the other the dialog.
+                // 削除, the word the list's swipe and every other delete in the app use: 取り消す would stand
+                // beside キャンセル in the dialog, two words for going back on something.
                 Section {
                     Button("予約を削除", role: .destructive) { confirming = true }
                         .disabled(model.busy != nil)
