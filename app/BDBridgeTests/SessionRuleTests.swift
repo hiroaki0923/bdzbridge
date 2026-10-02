@@ -96,6 +96,40 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertEqual(askedAfter, asked, "a screen asked a recorder the app knew was not answering")
     }
 
+    /// A recorder that has just described itself is connected, and stays marked silent from before until the
+    /// rest of the attach has been read. A list asked for in between finds nothing to ask and is not asked
+    /// for again, so a screen that loads when `connected` turns true was left empty after the recorder had
+    /// been woken with that screen open. The screens load on connected and not offline together; the second
+    /// is what the load itself checks.
+    func testAListIsReadOnceTheRecorderHasAnsweredAndNotTheMomentItDescribesItself() async throws {
+        let bench = try Bench()
+        defer { bench.throwAway() }
+        let recorder = RecorderPartWayThroughAnAttach()
+        await recorder.setReachable(false)
+        let model = try await started(bench, recorder: recorder)
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertTrue(model.unreachable)
+
+        await recorder.setReachable(true)
+        await recorder.holdAfterTheDescription()
+        let connecting = Task { await model.connect() }
+        try await until("the recorder never described itself") { model.connected }
+        XCTAssertTrue(model.offline, "the mark of the earlier silence went before the attach had read the rest")
+        // Not awaited bare: with the mark gone too soon the list is asked for, behind the read that is held,
+        // and would wait here for a `letGo()` that is on the next line.
+        try await within(5, "a list asked for while the recorder was still marked silent did not return") {
+            await model.loadTitles()
+        }
+        XCTAssertFalse(model.titlesLoaded, "a list was read from a recorder still marked silent")
+
+        await recorder.letGo()
+        try await until("the attach never finished") { model.connected && !model.offline }
+        await model.loadTitles()
+        XCTAssertTrue(model.titlesLoaded, "the list was not read once the recorder had answered")
+        XCTAssertFalse(model.titles.isEmpty)
+        await connecting.value
+    }
+
     // MARK: - writes
 
     /// A reservation that went out and met silence may have been made all the same. It is not sent again and

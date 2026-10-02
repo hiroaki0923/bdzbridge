@@ -145,6 +145,41 @@ actor PickyRecorder: HTTPTransport {
     }
 }
 
+/// The demo's recorder, away or at home as the test says, which can be made to keep the read that follows its
+/// description waiting until `letGo()`: a recorder that has said who it is and nothing else yet, held there
+/// for a test to look at the app in between. It keeps its MAC to itself, as `RecorderAtHome` does, so that a
+/// model which has met it wakes nothing afterwards.
+actor RecorderPartWayThroughAnAttach: HTTPTransport {
+    private let recorder = DemoRecorder()
+    private var reachable = true
+    private var holding = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func setReachable(_ value: Bool) {
+        reachable = value
+    }
+
+    func holdAfterTheDescription() {
+        holding = true
+    }
+
+    func letGo() {
+        holding = false
+        for request in held { request.resume() }
+        held = []
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard reachable else { throw RecorderError.transport("The request timed out.") }
+        let action = request.headers["SOAPACTION"] ?? ""
+        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
+        if holding, action.contains("#X_GetFirmwareVersion") {
+            await withCheckedContinuation { held.append($0) }
+        }
+        return try await recorder.send(request)
+    }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 

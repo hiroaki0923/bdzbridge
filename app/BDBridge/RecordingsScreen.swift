@@ -92,7 +92,11 @@ struct RecordingsScreen: View {
                     .accessibilityLabel("ジャンル・並び順・視聴状態で絞り込む")
                 }
             }
-            .task(id: model.connected) { await model.loadTitles() }
+            // Keyed on `connected`, and on what the load itself checks, as the keyword conditions' screen is.
+            // `connected` turns true partway through a connect, while the recorder is still marked silent
+            // from before, so a load set going by it alone found nothing to ask and was not tried again: a
+            // recorder woken with this tab open ended on an empty list, until it was pulled down.
+            .task(id: model.connected && !model.offline) { await model.loadTitles() }
             // pulling down reads the list again from the recorder; not while a bulk job is walking it
             // Pulling down while the app has given up on the recorder is the reader asking for another go
             // at it, which is the same thing the strip's 再接続 does.
