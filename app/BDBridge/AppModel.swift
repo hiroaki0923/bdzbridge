@@ -83,6 +83,9 @@ final class AppModel {
     var channelNames: [String: String] = [:]
     var channelLogos: [String: Data] = [:]
     var programs: [GuideProgramRow] = []
+    /// How many reads of the guide from the cache are under way (`reloadFromCache`). While one is, what the
+    /// guide lists is about to be replaced: see `GuideScreen.scroll`.
+    var guideReads = 0
     var reservations: [Reservation] = [] {
         // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled --
         // taken out of the list by hand, and again after a reload that can be a moment behind the recorder
