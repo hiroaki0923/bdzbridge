@@ -2,9 +2,10 @@ import Foundation
 
 /// One attempt at a device: the order in which it is woken, asked, waited for and looked for.
 ///
-/// The order is here once, for the screens' connect, the check before an operation and the overnight run
-/// (docs/porting.md, 待っていることを画面に出す). The steps are the caller's: the screens say what they are
-/// doing on the way and read what the device says about itself, the overnight run does neither.
+/// The order is here once, for the screens' connect, the check before an operation and the runs with no screen
+/// -- the overnight run and the Shortcuts action (docs/porting.md, 待っていることを画面に出す). The steps are
+/// the caller's: the screens say what they are doing on the way and read what the device says about itself,
+/// the runs with no screen do neither.
 public enum Reach {
     public enum Outcome: Sendable, Equatable {
         /// It answered: at once, after waking, or at another address.
@@ -53,10 +54,11 @@ public enum Reach {
     ///
     /// The packet first and the ask after: a device that is asleep is on its way up while the ask waits, and
     /// one that is awake ignores it. An answer ends it. A refusal ends it too, unless `wakesAfterRefusal`, which
-    /// is the overnight run's way: a device still starting up may answer anything, and nobody is watching
-    /// the wait. An address nothing can be sent to is never waited for. After silence the permission is asked
-    /// about, then the device is woken, and only when that brings silence again is it looked for elsewhere:
-    /// once, and after the waking, which is what gives a device that moved the time to come up where it is.
+    /// is the way of the runs with no screen: a device still starting up may answer anything, and nobody is
+    /// watching the wait. An address nothing can be sent to is never waited for. After silence the permission
+    /// is asked about, then the device is woken, and only when that brings silence again is it looked for
+    /// elsewhere: once, and after the waking, which is what gives a device that moved the time to come up
+    /// where it is.
     ///
     /// The steps run on the caller's actor, as if written out in place.
     public static func run(isolation: isolated (any Actor)? = #isolation, _ steps: Steps,
