@@ -231,6 +231,39 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(session.timesAttached, 2)
     }
 
+    /// Another device was chosen, and what answers at its address does not describe itself: busy with somebody
+    /// else, or not that kind of device at all. "What is known of it stands" is then nothing, because the last
+    /// device was forgotten when this one was chosen. Left standing, its description had the app look connected
+    /// to a device it was no longer set to, with every request going to the new address.
+    func testADeviceForgottenIsNotBroughtBackByAnAttachThatWasAnsweredSomeOtherWay() {
+        let answers: [DeviceFailure?] = [.busy, .unexpected("not a recorder"), .refused(reason: "402"), nil]
+        for failure in answers {
+            let session = attached(mac: "f8:4e:17:00:00:01")
+            session.forgotTheDevice()
+            session.tried(on: "home")
+            session.attachFailed(failure)
+            session.finishedTrying(reached: false)
+            let what = String(describing: failure)
+            XCTAssertFalse(session.connected, what)
+            XCTAssertEqual(session.firmware, "", what)
+            XCTAssertNil(session.storage, what)
+            XCTAssertFalse(session.unreachable, what)
+            XCTAssertFalse(session.gaveUp, "it answered, so it is there and not given up on: \(what)")
+            XCTAssertEqual(session.mac, "f8:4e:17:00:00:01", what)
+            XCTAssertEqual(session.timesAttached, 1, what)
+        }
+
+        // Silence at the new address is given up on, as anywhere, and the last device is no more known for it.
+        let silent = attached()
+        silent.forgotTheDevice()
+        silent.tried(on: "home")
+        silent.attachFailed(.silent)
+        silent.finishedTrying(reached: false)
+        XCTAssertFalse(silent.connected)
+        XCTAssertTrue(silent.unreachable)
+        XCTAssertTrue(silent.gaveUp)
+    }
+
     /// Anything that is not a MAC is ignored rather than kept, so a half-typed one never replaces a good one.
     func testOnlyAMacIsRemembered() {
         let session = SessionState()

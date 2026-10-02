@@ -76,8 +76,11 @@ search for a recorder the router has moved, the watch on the network -- or ask a
 passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults suite and a
 temporary folder that are thrown away afterwards, an invented recorder as the transport -- the demo's
 `DemoRecorder`, a `SilentRecorder` that answers nothing, one that is at home or not as the test says, one that
-answers 503 to everything, one that refuses the calls named to it, one held part way through an attach -- and
-a network it changes when the phone is meant to have moved. Nothing leaves the machine.
+answers 503 to everything, or only to being asked who it is until it is free, one that refuses the calls named
+to it, one held part way through an attach, one with a broadcast on its disk twice, something that answers and
+is no recorder -- and a network it changes when the phone is meant to have moved. `Bench.model(recorders:)`
+puts a device of its own at each address, for a test that chooses another recorder, and
+`Bench.modelWithNoRecorder()` is the app at its first launch. Nothing leaves the machine.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -98,9 +101,19 @@ reservation that met silence after it was sent is neither sent again nor queued;
 recorder is being made sure of waits for that answer, and is queued unsent when the answer is silence; the
 queue is sent when the recorder answers again; the reader asking tries again on the same network; a connect
 tries once, and once more when the network changed under it; becoming active without having been away does not
-connect; nor does coming back within a minute of an answer. Each was seen to fail with its rule broken in
-`AppModel`. What they cannot reach is what the model keeps off the network in a test: waking with a magic
-packet, the local network permission, and the search for a recorder the router has moved.
+connect; nor does coming back within a minute of an answer. And the rules about choosing another recorder:
+another address forgets what the last recorder said -- its description, its lists and their filters, the sets
+of copies and their ticks, the job that last ran on it, what the screens were saying about it -- before the
+new one is asked; the recorder chosen is read for itself; an address that answers without describing itself is
+not taken for the last recorder; the address in use, chosen again, forgets nothing and connects again, spelled
+in another case as well; what waits to be sent stays, and is not sent to a recorder that has not said who it
+is; pulling the reservations down, and asking for one to be sent again, connect when the app is not connected;
+another recorder cannot be chosen while the last is being made sure of; silence from the recorder left,
+arriving late, is not taken for the one chosen; entering the demo forgets the last job as well; and leaving it
+with no recorder to go back to leaves nobody to ask. Each was seen to fail with its rule broken in `AppModel`.
+What they cannot reach is what the model keeps off the network in a test: waking with a magic packet, the
+local network permission, and the search for a recorder the router has moved. Nor what a screen decides for
+itself, which is what sets its list loading.
 
 The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
 it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would

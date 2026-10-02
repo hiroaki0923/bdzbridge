@@ -75,7 +75,11 @@ extension AppModel {
         do {
             return try await client.titleDetail(id: title.id)
         } catch let error as RecorderError where error.unreachable {
-            lostTheRecorder()
+            // Nothing on the strip says this is out, so another recorder can be chosen meanwhile, and a
+            // connect can make a new client. Silence met by a client the model no longer holds says nothing
+            // of the recorder in play: taken for its own, it left the app given up on a recorder that had
+            // just answered.
+            if client === self.client { lostTheRecorder() }
             return nil
         } catch {
             return nil

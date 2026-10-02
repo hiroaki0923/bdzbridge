@@ -16,6 +16,23 @@ extension AppModel {
         await run("予約一覧を取得中") { self.reservations = try await client.reservations() }
     }
 
+    /// What pulling the reservations down asks for: the list read again and what waits sent, of a recorder the
+    /// app is connected to, and a connect when it is not, which does both once the recorder has answered.
+    ///
+    /// Not connected, rather than offline, which leaves one recorder out: the one that answered the last
+    /// connect without saying which it is, busy with somebody else as it was asked. It is not offline, so its
+    /// list was read here and the queue sent after it; and once the queue went only to a recorder that had
+    /// said which it is (`flushPending`), the list was read and what waited stayed, with nothing on that
+    /// screen to say why, or to connect with. A connect asks it again who it is.
+    func refreshReservations() async {
+        if !connected {
+            await connect()
+        } else {
+            await loadReservations()
+            await flushPending()
+        }
+    }
+
     enum ReservationSort: String, CaseIterable {
         case time, genre, channel
 
@@ -154,12 +171,13 @@ extension AppModel {
         guard await wakeIfDozing() else { return nil }
         do {
             return try await client.conflicts(elements: XsrsElements.create(request))
-        } catch let error as RecorderError {
-            if error.unreachable { lostTheRecorder() }
-            problem = error.explanation
-            return nil
         } catch {
-            problem = String(describing: error)
+            // As for a recording's details (`detail(of:)`): what a client the model no longer holds ran into
+            // is not about the recorder in play, and is neither taken for its silence nor put on its screens.
+            guard client === self.client else { return nil }
+            let recorderError = error as? RecorderError
+            if recorderError?.unreachable == true { lostTheRecorder() }
+            problem = recorderError?.explanation ?? String(describing: error)
             return nil
         }
     }
@@ -247,23 +265,37 @@ extension AppModel {
 
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
-    /// since, an antenna put right -- and only the reader knows when it has. Sent now when the recorder can
-    /// be reached, and otherwise with the rest the next time it answers.
+    /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
+    /// connected, after a connect when the recorder is there and has not said which it is, and otherwise with
+    /// the rest the next time it answers.
     func resend(_ waiting: PendingReservation) async {
         await start()
         guard let store else { return }
         try? await store.setPendingProblem(waiting.id, nil)
         await loadPending()
         guard !offline, await wakeIfDozing() else { return }
+        // There, and not connected: a recorder that answered the last connect without saying which it is. The
+        // queue does not go to one (`flushPending`), and returning here left the reader with the reason gone
+        // from the row and nothing sent. It is asked again instead, and a connect it describes itself to sends
+        // the queue by itself.
+        guard connected else {
+            await connect()
+            return
+        }
         await flushPending()
     }
 
     /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
     /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
     /// await `start()`.
+    ///
+    /// Only to a recorder that has described itself. An address that answered the connect some other way --
+    /// a 503, or as something that is no recorder -- leaves the app unconnected and not offline, and pulling
+    /// the reservations down then came here: with another address just chosen, that handed what was waiting
+    /// for the last recorder to whatever answered at the new one.
     @discardableResult
     func flushPending() async -> Int {
-        guard let client, let store else { return 0 }
+        guard let client, let store, connected else { return 0 }
         await loadPending()
         guard !pending.isEmpty, !unreachable else { return 0 }
         let activity = activities.begin("送信待ちの予約を登録中")

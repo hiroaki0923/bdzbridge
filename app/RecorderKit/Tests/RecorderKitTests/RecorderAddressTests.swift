@@ -79,6 +79,28 @@ final class RecorderAddressTests: XCTestCase {
         }
     }
 
+    /// Choosing the address already in use must not cost the reader the lists they have, so an address is the
+    /// same however it was typed, and a host name has no case. What only asking could say is the same place
+    /// is another: forgetting a recorder that was the same costs what was read from it, read again, and what
+    /// the reader had marked in it, and keeping one that was another leaves its recordings on screen.
+    func testAnAddressIsTheSameHoweverItWasTyped() {
+        for typed in ["192.0.2.10", " 192.0.2.10\n", "192.0.2.10:64220", "http://192.0.2.10/",
+                      "１９２．０．２．１０", "192。0。2。10"] {
+            XCTAssertTrue(RecorderAddress.same(typed, "192.0.2.10"), typed.debugDescription)
+            XCTAssertTrue(RecorderAddress.same("192.0.2.10", typed), typed.debugDescription)
+        }
+        XCTAssertTrue(RecorderAddress.same("BDZ.local", "bdz.local"))
+        XCTAssertTrue(RecorderAddress.same("[2001:DB8::10]:64220", "2001:db8::10"))
+        for other in ["192.0.2.11", "192.0.2.1", "192.0.2.100", "bdz.local", ""] {
+            XCTAssertFalse(RecorderAddress.same(other, "192.0.2.10"), other.debugDescription)
+            XCTAssertFalse(RecorderAddress.same("192.0.2.10", other), other.debugDescription)
+        }
+        // Not guessed at: each pair may well be one place, and only asking would say.
+        XCTAssertFalse(RecorderAddress.same("192.0.2.010", "192.0.2.10"))
+        XCTAssertFalse(RecorderAddress.same("2001:db8:0:0:0:0:0:10", "2001:db8::10"))
+        XCTAssertFalse(RecorderAddress.same("bdz.local.", "bdz.local"))
+    }
+
     private func XCTAssertThrowsBadAddress<T>(_ body: @autoclosure () async throws -> T, _ host: String,
                                               file: StaticString = #filePath, line: UInt = #line) async {
         do {

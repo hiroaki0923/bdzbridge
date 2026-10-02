@@ -2,9 +2,9 @@ import Foundation
 
 /// Sending the reservations that were made while the recorder could not be reached.
 ///
-/// One implementation for both callers: the app does this whenever the recorder answers, and the overnight
-/// run does it with no screen behind it. The rules are the same either way, which is the point of it living
-/// here rather than in the app.
+/// One implementation for both callers: the app does this whenever a connect has reached the recorder, and
+/// the overnight run does it with no screen behind it. The rules are the same either way, which is the point
+/// of it living here rather than in the app.
 public enum PendingQueue {
     public struct Outcome: Sendable, Equatable {
         /// Sent to the recorder, and gone from the queue.

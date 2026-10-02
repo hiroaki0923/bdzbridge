@@ -98,7 +98,9 @@ public final class SessionState {
     /// An attach failed, with `failure` when a device's error says which kind and nil when it does not.
     /// Silence leaves the device unreachable and no longer described. An address that is not one leaves it
     /// undescribed too: the last device's description standing would have the app look connected, to a device
-    /// it is no longer set to. Anything else answered, so the device is there and what is known of it stands.
+    /// it is no longer set to. Anything else answered, so the device is there and what is known of it stands
+    /// -- which is nothing when another device has just been chosen: the caller forgets the last one at the
+    /// choice (`forgotTheDevice`), before anything is asked at the new address.
     public func attachFailed(_ failure: DeviceFailure?) {
         unreachable = failure == .silent
         if failure == .silent || failure == .badAddress { info = nil }

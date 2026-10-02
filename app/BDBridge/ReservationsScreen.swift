@@ -100,15 +100,8 @@ struct ReservationsScreen: View {
                 }
             }
             // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
-            // the app has given up on.
-            .refreshable {
-                if model.offline {
-                    await model.connect()
-                } else {
-                    await model.loadReservations()
-                    await model.flushPending()
-                }
-            }
+            // the app is not connected to.
+            .refreshable { await model.refreshReservations() }
             // Keyed as the recordings and the keyword conditions are: on `connected`, and on what the load
             // itself checks. This list was never left empty by `connected` turning true while the recorder
             // was still marked silent: a connect reads it by itself, and silence does not empty it. But the

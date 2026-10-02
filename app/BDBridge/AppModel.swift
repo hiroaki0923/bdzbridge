@@ -223,7 +223,10 @@ final class AppModel {
     /// recorder's details in the demo. `busy` alone leaves gaps inside a connect, such as the check of the
     /// local network permission, so `connecting` counts as well. Nor while a bulk job runs: it holds the
     /// client and the list it started from, and would go on marking rows in a list that is no longer its own.
-    var canChangeRecorder: Bool { busy == nil && !connecting && !jobRunning }
+    /// Nor while the recorder is being made sure of (`wakeIfDozing`), whose first ask has no line of its own:
+    /// it goes on with the client it began with, and a recorder it wakes is attached as whichever recorder is
+    /// in play by then.
+    var canChangeRecorder: Bool { busy == nil && !connecting && !jobRunning && wakeCheck == nil }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
     /// last ask got silence. Every list guards on it, so that going out of range costs one timeout rather
