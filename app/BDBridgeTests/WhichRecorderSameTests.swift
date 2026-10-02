@@ -203,9 +203,10 @@ extension WhichRecorderTests {
     // MARK: - the demo
 
     /// The demo has a cache of its own, and the real recorder's is as it was when the demo is over: its
-    /// owner, its texts, what the defaults keep about its disk.
+    /// owner, its texts, what the defaults keep about its disk. So is the MAC for waking it, which the demo
+    /// puts its own in the place of while it lasts, and where that MAC was read.
     func testTheDemoLeavesTheRealRecordersCacheAsItWas() async throws {
-        let (bench, recorder, model) = try await atHome()
+        let (bench, recorder, model) = try await atHome(wakeable: true)
         let before = await recorder.asked
 
         // Out by ending it, and then out by choosing the real recorder from inside it.
@@ -214,6 +215,7 @@ extension WhichRecorderTests {
             XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
             let demos = try await GuideStore(path: Storage.guidePath(demo: true, in: bench.folder)).owner()
             XCTAssertNil(demos, "the demo's cache was written down as somebody's")
+            XCTAssertEqual(model.mac, DemoData.mac, "the demo went on under the real recorder's MAC")
             if leaving == "ending" { await model.leaveDemo() } else { await model.adopt(host: Bench.host) }
             try await untilIdle(model)
 
@@ -221,6 +223,9 @@ extension WhichRecorderTests {
             try await expect(bench, keeps: .all(of: 1), leaving)
             expectEqual(await recorder.asked("EPG_TRDEPG_FILE.dat", since: before), 0,
                         "the guide was fetched again after \(leaving)")
+            XCTAssertEqual(model.mac, Self.firstsMAC, "the real recorder's MAC did not come back after \(leaving)")
+            XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMac), Self.firstsMAC, leaving)
+            XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMacHost), Bench.host, leaving)
         }
     }
 }

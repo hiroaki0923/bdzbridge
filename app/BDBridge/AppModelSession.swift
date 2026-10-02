@@ -147,8 +147,8 @@ extension AppModel {
     }
 
     /// Whether local network privacy is why the recorder said nothing, asked of the recorder's own address
-    /// (two seconds at most). Only in the foreground, after a real recorder was silent: never by the
-    /// overnight run, which has no screen to explain it on, nor in the demo.
+    /// (two seconds at most). Only from the screens' connect and check, after a real recorder was silent:
+    /// never by the overnight run, which has no screen to explain it on, nor in the demo.
     private func lanIsBlocked() async -> Bool {
         guard surroundings.reachesTheLAN else { return false }
         return await LocalNetwork.access(probing: host) == .blocked

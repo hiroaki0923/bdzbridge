@@ -39,13 +39,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-36 ファイル、5,203 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,313 行。
+36 ファイル、5,205 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,313 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,655 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
 | SQLite の上のもの | 958 | GuideStore, Sqlite |
-| 非同期の段取り | 1,068 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach |
+| 非同期の段取り | 1,070 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach |
 | OS に縛られるもの | 522 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 522 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -151,7 +151,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、63 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、64 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （`AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
