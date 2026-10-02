@@ -39,12 +39,12 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-36 ファイル、5,353 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,374 行。
+36 ファイル、5,337 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,313 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,712 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
-| SQLite の上のもの | 987 | GuideStore, Sqlite |
+| SQLite の上のもの | 971 | GuideStore, Sqlite |
 | 非同期の段取り | 1,119 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach |
 | OS に縛られるもの | 535 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
@@ -53,10 +53,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,727 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（8 ファイルで 2,656 行、うち 3 割あまりがコメント。接続まわりは
+RecorderKit の外、アプリ（8,577 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
+一括処理の一時停止で、AppModel（8 ファイルで 2,513 行、うち約 3 割がコメント。接続まわりは
 `AppModelSession.swift`）と BackgroundWork、Notify、SendWaitingIntent を
-合わせて約 1,300 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
+合わせて約 1,200 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの
 

@@ -26,19 +26,14 @@ extension AppModel {
 
     /// Connects, and wakes the recorder first if that is what it needs. A BDZ-FBT4100 leaves the LAN when
     /// it has been idle a while and then answers nothing at all, which is below the network standby that
-    /// `X_PowerControl` can reach: only a magic packet gets it back. Nobody has to ask for that, so it
-    /// happens here rather than as a button — the address came from the recorder itself, the packet costs
-    /// nothing, and the reader only wanted to see their guide.
+    /// `X_PowerControl` can reach: only a magic packet gets it back, so one is sent without being asked for.
     func connect() async {
-        // Not while a bulk job or the duplicate scan is running. It holds the client it started with, and a
-        // new one beside it is two queues talking at once to a recorder that answers 503 to the second --
-        // which the connect took for a device that is not a recorder and gave up on, putting "not connected"
-        // over a job that was still going. Here rather than at the callers, so that 再接続 and pulling down
-        // are held off as well. The job makes sure of the recorder by itself, and stops at the first silence.
+        // Not while a bulk job or the duplicate scan runs. It holds the client it started with, and a second
+        // one beside it is two queues talking to a recorder that answers 503 to the second. Here rather than
+        // at the callers, so that 再接続 and pulling down are held off as well.
         guard !host.isEmpty, !connecting, !jobRunning else { return }
-        // A check already waking this recorder with the client in hand is doing what this would do, and a
-        // second client beside it would talk over it. Asked for meanwhile -- by pulling down, which is what a
-        // screen of lists waiting on the waking invites -- this waits for its answer rather than start again.
+        // A check already waking this recorder is doing what this would do, and a second client would talk
+        // over it: wait for its answer rather than start again.
         if let wakeCheck, let client, client.host == host {
             _ = await wakeCheck.value
             return
@@ -49,44 +44,34 @@ extension AppModel {
         // This attempt answers what the watcher was waiting to find out, one way or the other.
         accessWatch?.cancel()
         accessWatch = nil
-        // The cache first, since the queued reservations and the guide are sent from and fetched into it.
-        // Coming to the foreground connects too, and at launch it can get here before `start()` has opened
-        // anything; without this that connect found no cache and quietly did neither.
+        // The cache first: the queue is sent from it and the guide fetched into it, and a connect made on
+        // coming to the foreground can get here before `start()` has opened anything.
         await openCache()
         guard var reached = await reachTheRecorder() else { return }
-        // The network under this phone can change while a connect is under way -- the Wi-Fi joined on the way
-        // in through the door, a VPN coming up -- and the watcher that would ask again on a change stays out of
-        // a connect's way (`networkChangedWhileOpen`). What was tried was then tried on a network that had
-        // gone, and the app gave up on the one that had come instead, with nothing to ask again until the
-        // reader did. So a connect that got nowhere tries once more, here, when the network it started on is
-        // no longer the one under it. Once: a network still changing after that is left to the next return
-        // to the app, which asks again on a network it has not tried.
+        // The network can change while a connect is under way -- the Wi-Fi joined on the way in through the
+        // door -- and the watcher stays out of a connect's way. So a connect that got nowhere tries once more
+        // when the network it started on is no longer the one under it. Once: a network still changing is
+        // left to the next return to the app.
         if LinkRules.triesOnceMore(reached: reached, networkChanged: networkChanged) {
             guard let again = await reachTheRecorder() else { return }
             reached = again
         }
-        // Trying again by itself would only spend another half-minute arriving at the same silence. The
-        // reader has "再接続" and "レコーダーを探す" for when they know something has changed, and a change of
-        // network asks again without being told to.
-        // Only silence, though. A recorder that answered, if only to refuse -- a 503 because something else
-        // was talking to it, a fault from a model without one of the calls -- is there, and has said what is
-        // wrong already. Giving up on it put "not connected" on screen beside a recorder that was answering,
-        // and kept the next return to the app from asking again.
+        // Trying again by itself would only arrive at the same silence; the reader has 再接続 and
+        // レコーダーを探す, and a change of network asks again unasked. Only silence is given up on: a recorder
+        // that answered, if only to refuse -- a 503, a fault from another model -- is there, and has said
+        // what is wrong.
         session.finishedTrying(reached: reached)
         if reached {
-            // Provisional permission for notifications, now that there is a recorder for them to be about.
-            // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
-            // for the demo, whose recorder nobody will hear from overnight.
+            // Provisional permission for notifications, now that there is a recorder for them to be about:
+            // no dialog, so nothing lands on the local network question just answered (`Notify`). Not for
+            // the demo.
             if !demo, surroundings.asksAboutNotifications {
                 Task {
                     await Notify.allowQuietly()
                     await readNotifications()
                 }
             }
-            // Before the guide, because the guide marks what is already set to record and the marks come
-            // from this list. Reading it only when the reservations screen appeared meant that opening the
-            // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
-            // been to the other tab and back.
+            // Before the guide, which marks what is already set to record from this list.
             await loadReservationsNow()
             await readAgainWhatWasUp()
             await refreshGuideIfStale()
@@ -104,12 +89,8 @@ extension AppModel {
     }
 
     /// One attempt at the recorder, for `connect()`: a client of its own, the first probe, waking it, and a
-    /// look for it at another address. Returns whether it answered, or nil when local network privacy is why
-    /// it did not, and the app is now waiting for the permission instead.
-    ///
-    /// The order of the attempt is `Reach.run`'s, which the check before an operation and the overnight run
-    /// follow too. What each step does on the way -- the lines on the strip, reading what the recorder says
-    /// about itself -- is here.
+    /// look for it at another address, in the order `Reach.run` keeps. Returns whether it answered, or nil
+    /// when local network privacy is why it did not and the app is waiting for the permission instead.
     private func reachTheRecorder() async -> Bool? {
         let client: RecorderClient
         if demo {
@@ -120,13 +101,9 @@ extension AppModel {
             client = RecorderClient(host: host, transport: surroundings.transport(host))
         }
         self.client = client
-        // The first ask is a short one. A recorder that has left the network does not refuse the
-        // connection, it says nothing, so a patient timeout means half a minute of silence before anything
-        // can be done about it — and that silence looked like the waking never happened.
-        // The packet is a hundred bytes and the probe takes five seconds to fail, so send it now rather
-        // than after: a recorder that is asleep is already on its way up while the first probe runs, and one
-        // that is awake ignores it. Waiting for the failure first is what made this look like a fault
-        // followed by a retry.
+        // The first ask is short: a recorder that has left the network says nothing rather than refuse, and
+        // a patient timeout is half a minute of silence before anything is done about it. The packet goes
+        // first, so that a recorder asleep is on its way up while the probe waits; one awake ignores it.
         let outcome = await Reach.run(Reach.Steps(
             sendPacket: {
                 self.sendMagicPacket()
@@ -169,20 +146,17 @@ extension AppModel {
         unreachable ? .silent : .refused(reason: problem ?? "")
     }
 
-    /// Whether local network privacy is why the recorder said nothing. Aimed at the recorder's own address,
-    /// because that is the connection the permission would have stopped. At most two seconds; the path
-    /// answers at once in practice. Only asked in the foreground, after a real recorder was silent -- never
-    /// by the overnight run, which has no screen to explain it on, and never in the demo, which has to go
-    /// through without the system's question ever coming up.
+    /// Whether local network privacy is why the recorder said nothing, asked of the recorder's own address
+    /// (two seconds at most). Only in the foreground, after a real recorder was silent: never by the
+    /// overnight run, which has no screen to explain it on, nor in the demo.
     private func lanIsBlocked() async -> Bool {
         guard surroundings.reachesTheLAN else { return false }
         return await LocalNetwork.access(probing: host) == .blocked
     }
 
-    /// Silence because iOS stopped the app asking, not because the recorder is asleep. The magic packet
-    /// could not leave this phone either, so half a minute of waking would be half a minute of nothing
-    /// followed by the wrong advice. Waits for the permission instead; what the screens say comes from
-    /// `connectBlocked`, not from a failure line.
+    /// Silence because iOS stopped the app asking, not because the recorder is asleep: the magic packet
+    /// could not leave either, so waking would be half a minute of nothing. Waits for the permission
+    /// instead; the screens say so from `connectBlocked`.
     private func waitForPermission() {
         session.waitingForPermission()
         problem = nil
@@ -191,8 +165,7 @@ extension AppModel {
 
     /// Waits for the reader to allow the local network, then connects. The one exception to leaving a
     /// recorder alone until the network changes or the reader asks: switching the permission on is the
-    /// reader asking, and it changes nothing `networkChanged` could see, so without this the app would stay
-    /// given up after it until something else happened to move.
+    /// reader asking, and changes nothing `networkChanged` could see.
     private func watchForAccess() {
         accessWatch?.cancel()
         let host = host
@@ -207,22 +180,15 @@ extension AppModel {
     }
 
     /// Reads what the recorder says about itself. Sets `unreachable` when nothing answered at all, which
-    /// is the only case worth sending a magic packet for.
+    /// is the only case worth a magic packet.
     ///
-    /// Only the description decides whether this is a recorder the app is connected to. The firmware, the
-    /// MAC and the free space are read too, but the app is as connected without them, and another model of
-    /// the series may refuse one or answer it in a shape of its own. Failing on that failed the connect
-    /// with the recorder answering and described in the settings: an error on screen, the queue not sent,
-    /// the reservations and the guide never fetched, and a tutorial that waited for the recorder to be
-    /// reached stayed open. What such a read cannot give is left unknown instead
-    /// (`RecorderError.silenceOnly`). Silence still ends it, as it would anywhere.
+    /// Only the description decides whether the app is connected. The firmware, the MAC and the free space
+    /// are read too, but another model may refuse one or answer in a shape of its own, and that must not
+    /// fail the connect: what cannot be read is left unknown (`RecorderError.silenceOnly`). Silence still
+    /// ends it.
     ///
-    /// `quiet` keeps a failure off the screen. A probe that is about to be answered with a magic packet has
-    /// not failed at anything the reader should be told about, and saying so for the five seconds before the
-    /// waking starts reads as a fault that then mysteriously heals.
-    ///
-    /// `what` is nil for a probe inside a sequence that has already said what it is doing. Setting and
-    /// clearing it per attempt made every button bound to `busy` flicker once a second while waking.
+    /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet. `what`
+    /// is nil inside a sequence that has already said what it is doing.
     private func attach(_ client: RecorderClient, what: String? = "接続中",
                         timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
         // A line of its own, and only that one taken away afterwards: this can run inside the waking, which
@@ -245,10 +211,9 @@ extension AppModel {
             // address that works is written down however it arrived
             defaults.set(host, forKey: DefaultsKey.recorderHost)
             session.learned(firmware: try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? "")
-            // Kept for waking it later. The recorder is the only place this can come from on iOS, which
-            // cannot read an ARP table, so it is read every time rather than once. With the address it was
-            // read at, which is what lets the recorder be recognised by it somewhere else: see
-            // `findMovedRecorder`. Not the demo's, which is at an address that is nobody's.
+            // Kept for waking it later, and read every time: on iOS the recorder is the only place it can
+            // come from. With the address it was read at, which lets the recorder be recognised by it
+            // elsewhere (`findMovedRecorder`). Not the demo's.
             if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }),
                remember(mac: settings.mac), !demo {
                 defaults.set(host, forKey: DefaultsKey.recorderMacHost)
@@ -264,14 +229,12 @@ extension AppModel {
             return true
         } catch {
             let recorderError = error as? RecorderError
-            // Nothing answered, so we are not connected, whatever a description read earlier says. Leaving
-            // it standing is what had the screens asking a recorder that was not there, one 30-second
-            // timeout at a time. Nor is a recorder there if the address is not an address. Anything else
-            // answered, and what is known of the recorder stands (`SessionState.attachFailed`).
+            // Nothing answered, so the app is not connected, whatever a description read earlier says; nor
+            // when the address is not an address. Anything else answered, and what is known of the recorder
+            // stands (`SessionState.attachFailed`).
             session.attachFailed(recorderError?.failure)
-            // Quiet only keeps silence off the screen, because only silence is answered with a magic packet.
-            // Anything else -- an address that is not one, above all -- is where this ends, and without a
-            // word the reader would have nothing but a strip saying it is not connected.
+            // Quiet only keeps silence off the screen, since only silence is answered with a magic packet.
+            // Anything else is where this ends, and the reader is told.
             if !quiet || !unreachable { problem = recorderError?.explanation ?? String(describing: error) }
             return false
         }
@@ -359,9 +322,8 @@ extension AppModel {
     }
 
     /// The free space read again, after a delete or with the list of recordings. It is only shown, so a
-    /// recorder that will not say is not an error: the read used to be part of the delete, and failing it
-    /// put an error on screen, and reported the delete as failed, for a recording that had gone. Silence
-    /// is still silence, whatever was being asked.
+    /// recorder that will not say is not an error, and the delete it follows is not reported as failed.
+    /// Silence is still silence.
     func refreshStorage(_ client: RecorderClient) async {
         do {
             session.learned(storage: try await Self.storage(of: client))
@@ -383,20 +345,15 @@ extension AppModel {
     func wakeAndAttach(_ client: RecorderClient? = nil) async -> Bool {
         guard let client = client ?? self.client, unreachable, mac != nil else { return false }
         sendMagicPacket()   // again: connect() sends one too, and a second costs nothing
-        // Nothing is wrong yet, so nothing should be on screen saying there is. The probe that got us here
-        // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
+        // Nothing is wrong yet, so nothing on screen should say there is: waking takes a few tries, and a
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
         session.beginWaking()
         let activity = activities.begin(Self.wakingLine(0))
         defer { session.endWaking(); activities.end(activity) }
-        // The line says how long it has been, because a spinner that has been going for twenty seconds is
-        // otherwise indistinguishable from a hung one. The wait itself is RecorderKit's, shared with the
-        // overnight run and the Shortcuts action (`Waking`).
-        //
-        // It goes on whatever becomes of the caller, in a task of its own. `connect()` is also what pulling
-        // down the list does, and a pull abandoned half way, stopping the wait, would leave the app given up
-        // on a recorder that was coming up. The loop this replaced went on too, only without sleeping.
+        // The line says how long it has been: a spinner twenty seconds old looks hung. The wait itself is
+        // RecorderKit's (`Waking`), and goes on in a task of its own whatever becomes of the caller: a pull
+        // on the list abandoned half way must not leave the app given up on a recorder that is coming up.
         let outcome = await Task {
             await Waking.waitForAnswer(from: client, limit: Waking.screenLimit,
                                        resend: { @MainActor in self.sendMagicPacket() },
@@ -419,20 +376,14 @@ extension AppModel {
 
     /// Looks for the recorder at another address, once, after waking it where it was came to nothing.
     ///
-    /// The recorder's address is a DHCP lease, and the router hands it out again as it likes: after a power
-    /// cut, a restart of the router, a long sleep. The app went on knocking at the old address, and the only
-    /// thing on screen was 再接続, which knocked there again. The magic packet has already gone to the
-    /// subnet's broadcast, so a recorder that moved has had the half minute of waking to come up at its new
-    /// address, and a scan of the subnet finds it in a few seconds. It is told from any other recorder by the
-    /// MAC kept for waking it, which is the tail of its UDN (`RecorderDescription.hasMAC`), so an
-    /// installation that has only ever saved the MAC finds it too.
+    /// The recorder's address is a DHCP lease, which the router hands out again after a power cut or a
+    /// restart. The magic packet has gone to the subnet's broadcast, so a recorder that moved has had the
+    /// waking to come up at its new address, and a scan finds it in a few seconds. It is told from any other
+    /// by the MAC kept for waking it, the tail of its UDN (`RecorderDescription.hasMAC`).
     ///
-    /// Only from `connect()`, once, and never on a loop: when nothing is found the app gives up as before,
-    /// until the network changes or the reader asks. Only on a Wi-Fi whose subnet the saved address belongs
-    /// to, which is where DHCP would have moved it (`LocalNetwork.hostsToScan(near:)`). Never in the demo, and
-    /// never in the background, where the system refuses the local network without a word. The permission
-    /// itself has been looked at already: a connect that met silence asks it about the saved address, in this
-    /// same subnet, before waking anything, and waits for it rather than coming here.
+    /// Only from `connect()`, once: when nothing is found the app gives up as before. Only on a Wi-Fi whose
+    /// subnet the saved address belongs to (`LocalNetwork.hostsToScan(near:)`), never in the demo or in the
+    /// background. The permission has been looked at already, before the waking.
     private func findMovedRecorder() async -> RecorderDescription? {
         guard !demo, !inBackground, surroundings.reachesTheLAN, let mac, macWasReadHere else { return nil }
         let hosts = LocalNetwork.hostsToScan(near: host)
@@ -449,11 +400,10 @@ extension AppModel {
         return moved
     }
 
-    /// Whether the MAC is the one the recorder at the saved address reported, or nobody knows (a version
-    /// before this one did not write down where). Once the reader has typed the address of another recorder,
-    /// the MAC is still the old one's until the new one answers, and the magic packet addressed to it wakes
-    /// the old recorder: the search would find that, and quietly go back to the recorder the reader had just
-    /// left.
+    /// Whether the MAC is the one the recorder at the saved address reported, or nobody knows where it was
+    /// read (earlier versions did not write that down). After the reader types another recorder's address
+    /// the MAC is still the old one's until the new one answers, and the search would quietly go back to
+    /// the recorder just left.
     private var macWasReadHere: Bool {
         guard let readAt = defaults.string(forKey: DefaultsKey.recorderMacHost) else { return true }
         return readAt == host
@@ -462,24 +412,15 @@ extension AppModel {
     // MARK: - a recorder that falls asleep while the app is open
 
     /// Leaves the app where a connect that got no answer leaves it: not connected, given up until the network
-    /// changes or the reader asks, with 再接続 on the strip.
+    /// changes or the reader asks, with 再接続 on the strip. Every request that meets silence comes here, not
+    /// only connecting, so that the screens stop asking a recorder that has gone to sleep.
     ///
-    /// Every request that meets silence comes here, not only connecting. Before, the rest put the failure on
-    /// screen and the app went on looking connected to a recorder that had gone to sleep: the next screen
-    /// asked again and waited out the same timeout, nothing offered to reconnect, and pulling down asked the
-    /// silent recorder once more instead of connecting.
+    /// Nothing is sent again from here, nor by the callers once the recorder is back: a write that met
+    /// silence may have arrived all the same, and a reservation sent twice can be made twice.
     ///
-    /// Nothing is sent again from here, and the callers do not send again either, not even once the recorder
-    /// has been woken: a write that met silence may have reached the recorder all the same, and a reservation
-    /// sent twice can be made twice. The reader is told to look once it is back.
-    ///
-    /// Where the app tried is left as it was, which is where the connect or the check before this began. Put
-    /// down as the network the silence ended on, a Wi-Fi that went while the request was out and came back
-    /// before it timed out was recorded as tried, and the app gave up at home on a recorder that was answering.
-    /// When the network did move meanwhile, the silence may be its doing rather than the recorder's, and the
-    /// looks that followed its report may have run out while this waited, so they are set going again. Leaving
-    /// home with a request out therefore costs one connect on the way out, as leaving with the app idle does
-    /// (`networkChangedWhileOpen`); that is the price of not giving up at home, and not a retry to take out.
+    /// Where the app tried is left as it was. Put down as the network the silence ended on, a Wi-Fi that
+    /// went and came back while the request was out counted as tried, and the app gave up at home. When the
+    /// network did move meanwhile, the looks that followed its report are set going again.
     func lostTheRecorder() {
         session.lost()
         if session.link.sawAnotherNetwork { networkReported() }
@@ -500,15 +441,10 @@ extension AppModel {
     /// is not. Returns whether it is there to ask. When it is not, the app has been left offline, `problem`
     /// says why, and nothing has been sent.
     ///
-    /// Without this, a recorder that had gone to sleep while the app was open was found out by the request
-    /// itself: thirty seconds on the conflict check, thirty more on the reservation, and then
-    /// "送信待ちにしました" on a phone in the same room as the recorder. Now it is asked first, briefly, and
-    /// woken the way connecting wakes it -- with the client already in hand. Connecting again would make a
-    /// second client, and two clients are two queues talking over each other to a recorder that answers 503
-    /// to the second.
-    ///
-    /// `evenIfRecent` asks whatever the time since the last answer, for when that answer no longer says
-    /// anything: the network under this device has changed since.
+    /// Asked first and briefly, so that a recorder asleep is not found out by the request itself, thirty
+    /// seconds at a time; woken with the client already in hand, since a second client would be a second
+    /// queue talking to a recorder that answers 503 to it. `evenIfRecent` asks whatever the time since the
+    /// last answer, for when the network has changed since.
     func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
         guard let client, !offline else {
             problem = notConnected
@@ -537,9 +473,8 @@ extension AppModel {
         // number, and must not go to another that answers in its place.
         let known = session.device
         var stranger = false
-        // The packet first and the probe after, as connecting does (`Reach.run`): a recorder that is asleep
-        // is on its way up while the probe waits, and one that is awake ignores it. It is not looked for at
-        // another address from here: only a connect does that.
+        // The packet first and the probe after, as connecting does (`Reach.run`). Not looked for at another
+        // address from here: only a connect does that.
         var answeredTheProbe = true
         let outcome = await Reach.run(Reach.Steps(
             sendPacket: { self.sendMagicPacket() },
@@ -626,9 +561,8 @@ extension AppModel {
     }
 
     /// The app has gone to the background, which is what makes coming back worth a reconnect. Only this
-    /// counts. Control Centre, Notification Centre, the app switcher and a system alert take the app out of
-    /// `.active` as well, without it going anywhere, and reconnecting after each of them sent a magic packet
-    /// for a glance at the time -- and, with a bulk job running, set a second client talking over the job's.
+    /// counts: Control Centre, the app switcher or a system alert take the app out of `.active` without it
+    /// going anywhere, and reconnecting after each sent a magic packet for a glance at the time.
     func wentToBackground() {
         inBackground = true
         // The line about the queue was for this visit. Coming back sends the queue again when there is
@@ -637,10 +571,9 @@ extension AppModel {
         anotherTookOver = false
     }
 
-    /// The app is active again. The recorder may have gone to sleep while it was away -- a BDZ-FBT4100 leaves
-    /// the network after a quarter of an hour or so -- and the screens would otherwise show what was true
-    /// when the app was last looked at. Connecting again also sends anything queued. Called every time the
-    /// scene becomes active, and connects only when the app has really been away: see `wentToBackground`.
+    /// The app is active again. The recorder may have gone to sleep meanwhile -- a BDZ-FBT4100 leaves the
+    /// network after a quarter of an hour or so -- and connecting again also sends anything queued. Connects
+    /// only when the app has really been away (`wentToBackground`).
     func returnedToForeground() async {
         let wasAway = inBackground
         inBackground = false
@@ -650,21 +583,13 @@ extension AppModel {
         // Before any of the reasons below not to connect: a day may have gone by while the app was away,
         // with or without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
-        // What coming back is worth is `LinkRules.onReturn`'s to say. In short: nothing after a moment in
-        // Control Centre and the like, which went nowhere (see `wentToBackground`). While something is under
-        // way, or a check is making sure of the recorder, connecting would make a second client beside the
-        // one at work -- the conflict check has no line of its own to make `busy` say so -- but the network
-        // may have moved while the app was away all the same, and the looks wait for this. Not on every flick
-        // between apps: any answer within the last minute counts, not only the connect's. And not when the
-        // recorder was already tried on this very network and said nothing: coming back is not news, and
-        // half a minute of waking a recorder that is not there, every time, is what made the app look as
-        // though it never stopped searching. It may be news a moment from now, though -- switching the Wi-Fi
-        // on in the Settings app and coming straight back is quicker than the phone gets its address -- and
-        // the look is what catches it arriving.
+        // What coming back is worth is `LinkRules.onReturn`'s to say: nothing after a moment in Control
+        // Centre; no second client while something is under way or a check is out; not on every flick between
+        // apps, since any answer within the last minute counts; and not when this very network was already
+        // tried and said nothing -- though the network may be about to change, which the look catches.
         let hasAddress = !host.isEmpty, busyNow = busy != nil, checking = wakeCheck != nil
-        // The recorder's last answer is on its own actor, and asking for it gives up this one's turn: asked
-        // only where the rule will read it, so that nothing else waits for it. Any answer counts, not only
-        // the connect's.
+        // The last answer is on the client's actor, and asking gives up this one's turn: asked only where
+        // the rule will read it.
         let asksItsAge = wasAway && hasAddress && !busyNow && !checking && connected
         let lastAnswer = asksItsAge ? await client?.lastAnswer : nil
         switch LinkRules.onReturn(wasAway: wasAway, hasAddress: hasAddress, busy: busyNow, checking: checking,
@@ -676,15 +601,12 @@ extension AppModel {
         }
     }
 
-    /// The watcher's report, which is news of the network but not yet the network. iOS reports a path as
-    /// soon as it can be used -- on a network with IPv6 as well, before the phone has its IPv4 address there
-    /// -- and says nothing more when the address arrives, so looking only when the report came found the
-    /// network unchanged and left the app on 接続できません at home. A report can also come while the app is
-    /// busy, which the look waits out. So the network is looked at again for a minute after each report,
-    /// until something has been done about it. A report of nothing -- a route changing -- costs a few looks at
-    /// the addresses and nothing else. The looks last half a minute (`LinkRules.looksAfterAReport`); what
-    /// keeps the app busy for longer than that -- a guide file has two minutes -- ends in `lostTheRecorder`
-    /// if the network took the recorder away, which sets the looks going again.
+    /// The watcher's report, which is news of the network but not yet the network: iOS reports a path as
+    /// soon as it can be used, before the phone has its IPv4 address there, and says nothing more when the
+    /// address arrives. So the network is looked at again for a while after each report
+    /// (`LinkRules.looksAfterAReport`), until something has been done about it. What keeps the app busy for
+    /// longer ends in `lostTheRecorder` if the network took the recorder away, which sets the looks going
+    /// again.
     func networkReported() {
         // Now rather than in the first look: by then the Wi-Fi may be back, and that it went at all is lost.
         noteTheNetwork()
@@ -702,13 +624,10 @@ extension AppModel {
         session.noted(network: surroundings.networkSignature())
     }
 
-    /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
-    /// over. That is the one thing that makes another attempt worth making without being asked. Returns
-    /// whether it made one, or made sure of the recorder.
-    ///
-    /// While connected, it is the one thing that makes the last answer worth nothing: leaving home with the
-    /// app open left it looking connected to a recorder it could no longer reach, until something asked and
-    /// waited out a timeout. The recorder is asked again with the client in hand, as before an operation.
+    /// The network changed while the app was open: the one thing that makes another attempt worth making
+    /// without being asked, and, while connected, the one thing that makes the last answer worth nothing.
+    /// The recorder is asked again with the client in hand, as before an operation. Returns whether an
+    /// attempt was made, or the recorder made sure of.
     @discardableResult
     func networkChangedWhileOpen() async -> Bool {
         // Noted first, busy or not: a Wi-Fi that has gone and come back by the time the app is free to look
