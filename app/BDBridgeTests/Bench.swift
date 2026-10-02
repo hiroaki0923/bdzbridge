@@ -25,15 +25,41 @@ final class Bench {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
+    /// Another address reserved for documentation, for a test that chooses another recorder.
+    static let otherHost = "192.0.2.11"
+
     /// A model as the app makes one at launch with a recorder saved, whose requests go to `recorder`. No MAC
     /// is saved, and nothing is put on the network by the model itself (`Surroundings.reachesTheLAN`).
     func model(recorder: any HTTPTransport) -> AppModel {
-        defaults.set(Self.host, forKey: DefaultsKey.recorderHost)
+        model { _ in recorder }
+    }
+
+    /// The same on a network where each address has a device of its own: what is sent to an address goes to
+    /// the recorder named for it here, and at any other address nothing answers. The address saved is still
+    /// `host`.
+    func model(recorders: [String: any HTTPTransport]) -> AppModel {
+        let nobody = SilentRecorder()
+        return model { recorders[$0] ?? nobody }
+    }
+
+    /// A model as the app makes one at its first launch: no recorder saved, and nothing answering anywhere.
+    func modelWithNoRecorder() -> AppModel {
+        let nobody = SilentRecorder()
+        return model(saved: nil) { _ in nobody }
+    }
+
+    private func model(saved: String? = Bench.host,
+                       transport: @escaping (String) -> any HTTPTransport) -> AppModel {
+        if let saved {
+            defaults.set(saved, forKey: DefaultsKey.recorderHost)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        }
         let folder = folder
         return AppModel(surroundings: Surroundings(
             defaults: defaults,
             folder: { folder },
-            transport: { _ in recorder },
+            transport: transport,
             // Weak: the looks after a network report can outlast the test that made them.
             networkSignature: { [weak self] in self?.network ?? "" },
             reachesTheLAN: false,
@@ -84,13 +110,19 @@ actor SilentRecorder: HTTPTransport {
 /// is up looks from a phone that has left the Wi-Fi. It keeps its MAC to itself, so the model has nothing to
 /// wake and gives up at once instead of spending the half minute of waking a real app would. `holding` keeps
 /// what was sent while away waiting until `letGo()`, and then it fails however the phone is by then: a request
-/// that went out while the Wi-Fi was gone is lost even if the Wi-Fi comes back before it times out.
+/// that went out while the Wi-Fi was gone is lost even if the Wi-Fi comes back before it times out. `refusing`
+/// names calls it turns down while at home, as `PickyRecorder` does.
 actor RecorderAtHome: HTTPTransport {
     private let recorder = DemoRecorder()
+    private let refusing: Set<String>
     private var reachable = true
     private var holding = false
     private var held: [CheckedContinuation<Void, Never>] = []
     private(set) var asked = 0
+
+    init(refusing: Set<String> = []) {
+        self.refusing = refusing
+    }
 
     func setReachable(_ value: Bool, holding: Bool = false) {
         reachable = value
@@ -109,7 +141,8 @@ actor RecorderAtHome: HTTPTransport {
             if holding { await withCheckedContinuation { held.append($0) } }
             throw RecorderError.transport("The request timed out.")
         }
-        if request.headers["SOAPACTION"]?.contains("#X_GetPrivateIp") == true {
+        if let action = request.headers["SOAPACTION"],
+           action.contains("#X_GetPrivateIp") || refusing.contains(where: { action.contains("#\($0)") }) {
             return HTTPResponse(statusCode: 500)
         }
         return try await recorder.send(request)
@@ -127,6 +160,56 @@ actor BusyRecorder: HTTPTransport {
     }
 }
 
+/// Something at the address that is not a recorder -- a television, a router's own page: it answers, and
+/// every answer is a 404. An answer, so not silence, and nothing that describes a recorder.
+actor NotARecorder: HTTPTransport {
+    private(set) var asked = 0
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        asked += 1
+        return HTTPResponse(statusCode: 404)
+    }
+}
+
+/// A recorder that is busy with somebody else when it is asked who it is -- 503 to its description -- and
+/// answers everything else: one that is there, and has not said which it is. It says so once `comeFree()` has
+/// been called. It counts the reservations it is asked to make, and keeps its MAC to itself, as
+/// `RecorderAtHome` does.
+actor RecorderBusyAtTheDoor: HTTPTransport {
+    private let recorder = DemoRecorder()
+    private var busy = true
+    private(set) var made = 0
+
+    func comeFree() {
+        busy = false
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
+        let action = request.headers["SOAPACTION"] ?? ""
+        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
+        if action.contains("#X_CreateRecordSchedule") { made += 1 }
+        return try await recorder.send(request)
+    }
+}
+
+/// The demo's recorder with one broadcast on its disk twice: its list gives two of its recordings one title,
+/// and what it says each is about is the same, as it is for every recording of the demo's. A scan for
+/// duplicates therefore finds one set and ticks a copy. It keeps its MAC to itself, as `RecorderAtHome` does,
+/// so that a model which has met it wakes nothing afterwards.
+actor RecorderWithACopy: HTTPTransport {
+    private let recorder = DemoRecorder()
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let action = request.headers["SOAPACTION"] ?? ""
+        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
+        let response = try await recorder.send(request)
+        guard action.contains("#X_GetTitleList") else { return response }
+        let twice = response.text.replacingOccurrences(of: "第３話", with: "第４話")
+        return HTTPResponse(statusCode: response.statusCode, body: Data(twice.utf8))
+    }
+}
+
 /// The demo's recorder, except that it turns down the SOAP actions named in `refusing` with a 500 and nothing
 /// in it: how another model of the series might answer a call the app only makes to show something.
 actor PickyRecorder: HTTPTransport {
@@ -140,6 +223,41 @@ actor PickyRecorder: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         if let action = request.headers["SOAPACTION"], refusing.contains(where: { action.contains("#\($0)") }) {
             return HTTPResponse(statusCode: 500)
+        }
+        return try await recorder.send(request)
+    }
+}
+
+/// The demo's recorder, away or at home as the test says, which can be made to keep the read that follows its
+/// description waiting until `letGo()`: a recorder that has said who it is and nothing else yet, held there
+/// for a test to look at the app in between. It keeps its MAC to itself, as `RecorderAtHome` does, so that a
+/// model which has met it wakes nothing afterwards.
+actor RecorderPartWayThroughAnAttach: HTTPTransport {
+    private let recorder = DemoRecorder()
+    private var reachable = true
+    private var holding = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func setReachable(_ value: Bool) {
+        reachable = value
+    }
+
+    func holdAfterTheDescription() {
+        holding = true
+    }
+
+    func letGo() {
+        holding = false
+        for request in held { request.resume() }
+        held = []
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard reachable else { throw RecorderError.transport("The request timed out.") }
+        let action = request.headers["SOAPACTION"] ?? ""
+        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
+        if holding, action.contains("#X_GetFirmwareVersion") {
+            await withCheckedContinuation { held.append($0) }
         }
         return try await recorder.send(request)
     }

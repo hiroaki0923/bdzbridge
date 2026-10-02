@@ -55,9 +55,10 @@ struct RecorderRulesScreen: View {
             }
         }
         .refreshable { await model.loadRecorderRules() }
-        // Keyed on what the read itself checks. `connected` turns true partway through a connect, while the
-        // recorder is still marked silent from before, so a read set going by it found nothing to ask and was
-        // not tried again -- after 再接続 the screen went on saying the list could not be read.
+        // Keyed on `connected`, and on what the read itself checks. `connected` turns true partway through a
+        // connect, while the recorder is still marked silent from before, so a read set going by it found
+        // nothing to ask and was not tried again -- after 再接続 the screen went on saying the list could not
+        // be read.
         .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }
         .sheet(isPresented: $adding) { RecorderRuleSheet() }
         .alert(alertTitle,

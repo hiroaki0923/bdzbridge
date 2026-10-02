@@ -44,6 +44,16 @@ public enum RecorderAddress {
         return Typed(host: text, port: nil)
     }
 
+    /// Whether two addresses are one and the same, as far as can be said without asking anything: each
+    /// tidied, and compared without regard to case, since a host name has none. What only a resolver could
+    /// say is one place -- a name and the number behind it, an IPv6 address written out and shortened -- is
+    /// another here. The app forgets a recorder on the strength of a difference, and the two mistakes are not
+    /// alike: forgetting one that was the same costs what was read from it, read again, and what the reader
+    /// had marked in it; keeping one that was another leaves its recordings on screen.
+    public static func same(_ one: String, _ other: String) -> Bool {
+        tidy(one).host.lowercased() == tidy(other).host.lowercased()
+    }
+
     /// Whether the client can build a URL on this host, which is the whole of the check. It is not held to
     /// being an IPv4 address: some people reach their recorder by a name their router or their VPN gives it.
     public static func isUsable(_ host: String) -> Bool {

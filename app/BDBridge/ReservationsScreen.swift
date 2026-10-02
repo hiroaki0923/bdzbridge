@@ -100,16 +100,17 @@ struct ReservationsScreen: View {
                 }
             }
             // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
-            // the app has given up on.
-            .refreshable {
-                if model.offline {
-                    await model.connect()
-                } else {
-                    await model.loadReservations()
-                    await model.flushPending()
-                }
-            }
-            .task(id: model.connected) {
+            // the app is not connected to.
+            .refreshable { await model.refreshReservations() }
+            // Keyed as the recordings and the keyword conditions are: on `connected`, and on what the load
+            // itself checks. This list was never left empty by `connected` turning true while the recorder
+            // was still marked silent: a connect reads it by itself, and silence does not empty it. But the
+            // waking that a check before an operation does reads this list only when it has sent something
+            // from the queue, where a connect always reads it; unless the operation reads it itself, as
+            // cancelling and changing do, this screen went on showing what was read before the recorder
+            // slept. A connect that follows silence, made with this tab in front, now reads the list twice,
+            // one read after the other.
+            .task(id: model.connected && !model.offline) {
                 // The queue is on this device and costs nothing to read, so it is read first: behind the
                 // reservations it would have waited out a timeout before appearing, which looked like a
                 // queue that had swallowed the reservation.
