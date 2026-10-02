@@ -61,6 +61,9 @@ struct RecorderRulesScreen: View {
         // be read.
         .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }
         .sheet(isPresented: $adding) { RecorderRuleSheet() }
+        // The condition picked for deletion is the last recorder's when its lists are let go of: see
+        // `timesForgotten`. One being typed is nobody's yet, and stays.
+        .onChange(of: model.timesForgotten) { removing = nil }
         .alert(alertTitle,
                isPresented: Binding(get: { shown != nil },
                                     set: { if !$0 { removing = nil; failure = nil } }),

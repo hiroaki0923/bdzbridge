@@ -80,6 +80,19 @@ enum Notify {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: summary)
     }
 
+    /// The queue was not sent because another recorder than the one it was made for answered, and with no
+    /// screen nothing is taken up (`BackgroundWork.isTheOneKnown`). Said so that the reader opens the app,
+    /// which is where it is settled; under the queue's own identifier, so that it is said once however many
+    /// nights or arrivals home it takes.
+    static func queueHeldBack() async {
+        await post(id: "queue-flushed", title: "送信待ちの予約", body: anotherRecorderAnswered)
+    }
+
+    /// What that notification says, and the Shortcuts action when it is run by hand. The state the reader
+    /// will find, in the words used when the recorder could not be reached.
+    static let anotherRecorderAnswered = "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。"
+        + "アプリを開いて確かめてください。"
+
     /// The line the low-space warning is given at, which the settings name as well.
     static let lowSpaceGB: Double = 50
 

@@ -25,7 +25,7 @@ extension AppModel {
     }
 
     /// The load itself, without `start()`, for anything `connect()` reaches: see there.
-    private func loadTitlesNow(force: Bool) async {
+    func loadTitlesNow(force: Bool) async {
         guard let client, !unreachable, force || !titlesLoaded else { return }
         await run("録画一覧を取得中") {
             self.titles = try await client.allTitles()

@@ -90,6 +90,12 @@ struct SearchScreen: View {
         var scope: Scope
     }
 
+    /// What has the reservations and the recordings read: the scope turned to, and the app becoming connected.
+    private struct ListsWanted: Equatable {
+        var scope: Scope
+        var connected: Bool
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -148,8 +154,10 @@ struct SearchScreen: View {
                 if scope == .guide, answered != query { guide = GuideSearchResults() }
             }
             // The other two lists are searched where they already are, in memory, so they have to be there.
-            // Whichever screen fetched them first pays for it; this one only asks.
-            .task(id: scope) {
+            // Whichever screen fetched them first pays for it; this one only asks. It asks again when the
+            // app becomes connected, as their own screens do: the lists are let go of when another recorder
+            // answers, with this screen in front as likely as theirs, and it went on saying nothing matched.
+            .task(id: ListsWanted(scope: scope, connected: model.connected && !model.offline)) {
                 switch scope {
                 case .guide: break
                 case .reservations: await model.loadReservations()

@@ -200,8 +200,12 @@ extension AppModel {
         let activity = activities.begin("予約を登録中")
         defer { activities.end(activity) }
         // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
-        // cannot be, nothing has been sent, so the queue is the place for this.
+        // cannot be, nothing has been sent, so the queue is the place for this -- unless another recorder
+        // answered in its place, which the check has said, letting go of the one this was for. Queued, the
+        // reservation would be held as one made for the recorder before, the moment the newcomer is taken
+        // up; the reader makes it again once that one's guide is on screen.
         guard await wakeIfDozing() else {
+            guard client === self.client else { return false }
             return await queue(request, serviceName: program.serviceName)
         }
         do {
@@ -310,7 +314,15 @@ extension AppModel {
         // notification does not show while the app is in front (nothing here answers `willPresent`), so a
         // reservation dropped because its programme had finished went without a word. A flush with nothing
         // to say -- everything waiting had been refused before -- leaves the last line where it was.
-        if let summary = outcome.summary { flushReport = summary }
+        //
+        // What is held back because another recorder took the place of the one it was made for is said each
+        // time, for as long as any is: read from the rows and not from the attach that held them, which
+        // need not have got this far. It goes first, as the greater news on a strip of three lines.
+        let held = pending.filter { $0.problem == Self.heldForAnotherRecorder }.count
+        let heldBack = held == 0 ? nil
+            : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
+        let lines = [heldBack, outcome.summary].compactMap { $0 }
+        if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
         return outcome.sent.count
     }
 

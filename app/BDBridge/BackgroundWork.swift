@@ -166,32 +166,61 @@ enum BackgroundWork {
     static func refreshNow() async -> Bool {
         // Nothing to fetch and nobody to wake while the demo is on the screen.
         guard !DemoData.on else { return false }
-        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty else {
+        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
+              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
             return false
         }
-        do {
-            let store = try GuideStore(path: try Storage.guidePath())
-            let client = RecorderClient(host: host)
-            let mac = UserDefaults.standard.string(forKey: DefaultsKey.recorderMac)
-            guard await reach(client, mac: mac), !Task.isCancelled else { return false }
+        return await refresh(client: RecorderClient(host: host), store: store,
+                             mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system)
+    }
 
-            let outcome = await PendingQueue.flush(client: client, store: store)
-            await Notify.queueFlushed(outcome)
-            guard !Task.isCancelled else { return false }
-            if let capacity = try? await client.recordDestinationInfo() {
-                await Notify.lowSpace(freeBytes: capacity.freeBytes, totalBytes: capacity.totalBytes)
-            }
+    /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.
+    /// Handed in, so that the run can be tried without the notifications and the settings of whatever it is
+    /// tried on (`refresh`).
+    struct Telling: Sendable {
+        /// The queue was not sent, because the recorder that answered is not the one it was made for.
+        var heldBack: @Sendable () async -> Void
+        /// What became of the queue.
+        var flushed: @Sendable (PendingQueue.Outcome) async -> Void
+        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int) async -> Void
+        /// A guide was fetched, at this time.
+        var fetched: @Sendable (Date) -> Void
 
-            // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the
-            // next connect: nothing marks it fetched.
-            let refresh = try await GuideRefresh.run(client: client, store: store)
-            if !refresh.answered.isEmpty {
-                UserDefaults.standard.set(RecorderTime.format(Date()), forKey: DefaultsKey.lastBackgroundRefresh)
+        /// Notifications, and the time the settings show.
+        static let system = Telling(
+            heldBack: { await Notify.queueHeldBack() },
+            flushed: { await Notify.queueFlushed($0) },
+            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1) },
+            fetched: {
+                UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
+            })
+    }
+
+    /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC, for
+    /// the reason they hand `sendWaiting` none.
+    static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling) async -> Bool {
+        guard await reach(client, mac: mac), !Task.isCancelled else { return false }
+        // Another recorder than the one this cache is of is left alone: see `isTheOneKnown`. Said only when
+        // something was waiting to go to it, which is what the reader would otherwise miss.
+        guard await isTheOneKnown(client, to: store) else {
+            if PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? []) {
+                await telling.heldBack()
             }
-            return refresh.stored > 0
-        } catch {
             return false
         }
+
+        let outcome = await PendingQueue.flush(client: client, store: store)
+        await telling.flushed(outcome)
+        guard !Task.isCancelled else { return false }
+        if let capacity = try? await client.recordDestinationInfo() {
+            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes)
+        }
+
+        // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
+        // connect: nothing marks it fetched.
+        guard let refresh = try? await GuideRefresh.run(client: client, store: store) else { return false }
+        if !refresh.answered.isEmpty { telling.fetched(Date()) }
+        return refresh.stored > 0
     }
 
     /// What sending the queue with nothing on screen came to, for the Shortcuts action to say.
@@ -202,6 +231,8 @@ enum BackgroundWork {
         /// what has finished. The recorder was not asked.
         case nothingWaiting
         case unreachable
+        /// A recorder answered, and not the one the queue and the cache are of. Nothing was sent to it.
+        case anotherRecorder
         case sent(PendingQueue.Outcome)
     }
 
@@ -218,10 +249,13 @@ enum BackgroundWork {
         let sending = await sendWaiting(client: RecorderClient(host: host), store: store,
                                         mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac))
         if case .sent(let outcome) = sending { await Notify.queueFlushed(outcome) }
+        if sending == .anotherRecorder { await Notify.queueHeldBack() }
         return sending
     }
 
-    /// The same with its surroundings handed in, which is what the tests give it.
+    /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC: the
+    /// packet goes out from here (`reach`) and not through `Surroundings`, so one handed in is sent on
+    /// whatever network the tests are run on.
     ///
     /// The queue is read before anything goes on the network. The automation runs at every arrival home,
     /// and most of them have nothing to send: a recorder woken for nothing is half a minute of a box
@@ -232,7 +266,27 @@ enum BackgroundWork {
         let waiting = (try? await store.pendingReservations()) ?? []
         guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return .nothingWaiting }
         guard await reach(client, mac: mac) else { return .unreachable }
+        guard await isTheOneKnown(client, to: store) else { return .anotherRecorder }
         return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+    }
+
+    /// Whether the recorder that has just answered is the one this phone's cache is of, or the first it has
+    /// heard from (`GuideStore.recognises`).
+    ///
+    /// The address is only where to knock, and the one saved may be answered by another recorder: the reader
+    /// has typed a new address and not yet seen it answer, or the router has handed the old one on. The
+    /// screens take such a recorder up, forgetting what was the other's and holding the queue
+    /// (`AppModel.settle(whoAnswered:)`). With no screen nothing is taken up and nothing is sent: the queue was
+    /// made for the recorder known, and the guide and the free space would be read into a cache that is
+    /// still the other's. The next time the app is opened settles it.
+    ///
+    /// Nor when it cannot be told: a cache whose owner cannot be read is not known to be this recorder's, and
+    /// neither is a device that answered without describing itself.
+    private static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {
+        guard let answering = await client.info, let who = try? await store.recognises(answering) else {
+            return false
+        }
+        return who != .another
     }
 
     /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
