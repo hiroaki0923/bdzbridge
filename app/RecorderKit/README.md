@@ -1,7 +1,7 @@
 # RecorderKit
 
-The recorder-facing layer of the iOS app, as a Swift package with no UI and no networking. That keeps it
-testable from the command line on the Mac:
+The recorder-facing layer of the iOS app, as a Swift package with no UI. Its tests hand it the recorder's
+answers through a stubbed transport, so they run from the command line on the Mac with no recorder to ask:
 
 ```
 cd app/RecorderKit
@@ -25,17 +25,28 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `XsrsParse.swift` | `<item>` elements into `Reservation` and `RecordedTitle` |
 | `Discovery.swift` | `description.xml` into `RecorderDescription`, and looking through a subnet for one |
 | `LocalNetwork.swift` | This device's own interfaces, the addresses worth trying around them, and where a broadcast goes |
+| `LocalNetworkAccess.swift` | Whether iOS's local network permission is what is stopping a request |
+| `RecorderAddress.swift` | The recorder's address as somebody types it, tidied, and the URLs the client builds on it |
 | `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
-| `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription` |
+| `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `RecorderRule`, `NetworkSettings` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
+| `DeviceFailure.swift` | What a failure means whichever device it came from: silent, busy, refused and the rest |
+| `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, reserved on, asked for a guide |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
+| `Waking.swift` | Waiting for a recorder to come back after a magic packet |
+| `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
+| `LinkRules.swift` | Whether to give up, try once more or make sure of the device first; where it was last tried |
+| `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
+| `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
 | `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
+| `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, and which types are behind |
+| `PendingQueue.swift` | Sending the reservations that were made while the recorder could not be reached |
 | `Logo.swift` | The station-logo file, and the broadcast colour table the PNGs rely on |
 | `Series.swift` | Programme names and grouping keys from recording titles |
 | `Titles.swift` | Watch states, and recordings gathered into programmes |
