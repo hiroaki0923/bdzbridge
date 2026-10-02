@@ -247,8 +247,7 @@ final class AppModel {
     /// let go of what they hold of it themselves: a sheet open on one of its recordings or reservations, a
     /// row picked for a dialog. A sheet holds a value, and stays up over an emptied list; when the lists go
     /// because another recorder has answered where the last one was, its buttons would send that value's
-    /// number to the newcomer. The sheets that hold such a value close themselves -- `TitleSheet`,
-    /// `GroupSheet`, `ReservationSheet` -- so that it does not depend on what opened them.
+    /// number to the newcomer. The sheets that hold such a value close themselves (`closesWithItsRecorder`).
     var timesForgotten = 0
 
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and

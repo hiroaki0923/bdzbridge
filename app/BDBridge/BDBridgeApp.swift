@@ -272,6 +272,23 @@ extension View {
             RecorderActivityBar(inSheet: inSheet)
         }
     }
+
+    /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings, a
+    /// reservation: closes it when that recorder's lists are let go of (`AppModel.timesForgotten`). The row is
+    /// the last recorder's from then on, and the buttons on the sheet would send its number to the next one.
+    /// Said in the sheet rather than by whatever opened it, so that it holds whichever screen that was.
+    func closesWithItsRecorder() -> some View {
+        modifier(ClosesWithItsRecorder())
+    }
+}
+
+private struct ClosesWithItsRecorder: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.onChange(of: model.timesForgotten) { dismiss() }
+    }
 }
 
 /// What to say when there is no recorder to talk to. Two situations that look the same to the code and need

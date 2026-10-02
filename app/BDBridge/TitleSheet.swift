@@ -137,10 +137,7 @@ struct TitleSheet: View {
                 }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }
-            // The recording is the last recorder's once its lists are let go of (`AppModel.timesForgotten`),
-            // and the buttons here would send its number to the next one. Closed from here rather than by
-            // whatever opened it, of which there are three.
-            .onChange(of: model.timesForgotten) { dismiss() }
+            .closesWithItsRecorder()
         }
     }
 

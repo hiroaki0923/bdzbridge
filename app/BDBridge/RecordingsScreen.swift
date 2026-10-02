@@ -331,7 +331,6 @@ struct GroupRowView: View {
 struct GroupSheet: View {
     let group: TitleGroup
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
     /// The episode opened, in a sheet over this one. It was handed to the screen underneath, which meant
     /// closing this sheet to open it: back from one episode, the reader was on the list of programmes and had
@@ -403,9 +402,7 @@ struct GroupSheet: View {
             }
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
             .sheet(item: $opened) { TitleSheet(title: $0) }
-            // The programme's recordings, the ones ticked and the one swiped are the last recorder's once its
-            // lists are let go of: see `AppModel.timesForgotten`, and `TitleSheet`.
-            .onChange(of: model.timesForgotten) { dismiss() }
+            .closesWithItsRecorder()
             .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { confirmingDelete = false; removing = nil
