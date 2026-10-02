@@ -72,8 +72,9 @@ extension AppModel {
     /// (`inUse`). The address is all that is compared here, and the two mistakes are not alike: forgetting a
     /// recorder that was the same costs its lists read again, and with them the sets of copies as the reader
     /// had ticked them, the last job and the filters; keeping one that was another left its recordings on
-    /// screen. Only what is in memory goes. The cache on disk is every real recorder's, and is left as it is:
-    /// the guide, the queue, and what each recording is about, which is kept by a recording's id alone.
+    /// screen. Only what is in memory goes here. What the phone keeps -- the guide, the queue, and what each
+    /// recording is about -- is decided when a recorder answers at the address chosen, by which it is: the
+    /// same one finds it all as it left it (`settle(whoAnswered:)`).
     func adopt(host chosen: String) async {
         guard canChangeRecorder else { return }
         // The reader has chosen, so the rest of the subnet no longer matters -- and a scan left running would
@@ -94,26 +95,39 @@ extension AppModel {
         await connect()
     }
 
-    /// Forgets everything the recorder in play said, for another to take its place: what it said of itself,
-    /// the lists read from it, the sets of copies found among its recordings with their ticks, and the job
-    /// that last ran on it. Until the next connect makes a client there is none, so nothing is asked of
-    /// anybody and nothing can be sent from a list that is no longer there.
+    /// Lets go of the recorder in play, as far as memory goes, for another to take its place: what it said of
+    /// itself and which it was (`SessionState.forgotTheDevice`), the client that asked it, and what it said
+    /// that the app holds (`forgetWhatTheRecorderSaid`). Until the next connect makes a client there is none,
+    /// so nothing is asked of anybody and nothing can be sent from a list that is no longer there.
+    ///
+    /// Not the queue, which is the reader's and waits for the next recorder to say which it is
+    /// (`flushPending`), nor the MAC and where the app last tried, nor anything on the phone: what is kept
+    /// there is decided when a recorder answers, by which it is (`settle(whoAnswered:)`).
+    func forgetTheRecorder() {
+        session.forgotTheDevice()
+        client = nil
+        forgetWhatTheRecorderSaid()
+        problem = nil
+        accessWatch?.cancel()
+        accessWatch = nil
+    }
+
+    /// Empties what the app holds in memory that a recorder said: the lists read from it, the sets of copies
+    /// found among its recordings with their ticks and the texts they were built on, and the job that last
+    /// ran on it. Each recorder numbers these for itself, so a row left from one would be sent, by its number,
+    /// to the next. Here for a choice (`forgetTheRecorder`), and for another recorder answering where nobody
+    /// chose one (`settle(whoAnswered:)`).
     ///
     /// The finished job goes too. Its line stayed on the recordings screen, and a finished scan is what the
     /// duplicates view takes for having looked: over the next recorder it said 重複はありませんでした of
-    /// recordings nobody had read. Only a finished one can be here, since nothing changes the recorder while
-    /// a job runs (`canChangeRecorder`).
+    /// recordings nobody had read. One still running is not this function's: nothing chooses another
+    /// recorder while a job runs (`canChangeRecorder`), and when another answers under one all the same, the
+    /// check that hears it stops the job and lets go of it once it has ended (`makeSureItIsUp`).
     ///
     /// The lists' filters go with the lists, for the reason they are not kept between launches (`broadcasting`):
     /// the next recorder's recordings, opened narrowed to a genre the last one's were narrowed to, read as
     /// recordings gone missing.
-    ///
-    /// Not the queue, which is the reader's and waits for the next recorder to say which it is
-    /// (`flushPending`), nor the MAC and where the app last tried (`SessionState.forgotTheDevice`), nor
-    /// anything on disk.
-    private func forgetTheRecorder() {
-        session.forgotTheDevice()
-        client = nil
+    func forgetWhatTheRecorderSaid() {
         reservations = []
         titles = []
         titlesLoaded = false
@@ -121,6 +135,7 @@ extension AppModel {
         recorderRulesLoaded = false
         recorderRulesFailure = nil
         flushReport = nil
+        anotherTookOver = false
         duplicates = []
         duplicatePicks = []
         unreadDuplicates = 0
@@ -130,11 +145,7 @@ extension AppModel {
         titleGenre = nil
         titleState = nil
         reservationKind = .all
-        problem = nil
-        found = []
-        scanOutcome = nil
-        accessWatch?.cancel()
-        accessWatch = nil
+        timesForgotten += 1
     }
 
     /// Opens the cache that belongs to whichever recorder is in play now, the demo's or a real one's, and
@@ -142,6 +153,10 @@ extension AppModel {
     private func openStore() async {
         forgetTheRecorder()
         pending = []
+        // What a scan found, which a choice clears for itself (`adopt`). Not with the recorder: that is also
+        // let go of when another answers a check, under a list of found recorders the reader may be reading.
+        found = []
+        scanOutcome = nil
         store = (try? guidePath()).flatMap { try? GuideStore(path: $0) }
         if let store {
             if demo { try? await DemoData.seed(store: store) }

@@ -150,6 +150,10 @@ struct ReservationSheet: View {
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
+            // The reservation is the last recorder's once its lists are let go of (`AppModel.timesForgotten`),
+            // and the buttons here would find the next one's reservation by its number. Closed from here
+            // rather than by whatever opened it -- the reservations, a search, a programme's sheet.
+            .onChange(of: model.timesForgotten) { dismiss() }
         }
     }
 

@@ -52,6 +52,12 @@ public final class SessionState {
     public private(set) var mac: String?
     /// Where the device was last tried, and whether the phone has been elsewhere since (`LinkState`).
     public private(set) var link = LinkState()
+    /// Which device this is all about: the UDN of the last one that described itself. Its firmware, its free
+    /// space and its wish for power are the ones above, and the lists the caller holds were read from it. It
+    /// stands through silence -- a device that has stopped answering is still the one they were read from --
+    /// until another device describes itself (`described`) or the caller lets go of it (`forgotTheDevice`).
+    /// Nil before any has, and for a device that gives no UDN.
+    public private(set) var device: String?
 
     /// `mac` is what was saved, as it was saved.
     public init(mac: String? = nil) {
@@ -85,9 +91,34 @@ public final class SessionState {
 
     // MARK: - an attach, a step at a time
 
+    /// Who `description` is to this session, with nothing changed: for an answer that is not an attach, such
+    /// as the check before an operation, and for a device a scan has heard from before it is chosen.
+    public func recognises(_ description: RecorderDescription) -> Recognition {
+        description.recognised(as: device)
+    }
+
     /// The device said who it is. That alone decides that the app is connected; the rest is read after, and
     /// having been unreachable stands until `answered()`.
-    public func described(_ description: RecorderDescription) { info = description }
+    ///
+    /// Who it is is measured against the device known before, by its UDN and not by the address it answered
+    /// at (`Recognition`). When it is another one, what the last one said of itself goes before this one's
+    /// description is put down -- its firmware and its free space, which are read again in a moment, and that
+    /// it wanted powering on, which is not -- and the caller is told, since the lists it holds are the other
+    /// one's as well.
+    @discardableResult
+    public func described(_ description: RecorderDescription) -> Recognition {
+        let who = recognises(description)
+        if who == .another {
+            firmware = ""
+            storage = nil
+            needsPower = false
+        }
+        info = description
+        // Written as it was first given: the same device spelling its UDN another way is still that one, to
+        // a caller that keeps `device` to compare later.
+        if who != .same, !description.udn.isEmpty { device = description.udn }
+        return who
+    }
     public func learned(firmware: String) { self.firmware = firmware }
     public func learned(storage: (free: Int, total: Int)?) { self.storage = storage }
     /// It answered everything asked of it so far.
@@ -156,10 +187,12 @@ public final class SessionState {
 
     public func forgetMac() { mac = nil }
 
-    /// Another device is in play: what the last one said of itself is forgotten -- that it wanted powering on
-    /// among it -- and so is having given up on it. The MAC and where the app last tried are the caller's to
-    /// change.
+    /// Another device is in play, or may be: the reader has pointed the app at another address, or the demo
+    /// was entered or left. What the last one said of itself is forgotten -- that it wanted powering on among
+    /// it -- and so is having given up on it, and which device it was: the next to describe itself is the
+    /// first. The MAC and where the app last tried are the caller's to change.
     public func forgotTheDevice() {
+        device = nil
         info = nil
         firmware = ""
         storage = nil

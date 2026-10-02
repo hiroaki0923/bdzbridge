@@ -505,6 +505,312 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(kept, ["0x1": ""], "an empty text read now is an answer, and is not thrown away again")
     }
 
+    // MARK: - whose cache it is
+
+    /// Two recorders, as each says who it is. Sony's OUI and the rest zeroed, with a last digit of their own.
+    private func recorder(_ last: Int, host: String = "192.0.2.10") -> RecorderDescription {
+        RecorderDescription(host: host, port: 64220, friendlyName: "サンプルレコーダー \(last)", product: "BDZ",
+                            model: "BDZ-SAMPLE", udn: "uuid:00000000-0000-0000-0000-f84e1700000\(last)",
+                            epgCapable: true, location: "http://\(host):64220/description.xml", via: "manual")
+    }
+
+    private func waiting() -> PendingReservation {
+        PendingReservation(request: ReservationRequest(title: "サンプル番組", start: jst("2026-09-20T21:00:00+09:00"),
+                                                       durationSec: 3600, repeatCode: "1", broadcastingType: 2,
+                                                       serviceID: 0x428, qualityCode: 240, eventID: 0x311f),
+                           serviceName: "サンプルテレビ")
+    }
+
+    /// A cache with something of everything a recorder leaves in it, and of what the reader does: a guide
+    /// with its marks and a logo, a type the recorder had no file for, a recording's text, a channel hidden
+    /// and a reservation waiting.
+    private func usedStore() async throws -> GuideStore {
+        let store = try await loadedStore()
+        try await store.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))], broadcasting: "td")
+        try await store.noteNoGuide(broadcasting: "bs4k", at: jst("2026-09-14T03:00:00+09:00"))
+        try await store.setTitleSummary("0x0000010000000001", "港町にもどった主人公が、古い灯台の記録を読みはじめる。")
+        try await store.setChannelPreferences(broadcasting: "td", hidden: [1025])
+        try await store.queue(waiting())
+        return store
+    }
+
+    /// The address is only where to knock: the cache is the recorder's that filled it, known by its UDN. The
+    /// first to answer is written down as its owner, and the same one answering again -- at this address or
+    /// another -- finds everything as it left it.
+    func testTheFirstRecorderToAnswerOwnsTheCacheAndTheSameOneKeepsIt() async throws {
+        let store = try await usedStore()
+        let none = try await store.owner()
+        XCTAssertNil(none)
+
+        let first = try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(first, .first)
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
+
+        let moved = try await store.claim(for: recorder(1, host: "192.0.2.11"), holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(moved, .same)
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4)
+        XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00")
+        XCTAssertEqual(counts["bs4k"]?.checked, "2026-09-14T03:00:00+09:00")
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(texts.count, 1, "the texts take one request a recording to gather again")
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), [nil], "the queue goes to it as before")
+    }
+
+    /// Another recorder answering takes the cache, and what the other one left in it goes in the same
+    /// transaction: the programme texts, which are kept by a recording's number alone and each recorder
+    /// numbers its own; the guide with its logos; and the marks that say a type need not be fetched, without
+    /// which the new one would not be asked for its guide until the next night. The reader's own stays --
+    /// which channels are hidden -- and so does the queue, held with a reason rather than sent to a recorder
+    /// it was not made for.
+    func testAnotherRecorderTakesTheCacheAndWhatTheOtherLeftGoes() async throws {
+        let store = try await usedStore()
+        try await store.claim(for: recorder(1))
+        // One the first recorder had refused, with its reason, beside the one still waiting.
+        var refused = waiting()
+        refused.request.eventID = 0x3120
+        try await store.queue(refused)
+        try await store.setPendingProblem(refused.id, "契約していないチャンネルです")
+
+        let asked = try await store.recognises(recorder(2))
+        XCTAssertEqual(asked, .another)
+        let untouched = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(untouched.count, 1, "asking who it is changes nothing")
+        let stillOwner = try await store.owner()
+        XCTAssertEqual(stillOwner, "uuid:00000000-0000-0000-0000-f84e17000001")
+
+        let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダーが応答しました")
+        XCTAssertEqual(taken, .another)
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertTrue(texts.isEmpty, "another recorder's text would confirm a duplicate on this one")
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 0)
+        XCTAssertEqual(counts["td"]?.channels, 0)
+        XCTAssertNil(counts["td"]?.lastAnswered, "the mark would keep this recorder from being asked for its guide")
+        XCTAssertNil(counts["bs4k"]?.lastAnswered, "nor has this one been asked for the type the other lacked")
+        XCTAssertEqual(GuideRefresh.staleTypes(counts), GuideRefresh.broadcastingTypes)
+
+        // The reader's own arrangement is still there when the guide comes back, and the other's logo is not.
+        try await store.replace(try sampleServices(), broadcasting: "td")
+        let channels = try await store.channels(broadcasting: "td")
+        XCTAssertEqual(channels.map(\.serviceID), [1024], "the hidden channel is still hidden")
+        XCTAssertNil(channels.first?.logo)
+
+        // Both rows, the one the first recorder had refused among them: what it said of a reservation is
+        // nothing this one has said, and the line that counts what is held counts by this reason.
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), ["別のレコーダーが応答しました", "別のレコーダーが応答しました"])
+        XCTAssertFalse(PendingQueue.hasSomethingToSend(queue, now: jst("2026-09-20T20:00:00+09:00")),
+                       "held until the reader asks, as one the recorder refused is")
+
+        let again = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダーが応答しました")
+        XCTAssertEqual(again, .same, "it is the one known now")
+    }
+
+    /// There and back: the first recorder taking the cache again finds none of what it left, and what waits
+    /// stays held, whichever of the two it was made for -- a row does not say. The reader sends each again.
+    func testGoingBackToTheFirstRecorderIsATakeoverToo() async throws {
+        let store = try await usedStore()
+        try await store.claim(for: recorder(1))
+        try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
+        var later = waiting()
+        later.request.eventID = 0x3120
+        try await store.queue(later)
+
+        let back = try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(back, .another)
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー", "別のレコーダー"])
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertTrue(texts.isEmpty)
+    }
+
+    /// With no reason to hold it for, the queue is left as it was, and goes to whichever recorder answers.
+    func testTheQueueIsHeldOnlyWhenAReasonIsGiven() async throws {
+        let store = try await usedStore()
+        try await store.claim(for: recorder(1))
+        try await store.claim(for: recorder(2))
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), [nil])
+    }
+
+    /// A cache filled before its owner was written down does not say whose it is, and nothing in it is
+    /// guessed at: whoever answers first is put down as the owner and finds it as it is. For nearly every
+    /// phone that is the one recorder it has ever had, and its texts and its queue are not to be lost to a
+    /// guess on the day the app is updated.
+    func testACacheFromBeforeItsOwnerWasWrittenDownIsTheFirstAnswerers() async throws {
+        let store = try await usedStore()
+
+        let asked = try await store.recognises(recorder(2))
+        XCTAssertEqual(asked, .first)
+        let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(taken, .first)
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(texts.count, 1)
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), [nil])
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+    }
+
+    /// Unless the caller knows better. The session keeps which recorder its lists were read from, and when
+    /// another one answers it, a cache with no owner written is that other one's all the same: its owner
+    /// could not be put down the first time, or it is from before owners were kept. Left as the first
+    /// answerer's, what waited for the last recorder went to this one, with the last one's texts kept under
+    /// this one's numbers. An owner that is written down is what counts, whatever the caller says.
+    func testACacheWithNoOwnerIsAnothersWhenTheCallerKnowsTheRecorderToBeAnother() async throws {
+        let store = try await usedStore()
+
+        let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー",
+                                          knownToBeAnother: true)
+        XCTAssertEqual(taken, .another)
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertTrue(texts.isEmpty)
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー"])
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+
+        try await store.setTitleSummary("0x0000010000000001", "あらすじ")
+        let known = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー",
+                                          knownToBeAnother: true)
+        XCTAssertEqual(known, .same, "the owner written down is what counts")
+        let kept = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(kept.count, 1)
+
+        // One that does not say which it is has no name to be put down under, and takes nothing over.
+        var nameless = recorder(3)
+        nameless.udn = ""
+        let unowned = try await usedStore()
+        let nobody = try await unowned.claim(for: nameless, holdingTheQueueWith: "別のレコーダー",
+                                             knownToBeAnother: true)
+        XCTAssertEqual(nobody, .first)
+        let stillThere = try await unowned.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(stillThere.count, 1)
+        let unnamed = try await unowned.owner()
+        XCTAssertNil(unnamed)
+    }
+
+    /// A recorder that gives no UDN cannot be told from any other: it is taken for the one known, and is not
+    /// written down as anybody.
+    func testARecorderThatDoesNotSayWhichItIsLeavesTheCacheAsItIs() async throws {
+        var nameless = recorder(1)
+        nameless.udn = ""
+        let store = try await usedStore()
+
+        let first = try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(first, .first)
+        let nobody = try await store.owner()
+        XCTAssertNil(nobody)
+
+        try await store.claim(for: recorder(1))
+        let after = try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(after, .same)
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(texts.count, 1)
+    }
+
+    /// The recorder the cache is of is nearly every answer there is, and knowing it again writes nothing. A
+    /// write would wait behind whoever else is writing to the cache -- the overnight run storing a guide, the
+    /// queue being sent from another connection -- for as long as the busy timeout, and then fail: the connect
+    /// held up for five seconds, and what was waiting not sent by it.
+    func testTheOwnerAnsweringAgainIsKnownWithoutWaitingForAWrite() async throws {
+        let path = try temporaryPath()
+        let store = try GuideStore(path: path)
+        try await store.claim(for: recorder(1))
+        try await store.setTitleSummary("0x0000010000000001", "あらすじ")
+
+        let other = try Sqlite(path: path)
+        try other.execute("BEGIN IMMEDIATE")
+        defer { try? other.execute("ROLLBACK") }
+        let began = Date()
+        let known = try await store.claim(for: recorder(1, host: "192.0.2.11"), holdingTheQueueWith: "別のレコーダー")
+        let asked = try await store.recognises(recorder(1))
+        XCTAssertEqual(known, .same)
+        XCTAssertEqual(asked, .same)
+        XCTAssertLessThan(Date().timeIntervalSince(began), 1, "it waited for the other connection's write")
+    }
+
+    /// Who it is is asked again once the write has its turn. Another connection can put an owner down between
+    /// the first look and the write -- here it holds the cache while it does, so that the claim is waiting
+    /// behind it -- and the answer of the first look, that nobody owned the cache, would then name this
+    /// recorder the owner of what the other had just been given.
+    func testAClaimThatWaitedForAnotherWriterLooksAgainAtWhoseTheCacheIs() async throws {
+        let path = try temporaryPath()
+        let store = try GuideStore(path: path)
+        try await store.setTitleSummary("0x0000010000000001", "あらすじ")
+        try await store.queue(waiting())
+
+        let other = try Sqlite(path: path)
+        try other.execute("BEGIN IMMEDIATE")
+        let second = recorder(2)
+        async let claimed = store.claim(for: second, holdingTheQueueWith: "別のレコーダー")
+        // Long enough for the claim to have looked and to be waiting for its write; should it not have
+        // looked yet, it finds the owner on its first look and the outcome is the same.
+        try await Task.sleep(for: .milliseconds(300))
+        try other.execute("INSERT OR REPLACE INTO meta (key, value) VALUES "
+            + "('recorder_udn', 'uuid:00000000-0000-0000-0000-f84e17000001')")
+        try other.execute("COMMIT")
+
+        let who = try await claimed
+        XCTAssertEqual(who, .another, "taken for the first to answer, on a look made before the other's write")
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertTrue(texts.isEmpty)
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー"])
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+    }
+
+    /// A UDN is a UUID, which reads the same in either case. A recorder that spelled its own another way --
+    /// after an update, say -- is the one known, and nothing kept of it goes.
+    func testTheOwnerIsKnownHoweverItsUDNIsCased() async throws {
+        let store = try await usedStore()
+        try await store.claim(for: recorder(1))
+        var shouting = recorder(1)
+        shouting.udn = shouting.udn.uppercased()
+
+        let asked = try await store.recognises(shouting)
+        XCTAssertEqual(asked, .same)
+        let again = try await store.claim(for: shouting, holdingTheQueueWith: "別のレコーダー")
+        XCTAssertEqual(again, .same)
+        let texts = try await store.titleSummaries(["0x0000010000000001"])
+        XCTAssertEqual(texts.count, 1)
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(queue.map(\.problem), [nil])
+        let owner = try await store.owner()
+        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001", "written as it was first given")
+    }
+
+    /// Whose cache it is is kept with the cache: across a launch, and across a schema change that throws the
+    /// guide away, since the programme texts it also covers are not thrown away with it.
+    func testTheOwnerOutlivesReopeningAndASchemaChange() async throws {
+        let path = try temporaryPath()
+        do {
+            let store = try GuideStore(path: path, schemaVersion: "1")
+            try await store.claim(for: recorder(1))
+            try await store.setTitleSummary("0x0000010000000001", "あらすじ")
+        }
+        let reopened = try GuideStore(path: path, schemaVersion: "1")
+        let same = try await reopened.recognises(recorder(1))
+        XCTAssertEqual(same, .same)
+
+        let upgraded = try GuideStore(path: path, schemaVersion: "2")
+        let another = try await upgraded.claim(for: recorder(2))
+        XCTAssertEqual(another, .another)
+        let texts = try await upgraded.titleSummaries(["0x0000010000000001"])
+        XCTAssertTrue(texts.isEmpty)
+    }
+
     /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
     /// and the store looks only at the titles asked about.
     func testFixedBlurbsAreReadFromTheCachedGuide() async throws {

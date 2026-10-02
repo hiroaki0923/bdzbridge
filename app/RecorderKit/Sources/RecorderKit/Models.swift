@@ -121,6 +121,32 @@ public struct RecorderDescription: Equatable, Sendable {
               let own = WakeOnLan.normalise(String(tail)) else { return false }
         return own == wanted
     }
+
+    /// Who this is, measured against the device whose UDN is `known`. A device that gives no UDN cannot be
+    /// told from any other and is taken for the one known: read the other way, everything kept of the
+    /// recorder would be forgotten each time it answered. A UDN is a UUID, which reads the same in either
+    /// case, so one spelled another way is the same device and not a stranger.
+    public func recognised(as known: String?) -> Recognition {
+        guard let known, !known.isEmpty else { return .first }
+        return udn.isEmpty || udn.caseInsensitiveCompare(known) == .orderedSame ? .same : .another
+    }
+}
+
+/// Who a device that has just described itself is, measured against the one known before.
+///
+/// The address is only where to knock. What the app keeps of a recorder -- its lists in memory, and on the
+/// phone the programme texts, the guide and when each type of it was fetched -- was said by one device, and
+/// is that device's wherever it answers and nobody else's: each recorder numbers its recordings, its
+/// reservations and its keyword conditions for itself, so a row kept from one names something else on the
+/// next. A recorder says which it is in its description (`RecorderDescription.udn`), and that is what is
+/// compared: by `SessionState` for what is in memory, by `GuideStore` for what is on the phone.
+public enum Recognition: Sendable, Equatable {
+    /// Nobody was known before.
+    case first
+    /// The device known before, at this address or another. What is kept of it stands.
+    case same
+    /// Another device than the one known before. What is kept is not this one's.
+    case another
 }
 
 /// One of the recorder's own おまかせ・まる録 conditions: what the box records by itself, by keyword.

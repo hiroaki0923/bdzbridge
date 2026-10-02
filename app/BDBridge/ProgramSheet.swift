@@ -35,6 +35,10 @@ struct ProgramSheet: View {
     @State private var done = false
     /// The reservation whose own sheet is open for changing it.
     @State private var editing: Reservation?
+    /// Set when the recorder's lists were let go of under this sheet, until another recorder is attached and
+    /// asked what the reservation would clash with there; `checks` is what has it asked.
+    @State private var lastRecorderGone = false
+    @State private var checks = 0
 
     private var reservation: Reservation? { model.reservation(for: program) }
     private var waiting: PendingReservation? { model.pending(for: program) }
@@ -116,6 +120,21 @@ struct ProgramSheet: View {
             .toolbar { SheetCloseButton() }
             .task(id: taskKey) { await check() }
             .sheet(item: $editing) { ReservationSheet(reservation: $0) }
+            // The programme is the broadcast's, and this sheet stays when the recorder's lists are let go of
+            // (`AppModel.timesForgotten`). What it holds of that recorder does not: the reservation picked for
+            // deletion, whose number would go to the next recorder, and what that recorder said a new
+            // reservation would clash with. The next one attached is asked for itself. A reservation's sheet
+            // open over this one closes itself.
+            .onChange(of: model.timesForgotten) {
+                if case .cancel = ask { ask = nil }
+                conflicts = nil
+                lastRecorderGone = true
+            }
+            .onChange(of: model.timesAttached) {
+                guard lastRecorderGone else { return }
+                lastRecorderGone = false
+                checks += 1
+            }
             .alert(askTitle, isPresented: Binding(get: { ask != nil },
                                                   set: { if !$0 { ask = nil } }),
                    presenting: ask) { asked in
@@ -196,7 +215,7 @@ struct ProgramSheet: View {
         }
     }
 
-    private var taskKey: String { "\(program.id)-\(quality)-\(repeating)" }
+    private var taskKey: String { "\(program.id)-\(quality)-\(repeating)-\(checks)" }
 
     /// A reservation made while the recorder could not be reached. It shows what was asked for, since the
     /// recorder has not made anything of it yet, and what the recorder said if it refused.

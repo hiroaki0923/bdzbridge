@@ -6,6 +6,11 @@ import SwiftUI
 extension AppModel {
     func loadRecorderRules() async {
         await start()
+        await loadRecorderRulesNow()
+    }
+
+    /// The read itself, without `start()`, for anything `connect()` reaches: see there.
+    func loadRecorderRulesNow() async {
         guard let client, !unreachable else {
             // A list read before stays on screen under the strip that says the recorder is not there; with
             // none, the screen says why there is nothing rather than waiting for a read that is not coming.

@@ -8,11 +8,16 @@ import XCTest
 /// itself, it went silent, the attempt ended -- and each of those is tried here.
 @MainActor
 final class SessionStateTests: XCTestCase {
-    private func description() -> RecorderDescription {
-        RecorderDescription(host: Stub.host, port: 64220, friendlyName: "サンプルレコーダー", product: "BDZ",
-                            model: "BDZ-SAMPLE", udn: "uuid:00000000-0000-0000-0000-000000000000",
-                            epgCapable: true, location: "http://192.0.2.10:64220/description.xml", via: "manual")
+    private func description(udn: String = "uuid:00000000-0000-0000-0000-000000000000",
+                             host: String = Stub.host) -> RecorderDescription {
+        RecorderDescription(host: host, port: 64220, friendlyName: "サンプルレコーダー", product: "BDZ",
+                            model: "BDZ-SAMPLE", udn: udn,
+                            epgCapable: true, location: "http://\(host):64220/description.xml", via: "manual")
     }
+
+    /// A second device: Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit
+    /// of its own.
+    private static let anotherUDN = "uuid:00000000-0000-0000-0000-f84e17000001"
 
     /// A session that has attached once, as after a connect.
     private func attached(mac: String? = nil) -> SessionState {
@@ -262,6 +267,109 @@ final class SessionStateTests: XCTestCase {
         XCTAssertFalse(silent.connected)
         XCTAssertTrue(silent.unreachable)
         XCTAssertTrue(silent.gaveUp)
+    }
+
+    // MARK: - who answered
+
+    /// The address is only where to knock: the device is known by what it says it is. The first to describe
+    /// itself is nobody's successor, and the same one answering again -- wherever -- keeps what it said.
+    func testTheSameDeviceIsKnownAgainAtAnyAddressAndKeepsWhatItSaid() {
+        let session = SessionState()
+        XCTAssertNil(session.device)
+        XCTAssertEqual(session.described(description()), .first)
+        XCTAssertEqual(session.device, "uuid:00000000-0000-0000-0000-000000000000")
+        session.learned(firmware: "1.0")
+        session.learned(storage: (free: 100, total: 200))
+        session.powerNeeded(true)
+
+        XCTAssertEqual(session.recognises(description(host: "192.0.2.11")), .same)
+        XCTAssertEqual(session.described(description(host: "192.0.2.11")), .same)
+        XCTAssertEqual(session.info?.host, "192.0.2.11", "the description is the one just given")
+        XCTAssertEqual(session.firmware, "1.0")
+        XCTAssertEqual(session.storage?.free, 100)
+        XCTAssertTrue(session.needsPower)
+    }
+
+    /// Another device answering -- at another address or at the same one -- is not the one the firmware, the
+    /// free space and the wish for power were read from: they go before its description is put down, and the
+    /// caller is told, since the lists it holds are the other one's as well.
+    func testAnotherDeviceAnsweringForgetsWhatTheLastOneSaidOfItself() {
+        let session = attached()
+        session.powerNeeded(true)
+
+        XCTAssertEqual(session.recognises(description(udn: Self.anotherUDN)), .another)
+        XCTAssertEqual(session.firmware, "1.0", "asking who it is changes nothing")
+        XCTAssertEqual(session.described(description(udn: Self.anotherUDN)), .another)
+        XCTAssertTrue(session.connected)
+        XCTAssertEqual(session.info?.udn, Self.anotherUDN)
+        XCTAssertEqual(session.device, Self.anotherUDN)
+        XCTAssertEqual(session.firmware, "", "the free space shown over the next device was the last one's")
+        XCTAssertNil(session.storage)
+        XCTAssertFalse(session.needsPower)
+        XCTAssertEqual(session.timesAttached, 1, "the count goes on")
+
+        XCTAssertEqual(session.described(description(udn: Self.anotherUDN)), .same, "it is the one known now")
+    }
+
+    /// A UDN is a UUID, which reads the same in either case: a device that spells its own another way is the
+    /// one known. Which device it is stays written as it was first given, for a caller that compares it.
+    func testADeviceIsTheSameHoweverItsUDNIsCased() {
+        let session = attached()
+        let shouting = description(udn: "UUID:00000000-0000-0000-0000-000000000000")
+        XCTAssertEqual(session.recognises(shouting), .same)
+        XCTAssertEqual(session.described(shouting), .same)
+        XCTAssertEqual(session.device, "uuid:00000000-0000-0000-0000-000000000000")
+        XCTAssertEqual(session.firmware, "1.0")
+    }
+
+    /// A device that has stopped answering is still the one the lists were read from: whoever answers next is
+    /// measured against it, however long the silence.
+    func testTheDeviceIsKnownThroughSilence() {
+        let silent = attached()
+        silent.lost()
+        XCTAssertFalse(silent.connected)
+        XCTAssertEqual(silent.described(description()), .same)
+
+        let replaced = attached()
+        replaced.attachFailed(.silent)
+        XCTAssertEqual(replaced.described(description(udn: Self.anotherUDN)), .another)
+
+        // The check before an operation meeting silence, which is what a waking starts from.
+        let dozing = attached()
+        dozing.wentSilent(on: "home")
+        XCTAssertFalse(dozing.connected)
+        XCTAssertEqual(dozing.recognises(description(udn: Self.anotherUDN)), .another)
+        XCTAssertEqual(dozing.described(description()), .same)
+    }
+
+    /// A name that is empty is no name: nobody is known by it, and whoever answers is the first.
+    func testAnEmptyNameOnRecordIsNobodys() {
+        XCTAssertEqual(description().recognised(as: nil), .first)
+        XCTAssertEqual(description().recognised(as: ""), .first)
+        XCTAssertEqual(description(udn: "").recognised(as: ""), .first)
+    }
+
+    /// Once the caller has let go of the device -- another address chosen, the demo entered or left -- nobody
+    /// is known, and the next to answer is the first.
+    func testForgettingTheDeviceForgetsWhichItWas() {
+        let session = attached()
+        session.forgotTheDevice()
+        XCTAssertNil(session.device)
+        XCTAssertEqual(session.recognises(description(udn: Self.anotherUDN)), .first)
+        XCTAssertEqual(session.described(description(udn: Self.anotherUDN)), .first)
+    }
+
+    /// A device that gives no UDN cannot be told from any other. It is taken for the one known: read the other
+    /// way, everything would be forgotten each time it answered.
+    func testADeviceThatDoesNotSayWhichItIsIsTakenForTheOneKnown() {
+        let nameless = SessionState()
+        XCTAssertEqual(nameless.described(description(udn: "")), .first)
+        XCTAssertNil(nameless.device, "nothing to know it by")
+        XCTAssertEqual(nameless.described(description(udn: "")), .first)
+
+        let session = attached()
+        XCTAssertEqual(session.described(description(udn: "")), .same)
+        XCTAssertEqual(session.device, "uuid:00000000-0000-0000-0000-000000000000", "the one known stays known")
     }
 
     /// Anything that is not a MAC is ignored rather than kept, so a half-typed one never replaces a good one.

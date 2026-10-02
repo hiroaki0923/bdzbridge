@@ -45,6 +45,7 @@ extension AppModel {
         }
         session.beginConnecting()
         defer { session.endConnecting() }
+        listsToReadAgain = (false, false)
         // This attempt answers what the watcher was waiting to find out, one way or the other.
         accessWatch?.cancel()
         accessWatch = nil
@@ -87,8 +88,19 @@ extension AppModel {
             // app on the guide -- which is where it opens -- showed a programme as unreserved until you had
             // been to the other tab and back.
             await loadReservationsNow()
+            await readAgainWhatWasUp()
             await refreshGuideIfStale()
         }
+    }
+
+    /// The recordings and the keyword conditions, read from a recorder that has taken the place of another
+    /// in the middle of being connected (`settle(whoAnswered:)`). The screens read them when the app becomes
+    /// connected, and it never stopped being: left to them, the recordings tab said there were none.
+    private func readAgainWhatWasUp() async {
+        let again = listsToReadAgain
+        listsToReadAgain = (false, false)
+        if again.recordings { await loadTitlesNow(force: false) }
+        if again.rules { await loadRecorderRulesNow() }
     }
 
     /// One attempt at the recorder, for `connect()`: a client of its own, the first probe, waking it, and a
@@ -218,7 +230,21 @@ extension AppModel {
         let activity = what.map { activities.begin($0) }
         defer { if let activity { activities.end(activity) } }
         do {
-            session.described(try await client.describe(timeout: timeout))
+            // A cache that is another recorder's and could not be made over to this one is no recorder to be
+            // connected to: the app would go on over the other's guide and the texts of the other's
+            // recordings. It says so instead, and the next connect tries again.
+            //
+            // The client goes with the rest. Left in hand, it was a recorder there to be asked and not
+            // connected to, and a programme reserved from the guide on screen -- the other's -- was sent to
+            // it. With nobody to ask, that reservation waits, and is held with the others once the cache is
+            // made over. That another recorder answered is still to be said when that one is taken up.
+            guard await settle(whoAnswered: try await client.describe(timeout: timeout)) else {
+                let another = anotherTookOver
+                forgetTheRecorder()
+                anotherTookOver = another
+                problem = Self.cacheNotMadeOver
+                return false
+            }
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
             defaults.set(host, forKey: DefaultsKey.recorderHost)
@@ -254,6 +280,93 @@ extension AppModel {
             return false
         }
     }
+
+    /// A recorder has said who it is, and that decides what the app keeps of the one before it. The address
+    /// is only where to knock: the same recorder keeps everything wherever it answers, and another one --
+    /// chosen by the reader, or found at the address the first one had -- gets nothing that was the first's.
+    /// Asked at every attach, before anything is read from the recorder or sent to it.
+    ///
+    /// In memory, by the session (`SessionState.described`): another recorder's lists go in the same turn as
+    /// its description arrives, so that no screen draws this recorder's name over the other one's recordings.
+    /// The strip says that it happened (`anotherTookOver`).
+    ///
+    /// On the phone, by the cache (`GuideStore.claim`), which keeps whose it is: the other's programme texts,
+    /// its guide and the marks of when it was fetched go, the reservations waiting are held with a reason,
+    /// and with them go what the defaults keep about one disk and one guide -- that a low-space warning was
+    /// given, and when the overnight run last fetched. The MAC kept for waking goes unless this recorder
+    /// carries it; its own is read a moment later. What was held is said on the strip by the sending of the
+    /// queue that follows (`flushPending`).
+    ///
+    /// Returns whether the cache is this recorder's now: as it was, or taken over from another. False when it
+    /// is another's and could not be made over, and then the caller does not go on.
+    private func settle(whoAnswered recorder: RecorderDescription) async -> Bool {
+        let wasConnected = connected
+        let had = (recordings: titlesLoaded, rules: recorderRulesLoaded)
+        let inMemory = session.described(recorder)
+        if inMemory == .another {
+            forgetWhatTheRecorderSaid()
+            // Nobody chose this one, or the last would have been forgotten at the choice: the reader is told
+            // why the lists under them are other ones.
+            anotherTookOver = true
+            // The screens read their lists when the app becomes connected, and it never stopped being.
+            if wasConnected { listsToReadAgain = had }
+        }
+        // The demo's cache is a file of its own, made for the invented recorder and deleted with it.
+        guard !demo, let store else { return true }
+        // A cache with no owner written is the first answerer's, and nothing in it is guessed at. Unless
+        // the session knows better: its lists were read from another recorder than this, and so was what
+        // that cache holds.
+        let lastWasAnother = inMemory == .another
+        let onDisk: Recognition
+        do {
+            onDisk = try await store.claim(for: recorder, holdingTheQueueWith: Self.heldForAnotherRecorder,
+                                           knownToBeAnother: lastWasAnother)
+        } catch {
+            // The cache could not be written to. That costs the recorder it is of nothing, nor the first one
+            // heard from, whose name only failed to be put down. Another one's it stays -- by the owner
+            // written in it, or by what the session knows of one with none -- nor is it known whose it is
+            // when it cannot even be read.
+            guard let asked = try? await store.recognises(recorder),
+                  asked == .same || (asked == .first && !lastWasAnother) else { return false }
+            onDisk = asked
+        }
+        guard inMemory == .another || onDisk == .another else { return true }
+        if let mac, !recorder.hasMAC(mac) { forgetMac() }
+        guard onDisk == .another else { return true }
+        defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
+        defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
+        // The guide on screen was the other recorder's, and the rows waiting have a reason on them now. An
+        // attach that gets no further than this never comes to the sending of the queue, which reads them.
+        await reloadFromCache()
+        await loadPending()
+        return true
+    }
+
+    /// Said when the recorder that answered is another one and the cache could not be made over to it: the
+    /// database is busy with another writer for longer than it will wait, or cannot be written to.
+    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+        + "少し待ってから、もう一度お試しください。"
+
+    /// Written on each reservation that was waiting when another recorder took the place of the one it was
+    /// made for. It holds the reservation as a refusal does (`PendingQueue.flush`), until the reader sends
+    /// it again or deletes it.
+    ///
+    /// It does not say how: the row shows it under a swipe and the programme's sheet over a button, and the
+    /// reservations screen's footer says which way to swipe.
+    static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
+        + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+
+    /// Said when something the reader asked for was not done because another recorder answered where the
+    /// one it was meant for had been. Not only what is sent: a read comes through the same check.
+    static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
+        + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+
+    /// What the strip says while `anotherTookOver` is set, and only while the app is connected, which is
+    /// when it is true. Nobody need have asked for anything -- the network changing asks the recorder whether
+    /// it is still there, and so does coming back to the app -- so it does not say that something was not
+    /// done, only what to do if something was being.
+    static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
+        + "操作の途中だった場合は、確かめてからやり直してください。"
 
     /// The free space as the screens show it, or nil when the recorder will not say: see `attach`. A disk
     /// of no size counts as not saying, since the screens would show it as 残り 0 GB -- a full disk, which is
@@ -439,6 +552,10 @@ extension AppModel {
         }
         // Where it was asked, not where the phone is once the silence is over: see `lostTheRecorder`.
         let network = surroundings.networkSignature()
+        // Who is being made sure of. What the reader asked for names something of this recorder's by its
+        // number, and must not go to another that answers in its place.
+        let known = session.device
+        var stranger = false
         // The packet first and the probe after, as connecting does (`Reach.run`): a recorder that is asleep
         // is on its way up while the probe waits, and one that is awake ignores it. It is not looked for at
         // another address from here: only a connect does that.
@@ -447,7 +564,8 @@ extension AppModel {
             sendPacket: { self.sendMagicPacket() },
             probe: {
                 do {
-                    try await client.describe(timeout: RecorderClient.probeTimeout)
+                    let answering = try await client.describe(timeout: RecorderClient.probeTimeout)
+                    stranger = self.session.recognises(answering) == .another
                     return nil
                 } catch {
                     let failure = (error as? any DeviceError)?.failure ?? .unexpected(String(describing: error))
@@ -467,6 +585,34 @@ extension AppModel {
             wake: { await self.wakeAndAttach(client) ? nil : self.whyNotAttached }))
         switch outcome {
         case .answered:
+            // Another recorder answers where the one in play was: on the probe, or after a waking, whose
+            // attach has turned the app to it already. What the reader asked for names something of the
+            // last recorder's by its number, and is not sent. With nobody known beforehand there was no
+            // other, and nothing of one to send.
+            if stranger || (known != nil && session.device != known) {
+                // Its lists go at once, and the newcomer is taken up as a recorder just chosen is, by a
+                // connect of its own: that is what reads its reservations and fetches its guide, which a
+                // waking's attach does not.
+                //
+                // A bulk job or a scan under way was the last recorder's. It is stopped before its next
+                // step -- a scan asks for each recording by its number with the client it began with, and
+                // would go on reading the newcomer's by the other's numbers -- and the connect waits for it
+                // to end, since a connect does not start beside a job. What the job came to goes with it:
+                // it finished after the lists it was about had gone.
+                forgetTheRecorder()
+                cancelBulk()
+                // Said twice. The failure line is for whoever asked and reads it at once; the connect below
+                // takes it away, and the strip is what says it after that (`anotherTookOver`).
+                problem = Self.anotherAnswered
+                anotherTookOver = true
+                let running = jobTask
+                Task {
+                    await running?.value
+                    self.clearJob()
+                    await self.connect()
+                }
+                return false
+            }
             return true
         case .refused:
             // On the probe: something answered, so there is nothing to wake, and what is wrong is for the
@@ -511,8 +657,9 @@ extension AppModel {
     func wentToBackground() {
         inBackground = true
         // The line about the queue was for this visit. Coming back sends the queue again when there is
-        // anything to send, and says what became of that.
+        // anything to send, and says what became of that. So was the one about another recorder.
         flushReport = nil
+        anotherTookOver = false
     }
 
     /// The app is active again. The recorder may have gone to sleep while it was away -- a BDZ-FBT4100 leaves

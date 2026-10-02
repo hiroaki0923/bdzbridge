@@ -240,6 +240,14 @@ final class AppModel {
     /// asking twice works.
     var nowRequests = 0
 
+    /// Bumped each time what a recorder said is let go of (`forgetWhatTheRecorderSaid`), for the screens to
+    /// let go of what they hold of it themselves: a sheet open on one of its recordings or reservations, a
+    /// row picked for a dialog. A sheet holds a value, and stays up over an emptied list; when the lists go
+    /// because another recorder has answered where the last one was, its buttons would send that value's
+    /// number to the newcomer. The sheets that hold such a value close themselves -- `TitleSheet`,
+    /// `GroupSheet`, `ReservationSheet` -- so that it does not depend on what opened them.
+    var timesForgotten = 0
+
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
     /// only the first caller does the work.
     ///
@@ -324,8 +332,23 @@ final class AppModel {
     var pendingByProgram: [String: PendingReservation] = [:]
 
     /// What the last sending of the queue came to, for the strip to say in one line until the reader closes
-    /// it or leaves the app. See `flushPending`.
+    /// it or leaves the app. See `flushPending`. Also what became of the queue when another recorder took the
+    /// place of the one it was made for: see `settle(whoAnswered:)`.
     var flushReport: String?
+
+    /// Set when another recorder has answered where the last one had been and nobody had chosen it: at a
+    /// connect made while the app held the last one's lists (`settle(whoAnswered:)`), or at the check before
+    /// something the reader asked for (`makeSureItIsUp`). For the strip to say, on whatever screen is in front
+    /// and until the reader closes it or leaves the app, why the lists under them are other ones -- and that
+    /// what they had asked for when it answered was not done. The failure line says that only until the
+    /// connect that follows. An alert says it where the sheet the reader asked from stays up -- a
+    /// programme's, a condition being typed -- and not where it was a sheet on one of the last recorder's
+    /// recordings or reservations, which close with the lists (`timesForgotten`).
+    var anotherTookOver = false
+
+    /// The lists the reader had read when another recorder answered a connect made while the app was
+    /// connected, for that connect to read again from the one that answered. See `settle(whoAnswered:)`.
+    var listsToReadAgain = (recordings: false, rules: false)
 
     var job: BulkJob?
     var duplicates: [DuplicateSet] = []

@@ -29,6 +29,8 @@ struct SendWaitingIntent: AppIntent {
             "送信待ちの予約はありません。"
         case .unreachable:
             "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"
+        case .anotherRecorder:
+            Notify.anotherRecorderAnswered
         case .sent(let outcome):
             outcome.summary
                 ?? (outcome.interrupted

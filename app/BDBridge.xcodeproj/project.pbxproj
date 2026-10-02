@@ -26,6 +26,7 @@
 		73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876473CEF55BCCD5F9711580 /* Bench.swift */; };
 		792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707BB81A9C87370E84230350 /* ReservationSheet.swift */; };
 		7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */; };
+		83A6197597396CD9817718C0 /* WhichRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55A0269B3E380C998AB5300 /* WhichRecorderTests.swift */; };
 		8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */; };
 		8DDB371A05062465A40BC5B2 /* DefaultsKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C123FD5B0250D14222551D37 /* DefaultsKey.swift */; };
 		9D285EC3CAB8B0E9FA779BA2 /* SearchScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */; };
@@ -107,6 +108,7 @@
 		F236DC36276A804ED1553D29 /* Surroundings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Surroundings.swift; sourceTree = "<group>"; };
 		F2CB9DBB1951F32BC6D89CF6 /* AppModelSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelSession.swift; sourceTree = "<group>"; };
 		F36F38A8C239F32F960A528F /* BDBridgeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BDBridgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F55A0269B3E380C998AB5300 /* WhichRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderTests.swift; sourceTree = "<group>"; };
 		F5943E199C95C53A2502F0A9 /* DemoModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoModeTests.swift; sourceTree = "<group>"; };
 		F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendWaitingTests.swift; sourceTree = "<group>"; };
 		FDBFD7114EA90269BA42645D /* AppModelSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelSetup.swift; sourceTree = "<group>"; };
@@ -180,6 +182,7 @@
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
+				F55A0269B3E380C998AB5300 /* WhichRecorderTests.swift */,
 			);
 			path = BDBridgeTests;
 			sourceTree = "<group>";
@@ -389,6 +392,7 @@
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
+				83A6197597396CD9817718C0 /* WhichRecorderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

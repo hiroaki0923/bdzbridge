@@ -125,9 +125,14 @@ struct RecorderActivityBar: View {
     /// another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is swapped in place,
     /// where two sliding past each other would show both for a moment.
     private var showing: Bool {
-        model.busy != nil || model.flushReport != nil || (model.demo && DemoData.banner && !inSheet)
-            || model.connectBlocked || model.gaveUp
+        model.busy != nil || saysAnotherTookOver || model.flushReport != nil
+            || (model.demo && DemoData.banner && !inSheet) || model.connectBlocked || model.gaveUp
     }
+
+    /// Whether to say that another recorder has answered where the last one was. Only while connected: the
+    /// line says the lists were read again, which they were not if that recorder went quiet before it had
+    /// been asked, and then the strip offers the reconnect instead and says this after it.
+    private var saysAnotherTookOver: Bool { model.anotherTookOver && model.connected }
 
     var body: some View {
         // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
@@ -143,23 +148,18 @@ struct RecorderActivityBar: View {
                 Text(busy).font(.footnote)
                 Spacer()
             }
-        } else if let report = model.flushReport {
+        } else if saysAnotherTookOver {
+            // Ahead of the queue's line, which says what became of the reservations waiting under the same
+            // change of recorder and is read better knowing of it.
+            report(AppModel.anotherTookOverLine, icon: "arrow.left.arrow.right") {
+                model.anotherTookOver = false
+            }
+        } else if let line = model.flushReport {
             // What became of the reservations that were waiting, whichever screen the app came back to. Ahead
             // of 再接続 below: a flush the recorder walked out of says which were sent, and the strip goes back
             // to offering the reconnect once this is closed.
-            strip {
-                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90").font(.footnote)
-                Text(report).font(.footnote).lineLimit(3)
-                Spacer(minLength: 0)
-                Button {
-                    model.flushReport = nil
-                } label: {
-                    Image(systemName: "xmark").font(.caption.weight(.semibold))
-                        .hitArea(horizontal: 16, vertical: Self.rim)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("閉じる")
+            report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+                model.flushReport = nil
             }
         } else if model.demo, DemoData.banner, !inSheet {
             // Said on every screen, because everything on them is invented and a reader who forgets that
@@ -217,6 +217,22 @@ struct RecorderActivityBar: View {
     /// opened at now is the programme on air: a tap meant for it would end the demo without a question, or
     /// wake a recorder the app had given up on.
     private static let rim: CGFloat = 8
+
+    /// A line that stays until the reader closes it.
+    private func report(_ text: String, icon: String, close: @escaping () -> Void) -> some View {
+        strip {
+            Image(systemName: icon).font(.footnote)
+            Text(text).font(.footnote).lineLimit(3)
+            Spacer(minLength: 0)
+            Button(action: close) {
+                Image(systemName: "xmark").font(.caption.weight(.semibold))
+                    .hitArea(horizontal: 16, vertical: Self.rim)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("閉じる")
+        }
+    }
 
     private func strip(@ViewBuilder _ content: () -> some View) -> some View {
         HStack(spacing: 8) { content() }

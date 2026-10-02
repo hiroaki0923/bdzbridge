@@ -35,11 +35,11 @@ final class Bench {
     }
 
     /// The same on a network where each address has a device of its own: what is sent to an address goes to
-    /// the recorder named for it here, and at any other address nothing answers. The address saved is still
-    /// `host`.
-    func model(recorders: [String: any HTTPTransport]) -> AppModel {
+    /// the recorder named for it here, and at any other address nothing answers. The address saved is `host`
+    /// unless told otherwise.
+    func model(recorders: [String: any HTTPTransport], saved: String = Bench.host) -> AppModel {
         let nobody = SilentRecorder()
-        return model { recorders[$0] ?? nobody }
+        return model(saved: saved) { recorders[$0] ?? nobody }
     }
 
     /// A model as the app makes one at its first launch: no recorder saved, and nothing answering anywhere.
@@ -168,6 +168,94 @@ actor NotARecorder: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         asked += 1
         return HTTPResponse(statusCode: 404)
+    }
+}
+
+/// A recorder that says which it is: the demo's answers under a UDN of its own, with the same recordings,
+/// reservations and keyword conditions under the same numbers -- which is how two recorders look to the app,
+/// each numbering its own from the same start. It keeps its MAC to itself, as `RecorderAtHome` does, and
+/// counts what it is asked, by SOAP action or by the file's name.
+///
+/// `become` has it answer as another recorder from then on: the address the first one had, handed to a second;
+/// `stopSayingWhich` has it go on as itself with no UDN in its description.
+/// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind -- for a test that
+/// looks at the app in between, and `goQuiet` has it say nothing to a few requests, as a recorder that has
+/// left the network does: the next ones, or the ones after it has answered so many. A request held and then
+/// let go is one of them.
+actor NamedRecorder: HTTPTransport {
+    /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
+    static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
+
+    private var recorder = DemoRecorder()
+    private var udn: String
+    private var quiet = 0
+    private var answersBeforeQuiet = 0
+    private var holding = false
+    private var holdingOnly: String?
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private(set) var asked: [String: Int] = [:]
+
+    init(_ last: Int) {
+        udn = Self.udn(last)
+    }
+
+    /// One that says it is a recorder and not which: its description carries no UDN.
+    static func nameless() -> NamedRecorder {
+        NamedRecorder(udn: "")
+    }
+
+    private init(udn: String) {
+        self.udn = udn
+    }
+
+    func become(_ last: Int) {
+        udn = Self.udn(last)
+        recorder = DemoRecorder()
+    }
+
+    /// The same recorder, no longer saying which it is.
+    func stopSayingWhich() {
+        udn = ""
+    }
+
+    func hold(only what: String? = nil) {
+        holding = true
+        holdingOnly = what
+    }
+
+    func letGo() {
+        holding = false
+        holdingOnly = nil
+        for request in held { request.resume() }
+        held = []
+    }
+
+    func goQuiet(for requests: Int, after answering: Int = 0) {
+        quiet = requests
+        answersBeforeQuiet = answering
+    }
+
+    func asked(_ what: String) -> Int { asked[what] ?? 0 }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let action = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+        let what = action ?? request.url.lastPathComponent
+        asked[what, default: 0] += 1
+        if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
+        if quiet > 0 {
+            if answersBeforeQuiet > 0 {
+                answersBeforeQuiet -= 1
+            } else {
+                quiet -= 1
+                throw RecorderError.transport("The request timed out.")
+            }
+        }
+        if action == "X_GetPrivateIp" { return HTTPResponse(statusCode: 500) }
+        let response = try await recorder.send(request)
+        guard request.url.path == "/description.xml" else { return response }
+        let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+        return HTTPResponse(statusCode: 200, body: Data(described.utf8))
     }
 }
 

@@ -118,6 +118,10 @@ struct ReservationsScreen: View {
                 await model.loadReservations()
             }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
+            // The reservation picked for deletion is the last recorder's when its lists are let go of: see
+            // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
+            // is the reader's and no recorder's.
+            .onChange(of: model.timesForgotten) { removing = nil }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .alert(alertTitle,
@@ -214,7 +218,7 @@ struct ReservationsScreen: View {
                 } footer: {
                     Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
                          + (model.pending.contains { $0.problem != nil }
-                            ? "レコーダーが受け付けなかったものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+                            ? "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
                             : ""))
                 }
             }
