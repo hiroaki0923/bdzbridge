@@ -76,9 +76,7 @@ extension AppModel {
     /// Opens the cache that belongs to whichever recorder is in play now, and forgets everything the other
     /// one said.
     private func openStore() async {
-        info = nil
-        firmware = ""
-        storage = nil
+        session.forgotTheDevice()
         client = nil
         reservations = []
         titles = []
@@ -94,13 +92,10 @@ extension AppModel {
         summaries = [:]
         fixedBlurbs = []
         problem = nil
-        unreachable = false
-        gaveUp = false
         found = []
         scanOutcome = nil
         accessWatch?.cancel()
         accessWatch = nil
-        connectBlocked = false
         store = (try? guidePath()).flatMap { try? GuideStore(path: $0) }
         if let store {
             if demo { try? await DemoData.seed(store: store) }

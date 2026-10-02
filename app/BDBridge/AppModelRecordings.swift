@@ -137,7 +137,7 @@ extension AppModel {
     func play(_ title: RecordedTitle, _ operation: String) async {
         await start()
         guard let client else { return }
-        needsPower = false
+        session.powerNeeded(false)
         await run(operation == "stop" ? "停止中" : "再生を指示中") { activity in
             do {
                 if operation == "play" {
@@ -148,7 +148,7 @@ extension AppModel {
                     try await client.playControl(titleID: title.id, operation: operation)
                 }
             } catch let error as RecorderError where error.needsPowerOn {
-                self.needsPower = true
+                self.session.powerNeeded(true)
                 throw error
             }
         }
@@ -164,7 +164,7 @@ extension AppModel {
         guard let client else { return }
         await run("電源を入れています") {
             _ = try await client.powerOn()
-            self.needsPower = false
+            self.session.powerNeeded(false)
         }
     }
 }

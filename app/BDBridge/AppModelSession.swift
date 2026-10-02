@@ -43,8 +43,8 @@ extension AppModel {
             _ = await wakeCheck.value
             return
         }
-        connecting = true
-        defer { connecting = false }
+        session.beginConnecting()
+        defer { session.endConnecting() }
         // This attempt answers what the watcher was waiting to find out, one way or the other.
         accessWatch?.cancel()
         accessWatch = nil
@@ -71,7 +71,7 @@ extension AppModel {
         // was talking to it, a fault from a model without one of the calls -- is there, and has said what is
         // wrong already. Giving up on it put "not connected" on screen beside a recorder that was answering,
         // and kept the next return to the app from asking again.
-        gaveUp = LinkRules.givesUp(reached: reached, silent: unreachable)
+        session.finishedTrying(reached: reached)
         if reached {
             // Provisional permission for notifications, now that there is a recorder for them to be about.
             // No dialog, so nothing lands on the local network question just answered; see `Notify`. Not
@@ -118,7 +118,7 @@ extension AppModel {
         let outcome = await Reach.run(Reach.Steps(
             sendPacket: {
                 self.sendMagicPacket()
-                self.link.tried(on: self.surroundings.networkSignature())
+                self.session.tried(on: self.surroundings.networkSignature())
             },
             probe: {
                 await self.attach(client, timeout: RecorderClient.probeTimeout, quiet: self.canWake)
@@ -130,7 +130,7 @@ extension AppModel {
             },
             wake: {
                 // The permission was not why, or was not asked about: either way the app is not waiting on it.
-                self.connectBlocked = false
+                self.session.permissionCleared()
                 return await self.wakeAndAttach(client) ? nil : self.whyNotAttached
             },
             // Not back where it was after the waking: it may be answering at another address. One look per
@@ -148,7 +148,7 @@ extension AppModel {
             waitForPermission()
             return nil
         }
-        connectBlocked = false
+        session.permissionCleared()
         return outcome == .answered
     }
 
@@ -172,9 +172,8 @@ extension AppModel {
     /// followed by the wrong advice. Waits for the permission instead; what the screens say comes from
     /// `connectBlocked`, not from a failure line.
     private func waitForPermission() {
-        connectBlocked = true
+        session.waitingForPermission()
         problem = nil
-        gaveUp = true
         watchForAccess()
     }
 
@@ -190,7 +189,7 @@ extension AppModel {
             guard let self, !Task.isCancelled else { return }
             // cleared before connecting, since connecting cancels whatever watcher is still set
             self.accessWatch = nil
-            self.connectBlocked = false
+            self.session.permissionCleared()
             if allowed, self.host == host { await self.connect() }
         }
     }
@@ -219,11 +218,11 @@ extension AppModel {
         let activity = what.map { activities.begin($0) }
         defer { if let activity { activities.end(activity) } }
         do {
-            info = try await client.describe(timeout: timeout)
+            session.described(try await client.describe(timeout: timeout))
             // the overnight run reads the address from here and has no screen to ask, so make sure an
             // address that works is written down however it arrived
             defaults.set(host, forKey: DefaultsKey.recorderHost)
-            firmware = try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? ""
+            session.learned(firmware: try await RecorderError.silenceOnly { try await client.firmwareVersion() } ?? "")
             // Kept for waking it later. The recorder is the only place this can come from on iOS, which
             // cannot read an ARP table, so it is read every time rather than once. With the address it was
             // read at, which is what lets the recorder be recognised by it somewhere else: see
@@ -232,25 +231,22 @@ extension AppModel {
                remember(mac: settings.mac), !demo {
                 defaults.set(host, forKey: DefaultsKey.recorderMacHost)
             }
-            storage = try await Self.storage(of: client)
-            unreachable = false
+            session.learned(storage: try await Self.storage(of: client))
+            session.answered()
             problem = nil
             await flushPending()
             // The recorder can go quiet in the middle of sending the queue, which leaves the app offline
             // like any other silence; a connect that ended there has not reached anything to show.
             guard !unreachable else { return false }
-            timesAttached += 1
+            session.attached()
             return true
         } catch {
             let recorderError = error as? RecorderError
-            unreachable = recorderError?.unreachable ?? false
             // Nothing answered, so we are not connected, whatever a description read earlier says. Leaving
             // it standing is what had the screens asking a recorder that was not there, one 30-second
-            // timeout at a time.
-            if unreachable { info = nil }
-            // Nor is a recorder there if the address is not an address. Leaving the last one's description
-            // standing would have the app look connected, to a recorder it is no longer set to.
-            if case .badAddress? = recorderError { info = nil }
+            // timeout at a time. Nor is a recorder there if the address is not an address. Anything else
+            // answered, and what is known of the recorder stands (`SessionState.attachFailed`).
+            session.attachFailed(recorderError?.failure)
             // Quiet only keeps silence off the screen, because only silence is answered with a magic packet.
             // Anything else -- an address that is not one, above all -- is where this ends, and without a
             // word the reader would have nothing but a strip saying it is not connected.
@@ -274,7 +270,7 @@ extension AppModel {
     /// is still silence, whatever was being asked.
     func refreshStorage(_ client: RecorderClient) async {
         do {
-            storage = try await Self.storage(of: client)
+            session.learned(storage: try await Self.storage(of: client))
         } catch {
             lostTheRecorder()
         }
@@ -297,9 +293,9 @@ extension AppModel {
         // was quiet for the same reason, and each attempt below is too: waking takes a few tries, and a
         // failure line appearing and vanishing between them says the wrong thing.
         problem = nil
-        waking = true
+        session.beginWaking()
         let activity = activities.begin(Self.wakingLine(0))
-        defer { waking = false; activities.end(activity) }
+        defer { session.endWaking(); activities.end(activity) }
         // The line says how long it has been, because a spinner that has been going for twenty seconds is
         // otherwise indistinguishable from a hung one. The wait itself is RecorderKit's, shared with the
         // overnight run and the Shortcuts action (`Waking`).
@@ -351,9 +347,9 @@ extension AppModel {
         // be saying it too soon. It is put back if the search finds nothing either.
         let failure = problem
         problem = nil
-        waking = true
+        session.beginWaking()
         let activity = activities.begin("レコーダーを探しています")
-        defer { waking = false; activities.end(activity) }
+        defer { session.endWaking(); activities.end(activity) }
         let moved = await Discovery.find(mac: mac, among: hosts)
         if moved == nil { problem = failure }
         return moved
@@ -391,10 +387,8 @@ extension AppModel {
     /// home with a request out therefore costs one connect on the way out, as leaving with the app idle does
     /// (`networkChangedWhileOpen`); that is the price of not giving up at home, and not a retry to take out.
     func lostTheRecorder() {
-        unreachable = true
-        info = nil
-        gaveUp = true
-        if link.sawAnotherNetwork { networkReported() }
+        session.lost()
+        if session.link.sawAnotherNetwork { networkReported() }
     }
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
@@ -461,9 +455,7 @@ extension AppModel {
                         // Silence, which is what waking is for. Where a connect's first probe leaves things
                         // too, and what waking starts from.
                         answeredTheProbe = false
-                        self.unreachable = true
-                        self.info = nil
-                        self.link.tried(on: network)
+                        self.session.wentSilent(on: network)
                     }
                     return failure
                 }
@@ -495,20 +487,19 @@ extension AppModel {
 
     /// True once a MAC is known, which is what a magic packet needs. Until then there is nothing to send:
     /// the address cannot be guessed and iOS will not read the ARP table.
-    var canWake: Bool { mac != nil }
+    var canWake: Bool { session.canWake }
 
     /// Keeps a MAC for waking the recorder. Anything that is not one is ignored rather than stored, so a
     /// half-typed address never replaces a good one. Returns whether it was kept.
     @discardableResult
     func remember(mac text: String) -> Bool {
-        guard let normalised = WakeOnLan.normalise(text) else { return false }
-        mac = normalised
+        guard session.remember(mac: text), let normalised = session.mac else { return false }
         defaults.set(normalised, forKey: DefaultsKey.recorderMac)
         return true
     }
 
     func forgetMac() {
-        mac = nil
+        session.forgetMac()
         defaults.removeObject(forKey: DefaultsKey.recorderMac)
         defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
@@ -586,7 +577,7 @@ extension AppModel {
     }
 
     private func noteTheNetwork() {
-        link.noted(network: surroundings.networkSignature())
+        session.noted(network: surroundings.networkSignature())
     }
 
     /// The network changed while the app was open: a different Wi-Fi, the VPN coming up, cellular taking
@@ -608,11 +599,11 @@ extension AppModel {
         case .connect:
             // `connect()` returns without trying while another connect or a job is under way, or while a
             // check is waking the recorder; whether it tried is what the count says.
-            let before = link.tries
+            let before = session.link.tries
             await connect()
-            return link.tries != before
+            return session.link.tries != before
         case .makeSure:
-            link.tried(on: surroundings.networkSignature())
+            session.tried(on: surroundings.networkSignature())
             _ = await wakeIfDozing(evenIfRecent: true)
             return true
         }

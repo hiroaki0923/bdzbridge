@@ -19,6 +19,11 @@ import UserNotifications
 /// it is not private. So much of the state below is internal, and settable, where it used to be private or
 /// `private(set)`: that is for the extensions, not for the screens. The screens read the state and call the
 /// methods; nothing outside the `AppModel` files should set it.
+///
+/// What is known of the recorder and of the link to it is the exception, and the way out of that: it is
+/// `session`, a `SessionState` from RecorderKit, which no file here can set a field of. It changes by what
+/// happened to it, and the properties the screens read it through (`gaveUp`, `connected`, `waking` and the
+/// rest) are read-only.
 @MainActor
 @Observable
 final class AppModel {
@@ -55,11 +60,22 @@ final class AppModel {
     }
     var serviceFilter: Int?
 
-    var info: RecorderDescription?
+    /// What is known of the recorder and of the link to it: whether it is described, unreachable, given up
+    /// on, being woken, and the rest. It changes only by what happened to it (`SessionState`), which the model
+    /// tells it from `AppModelSession`, and from `AppModelSetup` and `AppModelRecordings` where another
+    /// recorder is chosen and where one asks to be powered on. The screens read it through the properties
+    /// below, which cannot be set.
+    ///
+    /// What happened is the model's to say, not a screen's: some of it has more to it than the session keeps.
+    /// A screen that wants the MAC gone calls `forgetMac()` here, which also takes it out of the defaults the
+    /// overnight run reads.
+    let session: SessionState
+
+    var info: RecorderDescription? { session.info }
     /// Empty, and `storage` nil, when the recorder would not say. Both are only shown, and another model of
     /// the series need not give them: see `attach`.
-    var firmware = ""
-    var storage: (free: Int, total: Int)?
+    var firmware: String { session.firmware }
+    var storage: (free: Int, total: Int)? { session.storage }
     var counts: [String: GuideCounts] = [:]
     var channels: [Channel] = []
     /// Every channel's name and logo, of every broadcasting type, so a reservation or a search result can
@@ -89,7 +105,7 @@ final class AppModel {
     var scanBlocked = false
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
     /// is then waiting for the permission rather than for the recorder; see `watchForAccess`.
-    var connectBlocked = false
+    var connectBlocked: Bool { session.connectBlocked }
     /// Either of the two: something the reader wants is waiting on the local network permission.
     var lanBlocked: Bool { scanBlocked || connectBlocked }
     /// The scan under way, kept so that leaving the tutorial or turning to the demo can stop it -- above all
@@ -109,27 +125,22 @@ final class AppModel {
     /// at another address after that (`findMovedRecorder`). Nothing is being written and nothing is being
     /// read, so the screens leave alive what they can: a reservation made during these seconds goes to the
     /// queue, which is what the queue is for.
-    var waking = false
+    var waking: Bool { session.waking }
     /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
     /// until either the network this device is on changes or the reader asks for it, because the answer
     /// will be the same and each ask costs a timeout: the client serialises its requests, so a screen full
     /// of lists wanting to load turns into minutes of a spinner saying the wrong thing.
-    var gaveUp = false
-    /// Where the recorder was last tried, how many tries there have been, and whether the phone has been on
-    /// another network since: what "the network changed" is measured against. It changes only by a try
-    /// (`tried(on:)`) and by a look at the network (`noted(network:)`), so a network cannot be put down as
-    /// tried without a try on it.
-    var link = LinkState()
+    var gaveUp: Bool { session.gaveUp }
     /// Set when the recorder answered that it is in network standby, so the caller can offer to wake it.
-    var needsPower = false
+    var needsPower: Bool { session.needsPower }
     /// Set when the recorder answered nothing at all rather than answering with an error.
-    var unreachable = false
+    var unreachable: Bool { session.unreachable }
     var problem: String?
     /// Set when a reservation went to the queue instead of the recorder, so a screen can say so once.
     var queued: PendingReservation?
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
-    var mac: String?
+    var mac: String? { session.mac }
     /// Where notification permission stands, for the settings to say. Nil until it has been read. The app
     /// changes it itself -- provisionally after the first connect, with the dialog when a reservation is
     /// queued -- and the reader can change it in the Settings app, so it is read again after each.
@@ -148,7 +159,7 @@ final class AppModel {
     var demoRecorder: DemoRecorder?
     /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
     /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
-    var connecting = false
+    var connecting: Bool { session.connecting }
     /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
     var inBackground = false
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
@@ -168,7 +179,7 @@ final class AppModel {
         let days = GuideStore.broadcastDays()
         self.days = days
         host = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
-        mac = defaults.string(forKey: DefaultsKey.recorderMac)
+        session = SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac))
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
         if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
@@ -183,16 +194,16 @@ final class AppModel {
         }
         // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
         // whether a recorder is set, and it looks before `start()` has run.
-        if demo { host = DemoData.host; mac = DemoData.mac }
+        if demo { host = DemoData.host }
         day = days.first ?? Date()
     }
 
-    var connected: Bool { info != nil }
+    var connected: Bool { session.connected }
 
     /// Bumped each time a connect reaches the recorder (`attach`), which is before it goes on to read the
     /// reservations and the guide. A count rather than a flag, so that a screen where a recorder has just been
     /// chosen can tell the answer to that choice from a connection that was already up. See `WelcomeView`.
-    var timesAttached = 0
+    var timesAttached: Int { session.timesAttached }
 
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards.
@@ -220,7 +231,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { link.changed(now: surroundings.networkSignature()) }
+    var networkChanged: Bool { session.networkChanged(now: surroundings.networkSignature()) }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
