@@ -39,12 +39,12 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-36 ファイル、5,214 行（空行とコメントを含み、`Package.swift` を除く）。テストは 4,960 行。
+36 ファイル、5,353 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,374 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,653 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
-| SQLite の上のもの | 907 | GuideStore, Sqlite |
+| 入出力を持たないロジック | 2,712 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
+| SQLite の上のもの | 987 | GuideStore, Sqlite |
 | 非同期の段取り | 1,119 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach |
 | OS に縛られるもの | 535 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
@@ -53,8 +53,8 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,375 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（8 ファイルで 2,446 行、うち約 3 割がコメント。接続まわりは
+RecorderKit の外、アプリ（8,720 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
+一括処理の一時停止で、AppModel（8 ファイルで 2,657 行、うち 3 割あまりがコメント。接続まわりは
 `AppModelSession.swift`）と BackgroundWork、Notify、SendWaitingIntent を
 合わせて約 1,300 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
 
@@ -151,7 +151,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、37 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、63 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （`AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
@@ -191,14 +191,17 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 呼び出し側が渡し、`Reach.run` は順番だけを持ちます。アプリのテストは LAN に何も出さないので、起こす・許可・
 探し直しの順番には届きませんでしたが、段を記録するだけの偽物でここなら確かめられます。
 
-最後に、画面が読む状態も移しました（`SessionState`）。レコーダーが自分について言ったこと、無応答か、諦めたか、
-起こしている最中か、接続中か、許可待ちか、電源が要るか、何回つながったか、MAC、どのネットワークで試したか、です。
+最後に、画面が読む状態も移しました（`SessionState`）。レコーダーが自分について言ったこと、どの機体か（UDN。
+無応答の間も残る）、無応答か、諦めたか、起こしている最中か、接続中か、許可待ちか、電源が要るか、何回つながったか、
+MAC、どのネットワークで試したか、です。
 AppModel の変数だったときは、どこからでも 1 つずつ書けたので、起きたことを半分だけ書くことができました（無応答に
-なったのに説明を残す、許可待ちなのに諦めた印を付けない）。今は**起きたこと**でしか変わりません。説明が届いた（`described`）、無応答になった（`lost`、
-`wentSilent`）、接続の試みが終わった（`finishedTrying`）、許可待ちになった（`waitingForPermission`）、別の機器を
-選んだ（`forgotTheDevice`）などで、それぞれが関係する値をまとめて正しい形に置きます。AppModel は同じ名前の
-読み取り専用のプロパティを持つので、画面は今までどおり `model.gaveUp` のように読み、書くことはできません。
-`@Observable` なので、画面の更新は値ごとに今までどおり起きます。
+なったのに説明を残す、許可待ちなのに諦めた印を付けない）。今は**起きたこと**でしか変わりません。説明が届いた
+（`described`。控えている機体と UDN を比べ、初めて・同じ・別のどれかを返す。別なら、前の機体が自分について
+言ったことを消してから置く）、無応答になった（`lost`、`wentSilent`）、接続の試みが終わった（`finishedTrying`）、
+許可待ちになった（`waitingForPermission`）、別の機器を選んだ（`forgotTheDevice`。どの機体だったかも忘れる）
+などで、それぞれが関係する値をまとめて正しい形に置きます。AppModel は同じ名前の読み取り専用のプロパティを
+持つので、画面は今までどおり `model.gaveUp` のように読み、書くことはできません。`@Observable` なので、画面の
+更新は値ごとに今までどおり起きます。
 
 呼ぶ順番は今までどおり呼び出し側のもので、途中の食い違いは設計どおり残っています。説明が届いた時点で接続済みになり、
 以前の無応答の印は残りを読み終える（`answered`）まで残ります。諦めた印は、次の接続が試み終わる（`finishedTrying`）

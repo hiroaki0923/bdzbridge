@@ -78,9 +78,10 @@ temporary folder that are thrown away afterwards, an invented recorder as the tr
 `DemoRecorder`, a `SilentRecorder` that answers nothing, one that is at home or not as the test says, one that
 answers 503 to everything, or only to being asked who it is until it is free, one that refuses the calls named
 to it, one held part way through an attach, one with a broadcast on its disk twice, something that answers and
-is no recorder -- and a network it changes when the phone is meant to have moved. `Bench.model(recorders:)`
-puts a device of its own at each address, for a test that chooses another recorder, and
-`Bench.modelWithNoRecorder()` is the app at its first launch. Nothing leaves the machine.
+is no recorder, and recorders that each say which they are, one of which can start answering as another or
+stop saying which -- and a network it changes when the phone is meant to have moved. `Bench.model(recorders:)` puts a device of its own
+at each address, for a test that chooses another recorder, and `Bench.modelWithNoRecorder()` is the app at its
+first launch. Nothing leaves the machine.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -111,9 +112,36 @@ is; pulling the reservations down, and asking for one to be sent again, connect 
 another recorder cannot be chosen while the last is being made sure of; silence from the recorder left,
 arriving late, is not taken for the one chosen; entering the demo forgets the last job as well; and leaving it
 with no recorder to go back to leaves nobody to ask. Each was seen to fail with its rule broken in `AppModel`.
-What they cannot reach is what the model keeps off the network in a test: waking with a magic packet, the
-local network permission, and the search for a recorder the router has moved. Nor what a screen decides for
-itself, which is what sets its list loading.
+
+`WhichRecorderTests` holds the rules about which recorder is answering, the same way. A recorder is known by
+what it says it is, not by the address it answers at. So the recorder the phone knows keeps what the phone
+holds of it, at another address as well, and after silence, a later launch or a check that had to wake it: the
+texts of its recordings, its guide, the low-space warning given and when the overnight run last fetched, and
+the queue, which goes to it as before. So does the first to answer a phone that had not yet written down
+whose its cache is, whatever MAC is on record and wherever it was read: nothing is guessed. A recorder that
+stops saying which it is is still the one known, and one that never says is written down as nobody.
+
+Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, the guide is
+fetched again, the warning can be given again, and what was waiting is held with a reason, said on the strip
+by whichever connect gets that far, until the reader asks for it to be sent again. That holds for a cache
+whose first owner could not be written down, since the app knows its lists were the first one's. Another
+recorder answering at the address the first one had, with nobody choosing, is found out at the next connect
+and read with the app connected throughout; one answering the check before an operation -- at once, or after
+a waking -- is sent nothing: a delete asked for then does not go, a reservation is neither sent nor queued, a
+job under way is stopped -- and one in front hears the check out before its next step -- with the newcomer
+taken up once it has ended, and the screens are told to close what they hold of the last one. That another
+recorder answered with nobody choosing it is said on the strip until the reader leaves the app or chooses
+one. A cache that cannot be made over to the newcomer is not connected over, and leaves nobody to ask: a
+programme reserved then waits. With no screen, the Shortcuts action's sending and the overnight run leave a
+recorder the cache is not of alone -- nothing sent, nothing fetched, nothing taken up -- and say so only when
+something was waiting. The demo leaves the real recorder's cache as it was.
+
+What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
+wait for an answer after one is tried, by the tests that save a MAC --, the local network permission, and the
+search for a recorder the router has moved. Nor what a screen decides for itself: what sets its list loading,
+and closing what it holds of a recorder whose lists have gone. Nor the two entries with no screen as the
+system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings and post
+its notifications: the work behind each is tried with those handed in.
 
 The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
 it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would
@@ -371,6 +399,18 @@ this recognises it too -- and moves to wherever it now is. It never looks on ano
 in the background, and it looks once per connect, not in a loop. The empty guide, reservations and
 recordings offer a quieter レコーダーを探す under 再接続 for the times it finds nothing.
 
+Which recorder is answering is decided by its description, not by the address: the recorder says which it is
+(its UDN), and the app writes down whose the cache on the phone is (`GuideStore.owner`). The same recorder at
+an address the router has moved it to finds everything the phone keeps as it left it. Another recorder --
+chosen in the settings, or found at the address the first one had -- gets nothing that was the first's: its
+lists are read for itself, the first's programme texts and guide go and the guide is fetched again, the
+low-space warning can be given again, and the MAC kept for waking is let go of unless the new recorder carries
+it. The check before an operation hears who is there too, and an operation meant for one recorder is not sent
+to another; a sheet left open on a recording or a reservation of the last one closes itself, and the strip
+says that another recorder answered and the lists were read again, on whichever screen is in front. A cache
+from a version before this was kept does not say whose it is, and is taken for the first answerer's as it
+stands. The queue is the reader's, and what becomes of it is under Reservations made away from home.
+
 Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four
 in the morning; there is no declining it, so the screen waits for it and then goes where the tap meant.
@@ -423,10 +463,12 @@ renumbers the reservations its own automatic recording made, in blocks; the same
 
 ### Notifications
 
-Three things happen with nobody looking at the app, so they are the three it can notify about: the
+Four things happen with nobody looking at the app, so they are the four it can notify about: the
 reservations that were waiting have gone to the recorder, some of them were refused or their programmes had
-finished, and the disk is filling up. All of them come from the overnight run, so the notifications make no
-sound and do not light the screen; they wait in Notification Centre for the morning.
+finished, they were left unsent because another recorder than the one the phone knows answered at the saved
+address, and the disk is filling up. The overnight run can say all of them, and the Shortcuts action the ones
+about the queue; the notifications make no sound and do not light the screen, and wait in Notification
+Centre.
 
 Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
 which shows no dialog -- so nothing lands on the local network question that comes up around the first
@@ -470,10 +512,15 @@ though the phone is on the same Wi-Fi before and after it.
 
 The guide is on the phone and the recorder is not, so a reservation made away from home has nowhere to go.
 It is kept instead: the programme, the quality and the repeat exactly as asked for, in the phone's own
-database, and shown on the reservations tab under 送信待ち where it can be deleted. The next time the
+database, and shown on the reservations tab under 送信待ち where it can be deleted. The next time that
 recorder answers -- a launch at home, a pull on the reservations list, the overnight refresh -- what is
 waiting is sent, by one set of rules in `RecorderKit/PendingQueue.swift` that the screens and the overnight
-run share. A programme that has already finished is dropped rather than sent; one that is
+run share. That recorder, and not whichever answers at the address: the app knows a recorder by what it
+says it is, and another one taking its place -- chosen in the settings, or found at the same address after
+a replacement or a new lease -- holds what was waiting with a reason on each row and a line on the strip
+saying how many, until もう一度送る sends one to the recorder in play. With no screen, the overnight run
+and the Shortcuts action leave such a recorder alone and say so in a notification when something was
+waiting; opening the app settles it. A programme that has already finished is dropped rather than sent; one that is
 on air is still sent, since the recorder records what is left of it. A reservation the recorder refuses
 with a reason of its own (a SOAP fault with an `errorCode`, such as 831 for a channel it cannot receive)
 keeps the reason on the row and is not sent again until the reader asks, with もう一度送る on the row or
