@@ -79,9 +79,12 @@ temporary folder that are thrown away afterwards, an invented recorder as the tr
 answers 503 to everything, or only to being asked who it is until it is free, one that refuses the calls named
 to it, one held part way through an attach, one with a broadcast on its disk twice, something that answers and
 is no recorder, and recorders that each say which they are, one of which can start answering as another or
-stop saying which -- and a network it changes when the phone is meant to have moved. `Bench.model(recorders:)` puts a device of its own
-at each address, for a test that chooses another recorder, and `Bench.modelWithNoRecorder()` is the app at its
-first launch. Nothing leaves the machine.
+stop saying which -- and a network it changes when the phone is meant to have moved.
+`Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
+and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
+thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
+`untilConnected`, and `expect(_:asked:)` for how often a recorder was asked for something. Nothing leaves the
+machine.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that

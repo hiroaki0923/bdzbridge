@@ -75,6 +75,13 @@ final class Bench {
         try await DemoData.seed(store: GuideStore(path: guidePath))
     }
 
+    /// Saves a MAC as the app keeps one for waking the recorder, with the address it was read at. A model made
+    /// here sends nothing to it (`model(recorder:)`).
+    func keep(mac: String, readAt host: String? = Bench.host) {
+        defaults.set(mac, forKey: DefaultsKey.recorderMac)
+        defaults.set(host, forKey: DefaultsKey.recorderMacHost)
+    }
+
     func throwAway() {
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
@@ -355,6 +362,14 @@ actor RecorderPartWayThroughAnAttach: HTTPTransport {
 struct StillWaiting: Error {}
 
 extension XCTestCase {
+    /// A bench for this test, thrown away when the test is over.
+    @MainActor
+    func aBench() throws -> Bench {
+        let bench = try Bench()
+        addTeardownBlock { await bench.throwAway() }
+        return bench
+    }
+
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`.
     /// What is tested here used to wait for ever, and a test of it has to fail rather than wait with it, so the
     /// work runs in a task of its own that the test can stop waiting for.
@@ -387,5 +402,38 @@ extension XCTestCase {
             }
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    /// Waits for what the model has under way to be over, whichever way it went: a connect made in a task of
+    /// its own, and the reads that follow it.
+    @MainActor
+    func untilIdle(_ model: AppModel, _ what: String = "the connect never finished",
+                   within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) { !model.connecting && model.busy == nil }
+    }
+
+    /// Waits for the model to be connected with nothing under way. The first connect of a launch above all,
+    /// which has the cache to open first, and gets longer for it.
+    @MainActor
+    func untilConnected(_ model: AppModel, _ what: String = "the first connect never finished",
+                        within seconds: TimeInterval = 20) async throws {
+        try await until(what, within: seconds) { model.connected && !model.connecting && model.busy == nil }
+    }
+
+    /// Fails the test unless `recorder` has been asked for `what` -- a SOAP action, or a file by its name --
+    /// just `times`: since it was made, or since `before`, which is its `asked` at an earlier moment.
+    @MainActor
+    func expect(_ recorder: NamedRecorder, asked what: String, _ times: Int, since before: [String: Int] = [:],
+                _ message: String = "", file: StaticString = #filePath, line: UInt = #line) async {
+        let asked = await recorder.asked(what) - (before[what] ?? 0)
+        XCTAssertEqual(asked, times, message, file: file, line: line)
+    }
+
+    /// The same for something that is to have been asked for, however often.
+    @MainActor
+    func expect(_ recorder: NamedRecorder, asked what: String, atLeast times: Int, since before: [String: Int] = [:],
+                _ message: String = "", file: StaticString = #filePath, line: UInt = #line) async {
+        let asked = await recorder.asked(what) - (before[what] ?? 0)
+        XCTAssertGreaterThanOrEqual(asked, times, message, file: file, line: line)
     }
 }
