@@ -12,6 +12,20 @@ public protocol DeviceEndpoint: Actor {
     func probe(timeout: TimeInterval) async throws
 }
 
+/// Which of a household's devices something is for. A name of the app's own, written on what waits to be
+/// sent, and never anything the hardware calls itself: the recorder that takes another's place is still the
+/// recorder. A string underneath, so that one written by a version that knows more devices than this one is
+/// read as what it is, and left alone.
+public struct DeviceSlot: RawRepresentable, Hashable, Sendable {
+    public var rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let recorder = DeviceSlot(rawValue: "recorder")
+}
+
 /// A device the guide can be fetched from, a broadcasting type at a time.
 public protocol GuideSource: DeviceEndpoint {
     /// The guide for one broadcasting type. Nil when the device has no such channels.

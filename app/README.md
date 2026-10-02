@@ -531,7 +531,9 @@ keeps the reason on the row and is not sent again until the reader asks, with �
 on the programme's sheet; a 503 or an answer with no code says nothing about the reservation, so that one
 is simply sent again next time. (The client itself sends a request answered 503 twice more, half a second to
 a second apart, before it gives up on it.) Only one flush runs at a time in the app, whoever asks, so the
-screens and the overnight run cannot both send the same reservation. The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
+screens and the overnight run cannot both send the same reservation. Each row says which device it waits
+for -- the recorder, the only one there is so far -- and the recorder is sent only its own. The guide, the
+search results and the programme's sheet mark a waiting reservation 送信待ち, and the
 sheet offers to send it again or delete it rather than the reservation form. What became of the queue is
 said in one line at the top of the screen when the app sent it, and in a notification when the overnight
 run did.

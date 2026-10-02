@@ -618,6 +618,22 @@ final class GuideStoreTests: XCTestCase {
         expectEqual(try await store.pendingReservations().map(\.problem), [nil])
     }
 
+    /// What waits for another device was never the recorder's to be sent, and one recorder taking another's
+    /// place is no reason on it: only what waits for a recorder is held.
+    func testAnotherRecorderTakingOverHoldsOnlyWhatWaitsForARecorder() async throws {
+        let store = try await usedStore()
+        try await store.claim(for: recorder(1))
+        var elsewhere = waiting()
+        elsewhere.target = DeviceSlot(rawValue: "tv")
+        try await store.queue(elsewhere)
+
+        try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
+
+        let queue = try await store.pendingReservations()
+        XCTAssertEqual(Dictionary(queue.map { ($0.target.rawValue, $0.problem) }, uniquingKeysWith: { $1 }),
+                       ["recorder": "別のレコーダー", "tv": nil])
+    }
+
     /// A cache filled before its owner was written down does not say whose it is, and nothing in it is
     /// guessed at: whoever answers first is put down as the owner and finds it as it is. For nearly every
     /// phone that is the one recorder it has ever had, and its texts and its queue are not to be lost to a
@@ -794,5 +810,144 @@ final class GuideStoreTests: XCTestCase {
         let channels = try await store.channels(broadcasting: "td")
         XCTAssertEqual(channels.first?.logo, Data([0x89, 0x50, 0x4E, 0x47]))
         XCTAssertNil(channels.last?.logo, "a channel whose logo the recorder has not received yet")
+    }
+
+    // MARK: - a queue from before a reservation said which device it waits for
+
+    /// The queue's table as every version up to 0.3.1 made it, and the statement those versions queue with.
+    private static let queueTableBeforeTargets = """
+    CREATE TABLE pending_reservations (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, start INTEGER NOT NULL, duration_sec INTEGER NOT NULL,
+      repeat_code TEXT NOT NULL, bt INTEGER NOT NULL, service_id INTEGER NOT NULL, service_name TEXT NOT NULL,
+      quality_code INTEGER NOT NULL, event_id INTEGER, queued_at INTEGER NOT NULL, problem TEXT)
+    """
+    private static let queuedBeforeTargets = """
+    INSERT OR REPLACE INTO pending_reservations
+      (id, title, start, duration_sec, repeat_code, bt, service_id, service_name, quality_code, event_id,
+       queued_at, problem)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    """
+
+    /// A cache as one of those versions left it: all else as it is made today, the queue's table as it was,
+    /// and in it what that version queued. The connection is handed back for the test to look at the table
+    /// with, since what a reservation is read as says nothing of what is in the file.
+    private func cacheFromBeforeTargets(at path: String, queued rows: [[SqlValue]] = []) throws -> Sqlite {
+        _ = try GuideStore(path: path)
+        let db = try Sqlite(path: path)
+        try db.execute("DROP TABLE pending_reservations")
+        try db.execute(Self.queueTableBeforeTargets)
+        for row in rows { try db.run(Self.queuedBeforeTargets, row) }
+        return db
+    }
+
+    private func queueColumns(_ db: Sqlite) throws -> [String] {
+        try db.query("PRAGMA table_info(pending_reservations)") { $0.string("name") }
+    }
+
+    /// The update that has a reservation say which device it waits for meets a queue filled before it. Every
+    /// row in it is the recorder's, there having been nothing else it could be for, and keeps the name it was
+    /// queued under: a reservation is sent, refused and removed by that name, and one no longer found by it
+    /// once it was sent would be sent again at every chance.
+    func testAQueueFromBeforeTargetsIsTheRecordersRowForRow() async throws {
+        let path = try temporaryPath()
+        let nine = jst("2026-09-20T21:00:00+09:00")
+        let ten = nine.addingTimeInterval(3600)
+        let byItsTime = "3/101/" + RecorderTime.format(ten)
+        let db = try cacheFromBeforeTargets(at: path, queued: [
+            ["2/1064/12575", "サンプル番組", .integer(Int(nine.timeIntervalSince1970)), 3600, "1", 2, 1064,
+             "サンプルテレビ", 240, 12575, .integer(Int(nine.timeIntervalSince1970) - 86_400), nil],
+            [.text(byItsTime), "時刻で予約した番組", .integer(Int(ten.timeIntervalSince1970)), 1800, "1", 3, 101,
+             "ＢＳサンプル", 100, nil, .integer(Int(nine.timeIntervalSince1970) - 3600), "このチャンネルは受信できません"],
+        ])
+        XCTAssertEqual(try queueColumns(db).count, 12)
+
+        let store = try GuideStore(path: path)
+
+        let waiting = try await store.pendingReservations()
+        XCTAssertEqual(waiting.map(\.request.title), ["サンプル番組", "時刻で予約した番組"])
+        XCTAssertEqual(waiting.map(\.problem), [nil, "このチャンネルは受信できません"])
+        XCTAssertEqual(waiting.map(\.target), [.recorder, .recorder])
+        // Asked of the table itself: read as a reservation, a column that is not there is no different from
+        // one that says the recorder.
+        let stored = try db.query("SELECT id, target FROM pending_reservations ORDER BY start") {
+            [$0.string("id"), $0.string("target")]
+        }
+        XCTAssertEqual(stored, [["2/1064/12575", "recorder"], [byItsTime, "recorder"]])
+        XCTAssertEqual(waiting.map(\.id), stored.map { $0[0] }, "a row is no longer found by the name it is kept under")
+        try await store.removePending(waiting[0].id)
+        expectEqual(try await store.pendingReservations().map(\.request.title), ["時刻で予約した番組"])
+    }
+
+    /// Going back to an earlier version happens: a build from the store put over a later one. Its statements
+    /// name the columns it knows and still run, and what it queues is the recorder's, as everything it queues is.
+    func testAnEarlierVersionsQueueingStillRunsOnTheTableAsItIsNow() async throws {
+        let path = try temporaryPath()
+        let store = try GuideStore(path: path)
+        let db = try Sqlite(path: path)
+        let nine = Int(jst("2026-09-20T21:00:00+09:00").timeIntervalSince1970)
+
+        try db.run(Self.queuedBeforeTargets, ["2/1064/12575", "サンプル番組", .integer(nine), 3600, "1", 2, 1064,
+                                              "サンプルテレビ", 240, 12575, .integer(nine - 86_400), nil])
+
+        expectEqual(try await store.pendingReservations().map(\.id), ["2/1064/12575"])
+        XCTAssertEqual(try db.query("SELECT target FROM pending_reservations") { $0.string("target") }, ["recorder"])
+    }
+
+    /// The column is added once: every launch opens the cache, and so does every run with no screen.
+    func testOpeningTheCacheAgainAddsNothingToTheQueuesTable() throws {
+        let path = try temporaryPath()
+        let db = try cacheFromBeforeTargets(at: path)
+
+        _ = try GuideStore(path: path)
+        let once = try queueColumns(db)
+        _ = try GuideStore(path: path)
+
+        XCTAssertEqual(try queueColumns(db), once)
+        XCTAssertEqual(once.count, 13)
+        XCTAssertEqual(once.filter { $0 == "target" }.count, 1)
+        // As it is declared: never empty, and the recorder's unless it says otherwise, which is what an
+        // earlier version's rows and an earlier version's queueing both rely on.
+        let declared = try db.query("PRAGMA table_info(pending_reservations)") {
+            [$0.string("name"), $0.string("type"), String($0.int("notnull")), $0.string("dflt_value")]
+        }
+        XCTAssertEqual(declared.last, ["target", "TEXT", "1", "'recorder'"])
+    }
+
+    /// A cache that lacks nothing is every opening but one, and is opened with nothing held: the overnight run
+    /// can be storing a guide in it as the app is opened in the morning, and an opening that had to wait for
+    /// that write would fail when the write outlasted the wait.
+    func testACacheThatLacksNothingOpensWithoutWaitingForAnotherWriter() throws {
+        let path = try temporaryPath()
+        _ = try GuideStore(path: path)
+        let other = try Sqlite(path: path)
+        try other.execute("BEGIN IMMEDIATE")
+        defer { try? other.execute("ROLLBACK") }
+
+        let began = Date()
+        XCTAssertNoThrow(try GuideStore(path: path))
+        // Waiting, it would wait out the whole of the busy timeout: the other connection never lets go.
+        XCTAssertLessThan(Date().timeIntervalSince(began), Double(Sqlite.busyTimeoutMilliseconds) / 2000,
+                          "it waited for the other connection's write")
+    }
+
+    /// The screens and a run with no screen each open the cache, and after an update both can be first: each
+    /// looks, finds the column missing and goes to add it. The one that waits for the other's write looks
+    /// again once it has its turn. Adding on the strength of its first look, it would be refused a column that
+    /// is there by then -- and a cache that fails to open is not opened again for as long as the app runs.
+    func testACacheOpenedWhileAnotherConnectionAddsTheColumnWaitsAndOpens() throws {
+        let path = try temporaryPath()
+        let other = Holder(try cacheFromBeforeTargets(at: path))
+        try other.db.execute("BEGIN IMMEDIATE")
+        try other.db.execute("ALTER TABLE pending_reservations ADD COLUMN target TEXT NOT NULL DEFAULT 'recorder'")
+        // Timed from before the other is told when to let go: timed from after, a moment lost in between
+        // would be taken from the wait, and the test would fail for a machine that was busy.
+        let started = Date()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            try? other.db.execute("COMMIT")
+        }
+
+        XCTAssertNoThrow(try GuideStore(path: path))
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.2, "it did not wait for the other's write")
+        XCTAssertEqual(try queueColumns(other.db).filter { $0 == "target" }.count, 1)
     }
 }

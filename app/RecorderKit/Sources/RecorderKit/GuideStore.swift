@@ -151,6 +151,7 @@ public actor GuideStore {
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('search_text_version', ?)",
                        [.text(Self.currentSearchTextVersion)])
         }
+        try Self.addColumnsTheQueueLacks(db)
         // An earlier build kept a failed read as an empty text, so an empty row from before may be a failure
         // rather than a recording with no text. Those are thrown away once and asked about again at the next
         // scan; an empty text read since is a real answer. A schema change does not rebuild the summaries.
@@ -161,6 +162,34 @@ public actor GuideStore {
             }
         }
         self.db = db
+    }
+
+    /// The columns the queue's table has gained since it was first made. The table is the reader's own and is
+    /// never dropped, so `CREATE TABLE IF NOT EXISTS` gives one made by an earlier version nothing: they are
+    /// added. A table made today gets them the same way, so that there is one path and every cache has been
+    /// down it. An earlier version names the columns it knows, and goes on reading and writing a table that
+    /// has more.
+    private static let columnsTheQueueHasGained = [
+        (name: "target", declaration: "TEXT NOT NULL DEFAULT '\(DeviceSlot.recorder.rawValue)'"),
+    ]
+
+    private static func columnsTheQueueLacks(_ db: Sqlite) throws -> [(name: String, declaration: String)] {
+        let has = Set(try db.query("PRAGMA table_info(pending_reservations)") { $0.string("name") })
+        return columnsTheQueueHasGained.filter { !has.contains($0.name) }
+    }
+
+    /// Adds them where they are missing. Looked for first with nothing held, which settles every opening but
+    /// the first after an update: holding the write for the look would have every opening wait behind
+    /// whoever is writing -- the overnight run storing a guide -- and fail once that outlasts the wait. Looked
+    /// for again once the write is held: the screens and a run with no screen each open the cache, both can
+    /// find a column missing, and the second to add it would be refused one that is there by then.
+    private static func addColumnsTheQueueLacks(_ db: Sqlite) throws {
+        guard try !columnsTheQueueLacks(db).isEmpty else { return }
+        try db.transaction {
+            for column in try columnsTheQueueLacks(db) {
+                try db.execute("ALTER TABLE pending_reservations ADD COLUMN \(column.name) \(column.declaration)")
+            }
+        }
     }
 
     // MARK: - refresh
@@ -492,9 +521,10 @@ public actor GuideStore {
     /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
     /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
     /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
-    /// its logos, and the marks of when each type was fetched -- and every reservation waiting is held with
-    /// `reason`, as one a recorder refused is, until the reader sends it again. What the reader set stays:
-    /// which channels are hidden, and their order.
+    /// its logos, and the marks of when each type was fetched -- and every reservation waiting for a recorder
+    /// is held with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
+    /// set stays: which channels are hidden, and their order. So does what waits for another device, which
+    /// one recorder taking another's place says nothing about.
     ///
     /// A cache from before its owner was written down does not say whose it is, and nothing is guessed: the
     /// first to answer is put down as its owner and finds it as it is. (The MAC kept for waking would tell
@@ -522,7 +552,8 @@ public actor GuideStore {
                 try db.run("DELETE FROM logos")
                 try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'")
                 if let reason {
-                    try db.run("UPDATE pending_reservations SET problem = ?", [.text(reason)])
+                    try db.run("UPDATE pending_reservations SET problem = ? WHERE target = ?",
+                               [.text(reason), .text(DeviceSlot.recorder.rawValue)])
                 }
             }
             // It has a name to write: one without is the first or the same, and did not get here.
@@ -536,18 +567,18 @@ public actor GuideStore {
 
     // MARK: - reservations waiting for the recorder
 
-    /// Adds one, or replaces the same programme queued before. Kept out of the tables the schema version
-    /// throws away: this is the reader's, not a copy of the recorder's.
+    /// Adds one, or replaces the same programme queued before for the same device. Kept out of the tables
+    /// the schema version throws away: this is the reader's, not a copy of the recorder's.
     public func queue(_ pending: PendingReservation) throws {
         try db.run("""
         INSERT OR REPLACE INTO pending_reservations
           (id, title, start, duration_sec, repeat_code, bt, service_id, service_name, quality_code, event_id,
-           queued_at, problem)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           queued_at, problem, target)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, values(for: pending))
     }
 
-    /// Built a piece at a time: as one literal of twelve mixed values the type checker gives up.
+    /// Built a piece at a time: as one literal of thirteen mixed values the type checker gives up.
     private func values(for pending: PendingReservation) -> [SqlValue] {
         let r = pending.request
         var out: [SqlValue] = [.text(pending.id), .text(r.title)]
@@ -561,6 +592,7 @@ public actor GuideStore {
         out.append(SqlValue(r.eventID))
         out.append(.integer(Int(pending.queuedAt.timeIntervalSince1970)))
         out.append(SqlValue(pending.problem))
+        out.append(.text(pending.target.rawValue))
         return out
     }
 
@@ -577,8 +609,11 @@ public actor GuideStore {
                                              qualityCode: row.int("quality_code"),
                                              eventID: row.optionalInt("event_id"))
             let problem = row.string("problem")
+            // The device is read as it is written: a name this version does not know is kept, and nothing
+            // here sends it.
             return PendingReservation(request: request, serviceName: row.string("service_name"),
-                                      queuedAt: queued, problem: problem.isEmpty ? nil : problem)
+                                      queuedAt: queued, problem: problem.isEmpty ? nil : problem,
+                                      target: DeviceSlot(rawValue: row.string("target")))
         }
     }
 

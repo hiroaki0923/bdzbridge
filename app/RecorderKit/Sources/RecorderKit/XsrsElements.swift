@@ -94,17 +94,25 @@ public struct PendingReservation: Sendable, Equatable, Identifiable {
     /// What the recorder said last time this was tried, if it has been tried and refused. While it is set the
     /// queue does not send this again (`PendingQueue.flush`); clearing it is how the reader asks for another try.
     public var problem: String?
+    /// The device it waits for, settled when it is queued.
+    public var target: DeviceSlot
 
-    /// One reservation per programme: the same programme queued twice replaces the first.
+    /// One reservation per programme and device: the same programme queued twice for a device replaces the
+    /// first. The recorder's go by the programme alone, as they did before a reservation said which device it
+    /// waits for, so that one queued by an earlier version is found by the name it is kept under.
     public var id: String {
-        "\(request.broadcastingType)/\(request.serviceID)/\(request.eventID.map(String.init) ?? RecorderTime.format(request.start))"
+        let programme = "\(request.broadcastingType)/\(request.serviceID)/"
+            + (request.eventID.map(String.init) ?? RecorderTime.format(request.start))
+        return target == .recorder ? programme : "\(target.rawValue)|\(programme)"
     }
 
-    public init(request: ReservationRequest, serviceName: String, queuedAt: Date = Date(), problem: String? = nil) {
+    public init(request: ReservationRequest, serviceName: String, queuedAt: Date = Date(), problem: String? = nil,
+                target: DeviceSlot = .recorder) {
         self.request = request
         self.serviceName = serviceName
         self.queuedAt = queuedAt
         self.problem = problem
+        self.target = target
     }
 }
 

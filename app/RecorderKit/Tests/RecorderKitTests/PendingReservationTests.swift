@@ -34,6 +34,28 @@ final class PendingReservationTests: XCTestCase {
         XCTAssertEqual(back.first?.request.title, "あとから", "the later one replaces the earlier")
     }
 
+    /// A reservation waits for one device, and which is part of what it is: the same programme for two
+    /// devices is two reservations, each kept, found and removed by itself. The recorder's goes by the name
+    /// it always had, so that one queued by an earlier version is the same reservation still.
+    func testTheSameProgrammeWaitsForTwoDevicesAsTwoReservations() async throws {
+        let store = try store()
+        let queuedAt = Date(timeIntervalSince1970: 1_789_000_000)
+        let recorders = PendingReservation(request: request(), serviceName: "サンプルテレビ", queuedAt: queuedAt)
+        let televisions = PendingReservation(request: request(), serviceName: "サンプルテレビ", queuedAt: queuedAt,
+                                             target: DeviceSlot(rawValue: "tv"))
+        try await store.queue(recorders)
+        try await store.queue(televisions)
+
+        XCTAssertEqual(recorders.id, "2/1064/12575")
+        XCTAssertNotEqual(televisions.id, recorders.id)
+        let back = try await store.pendingReservations()
+        XCTAssertEqual(back.sorted { $0.id < $1.id }, [recorders, televisions].sorted { $0.id < $1.id },
+                       "each comes back as it went in, the device it waits for with it")
+
+        try await store.removePending(televisions.id)
+        expectEqual(try await store.pendingReservations(), [recorders])
+    }
+
     func testAReservationWithoutAProgrammeIdIsKeptByItsTime() async throws {
         let store = try store()
         let nine = Date(timeIntervalSince1970: 1_790_000_000)
@@ -126,6 +148,33 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(outcome.refused.isEmpty)
         let left = try await store.pendingReservations()
         XCTAssertTrue(left.isEmpty, "nothing waits after a flush that reached the recorder")
+    }
+
+    /// The recorder is sent what waits for the recorder. What waits for another device is not asked of it,
+    /// and is as it was afterwards: still waiting, with no reason written on it. One whose programme is over
+    /// is left as well: whether it is dropped is for whatever sends that device its own.
+    func testWhatWaitsForAnotherDeviceIsNotSentToTheRecorder() async throws {
+        let store = try store()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let recorders = pending("レコーダーに送る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        var televisions = pending("テレビに送る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        televisions.target = DeviceSlot(rawValue: "tv")
+        var over = pending("テレビ宛の終わった番組", eventID: 3, start: now.addingTimeInterval(-7200))
+        over.target = DeviceSlot(rawValue: "tv")
+        for one in [recorders, televisions, over] { try await store.queue(one) }
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["レコーダーに送る番組"])
+        XCTAssertTrue(outcome.expired.isEmpty, "the recorder's flush dropped what waits for another device")
+        let asked = await transport.requests.count
+        XCTAssertEqual(asked, 1, "the recorder was asked for a reservation that waits for another device")
+        let left = try await store.pendingReservations()
+        XCTAssertEqual(left.map(\.id), [over.id, televisions.id])
+        XCTAssertEqual(left.map(\.problem), [nil, nil])
     }
 
     /// A recorder that answers and refuses: the reservation stays, with the reason on it.
@@ -336,5 +385,14 @@ final class PendingQueueWorthTests: XCTestCase {
             [pending(start: now.addingTimeInterval(-7200)),
              pending(start: now.addingTimeInterval(3600), problem: "断られました"),
              pending(start: now.addingTimeInterval(7200))], now: now))
+    }
+
+    /// What waits for another device is nothing the recorder would be sent, so it is not woken for it.
+    func testWhatWaitsForAnotherDeviceIsNotWorthReachingTheRecorderFor() {
+        var elsewhere = pending(start: now.addingTimeInterval(3600))
+        elsewhere.target = DeviceSlot(rawValue: "tv")
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([elsewhere], now: now))
+        XCTAssertTrue(PendingQueue.hasSomethingToSend([elsewhere, pending(start: now.addingTimeInterval(3600))],
+                                                      now: now))
     }
 }
