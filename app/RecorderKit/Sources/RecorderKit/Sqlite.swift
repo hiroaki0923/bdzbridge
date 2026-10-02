@@ -17,9 +17,9 @@ final class Sqlite {
         self.handle = handle
         // The overnight run and the screens each open the file for themselves, and in the same process when
         // the system wakes the app for the one while the reader has the other open. Without a wait, whichever
-        // wrote second failed at once with "database is locked" -- and a reservation already sent whose row
-        // then could not be removed from the queue was sent again the next time. Five seconds is several times
-        // longer than any write here has been seen to take on a Mac.
+        // writes second fails at once with "database is locked", and a reservation already sent whose row could
+        // not then be taken out of the queue would be sent again. Five seconds is several times longer than any
+        // write here has been seen to take on a Mac.
         sqlite3_busy_timeout(handle, Self.busyTimeoutMilliseconds)
         try execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")
     }

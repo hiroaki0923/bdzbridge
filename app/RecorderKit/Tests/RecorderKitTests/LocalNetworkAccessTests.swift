@@ -28,8 +28,7 @@ final class LocalNetworkAccessTests: XCTestCase {
     /// and the path was there all along.
     func testAProbeOfThisMachineIsAllowedAtOnce() async {
         let started = Date()
-        let access = await LocalNetwork.access(probing: "127.0.0.1", within: .seconds(5))
-        XCTAssertEqual(access, .allowed)
+        expectEqual(await LocalNetwork.access(probing: "127.0.0.1", within: .seconds(5)), .allowed)
         XCTAssertLessThan(Date().timeIntervalSince(started), 4, "answered by the path, not by the time limit")
 
         let allowed = await LocalNetwork.waitForAccess(probing: "127.0.0.1") {
@@ -46,7 +45,6 @@ final class LocalNetworkAccessTests: XCTestCase {
             withUnsafeCurrentTask { $0?.cancel() }
             return await LocalNetwork.waitForAccess(probing: "127.0.0.1") {}
         }
-        let allowed = await waiting.value
-        XCTAssertFalse(allowed)
+        expectFalse(await waiting.value)
     }
 }

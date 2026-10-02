@@ -101,9 +101,8 @@ struct ReservationSheet: View {
                     }
                 }
 
-                // 削除, the word the list's swipe and every other delete in the app use. 取り消す here put
-                // 取り消す beside キャンセル in the dialog, two words for going back on something, one of them
-                // meaning the reservation and the other the dialog.
+                // 削除, the word the list's swipe and every other delete in the app use: 取り消す would stand
+                // beside キャンセル in the dialog, two words for going back on something.
                 Section {
                     Button("予約を削除", role: .destructive) { confirming = true }
                         .disabled(model.busy != nil)
@@ -150,10 +149,7 @@ struct ReservationSheet: View {
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
-            // The reservation is the last recorder's once its lists are let go of (`AppModel.timesForgotten`),
-            // and the buttons here would find the next one's reservation by its number. Closed from here
-            // rather than by whatever opened it -- the reservations, a search, a programme's sheet.
-            .onChange(of: model.timesForgotten) { dismiss() }
+            .closesWithItsRecorder()
         }
     }
 

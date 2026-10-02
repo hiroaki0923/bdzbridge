@@ -49,17 +49,15 @@ struct SettingsScreen: View {
                         let typed = typedMac.trimmingCharacters(in: .whitespaces)
                         if typed.isEmpty { model.forgetMac() } else { model.remember(mac: typed) }
                     }
-                    // Following the model when it forgets the MAC as well: ending the demo can leave none, and
-                    // the field went on showing the demo's, which is nobody's. A half-typed MAC is left alone,
-                    // since it is no MAC and so already agrees with none.
+                    // Following the model when it forgets the MAC as well: ending the demo can leave none. A
+                    // half-typed MAC is left alone, since it is no MAC and so already agrees with none.
                     .onChange(of: model.mac, initial: true) {
                         if WakeOnLan.normalise(typedMac) != model.mac { typedMac = model.mac ?? "" }
                     }
                     // Connecting happens by itself at launch and after a scan, so a button is only for an
                     // address typed by hand, or for trying the saved one again after it failed. The field is
                     // compared both as typed and tidied, because the saved address can be untidy itself: an
-                    // older version saved `192.168.1.10:64220` just as it was typed, and 再接続 would only
-                    // try that again.
+                    // older version saved `192.168.1.10:64220` as typed, and 再接続 would only try that again.
                     if tidied.host != model.host || typedHost != model.host {
                         Button("このアドレスに接続") {
                             // the field shows what is saved, so that what was taken off can be seen to be gone
@@ -208,9 +206,7 @@ struct SettingsScreen: View {
                     // Before the version, because it is the one thing in this section worth reading: what
                     // this app writes to the recorder, it writes for real.
                     Button("ご利用上の注意") { showingDisclaimer = true }
-                    // Which build is on the phone is the first question behind "is that the one with the
-                    // fix?", and TestFlight hands out several builds of one version. Selectable, so it can
-                    // be copied into a report rather than read off a screen.
+                    // Selectable, so that it can be copied into a report rather than read off a screen.
                     LabeledContent("バージョン", value: Self.version)
                         .textSelection(.enabled)
                 }

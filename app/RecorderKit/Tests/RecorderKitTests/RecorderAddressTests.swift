@@ -40,8 +40,7 @@ final class RecorderAddressTests: XCTestCase {
             let transport = StubTransport(always: HTTPResponse(statusCode: 404))
             let client = RecorderClient(host: host, transport: transport)
             _ = try? await client.describe()
-            let sent = await transport.requests.map(\.url.absoluteString)
-            XCTAssertEqual(sent, [url], host)
+            expectEqual(await transport.requests.map(\.url.absoluteString), [url], host)
             XCTAssertTrue(RecorderAddress.isUsable(host), host)
         }
         let client = RecorderClient(host: "2001:db8::10", streamPort: 60151)

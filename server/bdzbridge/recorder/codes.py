@@ -63,10 +63,11 @@ GENRE_LABEL = {
 
 # ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre.
 #
-# Checked entry by entry against ARIB STD-B10 version 5.13-E1, Annex H (2026-09-20): every one of the 104
-# codes the standard names is here and says the same thing. It also matches what the recorder does -- all
-# twelve level-1 genres and twenty-four sampled sub-genres came back in the names it composes for a
-# condition, and a code the standard leaves unused (0x3d) makes it compose nothing at all.
+# Checked entry by entry against ARIB STD-B10 version 5.13-E1, Annex H (2026-09-20): of the 108 codes the
+# standard names, 107 are here and say the same thing, and the last is the その他 under その他 (0xF), which
+# GENRE_LABEL says by itself. It also matches what the recorder does -- all twelve level-1 genres and
+# twenty-four sampled sub-genres came back in the names it composes for a condition, and a code the
+# standard leaves unused (0x3d) makes it compose nothing at all.
 #
 # 0xE is the extension area, where the sub-genre says which kind of broadcast the user_nibble that follows
 # belongs to. It is not a genre anybody watches; it is here so that the table is the whole table.

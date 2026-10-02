@@ -52,9 +52,8 @@ extension AppModel {
             try await client.deleteRecorderRule(id: rule.id)
         }
         // The read that follows clears the message when it works, and for a delete that failed the message is
-        // the reason the screen shows. Without this it could say only that the recorder had returned an error.
-        // Put back only over nothing: a read that failed has said something newer, such as the recorder no
-        // longer answering, and that is what is true now.
+        // the reason the screen shows. Put back only over nothing: a read that failed has said something newer,
+        // such as the recorder no longer answering, and that is what is true now.
         let reason = problem
         await loadRecorderRules()
         if !removed, problem == nil { problem = reason }

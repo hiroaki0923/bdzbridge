@@ -1,9 +1,8 @@
 import RecorderKit
 import SwiftUI
 
-/// Which channels the guide shows, and in what order, one broadcasting type at a time. The cache has kept the
-/// reader's choice all along (`GuideStore.setChannelPreferences`), and the list, the grid and the search follow
-/// it; only a screen to make it on was missing, while the store's description of the app promised one. A
+/// Which channels the guide shows, and in what order, one broadcasting type at a time. The cache keeps the
+/// reader's choice (`GuideStore.setChannelPreferences`), and the list, the grid and the search follow it. A
 /// broadcasting type easily has sixty channels, most of them never watched, and the grid is read across them.
 ///
 /// Only this phone's guide changes. The recorder is not told, the reservations and recordings lists show

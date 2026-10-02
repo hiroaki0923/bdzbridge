@@ -93,13 +93,10 @@ public enum Duplicates {
     }
 
     /// The sets among `titles`, from the recordings whose programme text has been read, and how many of the
-    /// candidates were left out because theirs has not. This is the one for a screen that offers to delete.
-    ///
-    /// A recording whose text is not in `summaries` -- the scan was stopped before it, the recorder could not
-    /// give it, or it was recorded since -- is left out rather than compared on nothing. `sets` takes a missing
-    /// text for an empty one, as the server its vectors come from does, and two recordings nobody has read
-    /// then agree on their title and length alone and come up as copies, one of them ticked for deletion. An
-    /// empty text that was read is an answer, and counts.
+    /// candidates were left out because theirs has not. This is the one for a screen that offers to delete:
+    /// `sets` takes a missing text for an empty one, as the server its vectors come from does, and two
+    /// recordings nobody has read would come up as copies. A text is missing when the scan was stopped before
+    /// it, the recorder could not give it, or it was recorded since; an empty text that was read is an answer.
     public static func readSets(_ titles: [RecordedTitle], summaries: [String: String],
                                 fixedBlurbs: Set<Blurb> = []) -> (sets: [DuplicateSet], unread: Int) {
         let candidates = candidates(titles)
@@ -125,15 +122,12 @@ public enum Duplicates {
     /// two recordings sharing it may be any two episodes.
     public static let fixedBlurbLength = 20
 
-    /// The titles whose programme text the guide repeats on two or more broadcast days.
-    ///
-    /// Some programmes carry one blurb every time -- a daily three-minute show, a mini anime -- and two
-    /// recordings of them agree on the title, the length and the text without being the same broadcast. The
-    /// guide is where that shows: the same title with the same text on different days. Two showings on one
-    /// day do not count, since a programme shown again the same day is most likely the same episode. A re-run
-    /// of one episode later in the week looks the same as a fixed blurb and is taken for one, which errs the
-    /// safe way: it is left unticked. `titleKeys` narrows it to the titles asked about, so that the rest of the
-    /// guide's text is not normalised.
+    /// The titles whose programme text the guide repeats on two or more broadcast days. Some programmes carry
+    /// one blurb every time -- a daily three-minute show, a mini anime -- and two recordings of them agree on
+    /// the title, the length and the text without being the same broadcast. Two showings on one day do not
+    /// count, since a programme shown again the same day is most likely the same episode. A re-run later in the
+    /// week looks the same as a fixed blurb and is taken for one, which errs the safe way: it is left unticked.
+    /// `titleKeys` narrows it to the titles asked about, so that no other programme text is normalised.
     public static func fixedBlurbs(in guide: [(title: String, summary: String, start: Date)],
                                    among titleKeys: Set<String>? = nil) -> Set<Blurb> {
         var keys: [String: String] = [:]
@@ -163,13 +157,11 @@ public enum Duplicates {
     /// What comes up ticked for deletion. A tick is what deletes, so the copies left unticked are the ones
     /// kept, whichever the screen suggested.
     ///
-    /// Only a set confirmed by its text is ticked for the reader. One that agrees on the title and the length
-    /// alone may be two programmes the recorder has no text for, and one whose text the programme carries every
-    /// time may be two episodes; whether to delete one of those is for the reader to decide. A set still made
-    /// of the same recordings as one already on screen, and as sure, keeps the ticks the reader left it with:
-    /// deleting or protecting something elsewhere must not tick again what the reader had unticked. One the
-    /// guide has since shown to carry a fixed text is not that set any more, and loses the ticks it came up
-    /// with. Nothing the recorder would refuse to delete is ticked.
+    /// Only a set confirmed by its text is ticked for the reader: one that agrees on the title and the length
+    /// alone, or on a text the programme carries every time, may be two different broadcasts. A set made of the
+    /// same recordings as one on screen, and as sure, keeps the ticks the reader left it with, whatever was
+    /// deleted or protected elsewhere. One the guide has since shown to carry a fixed text is not that set any
+    /// more, and loses its ticks. Nothing the recorder would refuse to delete is ticked.
     public static func picks(for sets: [DuplicateSet], shown: [DuplicateSet], picked: Set<String>) -> Set<String> {
         let onScreen = Dictionary(shown.map { ($0.id, $0.confidence) }) { first, _ in first }
         var picks: Set<String> = []

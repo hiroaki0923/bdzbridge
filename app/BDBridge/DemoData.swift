@@ -4,19 +4,14 @@ import UIKit
 
 /// A recorder made of canned answers, and a guide full of invented programmes.
 ///
-/// Two jobs. It is how the App Store screenshots are taken -- the screens show what is on the recorder's
-/// disk and what it is going to record, which on a real box is a list of what somebody watches, where they
-/// live and what they pay for, and none of that belongs in a shop window. And it is what the tutorial offers
-/// to anyone who has not got a recorder to hand: the reviewer who has to judge this app, and the reader
-/// deciding whether it is worth setting up.
+/// Two jobs. It is how the App Store screenshots are taken: on a real recorder the screens say what somebody
+/// watches, where they live and what they pay for, which does not belong in a shop window. And it is what
+/// the tutorial offers to anyone without a recorder to hand, the App Store's reviewer among them.
 ///
-/// It is not a mock of the app. The answers are the XML a BDZ-FBT4100 really sends, parsed by the same code
-/// that parses the real thing, and `DemoRecorder` remembers what is done to it, so a reservation made here
-/// really does turn up in the list. Everything in it is invented: the stations, the programmes, the
-/// recordings, the keyword conditions, the address and the MAC.
-///
-/// The guide it writes goes in a database of its own, so that trying the demo leaves nothing behind in the
-/// cache of a real recorder.
+/// It is not a mock of the app. The answers are the XML a BDZ-FBT4100 really sends, parsed by the code that
+/// parses the real thing, and `DemoRecorder` remembers what is done to it. Everything in it is invented: the
+/// stations, the programmes, the recordings, the keyword conditions, the address and the MAC. The guide goes
+/// in a database of its own, so that trying the demo leaves nothing in the cache of a real recorder.
 enum DemoData {
     static var on: Bool { on(in: .standard) }
 
@@ -25,8 +20,7 @@ enum DemoData {
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
     /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
-    /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder, and where a strip
-    /// about the demo would be a strip about something the buyer is not getting.
+    /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder.
     static var banner: Bool {
         UserDefaults.standard.object(forKey: DefaultsKey.demoBanner) == nil
             || UserDefaults.standard.bool(forKey: DefaultsKey.demoBanner)
@@ -68,8 +62,7 @@ enum DemoData {
         var schedule: [Slot]
     }
 
-    /// One programme in a station's day, placed by the clock from 04:00, which is where a broadcast day
-    /// starts.
+    /// One programme in a station's day, placed by the clock from 04:00, where a broadcast day starts.
     struct Slot {
         var at: String
         var minutes: Int
@@ -281,7 +274,7 @@ enum DemoData {
         }
     }
 
-    /// Invented station logos: a coloured tile with the first two characters of the name. A real recorder
+    /// Invented station logos: a coloured tile with two characters on it (`Station.logo`). A real recorder
     /// hands over the broadcasters' own logos, which are theirs and do not belong in a shop window, but a
     /// guide with nothing in the logo column does not look like the app either.
     @MainActor
@@ -345,11 +338,9 @@ enum DemoData {
     }
 
     /// A time of day on the broadcast day that began at the last 04:00. Anything before 04:00 belongs to the
-    /// night at the end of that day, which is how the recorder's own guide reads.
-    ///
-    /// The same first day as the guide's day strip, which until four in the morning is yesterday's date.
-    /// Starting from the calendar date put the whole invented guide a day ahead of the strip between
-    /// midnight and four, and left the strip's first day, the one the guide opens on, empty.
+    /// night at the end of that day, which is how the recorder's own guide reads. The first day is the same
+    /// as the guide's day strip's, which until four in the morning is yesterday's date: started from the
+    /// calendar date, the day the guide opens on would be empty between midnight and four.
     private static func at(_ hhmm: String, dayOffset: Int) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
@@ -374,8 +365,7 @@ enum DemoData {
 
     /// One programme of the invented guide, found by the name it was given in the schedule: its id, when it
     /// is on, how long it runs and its genre. **Reservations are built from this.** A reservation that
-    /// points at an id the guide does not have is one the guide cannot mark as reserved, which is how the
-    /// first screenshots came out with nothing marked.
+    /// points at an id the guide does not have is one the guide cannot mark as reserved.
     static func slot(_ title: String, at serviceID: Int,
                      dayOffset: Int = 0) -> (eventID: Int, start: Date, minutes: Int, genre: Int)? {
         guard let station = stations.first(where: { $0.serviceID == serviceID }),
@@ -406,8 +396,7 @@ enum DemoData {
         Booked(id: "0x00000000000a9433", title: "みほんドキュメント　山の記憶", station: 1024,
                quality: 100, size: 5900),
         // The recorder's own おまかせ・まる録 puts its reservations in the same list, under its own creator id.
-        // 1100, as a real recorder writes it: with 1000 here the demo's list had no おまかせ in it at all, and the
-        // store screenshot meant to show that mark showed none.
+        // 1100, as a real recorder writes it: with anything else the list has no おまかせ in it.
         Booked(id: "0x00000000000b1101", title: "サンプル音楽館　夏の特集", station: 1024,
                quality: 220, creator: "1100", size: 2700),
         Booked(id: "0x00000000000a9434", title: "サンプルアニメ　空色パズル（７）", station: 1048,
@@ -582,9 +571,8 @@ enum DemoData {
         "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">" + items.joined() + "</xsrs>"
     }
 
-    /// Roughly how much of the disk is taken by things this demo does not list (other recordings, the
-    /// recorder's own overhead), so that the free space moves with what is deleted but does not start at
-    /// the whole disk.
+    /// Roughly how much of the disk is taken by things this demo does not list, so that the free space moves
+    /// with what is deleted but does not start at the whole disk.
     static let otherUseBytes = 1_400_000_000_000
 
     /// The `id` attribute of the element a fragment starts with.
@@ -688,11 +676,8 @@ enum DemoData {
 
 
 /// A recorder that is not there: it answers the app's requests out of `DemoData`, and remembers what is done
-/// to it.
-///
-/// The remembering is the point. A demo where "録画予約する" says yes and the reservation never appears in the
-/// list is a demo that looks broken, and the person it has to convince may be an App Store reviewer with no
-/// recorder to compare against. So a reservation made here is added to the list, a changed one is changed, a
+/// to it. The remembering is the point: a demo where 録画予約する says yes and the reservation never appears
+/// in the list looks broken. So a reservation made here is added to the list, a changed one is changed, a
 /// deleted one goes, and the same for recordings and for the keyword conditions.
 ///
 /// It is an actor because the app's client sends from wherever it likes, and this holds state.

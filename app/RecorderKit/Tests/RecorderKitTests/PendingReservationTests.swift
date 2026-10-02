@@ -77,8 +77,7 @@ final class PendingReservationTests: XCTestCase {
         try await store.queue(second)
 
         try await store.removePending(first.id)
-        let left = try await store.pendingReservations()
-        XCTAssertEqual(left.map(\.id), [second.id])
+        expectEqual(try await store.pendingReservations().map(\.id), [second.id])
     }
 
     /// The guide is a cache and is thrown away when the schema moves on; a reservation the reader made is not.
@@ -90,8 +89,7 @@ final class PendingReservationTests: XCTestCase {
         try await before.queue(pending)
 
         let after = try GuideStore(path: path, schemaVersion: "2")
-        let kept = try await after.pendingReservations()
-        XCTAssertEqual(kept.map(\.id), [pending.id])
+        expectEqual(try await after.pendingReservations().map(\.id), [pending.id])
     }
 }
 
@@ -161,8 +159,7 @@ final class PendingQueueTests: XCTestCase {
 
         let again = await PendingQueue.flush(client: client, store: store, now: now)
 
-        let askedAgain = await transport.requests.count
-        XCTAssertEqual(askedAgain, asked, "nothing is sent for it the second time")
+        expectEqual(await transport.requests.count, asked, "nothing is sent for it the second time")
         XCTAssertTrue(again.refused.isEmpty, "and it is not news the second time")
         XCTAssertTrue(again.isEmpty)
         XCTAssertEqual(again.held.map(\.request.title), ["受信できない局の番組"])
@@ -185,8 +182,7 @@ final class PendingQueueTests: XCTestCase {
         let outcome = await PendingQueue.flush(client: client, store: store, now: now)
 
         XCTAssertEqual(outcome.sent.map(\.request.title), ["契約した局の番組"])
-        let left = try await store.pendingReservations()
-        XCTAssertTrue(left.isEmpty)
+        expectTrue(try await store.pendingReservations().isEmpty)
     }
 
     /// A refused one whose programme has finished goes like any other, and the reader is told.
@@ -203,8 +199,7 @@ final class PendingQueueTests: XCTestCase {
 
         XCTAssertEqual(outcome.expired.map(\.request.title), ["終わった番組"])
         XCTAssertTrue(outcome.held.isEmpty)
-        let left = try await store.pendingReservations()
-        XCTAssertTrue(left.isEmpty)
+        expectTrue(try await store.pendingReservations().isEmpty)
     }
 
     /// A recorder busy with somebody else's request, or answering without a reason, has said nothing about
@@ -283,8 +278,7 @@ final class PendingQueueTests: XCTestCase {
         let sent = await transport.requests.count
         XCTAssertEqual(sent, 1, "sent once, not by each")
         XCTAssertEqual(outcomes.map(\.sent.count).sorted(), [0, 1])
-        let left = try await overnight.pendingReservations()
-        XCTAssertTrue(left.isEmpty)
+        expectTrue(try await overnight.pendingReservations().isEmpty)
     }
 
     /// A recorder that goes away part way leaves the rest alone rather than marking them refused.

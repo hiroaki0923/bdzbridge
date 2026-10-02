@@ -79,9 +79,12 @@ temporary folder that are thrown away afterwards, an invented recorder as the tr
 answers 503 to everything, or only to being asked who it is until it is free, one that refuses the calls named
 to it, one held part way through an attach, one with a broadcast on its disk twice, something that answers and
 is no recorder, and recorders that each say which they are, one of which can start answering as another or
-stop saying which -- and a network it changes when the phone is meant to have moved. `Bench.model(recorders:)` puts a device of its own
-at each address, for a test that chooses another recorder, and `Bench.modelWithNoRecorder()` is the app at its
-first launch. Nothing leaves the machine.
+stop saying which -- and a network it changes when the phone is meant to have moved.
+`Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
+and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
+thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
+`untilConnected` and `untilGivenUp`, and `expectEqual` and its kin, which check a value that has to be awaited
+in the line that reads it. Nothing leaves the machine.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -113,13 +116,14 @@ another recorder cannot be chosen while the last is being made sure of; silence 
 arriving late, is not taken for the one chosen; entering the demo forgets the last job as well; and leaving it
 with no recorder to go back to leaves nobody to ask. Each was seen to fail with its rule broken in `AppModel`.
 
-`WhichRecorderTests` holds the rules about which recorder is answering, the same way. A recorder is known by
-what it says it is, not by the address it answers at. So the recorder the phone knows keeps what the phone
-holds of it, at another address as well, and after silence, a later launch or a check that had to wake it: the
-texts of its recordings, its guide, the low-space warning given and when the overnight run last fetched, and
-the queue, which goes to it as before. So does the first to answer a phone that had not yet written down
-whose its cache is, whatever MAC is on record and wherever it was read: nothing is guessed. A recorder that
-stops saying which it is is still the one known, and one that never says is written down as nobody.
+`WhichRecorderTests` holds the rules about which recorder is answering, the same way, in a file to each theme
+beside the one that holds what they share. A recorder is known by what it says it is, not by the address it
+answers at. So the recorder the phone knows keeps what the phone holds of it, at another address as well, and
+after silence, a later launch or a check that had to wake it: the texts of its recordings, its guide, the
+low-space warning given and when the overnight run last fetched, and the queue, which goes to it as before. So
+does the first to answer a phone that had not yet written down whose its cache is, whatever MAC is on record
+and wherever it was read: nothing is guessed. A recorder that stops saying which it is is still the one known,
+and one that never says is written down as nobody.
 
 Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, the guide is
 fetched again, the warning can be given again, and what was waiting is held with a reason, said on the strip

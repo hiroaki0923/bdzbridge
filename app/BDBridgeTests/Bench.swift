@@ -75,6 +75,13 @@ final class Bench {
         try await DemoData.seed(store: GuideStore(path: guidePath))
     }
 
+    /// Saves a MAC as the app keeps one for waking the recorder, with the address it was read at. A model made
+    /// here sends nothing to it (`model(recorder:)`).
+    func keep(mac: String, readAt host: String? = Bench.host) {
+        defaults.set(mac, forKey: DefaultsKey.recorderMac)
+        defaults.set(host, forKey: DefaultsKey.recorderMacHost)
+    }
+
     func throwAway() {
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
@@ -235,7 +242,11 @@ actor NamedRecorder: HTTPTransport {
         answersBeforeQuiet = answering
     }
 
-    func asked(_ what: String) -> Int { asked[what] ?? 0 }
+    /// How often it has been asked for `what` -- a SOAP action, or a file by its name: since it was made, or
+    /// since `before`, which is its `asked` at an earlier moment.
+    func asked(_ what: String, since before: [String: Int] = [:]) -> Int {
+        (asked[what] ?? 0) - (before[what] ?? 0)
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let action = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
@@ -355,6 +366,14 @@ actor RecorderPartWayThroughAnAttach: HTTPTransport {
 struct StillWaiting: Error {}
 
 extension XCTestCase {
+    /// A bench for this test, thrown away when the test is over.
+    @MainActor
+    func aBench() throws -> Bench {
+        let bench = try Bench()
+        addTeardownBlock { await bench.throwAway() }
+        return bench
+    }
+
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`.
     /// What is tested here used to wait for ever, and a test of it has to fail rather than wait with it, so the
     /// work runs in a task of its own that the test can stop waiting for.
@@ -388,4 +407,51 @@ extension XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
     }
+
+    /// Waits for what the model has under way to be over, whichever way it went: a connect made in a task of
+    /// its own, and the reads that follow it.
+    @MainActor
+    func untilIdle(_ model: AppModel, _ what: String = "the connect never finished",
+                   within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) { !model.connecting && model.busy == nil }
+    }
+
+    /// Waits for a connect that met silence to have given up.
+    @MainActor
+    func untilGivenUp(_ model: AppModel, _ what: String = "the first connect never gave up",
+                      within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) { model.gaveUp && !model.connecting }
+    }
+
+    /// Waits for the model to be connected with nothing under way. The first connect of a launch above all,
+    /// which has the cache to open first, and gets longer for it.
+    @MainActor
+    func untilConnected(_ model: AppModel, _ what: String = "the first connect never finished",
+                        within seconds: TimeInterval = 20) async throws {
+        try await until(what, within: seconds) { model.connected && !model.connecting && model.busy == nil }
+    }
+}
+
+/// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take
+/// their arguments as autoclosures, which cannot await, so each such check took a line to read the value and
+/// another to compare it. An ordinary argument is read before the call, and a failure is still reported at
+/// the line that asked.
+func expectEqual<T: Equatable>(_ value: T, _ expected: T, _ message: @autoclosure () -> String = "",
+                               file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(value, expected, message(), file: file, line: line)
+}
+
+func expectTrue(_ value: Bool, _ message: @autoclosure () -> String = "",
+                file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertTrue(value, message(), file: file, line: line)
+}
+
+func expectFalse(_ value: Bool, _ message: @autoclosure () -> String = "",
+                 file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertFalse(value, message(), file: file, line: line)
+}
+
+func expectNil<T>(_ value: T?, _ message: @autoclosure () -> String = "",
+                  file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertNil(value, message(), file: file, line: line)
 }

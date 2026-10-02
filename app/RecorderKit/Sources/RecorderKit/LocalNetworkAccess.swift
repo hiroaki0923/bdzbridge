@@ -4,14 +4,11 @@ import Network
 /// Whether iOS lets this app reach the local network, which it asks the reader about the first time the app
 /// tries.
 ///
-/// Nothing reports that permission directly. URLSession, which everything else here uses, fails a request
-/// that local network privacy stopped with the same -1009 as having no network at all, and can fail it at
-/// once, while the system's question is still on screen. That is how the first scan came back empty behind
-/// the dialog, and the reader had to tap a second time. The Network framework does say: a connection's
-/// path is unsatisfied with `localNetworkDenied`, and once the reader allows it the system tries the
-/// connection again by itself (TN3179, "Understanding local network privacy"). So a connection is opened
-/// towards the address in question, only to watch its path; what answers there, if anything, does not
-/// matter.
+/// Nothing reports that permission directly. URLSession fails a request that local network privacy stopped with
+/// the same -1009 as having no network at all, and can fail it at once, while the system's question is still on
+/// screen. The Network framework does say: a connection's path is unsatisfied with `localNetworkDenied`, and
+/// once the reader allows it the system tries the connection again by itself (TN3179, "Understanding local
+/// network privacy"). So a connection is opened towards the address in question, only to watch its path.
 ///
 /// Not for the overnight run: a background process touching the local network while the question is
 /// undecided is refused without a word, and nothing records that it was.
@@ -43,9 +40,8 @@ extension LocalNetwork {
     /// possibly more than once -- so that the caller can say so and offer the Settings app.
     ///
     /// There is no time limit: the reader may take as long as they like over the question, or go to the
-    /// Settings app and back. The probe is replaced every few seconds all the same. The system is meant to
-    /// retry it when the permission changes, but nothing documents what a connection says while the
-    /// question is still up, and a fresh one reads the path afresh whatever the old one was told.
+    /// Settings app and back. The probe is replaced every few seconds all the same: nothing documents what a
+    /// connection says while the question is still up, and a fresh one reads the path afresh.
     public static func waitForAccess(probing host: String,
                                      blocked: @Sendable () async -> Void) async -> Bool {
         while !Task.isCancelled {

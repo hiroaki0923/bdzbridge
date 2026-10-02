@@ -23,12 +23,10 @@ struct BDBridgeApp: App {
         }
     }
 
-    /// True when the app has been launched only to host `BDBridgeTests`, which run inside it. The app's own
-    /// start is left out then: the screens, which start the model, and the overnight task. Started, it would
-    /// connect to whatever recorder this simulator last saved -- a real one, on the network the tests run on
-    /// -- beside the models the tests make for themselves. XCTest sets this variable in the process it runs
-    /// unit tests in; the UI tests launch the app as a process of its own, without it, and it starts as it
-    /// would for anybody.
+    /// True when the app has been launched only to host `BDBridgeTests`, which run inside it. Its own start is
+    /// left out then -- the screens, which start the model, and the overnight task -- or it would connect to
+    /// whatever recorder this simulator last saved, beside the models the tests make. XCTest sets this variable
+    /// in the process it runs unit tests in; the UI tests launch the app as a process of its own, without it.
     static let hostingUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 }
 
@@ -72,10 +70,9 @@ struct RootView: View {
             welcoming = model.host.isEmpty
             await model.start()
         }
-        // From the first phase too, not only from changes. A window the system makes again for a process that
-        // stayed alive in the background can come up already active, and a bulk job waiting for the app to
-        // come back would then wait for good. An ordinary launch has not been away, so nothing connects from
-        // here then; `start()` does that.
+        // From the first phase too, not only from changes: a window the system makes again for a process that
+        // stayed alive in the background can come up already active, and a bulk job waiting for the app to come
+        // back would then wait for good. An ordinary launch has not been away: `start()` connects then.
         .onChange(of: scenePhase, initial: true) { _, phase in
             switch phase {
             case .background: model.wentToBackground()
@@ -120,10 +117,9 @@ struct RecorderActivityBar: View {
     /// go to whichever recorder came after it.
     var inSheet = false
 
-    /// Whether any strip is up: what the animation follows. It used to follow `true`, which never changes, so
-    /// the strip never slid anywhere. Not which strip it is, nor what it says: one strip taking over from
-    /// another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is swapped in place,
-    /// where two sliding past each other would show both for a moment.
+    /// Whether any strip is up: what the animation follows. Not which strip it is, nor what it says: one strip
+    /// taking over from another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is
+    /// swapped in place, where two sliding past each other would show both for a moment.
     private var showing: Bool {
         model.busy != nil || saysAnotherTookOver || model.flushReport != nil
             || (model.demo && DemoData.banner && !inSheet) || model.connectBlocked || model.gaveUp
@@ -192,10 +188,9 @@ struct RecorderActivityBar: View {
                     .foregroundStyle(.tint)
             }
         } else if model.gaveUp {
-            // The app has stopped trying, and says so rather than leaving a quiet failure to be guessed at
-            // from lists that never fill. Trying again is the reader's to ask for: on this network the
-            // answer will be the same, and asking costs half a minute of waking a recorder that is not
-            // there. It asks by itself only when the network changes.
+            // The app has stopped trying, and says so rather than leave it to be guessed from lists that never
+            // fill. Trying again is the reader's to ask for: on this network the answer will be the same, at
+            // the cost of half a minute of waking. It asks by itself only when the network changes.
             strip {
                 Image(systemName: "wifi.exclamationmark").font(.footnote)
                 Text("レコーダーに接続していません").font(.footnote)
@@ -212,10 +207,9 @@ struct RecorderActivityBar: View {
         }
     }
 
-    /// The strip's padding above and below what it says, and so as far as a button's tap area may reach up
-    /// and down. Any further and the area hangs below the strip over the list's first row, which on a guide
-    /// opened at now is the programme on air: a tap meant for it would end the demo without a question, or
-    /// wake a recorder the app had given up on.
+    /// The strip's padding above and below what it says, and so as far as a button's tap area may reach up and
+    /// down. Any further and the area hangs over the list's first row, where a tap meant for the row would end
+    /// the demo without a question, or wake a recorder the app had given up on.
     private static let rim: CGFloat = 8
 
     /// A line that stays until the reader closes it.
@@ -245,10 +239,9 @@ struct RecorderActivityBar: View {
     }
 }
 
-/// The waking, said inside a sheet. The strip that says it on the screens is underneath the sheet, and a sheet
-/// is where much of what wakes the recorder is asked for -- opening a programme, changing a reservation -- so
-/// without this half a minute went by with nothing moving but a greyed-out button. A recording's sheet has the
-/// strip itself instead (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play.
+/// The waking, said inside a sheet, which covers the strip that says it on the screens and is where much of
+/// what wakes the recorder is asked for. A recording's sheet has the strip itself instead
+/// (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play.
 struct WakingSection: View {
     @Environment(AppModel.self) private var model
 
@@ -272,13 +265,29 @@ extension View {
             RecorderActivityBar(inSheet: inSheet)
         }
     }
+
+    /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings, a
+    /// reservation: closes it when that recorder's lists are let go of (`AppModel.timesForgotten`). The row is
+    /// the last recorder's from then on, and the buttons on the sheet would send its number to the next one.
+    /// Said in the sheet rather than by whatever opened it, so that it holds whichever screen that was.
+    func closesWithItsRecorder() -> some View {
+        modifier(ClosesWithItsRecorder())
+    }
 }
 
-/// What to say when there is no recorder to talk to. Two situations that look the same to the code and need
-/// different words: nothing has been set up yet, or a recorder is set up and not answering — asleep, or the
-/// phone is away from home. Sending someone to Settings to correct an address that is already right is
-/// worse than saying nothing, which is why looking for the recorder again is offered below 再接続 and not
-/// instead of it.
+private struct ClosesWithItsRecorder: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.onChange(of: model.timesForgotten) { dismiss() }
+    }
+}
+
+/// What to say when there is no recorder to talk to, in two situations that need different words: nothing has
+/// been set up yet, or a recorder is set up and not answering — asleep, or the phone is away from home. Sending
+/// someone to correct an address that is already right is worse than saying nothing, which is why looking for
+/// the recorder again is offered below 再接続 and not instead of it.
 struct NoRecorderView: View {
     let icon: String
     @Environment(AppModel.self) private var model
@@ -337,8 +346,8 @@ struct NoRecorderView: View {
                         .buttonStyle(.borderedProminent)
                     // The address itself may be what is wrong: typed with a digit out -- which is saved all
                     // the same, so the tutorial never comes back by itself -- or given to something else by
-                    // the router, where the connect's own look round had no MAC to go by. The way back was
-                    // otherwise only in the settings. Quieter than 再接続, which is still what usually works.
+                    // the router, where the connect's own look round had no MAC to go by. Quieter than 再接続,
+                    // which is still what usually works.
                     Button("レコーダーを探す") { welcoming = true }
                         .buttonStyle(.borderless)
                 }
@@ -348,11 +357,10 @@ struct NoRecorderView: View {
     }
 }
 
-/// What to say while local network privacy stands between the app and the recorder. The words have to be
-/// right in two situations the app cannot tell apart: the system's question is on screen and not answered
-/// yet, or it was answered no. So they say what is true of both -- access is not allowed -- say that the app
-/// carries on by itself once it is, and point to the switch for the case where the answer was no, since
-/// the question is never asked again.
+/// What to say while local network privacy stands between the app and the recorder. The app cannot tell the
+/// system's question still on screen from one answered no, so the words say what is true of both -- access is
+/// not allowed, and the app carries on by itself once it is -- and point to the switch for the case where the
+/// answer was no, since the question is never asked again.
 struct LocalNetworkNotice: View {
     @Environment(AppModel.self) private var model
 
@@ -394,25 +402,22 @@ extension View {
         frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
     }
 
-    /// A row's lines each as tall as its words need. A list gave a stack of texts that wrap less height than
-    /// that at the accessibility sizes: under a title on two lines, the line of small print was cut to one
-    /// ending in an ellipsis, with a blank below it where its second line should have been.
+    /// A row's lines each as tall as its words need. At the accessibility sizes a list gives a stack of texts
+    /// that wrap less height than that: under a title on two lines, the line of small print is cut to one.
     func rowLinesInFull() -> some View {
         fixedSize(horizontal: false, vertical: true)
     }
 
     /// A small button's tap area grown `inset` points on every side, towards the 44 a finger needs, without
-    /// moving it or anything beside it: the area reaches into the space around the button instead of taking
-    /// more of the layout. For the ones drawn smaller than that -- a tick box, a zoom button -- which
-    /// otherwise answer only to a tap on the glyph itself.
+    /// moving it or anything beside it: the area reaches into the space around the button. For the ones drawn
+    /// smaller than that -- a tick box, a zoom button -- which otherwise answer only to a tap on the glyph.
     func hitArea(growingBy inset: CGFloat) -> some View {
         hitArea(horizontal: inset, vertical: inset)
     }
 
     /// The same, grown by different amounts across and up and down. For a button in a strip not much taller
-    /// than it: an area reaching past the strip's edge lands on whatever is under the strip, and the strip is
-    /// drawn in front, so it takes the taps meant for the row there. Up and down it goes no further than the
-    /// strip's own padding.
+    /// than it: an area reaching past the strip's edge would take the taps meant for the row under it, so up
+    /// and down it goes no further than the strip's own padding.
     func hitArea(horizontal: CGFloat, vertical: CGFloat) -> some View {
         padding(.horizontal, horizontal).padding(.vertical, vertical)
             .contentShape(Rectangle())
@@ -438,10 +443,9 @@ extension Color {
     })
 }
 
-/// A station's logo set inside a line of text rather than beside it. Beside it, the line was a row of separate
-/// views, and at a large text size each was squeezed into a column of its own -- サン / プル / テレビ. In the
-/// text, the logo and the words wrap as one line. Decorative: the channel's name follows it, and is what
-/// VoiceOver reads.
+/// A station's logo set inside a line of text rather than beside it, so that the logo and the words wrap as one
+/// line: as a row of separate views, each is squeezed into a column of its own at a large text size.
+/// Decorative: the channel's name follows it, and is what VoiceOver reads.
 @MainActor
 enum InlineLogo {
     /// The logo, `height` points tall, or nil when the station has none. Plenty have none: the recorder only
@@ -466,8 +470,7 @@ enum InlineLogo {
 
     private static func text(_ image: CGImage, height: CGFloat) -> Text {
         // An image in a line of text stands on the baseline like a letter, and one as tall as the line then
-        // sits above the words beside it. A fifth of its height lower centres it on them, as the row's
-        // HStack used to.
+        // sits above the words beside it. A fifth of its height lower centres it on them.
         Text(Image(decorative: image, scale: CGFloat(image.height) / height).renderingMode(.original))
             .baselineOffset(-height / 5)
     }
@@ -479,13 +482,9 @@ enum Format {
     static let day: DateFormatter = formatter("M/d(E)")
     static let dateTime: DateFormatter = formatter("M/d(E) HH:mm")
 
-    /// When something this app did last happened: "12分前" while it is recent, and the date and time once it
-    /// is older than a day.
-    ///
-    /// Broadcast times are always Japanese time -- the recorder is in Japan and records to a Japanese clock,
-    /// so a programme at 20:00 is at 20:00 wherever the reader is standing. These are not broadcast times
-    /// though; they are things that happened to this phone, and what matters about them is whether they
-    /// were recent, which is a question with no time zone in it at all.
+    /// When something this app did last happened: "12分前" while it is recent, and the date and time once it is
+    /// older than a day. Broadcast times are always Japanese time, wherever the reader is standing; these are
+    /// things that happened to this phone, and whether they were recent is a question with no time zone in it.
     static func when(_ date: Date, from now: Date = Date()) -> String {
         guard now.timeIntervalSince(date) < 24 * 3600 else { return dateTime.string(from: date) }
         return date.formatted(.relative(presentation: .named).locale(Locale(identifier: "ja_JP")))

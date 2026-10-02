@@ -31,16 +31,14 @@ public enum WakeOnLan {
     }
 
     /// Where to send a packet meant for a recorder at `host`: the broadcast addresses of the subnets this
-    /// device is on, which is what reaches it on the same network, then the recorder's own address and the
-    /// broadcast address of its subnet, which is the only chance of reaching it from the other side of a
-    /// VPN. Nothing routes 255.255.255.255, and a device on a VPN cannot work out the home subnet from its
-    /// own interfaces, so both of those have to come from the recorder's address.
+    /// device is on, which is what reaches it on the same network, then the broadcast address of the recorder's
+    /// subnet and the recorder's own address, the only chance of reaching it from the other side of a VPN,
+    /// where nothing routes 255.255.255.255 and this device's interfaces do not say what the home subnet is.
     ///
-    /// Sending straight to the recorder's address needs something to know which machine that address
-    /// belongs to: this device's ARP cache on the same network, the gateway's from the far side of a VPN.
-    /// Whether a recorder that has left the network still answers ARP has not been measured -- some network
-    /// cards answer for a sleeping machine, some do not. If this one does not, the unicast goes nowhere once
-    /// the entry has expired, and only a broadcast from inside the LAN can wake it.
+    /// Sending straight to the recorder's address needs something to know which machine that address belongs
+    /// to: this device's ARP cache on the same network, the gateway's from the far side of a VPN. Whether a
+    /// recorder that has left the network still answers ARP has not been measured. If it does not, the unicast
+    /// goes nowhere once the entry has expired, and only a broadcast from inside the LAN can wake it.
     public static func addresses(forRecorderAt host: String) -> [String] {
         var out = LocalNetwork.broadcastAddresses()
         for candidate in [LocalNetwork.broadcast(forHost: host), host].compacted() where !out.contains(candidate) {
@@ -49,15 +47,13 @@ public enum WakeOnLan {
         return out
     }
 
-    /// Sends the packet to every address on every port a recorder might be listening on. Returns how many
-    /// sends the system accepted; anything above zero means the packet went out, which is as much as the
-    /// sender can ever know — nothing answers a magic packet. With local network access refused, nothing
-    /// is accepted and this is zero.
+    /// Sends the packet to every address on every port a recorder might be listening on. Returns how many sends
+    /// the system accepted: anything above zero means the packet went out, which is as much as the sender can
+    /// ever know, since nothing answers a magic packet. With local network access refused it is zero.
     ///
-    /// A plain BSD socket with `SO_BROADCAST`, not the Network framework, which has no way to broadcast.
-    /// What each destination did is logged at debug level (subsystem `RecorderKit`, category `wake`):
-    /// which of the broadcasts an iPhone lets out is known from reading the kernel rather than from
-    /// watching one, and the log is how to watch.
+    /// A plain BSD socket with `SO_BROADCAST`, not the Network framework, which has no way to broadcast. What
+    /// each destination did is logged at debug level (subsystem `RecorderKit`, category `wake`); see
+    /// `LocalNetwork.broadcastAddresses` for which of them an iPhone is expected to let out.
     @discardableResult
     public static func wake(_ mac: String, addresses: [String] = LocalNetwork.broadcastAddresses(),
                             ports: [UInt16] = [9, 7]) -> Int {
@@ -71,10 +67,9 @@ public enum WakeOnLan {
         return sent
     }
 
-    /// How often to send the packet again while waiting for the recorder to answer it. Nothing acknowledges
-    /// a magic packet and nothing sends a lost one again, so a single packet lost on the way left the recorder
-    /// asleep for the whole wait, which then looked like a recorder that does not wake. Every five seconds is
-    /// half a dozen packets in the half minute the app waits, each a hundred bytes.
+    /// How often to send the packet again while waiting for the recorder to answer it. Nothing acknowledges a
+    /// magic packet and nothing sends a lost one again, so a single packet lost would leave the recorder asleep
+    /// for the whole wait. Every five seconds is half a dozen packets in the half minute the app waits.
     public static let resendInterval: TimeInterval = 5
 
     private static let log = Logger(subsystem: "RecorderKit", category: "wake")

@@ -132,8 +132,7 @@ struct SearchScreen: View {
                 ForEach(Scope.allCases) { Text($0.label).tag($0) }
             }
             // The task is cancelled whenever the text or the scope changes, so the wait is the debounce. The
-            // guide is searched only while it is the scope. It used to follow the text alone, so it ran behind
-            // the other two as well, and its spinner covered their results.
+            // guide is searched only while it is the scope.
             .task(id: GuideRequest(query: query, scope: scope)) {
                 guard scope == .guide else { return }
                 guard !blank else {
@@ -154,9 +153,8 @@ struct SearchScreen: View {
                 if scope == .guide, answered != query { guide = GuideSearchResults() }
             }
             // The other two lists are searched where they already are, in memory, so they have to be there.
-            // Whichever screen fetched them first pays for it; this one only asks. It asks again when the
-            // app becomes connected, as their own screens do: the lists are let go of when another recorder
-            // answers, with this screen in front as likely as theirs, and it went on saying nothing matched.
+            // Whichever screen fetched them first pays for it; this one only asks, and asks again when the app
+            // becomes connected, as their own screens do, since the lists go when another recorder answers.
             .task(id: ListsWanted(scope: scope, connected: model.connected && !model.offline)) {
                 switch scope {
                 case .guide: break

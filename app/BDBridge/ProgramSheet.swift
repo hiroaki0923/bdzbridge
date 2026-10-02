@@ -8,16 +8,13 @@ struct ProgramSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    /// Starts at the mode chosen in the settings, and choosing another here is for this reservation only. It
-    /// was the setting itself, so a mode picked once for one long film became every reservation's after it,
-    /// and the keyword conditions' too, without anything saying so.
+    /// Starts at the mode chosen in the settings, and choosing another here is for this reservation only.
     @State private var quality = DefaultQuality.current
     @State private var repeating = "none"
     @State private var conflicts: [Reservation]?
     @State private var checking = false
-    /// What the one alert is for. Two alerts on the same view is not something SwiftUI promises to honour,
-    /// and asking and reporting never happen at once. Reporting is in here because the red line at the foot
-    /// of the sheet was below the fold: a reservation the recorder refused looked like nothing at all.
+    /// What the one alert is for: SwiftUI does not promise to honour two on one view, and asking and reporting
+    /// never happen at once. Reporting is here because the red line at the sheet's foot is below the fold.
     private enum Ask {
         case reserve
         case cancel(Reservation)
@@ -81,8 +78,7 @@ struct ProgramSheet: View {
                 if let waiting {
                     pendingSection(waiting)
                 }
-                // Not for a programme already waiting to be sent: a second reservation made here only replaced
-                // the first in the queue, and a sheet offering the form again said the first had not been kept.
+                // Not for a programme already waiting: a second reservation would only replace it in the queue.
                 if reservation == nil, waiting == nil, !past {
                     Section("録画予約") {
                         Picker("録画モード", selection: $quality) {
@@ -96,10 +92,8 @@ struct ProgramSheet: View {
                             }
                         }
                         conflictRow
-                        // Alive even while the recorder is being woken, and alive while it cannot be
-                        // reached at all: a reservation made now goes to the queue and is sent when the
-                        // recorder next answers. A disabled button is the app refusing to take the one
-                        // thing it can still do.
+                        // Alive even while the recorder is being woken or cannot be reached at all: a
+                        // reservation made now goes to the queue and is sent when the recorder next answers.
                         Button("録画予約する") { ask = .reserve }
                             .disabled(model.working)
                     }
@@ -121,10 +115,9 @@ struct ProgramSheet: View {
             .task(id: taskKey) { await check() }
             .sheet(item: $editing) { ReservationSheet(reservation: $0) }
             // The programme is the broadcast's, and this sheet stays when the recorder's lists are let go of
-            // (`AppModel.timesForgotten`). What it holds of that recorder does not: the reservation picked for
-            // deletion, whose number would go to the next recorder, and what that recorder said a new
-            // reservation would clash with. The next one attached is asked for itself. A reservation's sheet
-            // open over this one closes itself.
+            // (`AppModel.timesForgotten`). What it holds of that recorder goes: the reservation picked for
+            // deletion, whose number would go to the next recorder, and the clashes that recorder named, which
+            // the next one attached is asked for. A reservation's sheet open over this one closes itself.
             .onChange(of: model.timesForgotten) {
                 if case .cancel = ask { ask = nil }
                 conflicts = nil
@@ -202,8 +195,7 @@ struct ProgramSheet: View {
         }
     }
 
-    /// 削除 throughout, as in the rest of the app. 取り消す put two words for going back on something side by
-    /// side in one dialog, 取り消す for the reservation and キャンセル for the dialog.
+    /// 削除 throughout, as in the rest of the app, and not 取り消す beside the dialog's own キャンセル.
     private var askTitle: String {
         switch ask {
         case .cancel: "この予約を削除しますか？"
@@ -243,9 +235,8 @@ struct ProgramSheet: View {
     }
 
     /// What the recorder answers when asked what a new reservation would clash with: the reservations whose
-    /// hours it shares (`docs/xsrs-api.md`). Said as that rather than as 重複, the mark the recorder puts on a
-    /// reservation in its list: it has more than one tuner, so hours in common do not by themselves mean
-    /// anything will be missed.
+    /// hours it shares (`docs/xsrs-api.md`). Said as that rather than as 重複, the recorder's own mark: it has
+    /// more than one tuner, so hours in common do not by themselves mean anything will be missed.
     @ViewBuilder
     private var conflictRow: some View {
         if checking {

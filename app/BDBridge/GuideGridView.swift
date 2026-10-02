@@ -1,11 +1,9 @@
 import RecorderKit
 import SwiftUI
 
-/// Time down, channels across, for one broadcast day.
-///
-/// The same shape as the web app's grid: 132-point columns, an hour ruler down the left, the channel names
-/// across the top, a red line at the current time, and a time axis that pinches. Both rulers are drawn over
-/// the scrolling content and moved by its offset, which is how they stay put on iOS 17.
+/// Time down, channels across, for one broadcast day, as in the web app's grid: an hour ruler down the left,
+/// the channel names across the top, a red line at the current time, and a time axis that pinches. Both rulers
+/// are drawn over the scrolling content and moved by its offset, which is how they stay put on iOS 17.
 struct GuideGridView: View {
     private typealias Column = (channel: Channel, programs: [GuideProgramRow])
 
@@ -41,10 +39,8 @@ struct GuideGridView: View {
     }
 
     /// The columns, the start of the day and the logos are worked out here, once each time the guide screen
-    /// makes the grid, rather than in the body. The body runs on every frame of a scroll, since the rulers
-    /// follow the offset, and it made the columns afresh 28 times a frame and once more for each column,
-    /// which on CS came to about 9 ms, longer than a frame lasts at 120 Hz. Every logo was decoded from its
-    /// PNG each frame too.
+    /// makes the grid, rather than in the body. That runs on every frame of a scroll, since the rulers follow
+    /// the offset, and making the columns there came to about 9 ms on CS, longer than a frame lasts at 120 Hz.
     init(channels: [Channel], programs: [GuideProgramRow], day: Date, nowRequests: Int,
          reservationFor: @escaping (GuideProgramRow) -> Reservation?,
          pendingFor: @escaping (GuideProgramRow) -> PendingReservation?,
@@ -149,8 +145,7 @@ struct GuideGridView: View {
                 scroller.scrollTo(anchorName(forMinute: hold.minute),
                                   anchor: UnitPoint(x: 0, y: hold.unit))
             }
-            // today opens at the current time, another day at the top of the day; the wait is for the
-            // content to be laid out, since there is nothing to scroll to before that
+            // The wait is for the content to be laid out, since there is nothing to scroll to before that.
             .task(id: dayKey) {
                 try? await Task.sleep(for: .milliseconds(120))
                 show(minute: openingMinute, with: scroller)
@@ -387,9 +382,8 @@ private struct ProgramBlock: View {
                     + Text(verbatim: " ")
                     + Text(program.title).font(.system(size: 11, weight: onAir ? .semibold : .regular))
             }
-            // For the spaces, which have no font of their own. They took the body size, 17 points, which made
-            // the first line of every block taller than the lines after it; the line count below reckons on
-            // 14 points a line.
+            // For the spaces, which have no font of their own and would take the body size, 17 points: the line
+            // count below reckons on 14 points a line.
             .font(.system(size: 11))
             .multilineTextAlignment(.leading)
             .lineLimit(Int(max(1, (height - labelOffset - 4) / 14)))
@@ -397,15 +391,12 @@ private struct ProgramBlock: View {
             .padding(.top, 2)
             .offset(y: labelOffset)
             .frame(width: width, height: height, alignment: .topLeading)
-            // The whole block, not the words in it. A frame draws nothing, and a tap lands on a plain
-            // button only where its label actually draws, so a short title in a two-hour block left most
-            // of the block dead -- and the part that looks most like the programme, the coloured area
-            // under it, was the part that did nothing.
+            // The whole block, not the words in it: a frame draws nothing, and a tap lands on a plain button
+            // only where its label draws, so a short title in a long block would leave most of it dead.
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // The channel is at the top of the column, where VoiceOver reaches it once and not again: without it a
-        // block read out as a time and a title, with nothing to say which channel they were on.
+        // With the channel, which is at the top of the column, where VoiceOver reaches it once and not again.
         .accessibilityLabel(spoken)
         .background(alignment: .top) {
             if onAir {

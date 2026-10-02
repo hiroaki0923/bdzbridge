@@ -7,9 +7,7 @@ import SwiftUI
 extension AppModel {
     // MARK: - the demo
 
-    /// Shows the invented recorder. Offered in the tutorial, because the first thing the app asks for is a
-    /// recorder on the network, and not everyone has one to hand when they are deciding whether this is
-    /// worth setting up -- the reviewer who has to judge it least of all.
+    /// Shows the invented recorder, offered in the tutorial to anyone with no recorder to hand (`DemoData`).
     func enterDemo() async {
         guard !demo, canChangeRecorder else { return }
         // A scan still waiting on the local network question has nothing to do with the invented recorder,
@@ -47,34 +45,17 @@ extension AppModel {
     /// Takes the recorder at this address, whichever way the reader chose it: from what a scan found, or by
     /// typing it in. Everything that sets a recorder on the reader's say-so comes through here.
     ///
-    /// In the demo this is also the way out of it. Connecting went through the invented recorder whatever
-    /// the address, so choosing a real one left the screens the demo's, said it had connected and closed the
-    /// tutorial; ending the demo afterwards then put back the recorder from before it -- none at all, for
-    /// somebody who tried the demo first -- and the one just chosen was gone. Trying the demo and then
-    /// setting up the real thing is the likeliest way for anyone new to arrive, so the demo ends here, its
-    /// guide with it, and the recorder from before is not put back: the reader has just said which one they
-    /// want. The MAC from before does come back, as it would have stayed had the address been typed outside
-    /// the demo; `macWasReadHere` keeps it from sending the search after the wrong recorder, and the new one's
-    /// own replaces it as soon as it answers.
+    /// In the demo this is the way out of it as well: the demo ends, its guide with it, and the recorder from
+    /// before it is not put back, since the reader has just said which one they want. (Left on, the choice
+    /// went to the invented recorder, and was lost when the demo ended.) The MAC from before does come back,
+    /// until the new recorder's own replaces it.
     ///
-    /// Outside the demo, an address other than the one in use is another recorder for all the app can tell
-    /// before anything answers there, and the last one is forgotten at the choice (`forgetTheRecorder`). It
-    /// used to be left as it was. The connect makes its client for the new address before anything has
-    /// answered, so the lists on screen were the last recorder's over a client pointing at the new one: its
-    /// recordings were never read again, being down as read, and a delete tapped in them went to the new
-    /// address under the old recorder's id. And when what answered there did not describe itself -- a
-    /// recorder busy with somebody else, a device that is no recorder -- the last recorder's description stood
-    /// (`SessionState.attachFailed`), and the app looked connected to the recorder it had left.
-    ///
-    /// The address in use, chosen again, is the recorder the app has: nothing is forgotten, and this connects
-    /// again as 再接続 does. Any other address forgets, the same recorder at an address the router has moved it
-    /// to included -- even taken from a scan's row marked as the one in use, which its UDN says it is
-    /// (`inUse`). The address is all that is compared here, and the two mistakes are not alike: forgetting a
-    /// recorder that was the same costs its lists read again, and with them the sets of copies as the reader
-    /// had ticked them, the last job and the filters; keeping one that was another left its recordings on
-    /// screen. Only what is in memory goes here. What the phone keeps -- the guide, the queue, and what each
-    /// recording is about -- is decided when a recorder answers at the address chosen, by which it is: the
-    /// same one finds it all as it left it (`settle(whoAnswered:)`).
+    /// Outside the demo, any address other than the one in use is another recorder for all the app can tell
+    /// before something answers there, and the last one is let go of at the choice (`forgetTheRecorder`): its
+    /// lists must not stand over a client that points elsewhere. That includes the same recorder at an
+    /// address the router has moved it to, at the cost of reading its lists again. The address in use, chosen
+    /// again, forgets nothing and connects as 再接続 does. Only memory goes here; what the phone keeps is
+    /// decided by who answers (`settle(whoAnswered:)`).
     func adopt(host chosen: String) async {
         guard canChangeRecorder else { return }
         // The reader has chosen, so the rest of the subnet no longer matters -- and a scan left running would
@@ -95,14 +76,10 @@ extension AppModel {
         await connect()
     }
 
-    /// Lets go of the recorder in play, as far as memory goes, for another to take its place: what it said of
-    /// itself and which it was (`SessionState.forgotTheDevice`), the client that asked it, and what it said
-    /// that the app holds (`forgetWhatTheRecorderSaid`). Until the next connect makes a client there is none,
-    /// so nothing is asked of anybody and nothing can be sent from a list that is no longer there.
-    ///
-    /// Not the queue, which is the reader's and waits for the next recorder to say which it is
-    /// (`flushPending`), nor the MAC and where the app last tried, nor anything on the phone: what is kept
-    /// there is decided when a recorder answers, by which it is (`settle(whoAnswered:)`).
+    /// Lets go of the recorder in play as far as memory goes: what it said of itself and which it was, the
+    /// client that asked it, and the lists the app holds of it. Until the next connect there is no client, so
+    /// nothing can be sent from a list that is no longer there. The queue, the MAC and what the phone keeps
+    /// are left: those are decided when a recorder answers (`settle(whoAnswered:)`).
     func forgetTheRecorder() {
         session.forgotTheDevice()
         client = nil
@@ -112,21 +89,14 @@ extension AppModel {
         accessWatch = nil
     }
 
-    /// Empties what the app holds in memory that a recorder said: the lists read from it, the sets of copies
-    /// found among its recordings with their ticks and the texts they were built on, and the job that last
-    /// ran on it. Each recorder numbers these for itself, so a row left from one would be sent, by its number,
-    /// to the next. Here for a choice (`forgetTheRecorder`), and for another recorder answering where nobody
-    /// chose one (`settle(whoAnswered:)`).
+    /// Empties what the app holds in memory that a recorder said: its lists, the sets of copies with their
+    /// ticks and the texts they were built on, the last job, and the lists' filters. Each recorder numbers
+    /// its own, so a row left from one would be sent, by its number, to the next. For a choice
+    /// (`forgetTheRecorder`), and for another recorder answering where nobody chose one
+    /// (`settle(whoAnswered:)`); the screens are told (`timesForgotten`).
     ///
-    /// The finished job goes too. Its line stayed on the recordings screen, and a finished scan is what the
-    /// duplicates view takes for having looked: over the next recorder it said 重複はありませんでした of
-    /// recordings nobody had read. One still running is not this function's: nothing chooses another
-    /// recorder while a job runs (`canChangeRecorder`), and when another answers under one all the same, the
-    /// check that hears it stops the job and lets go of it once it has ended (`makeSureItIsUp`).
-    ///
-    /// The lists' filters go with the lists, for the reason they are not kept between launches (`broadcasting`):
-    /// the next recorder's recordings, opened narrowed to a genre the last one's were narrowed to, read as
-    /// recordings gone missing.
+    /// A finished job goes because the duplicates view takes it for having looked. One still running is
+    /// stopped by the check that hears the other recorder (`makeSureItIsUp`).
     func forgetWhatTheRecorderSaid() {
         reservations = []
         titles = []
@@ -167,11 +137,8 @@ extension AppModel {
 
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
-    /// reach the local network.
-    ///
-    /// The scan waits for that answer before it starts. It used to go straight ahead behind the question,
-    /// where every request failed at once and the scan came back with nothing; the reader allowed it and had
-    /// to tap a second time, under a red line saying no recorder had been found.
+    /// reach the local network. The scan waits for that answer before it starts: behind the question every
+    /// request fails at once, and the scan would come back with nothing.
     func scanForRecorders() {
         scanTask?.cancel()
         scanTask = Task { await scan() }
@@ -227,10 +194,9 @@ extension AppModel {
             }
         })
         guard scanRun == run, !Task.isCancelled else { return }
-        // The list stays in the order the recorders answered, which is the order the reader has been looking
-        // at while the scan ran. Taking the scan's own list here put it in the order of the addresses as text
-        // -- .100 before .63 -- and moved the row under a finger about to tap it. Anything the scan found whose
-        // row has not arrived yet goes at the end.
+        // The list stays in the order the recorders answered, which the reader has been looking at while the
+        // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
+        // under a finger about to tap it. Anything it found whose row has not arrived yet goes at the end.
         for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
             found.append(recorder)
         }
@@ -268,9 +234,8 @@ extension AppModel {
             }
         }
 
-        /// What usually lies behind finding nothing, for the reader to go through. A single line asking them
-        /// to check the power and the Wi-Fi left out the two causes nobody would think of: a guest network,
-        /// and a recorder that is not one of Sony's BDZ series.
+        /// What usually lies behind finding nothing, for the reader to go through. Two of them nobody would
+        /// think of: a guest network, and a recorder that is not one of Sony's BDZ series.
         ///
         /// Nothing here says a recorder in standby cannot be found. It answers in network standby; what goes
         /// silent is one left off a while, which leaves the network (`docs/porting.md`).

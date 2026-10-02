@@ -10,8 +10,7 @@ final class SendWaitingTests: XCTestCase {
     /// Most arrivals home have nothing waiting, and each would otherwise wake the recorder -- half a minute of
     /// a box starting up in the living room -- to be told nothing.
     func testNothingWaitingLeavesTheRecorderAlone() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = RecorderAtHome()
 
@@ -27,8 +26,7 @@ final class SendWaitingTests: XCTestCase {
 
     /// A reservation queued away from home goes to the recorder once it answers, and leaves the queue.
     func testWhatIsWaitingGoesToARecorderThatAnswers() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let waiting = try await queueOne(on: bench)
         let store = try GuideStore(path: bench.guidePath)
@@ -40,15 +38,13 @@ final class SendWaitingTests: XCTestCase {
             return XCTFail("nothing was sent: \(sending)")
         }
         XCTAssertEqual(outcome.sent.map(\.id), [waiting.id])
-        let left = try await store.pendingReservations()
-        XCTAssertTrue(left.isEmpty, "what was sent stayed in the queue")
+        expectTrue(try await store.pendingReservations().isEmpty, "what was sent stayed in the queue")
         XCTAssertTrue(SendWaitingIntent.saying(sending).contains("を登録しました"))
     }
 
     /// Still away, or the recorder not coming up: nothing is lost, and the next chance sends it.
     func testARecorderThatDoesNotAnswerLeavesTheQueueAsItWas() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let waiting = try await queueOne(on: bench)
         let store = try GuideStore(path: bench.guidePath)
@@ -59,15 +55,14 @@ final class SendWaitingTests: XCTestCase {
             client: RecorderClient(host: Bench.host, transport: recorder), store: store, mac: nil)
 
         XCTAssertEqual(sending, .unreachable)
-        let left = try await store.pendingReservations()
-        XCTAssertEqual(left.map(\.id), [waiting.id])
+        expectEqual(try await store.pendingReservations().map(\.id), [waiting.id])
     }
 
     /// A reservation queued the way the app queues one away from home.
     private func queueOne(on bench: Bench) async throws -> PendingReservation {
         let model = bench.model(recorder: SilentRecorder())
         await model.start()
-        try await until("the first connect never gave up") { model.gaveUp && !model.connecting }
+        try await untilGivenUp(model)
         let later = Date().addingTimeInterval(3600)
         let found = await model.search("サンプル").hits.first { $0.program.start > later }
         let program = try XCTUnwrap(found?.program, "the cached guide had nothing an hour or more ahead")

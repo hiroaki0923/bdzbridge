@@ -26,8 +26,7 @@ final class DeviceSeamTests: XCTestCase {
         let outcome = await Waking.waitForAnswer(from: device, limit: 5, interval: .milliseconds(1), resend: {})
 
         XCTAssertEqual(outcome, .answered)
-        let probes = await device.probes
-        XCTAssertEqual(probes, 3)
+        expectEqual(await device.probes, 3)
     }
 
     func testADeviceThatNeverAnswersItsProbeIsSilent() async throws {
@@ -121,8 +120,7 @@ final class DeviceSeamTests: XCTestCase {
                                        resend: {})
         _ = await Waking.waitForAnswer(from: device, limit: 5, interval: .milliseconds(1), resend: {})
 
-        let timeouts = await device.probeTimeouts
-        XCTAssertEqual(timeouts, [7, RecorderClient.wakeProbeTimeout])
+        expectEqual(await device.probeTimeouts, [7, RecorderClient.wakeProbeTimeout])
     }
 }
 

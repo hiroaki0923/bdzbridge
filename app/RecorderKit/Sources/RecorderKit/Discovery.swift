@@ -4,17 +4,14 @@ public enum Discovery {
     /// The service that tells a Sony recorder apart from its televisions and players.
     public static let xsrsServicePrefix = "urn:schemas-xsrs-org:service:X_ScheduledRecording"
 
-    /// Looks through the addresses for a recorder, by asking each one for its `description.xml`. A host that
-    /// is not there, or is something else, drops out on the timeout or on the parse; what comes back is only
-    /// recorders. `progress` is called with how many addresses have been tried.
+    /// Looks through the addresses for a recorder, by asking each one for its `description.xml`. A host that is
+    /// not there, or is something else, drops out on the timeout or on the parse; what comes back is only
+    /// recorders. `progress` is called with how many addresses have been tried, and `until` ends the scan at
+    /// the first recorder it accepts: the probes still out are cancelled and no more addresses are asked.
     ///
-    /// There is no separate port scan: the description is what confirms a recorder anyway, so one short
-    /// request per address does both jobs. A recorder that is there answers in milliseconds; the timeout is
-    /// only ever paid on the addresses where nothing lives, which is why the two numbers below matter more
-    /// than they look: 253 addresses take about six seconds on a home network.
-    ///
-    /// `until` ends the scan at the first recorder it accepts: the probes still out are cancelled and no
-    /// more addresses are asked.
+    /// There is no separate port scan: the description is what confirms a recorder anyway. A recorder that is
+    /// there answers in milliseconds, so the timeout is only paid where nothing lives, which is why `timeout`
+    /// and `atOnce` matter more than they look: 253 addresses take about six seconds on a home network.
     public static func scan(hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
                             port: Int = Upnp.port, timeout: TimeInterval = 1.2, atOnce: Int = 48,
                             progress: (@Sendable (Int, Int) -> Void)? = nil,
@@ -64,12 +61,9 @@ public enum Discovery {
         return found.first { $0.hasMAC(mac) }
     }
 
-    /// One address: a recorder, or nothing.
-    ///
-    /// The request's own timeout is not the only clock. On an iPhone a scan was seen stop at its last
-    /// address and stay there, which means one request outlived the timeout it was given; whatever the
-    /// session was waiting for, a scan must end, so the probe is also raced against a deadline of its own
-    /// and gives up when that passes.
+    /// One address: a recorder, or nothing. The request's own timeout is not the only clock: on an iPhone a
+    /// scan was seen to stop at its last address and stay there, one request having outlived the timeout it was
+    /// given. A scan must end, so the probe is also raced against a deadline of its own.
     public static func probe(_ host: String, transport: any HTTPTransport = URLSessionTransport(),
                              port: Int = Upnp.port, timeout: TimeInterval = 1.5) async -> RecorderDescription? {
         let location = "http://\(host):\(port)/description.xml"

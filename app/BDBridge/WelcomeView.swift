@@ -135,21 +135,16 @@ struct WelcomeView: View {
     }
 
     /// Choosing a recorder ends the tutorial as soon as it answers, which is in the middle of the connect.
-    /// Waiting for the connect to return kept the tutorial up while it went on to read the reservations and
-    /// then the whole guide, every broadcasting type and its logos, with the row that was tapped gone and
-    /// nothing but a line on screen: on a first run, the longest wait in the app, spent on the one screen
-    /// that cannot show what is arriving. The screens behind it can, and say how the rest is going.
+    /// The reservations and the guide are still to be read, the longest wait in the app on a first run, and
+    /// the screens behind this one can show them arriving.
     ///
-    /// The connect is not split to get there. Returning from it early would take its guard with it: the rest
-    /// would run with `connecting` off, and a second connect -- the network changing, the app coming back to
-    /// the front -- could start beside it with a client of its own. It says instead that it has reached the
-    /// recorder (`timesAttached`), and the screen goes on that. The count taken here tells that answer from a
-    /// connection that was already up, as it is when the tutorial is opened again from the settings, which
-    /// watching `connected` would miss.
+    /// The connect is not split to get there, since the rest would run with `connecting` off and a second
+    /// connect could start beside it. It says instead that it has reached the recorder (`timesAttached`), and
+    /// the count taken here tells that answer from a connection that was already up, as it is when the
+    /// tutorial is opened again from the settings.
     ///
-    /// A connect held up by the local network permission answers later, on its own, when the reader allows
-    /// it; the screen waits for that rather than for another tap. Any other connect that returns without an
-    /// answer is over, and the choice with it.
+    /// A connect held up by the local network permission answers later, when the reader allows it; the
+    /// screen waits for that. Any other that returns without an answer is over, and the choice with it.
     private func take(_ host: String) async {
         let before = model.timesAttached
         chosenAt = before
@@ -173,9 +168,8 @@ struct WelcomeView: View {
 }
 
 /// What the address field says back about what was typed, under the field in both the tutorial and the
-/// settings. Tidying takes off only what is plainly not part of an address and does it without a word; a
-/// port is different, because somebody typed it on purpose, so it is said out loud that it will not be used.
-/// Nothing is said while the field is empty or the address is fine.
+/// settings. Tidying is done without a word, except for a port: somebody typed it on purpose, so it is
+/// said that it will not be used. Nothing is said while the field is empty or the address is fine.
 struct AddressNote: View {
     let typed: RecorderAddress.Typed
 
@@ -221,8 +215,7 @@ struct ScanOutcomeText: View {
 }
 
 /// One recorder the scan turned up, as both the tutorial and the settings list it. The one the app is set to
-/// says so: from the settings, a scan finds the recorder already in use as well, and nothing told it apart from
-/// a second one on the same network.
+/// says so: a scan from the settings finds it as well, beside any second one on the same network.
 struct FoundRecorderRow: View {
     let recorder: RecorderDescription
     var inUse = false

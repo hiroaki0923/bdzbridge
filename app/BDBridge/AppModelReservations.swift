@@ -16,14 +16,10 @@ extension AppModel {
         await run("予約一覧を取得中") { self.reservations = try await client.reservations() }
     }
 
-    /// What pulling the reservations down asks for: the list read again and what waits sent, of a recorder the
-    /// app is connected to, and a connect when it is not, which does both once the recorder has answered.
-    ///
-    /// Not connected, rather than offline, which leaves one recorder out: the one that answered the last
-    /// connect without saying which it is, busy with somebody else as it was asked. It is not offline, so its
-    /// list was read here and the queue sent after it; and once the queue went only to a recorder that had
-    /// said which it is (`flushPending`), the list was read and what waited stayed, with nothing on that
-    /// screen to say why, or to connect with. A connect asks it again who it is.
+    /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when
+    /// the app is not connected, which does both once the recorder has answered. Not connected, rather than
+    /// offline: a recorder that answered the last connect without saying which it is, busy with somebody else
+    /// as it was asked, is not offline, and the queue does not go to one (`flushPending`).
     func refreshReservations() async {
         if !connected {
             await connect()
@@ -65,8 +61,6 @@ extension AppModel {
         var id: String { title }
     }
 
-    /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
-    /// within each, since a reservation is something that has not happened yet.
     var shownReservations: [Reservation] {
         switch reservationKind {
         case .all: reservations
@@ -75,6 +69,8 @@ extension AppModel {
         }
     }
 
+    /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
+    /// within each, since a reservation is something that has not happened yet.
     var reservationSections: [ReservationSection] {
         let byStart = shownReservations.sorted { $0.start < $1.start }
         switch reservationSort {
@@ -116,10 +112,9 @@ extension AppModel {
     }
 
     /// The other reservations whose hours overlap this one's, soonest first, for a reservation the recorder
-    /// marks 重複. The recorder says that something clashes but not with what, and the sheet said only
-    /// 他の予約と重複しています, leaving the reader to go through the list by the clock. The sheet names them
-    /// as reservations at the same time rather than as the clash itself: the recorder has more than one tuner,
-    /// so hours in common are not by themselves what it is complaining about.
+    /// marks 重複, which says that something clashes but not with what. The sheet names them as reservations at
+    /// the same time rather than as the clash itself: the recorder has more than one tuner, so hours in common
+    /// are not by themselves what it is complaining about.
     func overlapping(_ reservation: Reservation) -> [Reservation] {
         reservations
             .filter { $0.id != reservation.id && $0.start < reservation.end && reservation.start < $0.end }
@@ -184,26 +179,22 @@ extension AppModel {
 
     /// Writes to the recorder: after this the box really will record the programme.
     ///
-    /// Away from home the recorder is not there to write to, and the programme is still worth keeping: a
-    /// reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
-    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see —
-    /// and only silence before anything was sent. A reservation that went out and met silence may have been
-    /// made all the same, and the queue would make it a second time.
+    /// A reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
+    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see — and
+    /// only silence before anything was sent: one that went out and met silence may have been made all the
+    /// same, and the queue would make it a second time.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
         guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
-        // Known to be away: queue it now rather than spending a timeout finding out again. Thirty seconds
-        // of a spinner before "送信待ちにしました" reads as a failure that was then made the best of.
+        // Known to be away: queue it now rather than spend a timeout finding out again.
         guard let client, !offline else {
             return await queue(request, serviceName: program.serviceName)
         }
         let activity = activities.begin("予約を登録中")
         defer { activities.end(activity) }
-        // A recorder quiet for a while is made sure of first, and woken if it has gone to sleep. When it
-        // cannot be, nothing has been sent, so the queue is the place for this -- unless another recorder
-        // answered in its place, which the check has said, letting go of the one this was for. Queued, the
-        // reservation would be held as one made for the recorder before, the moment the newcomer is taken
-        // up; the reader makes it again once that one's guide is on screen.
+        // A recorder quiet for a while is made sure of first, and woken if it is asleep. When it cannot be,
+        // nothing has been sent, so the queue is the place for this -- unless the check heard another recorder
+        // and let go of this one: queued, the reservation would be held as one made for the recorder before.
         guard await wakeIfDozing() else {
             guard client === self.client else { return false }
             return await queue(request, serviceName: program.serviceName)
@@ -229,9 +220,8 @@ extension AppModel {
 
     // MARK: - reservations waiting for the recorder
 
-    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns
-    /// whether it was kept. One that could not be saved has been made nowhere, and the sheet closed on it as
-    /// though it had been reserved: the programme went unrecorded without a word.
+    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns whether
+    /// it was kept: one that could not be saved has been made nowhere.
     private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
         guard let store else {
             problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
@@ -247,11 +237,9 @@ extension AppModel {
             problem = "予約を端末に保存できませんでした: \(error)"
             return false
         }
-        // The reader learns that this was finally sent through a notification, and a queued reservation is
-        // the first moment that means anything, so this is where the system's dialog belongs. After the
-        // reservation is saved, not before: the dialog waits on the reader, who may leave the app instead
-        // of answering, and the reservation must not wait with it. Nor is there anything to be told about
-        // when saving failed.
+        // The reader learns that this was finally sent through a notification, so a queued reservation is where
+        // the system's dialog belongs. After the reservation is saved, not before: the dialog waits on the
+        // reader, who may leave the app instead of answering, and the reservation must not wait with it.
         await askForNotifications()
         return true
     }
@@ -270,8 +258,7 @@ extension AppModel {
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
-    /// connected, after a connect when the recorder is there and has not said which it is, and otherwise with
-    /// the rest the next time it answers.
+    /// connected, and otherwise with the rest the next time the recorder answers.
     func resend(_ waiting: PendingReservation) async {
         await start()
         guard let store else { return }
@@ -279,9 +266,8 @@ extension AppModel {
         await loadPending()
         guard !offline, await wakeIfDozing() else { return }
         // There, and not connected: a recorder that answered the last connect without saying which it is. The
-        // queue does not go to one (`flushPending`), and returning here left the reader with the reason gone
-        // from the row and nothing sent. It is asked again instead, and a connect it describes itself to sends
-        // the queue by itself.
+        // queue does not go to one (`flushPending`), so a connect asks it again, and sends the queue if it
+        // describes itself.
         guard connected else {
             await connect()
             return
@@ -293,10 +279,8 @@ extension AppModel {
     /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
     /// await `start()`.
     ///
-    /// Only to a recorder that has described itself. An address that answered the connect some other way --
-    /// a 503, or as something that is no recorder -- leaves the app unconnected and not offline, and pulling
-    /// the reservations down then came here: with another address just chosen, that handed what was waiting
-    /// for the last recorder to whatever answered at the new one.
+    /// Only to a recorder that has described itself: whatever answers a connect some other way -- a 503, or as
+    /// something that is no recorder -- must not be handed what was waiting for the last recorder.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store, connected else { return 0 }
@@ -310,14 +294,10 @@ extension AppModel {
         if outcome.interrupted { lostTheRecorder() }
         await loadPending()
         if !outcome.sent.isEmpty { await loadReservationsNow() }
-        // Said on screen. The overnight run's notification is the only other place this is said, and a
-        // notification does not show while the app is in front (nothing here answers `willPresent`), so a
-        // reservation dropped because its programme had finished went without a word. A flush with nothing
-        // to say -- everything waiting had been refused before -- leaves the last line where it was.
-        //
-        // What is held back because another recorder took the place of the one it was made for is said each
-        // time, for as long as any is: read from the rows and not from the attach that held them, which
-        // need not have got this far. It goes first, as the greater news on a strip of three lines.
+        // Said on screen, since a notification does not show while the app is in front (nothing here answers
+        // `willPresent`). A flush with nothing to say -- everything waiting had been refused before -- leaves
+        // the last line where it was. What is held for another recorder is said each time, for as long as any
+        // is, and first: counted from the rows, since the attach that held them need not have got this far.
         let held = pending.filter { $0.problem == Self.heldForAnotherRecorder }.count
         let heldBack = held == 0 ? nil
             : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
@@ -326,11 +306,9 @@ extension AppModel {
         return outcome.sent.count
     }
 
-    /// Changes the quality or the repeat of a reservation the recorder already holds.
-    ///
-    /// Found again by what it is rather than by the id in hand, for the same reason a deletion is: the
-    /// recorder renumbers its own automatic reservations in blocks. The request keeps everything else,
-    /// including the programme id, so a reservation that follows its programme goes on following it.
+    /// Changes the quality or the repeat of a reservation the recorder already holds, found again in a list
+    /// read afresh, as for a deletion (`cancel`). The request keeps everything else, including the programme
+    /// id, so a reservation that follows its programme goes on following it.
     func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
         await start()
         guard client != nil else { return false }
@@ -370,17 +348,15 @@ extension AppModel {
         return true
     }
 
-    /// Deletes one reservation, by what it is rather than by the id the app happens to be holding.
+    /// Deletes one reservation, as the recorder holds it now rather than by the id the app happens to hold.
     ///
-    /// The recorder rewrites the ids of the reservations its own automatic recording made — the whole block
-    /// of them at once, when it works through the guide again — so an id read a few hours ago can be dead
-    /// while the row on screen still looks right, and deleting it answers 804. Observed on a BDZ-FBT4100:
-    /// 19 automatic reservations were renumbered in one go, the programmes themselves unchanged. So read
-    /// the list again first and find this reservation by its channel and the moment it starts, which no two
-    /// reservations can share. Only when it is not there at all has it really gone.
+    /// The recorder rewrites the ids of the reservations its own automatic recording made, the whole block of
+    /// them at once, when it works through the guide again (`Reservation.createdByRecorder`): an id read a few
+    /// hours ago can be dead while the row still looks right, and deleting it answers 804. So the list is read
+    /// again first and this reservation found in it: by its id while that stands, and otherwise by its channel
+    /// and the moment it starts (`current`).
     ///
-    /// Also a write: the recorder forgets the reservation. A recorder that refuses says why, and that reason
-    /// is left on screen rather than being reloaded away.
+    /// Also a write. A recorder that refuses says why, and the reason is left on screen, not reloaded away.
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         await start()

@@ -2,11 +2,10 @@ import Foundation
 
 /// Every name the app keeps something under in UserDefaults, in one place.
 ///
-/// Some are read in more than one file -- the overnight run reads the address and the MAC the screens
-/// write -- and each file spelled them out for itself, where a slip on either side reads nothing, without a
-/// word. They are names on the reader's phone rather than in the code: renaming one forgets whatever was
-/// saved under it. The UI tests and the screenshots set several as launch arguments (`-startTab guide`) and
-/// spell them out there, since that is another target.
+/// Some are read in more than one file -- the overnight run reads the address and the MAC the screens write --
+/// where a slip on either side reads nothing, without a word. They are names on the reader's phone rather than
+/// in the code: renaming one forgets whatever was saved under it. The UI tests and the screenshots set several
+/// as launch arguments (`-startTab guide`) and spell them out there, since that is another target.
 enum DefaultsKey {
     // MARK: - the recorder
 

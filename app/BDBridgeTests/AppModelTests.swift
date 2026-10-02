@@ -24,8 +24,7 @@ final class AppModelTests: XCTestCase {
     /// itself for good. Away from home, where the recorder says nothing, a search waited out the half minute of
     /// the connect before it could answer from the cache.
     func testStartAndSearchDoNotWaitForARecorderThatSaysNothing() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = SilentRecorder(holding: true)
         let model = bench.model(recorder: recorder)
@@ -44,16 +43,14 @@ final class AppModelTests: XCTestCase {
     /// The same launch with a recorder that answers, which is where the waiting on itself happened: the
     /// connect has to get as far as the reservations, and everything that waits on start() still return.
     func testStartReturnsAndTheFirstConnectFinishesWithARecorderThatAnswers() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let model = bench.model(recorder: DemoRecorder())
 
         try await within(5, "start() did not return") { await model.start() }
         try await until("the first connect never finished") { model.connected && !model.connecting }
         XCTAssertFalse(model.reservations.isEmpty, "the connect did not read the reservations")
-        let results = try await within(5, "search() did not return") { await model.search("サンプル") }
-        XCTAssertFalse(results.hits.isEmpty)
+        expectFalse(try await within(5, "search() did not return") { await model.search("サンプル") }.hits.isEmpty)
         try await within(5, "loadReservations() did not return") { await model.loadReservations() }
         XCTAssertNil(model.busy)
     }
@@ -64,8 +61,7 @@ final class AppModelTests: XCTestCase {
     /// second then put back the first's, which stayed on screen for good: 予約一覧を取得中 under a spinner, and
     /// every button that waits for the app to be idle greyed out until the app was quit.
     func testBusyClearsOnceOverlappingWorkHasFinished() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let model = bench.model(recorder: DemoRecorder())
         await model.start()
@@ -101,13 +97,12 @@ final class AppModelTests: XCTestCase {
     /// reservation goes to the queue, at once rather than after a timeout spent finding out again, and on disk,
     /// where the next connect and the overnight run send it from.
     func testAReservationMadeWhileOfflineIsQueued() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = SilentRecorder()
         let model = bench.model(recorder: recorder)
         await model.start()
-        try await until("the first connect never gave up") { model.gaveUp && !model.connecting }
+        try await untilGivenUp(model)
         XCTAssertTrue(model.offline)
         let askedBefore = await recorder.asked
 
@@ -130,13 +125,12 @@ final class AppModelTests: XCTestCase {
     /// asks by itself -- not coming back to the app, not the network watcher, not the screens loading their
     /// lists -- until the network changes or the reader asks. A new network does ask.
     func testAfterGivingUpTheAppAsksAgainOnlyOnAnotherNetwork() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = SilentRecorder()
         let model = bench.model(recorder: recorder)
         await model.start()
-        try await until("the first connect never gave up") { model.gaveUp && !model.connecting }
+        try await untilGivenUp(model)
         let asked = await recorder.asked
         XCTAssertGreaterThan(asked, 0)
 
@@ -149,8 +143,7 @@ final class AppModelTests: XCTestCase {
         await model.loadRecorderRules()
         // Long enough for the first several looks after the report, each of which found nothing new.
         try await Task.sleep(for: .seconds(3))
-        let askedOnTheSameNetwork = await recorder.asked
-        XCTAssertEqual(askedOnTheSameNetwork, asked, "the app asked again on the network it had given up on")
+        expectEqual(await recorder.asked, asked, "the app asked again on the network it had given up on")
         XCTAssertTrue(model.gaveUp)
 
         bench.network = "away"
@@ -167,8 +160,7 @@ final class AppModelTests: XCTestCase {
     /// report of its own. Looked at only when the report came, the network had not changed, and the app stayed
     /// on 接続できません at home beside a recorder that was answering, until the reader pressed 再接続.
     func testComingBackToTheWiFiReconnectsWhenTheAddressArrivesAfterTheReport() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = RecorderAtHome()
         let model = bench.model(recorder: recorder)
@@ -178,18 +170,17 @@ final class AppModelTests: XCTestCase {
         bench.network = ""
         await recorder.setReachable(false)
         model.networkReported()
-        try await until("the app never noticed the Wi-Fi had gone") { model.gaveUp && !model.connecting }
+        try await untilGivenUp(model, "the app never noticed the Wi-Fi had gone")
 
         await recorder.setReachable(true)
         model.networkReported()
         try await Task.sleep(for: .milliseconds(1500))
         bench.network = "home"
         try await until("the app stayed given up at home", within: 15) { model.connected && !model.gaveUp }
-        try await until("the reconnect never finished") { !model.connecting && model.busy == nil }
+        try await untilIdle(model, "the reconnect never finished")
         let askedOnceBack = await recorder.asked
         try await Task.sleep(for: .seconds(3))
-        let askedAfter = await recorder.asked
-        XCTAssertEqual(askedAfter, askedOnceBack, "the looks after the report went on asking once connected")
+        expectEqual(await recorder.asked, askedOnceBack, "the looks after the report went on asking once connected")
     }
 
     /// The Wi-Fi goes and comes back while the app is in the middle of something, and the something is what
@@ -198,8 +189,7 @@ final class AppModelTests: XCTestCase {
     /// silence was met on the way, not at home. The reports of the Wi-Fi going and coming, both of which
     /// arrived while the app was busy, are what say so.
     func testAWiFiThatWentAndCameBackDuringARequestIsTriedAgain() async throws {
-        let bench = try Bench()
-        defer { bench.throwAway() }
+        let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = RecorderAtHome()
         let model = bench.model(recorder: recorder)

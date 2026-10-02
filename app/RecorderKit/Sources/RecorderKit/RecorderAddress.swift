@@ -4,10 +4,8 @@ import Foundation
 ///
 /// An address is typed by hand when the scan does not find the recorder, and what a hand types is not always
 /// an address: a port copied from somewhere, a space or a newline the keyboard or a paste brought along,
-/// full-width digits from the Japanese keyboard, `http://` in front because that is how addresses usually
-/// look. A URL built on any of those used to be forced open and crash the app, and because the address is
-/// saved the moment it is set, the app crashed again at every launch after that -- before the settings,
-/// where it could have been corrected, ever came up.
+/// full-width digits from the Japanese keyboard, `http://` in front. A URL forced open on any of those would
+/// crash the app, and at every launch after that, since the address is saved the moment it is set.
 public enum RecorderAddress {
     /// What was typed, tidied. `port` is a port typed after the address: the recorder's ports are its own
     /// and there is nothing to choose, so it is never used, but it is kept so that the screen can say so

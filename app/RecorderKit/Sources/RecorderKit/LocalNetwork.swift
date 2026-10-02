@@ -4,8 +4,7 @@ import Foundation
 /// Which addresses to look through for a recorder.
 ///
 /// SSDP would be the polite way to ask, but sending multicast from an iOS app needs an entitlement Apple
-/// grants by request, so this looks through the subnet the device is already on instead. That is also what
-/// the server falls back to here, where SSDP replies never arrive.
+/// grants by request, so this looks through the subnet the device is already on instead.
 public enum LocalNetwork {
     public struct Interface: Sendable, Equatable {
         public var name: String
@@ -52,8 +51,7 @@ public enum LocalNetwork {
     ///
     /// Cellular is left out. The carrier hands out a new address whenever it likes, at home on the Wi-Fi as
     /// much as anywhere, and a recorder is never reached through it: what matters about cellular is the
-    /// Wi-Fi going, and that changes the Wi-Fi's part. Counting it had a phone lying on the table spend half
-    /// a minute waking a recorder the app had given up on, each time the carrier moved it.
+    /// Wi-Fi going, and that changes the Wi-Fi's part.
     public static func signature() -> String {
         signature(of: interfaces())
     }
@@ -95,10 +93,9 @@ public enum LocalNetwork {
     }
 
     /// The addresses to look through for a recorder last seen at `host`: the subnet of each interface that
-    /// `host` belongs to, and nothing when it belongs to none. A router hands a lease out again within its
-    /// own subnet, so that is where the recorder has gone if it has moved. On any other network -- away from
-    /// home, a café's Wi-Fi, a VPN whose tunnel is not among `interfaces` -- the recorder is not there to be
-    /// found, and knocking on every address of somebody else's LAN is not this app's business.
+    /// `host` belongs to, and nothing when it belongs to none. A router hands a lease out again within its own
+    /// subnet, so that is where the recorder has gone if it has moved. On any other network the recorder is not
+    /// there to be found, and knocking on every address of somebody else's LAN is not this app's business.
     public static func hostsToScan(near host: String, on interfaces: [Interface] = lanInterfaces(),
                                    maxHosts: Int = 512) -> [String] {
         guard let target = packed(host) else { return [] }
@@ -129,12 +126,12 @@ public enum LocalNetwork {
     /// LAN interface's subnet, then 255.255.255.255.
     ///
     /// The subnet's own address comes first because, as far as the kernel's source says, it is the one an
-    /// iPhone app may send to. Apple's documentation says broadcasting needs the multicast entitlement,
-    /// which this app does not have, but the check that enforces it (`necp_check_restricted_multicast_drop`
-    /// in xnu's bsd/net/necp.c) drops only 224.0.0.0/4 and the all-ones address, and a subnet broadcast
-    /// arriving has been reported on Apple's forums. So 255.255.255.255 is expected to fail on an iPhone,
-    /// with EHOSTUNREACH, every time. It is sent anyway, because it costs nothing and a Mac lets it
-    /// through; `WakeOnLan` logs what each destination did, which is how a real iPhone settles it.
+    /// iPhone app may send to. Apple's documentation says broadcasting needs the multicast entitlement, which
+    /// this app does not have, but the check that enforces it (`necp_check_restricted_multicast_drop` in xnu's
+    /// bsd/net/necp.c) drops only 224.0.0.0/4 and the all-ones address, and a subnet broadcast arriving has
+    /// been reported on Apple's forums. So 255.255.255.255 is expected to fail on an iPhone, with
+    /// EHOSTUNREACH. It is sent anyway, because a Mac lets it through; `WakeOnLan` logs what each destination
+    /// did, which is how a real iPhone settles it.
     public static func broadcastAddresses() -> [String] {
         var out: [String] = []
         for interface in lanInterfaces() {
@@ -148,10 +145,9 @@ public enum LocalNetwork {
         return out
     }
 
-    /// The broadcast address of the subnet another host is on, read from its address alone. The mask is a
-    /// guess — /24, which is what a home network is — because the only thing that knows the real one is the
-    /// network this device is not on. For reaching a recorder from the other side of a VPN, where this
-    /// device's own interfaces say nothing about the subnet the recorder lives in.
+    /// The broadcast address of the subnet another host is on, read from its address alone: the mask is a
+    /// guess, /24, which is what a home network is. For reaching a recorder from the other side of a VPN, where
+    /// this device's own interfaces say nothing about the subnet the recorder lives in.
     public static func broadcast(forHost host: String) -> String? {
         guard let address = packed(host) else { return nil }
         return dotted(address | 0xFF)

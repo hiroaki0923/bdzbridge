@@ -1,10 +1,7 @@
 import Foundation
 
-/// Sending the reservations that were made while the recorder could not be reached.
-///
-/// One implementation for both callers: the app does this whenever a connect has reached the recorder, and
-/// the overnight run does it with no screen behind it. The rules are the same either way, which is the point
-/// of it living here rather than in the app.
+/// Sending the reservations that were made while the recorder could not be reached. It lives here rather than
+/// in the app so that the screens and the overnight run follow the same rules.
 public enum PendingQueue {
     public struct Outcome: Sendable, Equatable {
         /// Sent to the recorder, and gone from the queue.
@@ -31,16 +28,13 @@ public enum PendingQueue {
     /// records what is left of it. A recorder that goes away mid-flush leaves the rest queued.
     ///
     /// One the recorder refused with a reason of its own (`DeviceFailure.turnsTheRequestDown`, which for a
-    /// recorder is `RecorderError.refusal`) keeps that reason and is
-    /// not sent again: the answer would be the same, and the overnight run asked every night and said every
-    /// morning that the recorder had not taken it. It waits for the reader, who can clear the reason to send
-    /// it again (`GuideStore.setPendingProblem(_:nil)`) or cancel it. A failure that says nothing about the
-    /// reservation -- a 503, an answer with no code -- leaves it waiting as it was, to be sent next time.
+    /// recorder is `RecorderError.refusal`) keeps that reason and is not sent again, since the answer would be
+    /// the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`) or cancel it. A
+    /// failure that says nothing about the reservation -- a 503, an answer with no code -- leaves it as it was.
     ///
-    /// One flush at a time in the process, whoever asks: a second waits for the first to finish and then
-    /// reads the queue afresh. The screens and the overnight run each have a client and a connection of their
-    /// own, and the system can start the one while the reader has the other open, so the two could read the
-    /// same waiting reservation and both send it -- and a reservation sent twice is made twice.
+    /// One flush at a time in the process, whoever asks: a second waits for the first and then reads the queue
+    /// afresh. The screens and the overnight run each have a client and a connection of their own and can run
+    /// at once: both could read the same waiting reservation and send it, and one sent twice is made twice.
     public static func flush(client: some ReservationTarget, store: GuideStore,
                              now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.

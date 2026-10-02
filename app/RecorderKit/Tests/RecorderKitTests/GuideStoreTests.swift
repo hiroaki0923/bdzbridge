@@ -181,8 +181,7 @@ final class GuideStoreTests: XCTestCase {
 
         for (query, expected) in [("100%", ["100%の力"]), ("100", ["100%の力", "1000回目の朝"]), ("a_b", ["a_b"]),
                                   ("c\\d", ["c\\d"]), ("%", ["100%の力"]), ("_", ["a_b"])] {
-            let found = try await store.search(query)
-            XCTAssertEqual(found.hits.map(\.program.title), expected, "searching for \(query)")
+            expectEqual(try await store.search(query).hits.map(\.program.title), expected, "searching for \(query)")
         }
     }
 
@@ -232,16 +231,13 @@ final class GuideStoreTests: XCTestCase {
         let title = try await store.search("あさの放送", broadcasting: "td")
         XCTAssertEqual(title.hits.first?.match, .title, "and the fields are told apart")
 
-        let after = try await store.counts()
-        XCTAssertEqual(after["td"], before["td"], "nothing was thrown away or fetched")
+        expectEqual(try await store.counts()["td"], before["td"], "nothing was thrown away or fetched")
         let channels = try await store.channels(broadcasting: "td")
         XCTAssertEqual(channels.map(\.serviceID), [1024], "what the reader set is untouched")
 
-        let again = try await store.updateSearchText()
-        XCTAssertEqual(again, 0)
+        expectEqual(try await store.updateSearchText(), 0)
         let reopened = try GuideStore(path: path)
-        let afterReopening = try await reopened.updateSearchText()
-        XCTAssertEqual(afterReopening, 0, "the mark is kept in the database, so it is done once")
+        expectEqual(try await reopened.updateSearchText(), 0, "the mark is kept in the database, so it is done once")
     }
 
     func testASearchBringsAnOldCacheUpToDateItself() async throws {
@@ -249,28 +245,23 @@ final class GuideStoreTests: XCTestCase {
         try await oldCache(at: path)
 
         let store = try GuideStore(path: path)
-        let found = try await store.search("詳細テキスト", broadcasting: "td")
-        XCTAssertEqual(found.hits.map(\.program.eventID), [14792],
-                       "a search made before the app got round to it waits for it rather than missing the details")
-        let rewritten = try await store.updateSearchText()
-        XCTAssertEqual(rewritten, 0, "and it is not done twice")
+        expectEqual(try await store.search("詳細テキスト", broadcasting: "td").hits.map(\.program.eventID), [14792],
+                    "a search made before the app got round to it waits for it rather than missing the details")
+        expectEqual(try await store.updateSearchText(), 0, "and it is not done twice")
     }
 
     func testANewCacheHasNothingToBringUpToDate() async throws {
         let store = try GuideStore(path: ":memory:")
-        let rewritten = try await store.updateSearchText()
-        XCTAssertEqual(rewritten, 0)
+        expectEqual(try await store.updateSearchText(), 0)
         try await store.replace(try sampleServices(), broadcasting: "td")
-        let later = try await store.updateSearchText()
-        XCTAssertEqual(later, 0, "what replace writes is already current")
+        expectEqual(try await store.updateSearchText(), 0, "what replace writes is already current")
     }
 
     func testHidingAChannelRemovesItAndItsProgrammes() async throws {
         let store = try await loadedStore()
         try await store.setChannelPreferences(broadcasting: "td", hidden: [1025])
 
-        let visible = try await store.channels(broadcasting: "td")
-        XCTAssertEqual(visible.map(\.serviceID), [1024])
+        expectEqual(try await store.channels(broadcasting: "td").map(\.serviceID), [1024])
         let all = try await store.channels(broadcasting: "td", includeHidden: true)
         XCTAssertEqual(all.map(\.serviceID), [1024, 1025])
         XCTAssertEqual(all.last?.hidden, true)
@@ -281,16 +272,14 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(including.count, 5)
 
         try await store.setChannelPreferences(broadcasting: "td", hidden: [])
-        let shownAgain = try await store.channels(broadcasting: "td")
-        XCTAssertEqual(shownAgain.count, 2, "an empty list shows everything again")
+        expectEqual(try await store.channels(broadcasting: "td").count, 2, "an empty list shows everything again")
     }
 
     func testChannelOrderFollowsWhatTheUserSet() async throws {
         let store = try await loadedStore()
 
         try await store.setChannelPreferences(broadcasting: "td", order: [1025, 1024])
-        let reordered = try await store.channels(broadcasting: "td")
-        XCTAssertEqual(reordered.map(\.serviceID), [1025, 1024])
+        expectEqual(try await store.channels(broadcasting: "td").map(\.serviceID), [1025, 1024])
 
         try await store.setChannelPreferences(broadcasting: "td", order: [])
         let restored = try await store.channels(broadcasting: "td")
@@ -340,8 +329,7 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(onAir.map(\.serviceID), [1024, 1025], "a sub-channel simulcast is on air as well")
         XCTAssertTrue(onAir.allSatisfy { $0.title == "サンプルニュース　あさの放送[字]" })
 
-        let quiet = try await store.nowOnAir(broadcasting: "td", at: jst("2026-09-14T10:00:00+09:00"))
-        XCTAssertTrue(quiet.isEmpty)
+        expectTrue(try await store.nowOnAir(broadcasting: "td", at: jst("2026-09-14T10:00:00+09:00")).isEmpty)
     }
 
     func testCountsReportWhatIsCachedAndWhen() async throws {
@@ -479,8 +467,7 @@ final class GuideStoreTests: XCTestCase {
             try await store.replace(try sampleServices(), broadcasting: "td")
         }
         let reopened = try GuideStore(path: path)
-        let counts = try await reopened.counts()
-        XCTAssertEqual(counts["td"]?.programs, 4)
+        expectEqual(try await reopened.counts()["td"]?.programs, 4)
     }
 
     /// An empty text left by an older build may be a read that failed, so it is thrown away once and asked
@@ -539,13 +526,10 @@ final class GuideStoreTests: XCTestCase {
     /// another -- finds everything as it left it.
     func testTheFirstRecorderToAnswerOwnsTheCacheAndTheSameOneKeepsIt() async throws {
         let store = try await usedStore()
-        let none = try await store.owner()
-        XCTAssertNil(none)
+        expectNil(try await store.owner())
 
-        let first = try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(first, .first)
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
+        expectEqual(try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー"), .first)
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
 
         let moved = try await store.claim(for: recorder(1, host: "192.0.2.11"), holdingTheQueueWith: "別のレコーダー")
         XCTAssertEqual(moved, .same)
@@ -578,13 +562,11 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(asked, .another)
         let untouched = try await store.titleSummaries(["0x0000010000000001"])
         XCTAssertEqual(untouched.count, 1, "asking who it is changes nothing")
-        let stillOwner = try await store.owner()
-        XCTAssertEqual(stillOwner, "uuid:00000000-0000-0000-0000-f84e17000001")
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
 
         let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダーが応答しました")
         XCTAssertEqual(taken, .another)
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
 
         let texts = try await store.titleSummaries(["0x0000010000000001"])
         XCTAssertTrue(texts.isEmpty, "another recorder's text would confirm a duplicate on this one")
@@ -622,14 +604,10 @@ final class GuideStoreTests: XCTestCase {
         later.request.eventID = 0x3120
         try await store.queue(later)
 
-        let back = try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(back, .another)
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー", "別のレコーダー"])
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertTrue(texts.isEmpty)
+        expectEqual(try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー"), .another)
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
+        expectEqual(try await store.pendingReservations().map(\.problem), ["別のレコーダー", "別のレコーダー"])
+        expectTrue(try await store.titleSummaries(["0x0000010000000001"]).isEmpty)
     }
 
     /// With no reason to hold it for, the queue is left as it was, and goes to whichever recorder answers.
@@ -637,8 +615,7 @@ final class GuideStoreTests: XCTestCase {
         let store = try await usedStore()
         try await store.claim(for: recorder(1))
         try await store.claim(for: recorder(2))
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), [nil])
+        expectEqual(try await store.pendingReservations().map(\.problem), [nil])
     }
 
     /// A cache filled before its owner was written down does not say whose it is, and nothing in it is
@@ -648,16 +625,11 @@ final class GuideStoreTests: XCTestCase {
     func testACacheFromBeforeItsOwnerWasWrittenDownIsTheFirstAnswerers() async throws {
         let store = try await usedStore()
 
-        let asked = try await store.recognises(recorder(2))
-        XCTAssertEqual(asked, .first)
-        let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(taken, .first)
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertEqual(texts.count, 1)
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), [nil])
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+        expectEqual(try await store.recognises(recorder(2)), .first)
+        expectEqual(try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー"), .first)
+        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
+        expectEqual(try await store.pendingReservations().map(\.problem), [nil])
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
     }
 
     /// Unless the caller knows better. The session keeps which recorder its lists were read from, and when
@@ -671,10 +643,8 @@ final class GuideStoreTests: XCTestCase {
         let taken = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー",
                                           knownToBeAnother: true)
         XCTAssertEqual(taken, .another)
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertTrue(texts.isEmpty)
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー"])
+        expectTrue(try await store.titleSummaries(["0x0000010000000001"]).isEmpty)
+        expectEqual(try await store.pendingReservations().map(\.problem), ["別のレコーダー"])
         let owner = try await store.owner()
         XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
 
@@ -682,8 +652,7 @@ final class GuideStoreTests: XCTestCase {
         let known = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー",
                                           knownToBeAnother: true)
         XCTAssertEqual(known, .same, "the owner written down is what counts")
-        let kept = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertEqual(kept.count, 1)
+        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
 
         // One that does not say which it is has no name to be put down under, and takes nothing over.
         var nameless = recorder(3)
@@ -692,10 +661,8 @@ final class GuideStoreTests: XCTestCase {
         let nobody = try await unowned.claim(for: nameless, holdingTheQueueWith: "別のレコーダー",
                                              knownToBeAnother: true)
         XCTAssertEqual(nobody, .first)
-        let stillThere = try await unowned.titleSummaries(["0x0000010000000001"])
-        XCTAssertEqual(stillThere.count, 1)
-        let unnamed = try await unowned.owner()
-        XCTAssertNil(unnamed)
+        expectEqual(try await unowned.titleSummaries(["0x0000010000000001"]).count, 1)
+        expectNil(try await unowned.owner())
     }
 
     /// A recorder that gives no UDN cannot be told from any other: it is taken for the one known, and is not
@@ -705,18 +672,13 @@ final class GuideStoreTests: XCTestCase {
         nameless.udn = ""
         let store = try await usedStore()
 
-        let first = try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(first, .first)
-        let nobody = try await store.owner()
-        XCTAssertNil(nobody)
+        expectEqual(try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー"), .first)
+        expectNil(try await store.owner())
 
         try await store.claim(for: recorder(1))
-        let after = try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(after, .same)
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001")
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertEqual(texts.count, 1)
+        expectEqual(try await store.claim(for: nameless, holdingTheQueueWith: "別のレコーダー"), .same)
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
+        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
     }
 
     /// The recorder the cache is of is nearly every answer there is, and knowing it again writes nothing. A
@@ -763,12 +725,9 @@ final class GuideStoreTests: XCTestCase {
 
         let who = try await claimed
         XCTAssertEqual(who, .another, "taken for the first to answer, on a look made before the other's write")
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertTrue(texts.isEmpty)
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), ["別のレコーダー"])
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000002")
+        expectTrue(try await store.titleSummaries(["0x0000010000000001"]).isEmpty)
+        expectEqual(try await store.pendingReservations().map(\.problem), ["別のレコーダー"])
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
     }
 
     /// A UDN is a UUID, which reads the same in either case. A recorder that spelled its own another way --
@@ -779,14 +738,10 @@ final class GuideStoreTests: XCTestCase {
         var shouting = recorder(1)
         shouting.udn = shouting.udn.uppercased()
 
-        let asked = try await store.recognises(shouting)
-        XCTAssertEqual(asked, .same)
-        let again = try await store.claim(for: shouting, holdingTheQueueWith: "別のレコーダー")
-        XCTAssertEqual(again, .same)
-        let texts = try await store.titleSummaries(["0x0000010000000001"])
-        XCTAssertEqual(texts.count, 1)
-        let queue = try await store.pendingReservations()
-        XCTAssertEqual(queue.map(\.problem), [nil])
+        expectEqual(try await store.recognises(shouting), .same)
+        expectEqual(try await store.claim(for: shouting, holdingTheQueueWith: "別のレコーダー"), .same)
+        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
+        expectEqual(try await store.pendingReservations().map(\.problem), [nil])
         let owner = try await store.owner()
         XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001", "written as it was first given")
     }
@@ -801,14 +756,11 @@ final class GuideStoreTests: XCTestCase {
             try await store.setTitleSummary("0x0000010000000001", "あらすじ")
         }
         let reopened = try GuideStore(path: path, schemaVersion: "1")
-        let same = try await reopened.recognises(recorder(1))
-        XCTAssertEqual(same, .same)
+        expectEqual(try await reopened.recognises(recorder(1)), .same)
 
         let upgraded = try GuideStore(path: path, schemaVersion: "2")
-        let another = try await upgraded.claim(for: recorder(2))
-        XCTAssertEqual(another, .another)
-        let texts = try await upgraded.titleSummaries(["0x0000010000000001"])
-        XCTAssertTrue(texts.isEmpty)
+        expectEqual(try await upgraded.claim(for: recorder(2)), .another)
+        expectTrue(try await upgraded.titleSummaries(["0x0000010000000001"]).isEmpty)
     }
 
     /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
@@ -829,12 +781,10 @@ final class GuideStoreTests: XCTestCase {
             Duplicates.Blurb(titleKey: $0.string("same_title_key"), summaryKey: $0.string("summary_key"))
         })
         let every = Set(guide.map { Series.sameTitleKey($0.string("title")) })
-        let found = try await store.fixedBlurbs(among: every)
-        XCTAssertEqual(found, expected)
+        expectEqual(try await store.fixedBlurbs(among: every), expected)
         let others = try await store.fixedBlurbs(among: every.subtracting(expected.map(\.titleKey)))
         XCTAssertEqual(others, [], "the titles asked about, and no others")
-        let nothing = try await store.fixedBlurbs(among: [])
-        XCTAssertEqual(nothing, [])
+        expectEqual(try await store.fixedBlurbs(among: []), [])
     }
 
     func testLogosAreAttachedToTheirChannels() async throws {

@@ -55,12 +55,10 @@ public enum Codes {
         0xE: "拡張", 0xF: "その他",
     ]
 
-    /// ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre.
-    ///
-    /// Checked entry by entry against ARIB STD-B10 version 5.13-E1, Annex H (2026-09-20): every one of the
-    /// 104 codes the standard names is here and says the same thing. It also matches what the recorder
-    /// does -- codes the standard leaves unused are absent here, and the recorder composes nothing for them
-    /// either.
+    /// ARIB STD-B10 content_nibble_level_2, the sub-genre within each level-1 genre. Checked entry by entry
+    /// against version 5.13-E1, Annex H (2026-09-20): of the 108 codes the standard names, 107 are here and
+    /// say the same thing, and the last is the その他 under その他 (0xF), which `genreLabel` says by itself.
+    /// Codes it leaves unused are absent, and the recorder composes nothing for them.
     public static let subGenreLabel: [Int: [Int: String]] = [
         0x0: [0x0: "定時・総合", 0x1: "天気", 0x2: "特集・ドキュメント", 0x3: "政治・国会", 0x4: "経済・市況", 0x5: "海外・国際", 0x6: "解説", 0x7: "討論・会談", 0x8: "報道特番", 0x9: "ローカル・地域", 0xA: "交通", 0xF: "その他"],
         0x1: [0x0: "スポーツニュース", 0x1: "野球", 0x2: "サッカー", 0x3: "ゴルフ", 0x4: "その他の球技", 0x5: "相撲・格闘技", 0x6: "オリンピック・国際大会", 0x7: "マラソン・陸上・水泳", 0x8: "モータースポーツ", 0x9: "マリン・ウィンタースポーツ", 0xA: "競馬・公営競技", 0xF: "その他"],
@@ -85,7 +83,6 @@ public enum Codes {
         return subGenreLabel[level1]?[level2]
     }
 
-    /// The order to offer these in. The vectors pin the codes; this is only how they are listed.
     /// おまかせ・まる録 vocabularies seen on a real recorder; anything else is shown as it is.
     public static let ruleLogicLabel: [String: String] = ["OR": "いずれかのキーワードを含む", "AND": "すべてのキーワードを含む"]
     public static let timeScopeLabel: [String: String] = [
@@ -101,6 +98,7 @@ public enum Codes {
     /// know, which it takes for ALL -- covers both kinds of wave.
     public static let ordinaryScopes = ["TRD", "BSD", "CSD"]
 
+    /// The order to offer these in. The vectors pin the codes; this is only how they are listed.
     public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
     public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
 
