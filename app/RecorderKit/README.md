@@ -28,7 +28,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `LocalNetworkAccess.swift` | Whether iOS's local network permission is what is stopping a request |
 | `RecorderAddress.swift` | The recorder's address as somebody types it, tidied, and the URLs the client builds on it |
 | `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
-| `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `RecorderRule`, `NetworkSettings` |
+| `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `Recognition`, `RecorderRule`, `NetworkSettings` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |

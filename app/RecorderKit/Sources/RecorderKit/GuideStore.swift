@@ -478,6 +478,86 @@ public actor GuideStore {
         try db.query("SELECT value FROM meta WHERE key=?", [.text(key)]) { $0.string("value") }.first
     }
 
+    // MARK: - whose cache this is
+
+    /// The UDN of the recorder this cache was filled from. Nil in a cache from before this was written down,
+    /// and in one no recorder has answered for yet.
+    public func owner() throws -> String? {
+        try meta("recorder_udn")
+    }
+
+    /// Who `description` is to this cache, with nothing changed: see `claim`. For a caller that will not take
+    /// another recorder up by itself -- the overnight run and the Shortcuts action, which have no screen to
+    /// say so on.
+    public func recognises(_ description: RecorderDescription) throws -> Recognition {
+        description.recognised(as: try owner())
+    }
+
+    /// Makes the cache the recorder's that has just described itself, and says who it is to it. Called at
+    /// every attach, before anything of the cache is sent to the recorder or judged against it.
+    ///
+    /// The address is only where to knock: the cache is the recorder's that filled it, known by its UDN. The
+    /// same recorder -- at the address it had or another -- finds everything as it left it. Another one takes
+    /// the cache over, and in the same transaction what the other left in it goes:
+    ///
+    /// - the programme texts of its recordings, which are kept by the recording's number alone, and each
+    ///   recorder numbers its own. Left, the duplicate scan took them for this recorder's recordings of the
+    ///   same numbers, without asking it;
+    /// - the guide and the logos, and the marks of when each type was last answered for. Left, the marks
+    ///   kept the new recorder from being asked for its guide until the next night, and a type it has no
+    ///   file for kept the other's programmes for good;
+    /// - and with `reason`, every reservation waiting is held with it, as one a recorder refused is: it was
+    ///   made for the other recorder, and is not sent to this one until the reader asks. One the other had
+    ///   refused is held for this reason too: what that recorder said of it, this one has not.
+    ///
+    /// What the reader set stays -- which channels are hidden and their order. The first recorder to answer is
+    /// written down and nothing goes.
+    ///
+    /// That holds for a cache from before its owner was written down, which does not say whose it is.
+    /// Nothing in it is guessed at -- by the MAC kept for waking, say, which is the tail of the UDN on the one
+    /// model looked at and may not be on the next: for nearly every phone the first to answer is the one
+    /// recorder it has ever had, and a guess that went wrong would cost it its texts and hold its queue on
+    /// the day the app was updated. `knownToBeAnother` is for a caller that does know: the session keeps
+    /// which recorder its lists were read from (`SessionState.device`), and when another one answers it, a
+    /// cache with no owner written is that other's all the same. An owner that is written down is what
+    /// counts, whatever the caller says.
+    ///
+    /// The recorder the cache is of already, which is nearly every answer there is, is told by reading alone
+    /// and nothing is written. A write waits behind whoever else is writing to the cache -- the overnight run
+    /// storing a guide, the queue being sent from a connection of its own -- for as long as the busy timeout,
+    /// and then fails: the caller's connect would be held up, and what waits not sent by it.
+    @discardableResult
+    public func claim(for description: RecorderDescription, holdingTheQueueWith reason: String? = nil,
+                      knownToBeAnother: Bool = false) throws -> Recognition {
+        // Whom a cache with no owner is taken from, when the caller knows. One with no name to be put down
+        // under takes nothing over.
+        func judged(_ asked: Recognition) -> Recognition {
+            asked == .first && knownToBeAnother && !description.udn.isEmpty ? .another : asked
+        }
+        let asked = judged(try recognises(description))
+        guard asked == .another || (asked == .first && !description.udn.isEmpty) else { return asked }
+        return try db.transaction {
+            // Asked again inside: another connection may have written an owner down since.
+            let who = judged(try recognises(description))
+            if who == .another {
+                try db.run("DELETE FROM title_summaries")
+                try db.run("DELETE FROM programs")
+                try db.run("DELETE FROM channels")
+                try db.run("DELETE FROM logos")
+                try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'")
+                if let reason {
+                    try db.run("UPDATE pending_reservations SET problem = ?", [.text(reason)])
+                }
+            }
+            // It has a name to write: one without is the first or the same, and did not get here.
+            if who != .same {
+                try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('recorder_udn', ?)",
+                           [.text(description.udn)])
+            }
+            return who
+        }
+    }
+
     // MARK: - reservations waiting for the recorder
 
     /// Adds one, or replaces the same programme queued before. Kept out of the tables the schema version
