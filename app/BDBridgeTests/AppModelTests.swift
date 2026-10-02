@@ -55,6 +55,27 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.busy)
     }
 
+    /// What the overnight run and the Shortcuts action go by: they have no model, and read from the defaults
+    /// where the recorder is and the MAC to wake it with. A connect is what writes those down -- the address
+    /// it was answered at, the MAC the recorder reported, and the address it reported it at, which is what a
+    /// recorder the router has moved is recognised by. Left unwritten, nothing fails on any screen: the guide
+    /// only grows stale, night after night.
+    func testAConnectWritesDownWhereTheRecorderIsAndHowToWakeIt() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let model = bench.model(recorder: DemoRecorder())
+        // An address the model was given and that is not saved, as one from a launch argument is.
+        bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+
+        await model.start()
+        try await untilConnected(model)
+
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderHost), Bench.host)
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMac), DemoData.mac)
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMacHost), Bench.host)
+        XCTAssertEqual(model.mac, DemoData.mac)
+    }
+
     /// Work overlaps -- a tab loading its list while another is still loading, 再接続 in the middle of both --
     /// and the recorder answers first come, first served. When each piece of work saved the line it found and
     /// put it back when it finished, the first to finish put back a line from before the second began, and the
