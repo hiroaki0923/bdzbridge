@@ -242,7 +242,11 @@ actor NamedRecorder: HTTPTransport {
         answersBeforeQuiet = answering
     }
 
-    func asked(_ what: String) -> Int { asked[what] ?? 0 }
+    /// How often it has been asked for `what` -- a SOAP action, or a file by its name: since it was made, or
+    /// since `before`, which is its `asked` at an earlier moment.
+    func asked(_ what: String, since before: [String: Int] = [:]) -> Int {
+        (asked[what] ?? 0) - (before[what] ?? 0)
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let action = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
@@ -412,6 +416,13 @@ extension XCTestCase {
         try await until(what, within: seconds) { !model.connecting && model.busy == nil }
     }
 
+    /// Waits for a connect that met silence to have given up.
+    @MainActor
+    func untilGivenUp(_ model: AppModel, _ what: String = "the first connect never gave up",
+                      within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) { model.gaveUp && !model.connecting }
+    }
+
     /// Waits for the model to be connected with nothing under way. The first connect of a launch above all,
     /// which has the cache to open first, and gets longer for it.
     @MainActor
@@ -419,21 +430,28 @@ extension XCTestCase {
                         within seconds: TimeInterval = 20) async throws {
         try await until(what, within: seconds) { model.connected && !model.connecting && model.busy == nil }
     }
+}
 
-    /// Fails the test unless `recorder` has been asked for `what` -- a SOAP action, or a file by its name --
-    /// just `times`: since it was made, or since `before`, which is its `asked` at an earlier moment.
-    @MainActor
-    func expect(_ recorder: NamedRecorder, asked what: String, _ times: Int, since before: [String: Int] = [:],
-                _ message: String = "", file: StaticString = #filePath, line: UInt = #line) async {
-        let asked = await recorder.asked(what) - (before[what] ?? 0)
-        XCTAssertEqual(asked, times, message, file: file, line: line)
-    }
+/// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take
+/// their arguments as autoclosures, which cannot await, so each such check took a line to read the value and
+/// another to compare it. An ordinary argument is read before the call, and a failure is still reported at
+/// the line that asked.
+func expectEqual<T: Equatable>(_ value: T, _ expected: T, _ message: @autoclosure () -> String = "",
+                               file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(value, expected, message(), file: file, line: line)
+}
 
-    /// The same for something that is to have been asked for, however often.
-    @MainActor
-    func expect(_ recorder: NamedRecorder, asked what: String, atLeast times: Int, since before: [String: Int] = [:],
-                _ message: String = "", file: StaticString = #filePath, line: UInt = #line) async {
-        let asked = await recorder.asked(what) - (before[what] ?? 0)
-        XCTAssertGreaterThanOrEqual(asked, times, message, file: file, line: line)
-    }
+func expectTrue(_ value: Bool, _ message: @autoclosure () -> String = "",
+                file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertTrue(value, message(), file: file, line: line)
+}
+
+func expectFalse(_ value: Bool, _ message: @autoclosure () -> String = "",
+                 file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertFalse(value, message(), file: file, line: line)
+}
+
+func expectNil<T>(_ value: T?, _ message: @autoclosure () -> String = "",
+                  file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertNil(value, message(), file: file, line: line)
 }
