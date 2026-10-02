@@ -118,8 +118,7 @@ final class RecorderClientTests: XCTestCase {
         XCTAssertTrue(bodies[1].contains("<Operation>on</Operation>"), bodies[1])
         XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
         XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
-        let said = await waits.seconds
-        XCTAssertEqual(said.count, 2, "the screen is told once for each look at the status")
+        expectEqual(await waits.seconds.count, 2, "the screen is told once for each look at the status")
     }
 
     /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual
@@ -131,10 +130,8 @@ final class RecorderClientTests: XCTestCase {
 
         try await client.play(titleID: "0x1") { await waits.add($0) }
 
-        let actions = await transport.requests.map(soapAction)
-        XCTAssertEqual(actions, ["X_PlayControlTitle"])
-        let said = await waits.seconds
-        XCTAssertEqual(said, [])
+        expectEqual(await transport.requests.map(soapAction), ["X_PlayControlTitle"])
+        expectEqual(await waits.seconds, [])
     }
 
     /// Only standby is worth turning the recorder on for. Anything else it answers -- here a recording it no
@@ -149,8 +146,7 @@ final class RecorderClientTests: XCTestCase {
             guard case .soap(_, _, let code, _) = error else { return XCTFail("wrong case") }
             XCTAssertEqual(code, "820")
         }
-        let actions = await transport.requests.map(soapAction)
-        XCTAssertEqual(actions, ["X_PlayControlTitle"])
+        expectEqual(await transport.requests.map(soapAction), ["X_PlayControlTitle"])
     }
 
     /// The wait is bounded. A recorder that never says it is on is sent the play once more all the same, and
@@ -209,10 +205,8 @@ final class RecorderClientTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport, busyRetryDelay: 0...0)
 
-        let reservations = try await client.reservations()
-        XCTAssertEqual(reservations.count, 1)
-        let sent = await transport.requests.count
-        XCTAssertEqual(sent, 3, "the first try and the two after it")
+        expectEqual(try await client.reservations().count, 1)
+        expectEqual(await transport.requests.count, 3, "the first try and the two after it")
     }
 
     /// Still busy after that, it is said to be busy: not a fault in the request, not silence, and not a
@@ -229,8 +223,7 @@ final class RecorderClientTests: XCTestCase {
             XCTAssertFalse(error.unreachable, "the recorder answered")
             XCTAssertFalse(error.refusal, "it said nothing about the request")
         }
-        let sent = await transport.requests.count
-        XCTAssertEqual(sent, 1 + RecorderClient.busyRetries)
+        expectEqual(await transport.requests.count, 1 + RecorderClient.busyRetries)
         let heard = await client.lastAnswer
         XCTAssertNotNil(heard, "a 503 is an answer")
     }
@@ -306,9 +299,8 @@ final class RecorderClientTests: XCTestCase {
         let client = RecorderClient(host: Stub.host, transport: transport)
 
         _ = try await client.describe()
-        let afterDescribe = await transport.requests.map(\.url.absoluteString)
-        XCTAssertEqual(afterDescribe, ["http://192.0.2.10:64220/description.xml"],
-                       "describing a recorder is one request")
+        expectEqual(await transport.requests.map(\.url.absoluteString), ["http://192.0.2.10:64220/description.xml"],
+                    "describing a recorder is one request")
 
         _ = try await client.epgFile("td")
         _ = try await client.epgFile("bs")
@@ -382,8 +374,7 @@ final class RecorderClientTests: XCTestCase {
             throw RecorderError.transport("timed out")
         })
         _ = try? await silent.reservations()
-        let never = await silent.lastAnswer
-        XCTAssertNil(never, "nothing answered, so nothing was heard")
+        expectNil(await silent.lastAnswer, "nothing answered, so nothing was heard")
 
         let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("402")))
         let before = Date()
@@ -438,8 +429,7 @@ final class RecorderClientTests: XCTestCase {
         let firmware = Stub.soap("X_GetFirmwareVersion",
                                  result: "<firmware><version>35.003.1</version></firmware>")
         let answering = RecorderClient(host: Stub.host, transport: StubTransport(always: firmware))
-        let version = try await RecorderError.silenceOnly { try await answering.firmwareVersion() }
-        XCTAssertEqual(version, "35.003.1")
+        expectEqual(try await RecorderError.silenceOnly { try await answering.firmwareVersion() }, "35.003.1")
 
         let refusing = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("401")))
         let refused = try await RecorderError.silenceOnly { try await refusing.firmwareVersion() }
@@ -586,11 +576,9 @@ final class BulkWorkTests: XCTestCase {
         XCTAssertEqual(already, .skipped(reason: "すでに保護されています"))
         let notProtected = try await client.setProtected(title(protected: false), false)
         XCTAssertEqual(notProtected, .skipped(reason: "保護されていません"))
-        let untouched = await transport.requests.count
-        XCTAssertEqual(untouched, 0)
+        expectEqual(await transport.requests.count, 0)
 
-        let changed = try await client.setProtected(title(id: "0x2", protected: false), true)
-        XCTAssertEqual(changed, .changed)
+        expectEqual(try await client.setProtected(title(id: "0x2", protected: false), true), .changed)
         let bodies = await transport.bodies
         XCTAssertEqual(bodies.count, 1)
         // the payload travels as a SOAP argument, so it arrives escaped
@@ -639,19 +627,16 @@ final class BulkWorkTests: XCTestCase {
     func testTheTextIsReadAndAnEmptyOneIsAnAnswer() async throws {
         let described = RecorderClient(host: Stub.host, transport: StubTransport(always:
             Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")))
-        let read = try await described.summary(of: "0x1")
-        XCTAssertEqual(read, .read("あらすじ"))
+        expectEqual(try await described.summary(of: "0x1"), .read("あらすじ"))
 
         let bare = RecorderClient(host: Stub.host,
                                   transport: StubTransport(always: Stub.soap("X_GetTitleDetail", result: "<detail/>")))
-        let empty = try await bare.summary(of: "0x1")
-        XCTAssertEqual(empty, .read(""))
+        expectEqual(try await bare.summary(of: "0x1"), .read(""))
     }
 
     func testARecordingTheRecorderNoLongerHasIsGoneRatherThanRead() async throws {
         let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("820")))
-        let outcome = try await client.summary(of: "0x1")
-        XCTAssertEqual(outcome, .gone)
+        expectEqual(try await client.summary(of: "0x1"), .gone)
     }
 
     /// A refusal is not a text. Kept as an empty one, it would be the same as every other failure's and make
@@ -685,7 +670,6 @@ final class BulkWorkTests: XCTestCase {
         } catch let error as RecorderError {
             XCTAssertTrue(error.unreachable)
         }
-        let sent = await transport.requests.count
-        XCTAssertEqual(sent, 1)
+        expectEqual(await transport.requests.count, 1)
     }
 }

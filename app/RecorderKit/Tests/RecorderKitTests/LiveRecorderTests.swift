@@ -241,8 +241,7 @@ extension LiveRecorderTests {
         let remaining = try await mine()
         let left = try XCTUnwrap(remaining)
         try await client.deleteReservation(id: left.id)
-        let gone = try await mine()
-        XCTAssertNil(gone, "and it is off the recorder again")
+        expectNil(try await mine(), "and it is off the recorder again")
     }
 
     /// The app marks a programme as reserved by matching broadcasting type, service and programme id, so this

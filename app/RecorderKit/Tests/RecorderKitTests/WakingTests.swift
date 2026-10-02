@@ -26,8 +26,7 @@ final class WakingTests: XCTestCase {
                                                  resend: {}, waited: { await told.add($0) })
 
         XCTAssertEqual(outcome, .answered)
-        let asked = await transport.requests.count
-        XCTAssertEqual(asked, 3)
+        expectEqual(await transport.requests.count, 3)
         let seconds = await told.values
         XCTAssertEqual(seconds.count, 3, "the wait is said once before each ask")
         XCTAssertEqual(seconds, seconds.sorted(), "the seconds said went backwards")
@@ -59,8 +58,7 @@ final class WakingTests: XCTestCase {
                                                  resendEvery: 0, resend: { await packets.add(1) })
 
         XCTAssertEqual(outcome, .answered)
-        let sent = await packets.values.count
-        XCTAssertEqual(sent, 3, "one packet after each of the three asks that met silence")
+        expectEqual(await packets.values.count, 3, "one packet after each of the three asks that met silence")
     }
 
     /// The overnight run and the Shortcuts action send the first packet before a five-second probe, and the
@@ -87,8 +85,7 @@ final class WakingTests: XCTestCase {
         _ = await Waking.waitForAnswer(from: client, limit: 5, interval: .milliseconds(1),
                                        resendEvery: 60, resend: { await packets.add(1) })
 
-        let sent = await packets.values.count
-        XCTAssertEqual(sent, 0)
+        expectEqual(await packets.values.count, 0)
     }
 
     /// The overnight run is stopped when its time is up, and must not go on asking with the task completed.
@@ -128,8 +125,7 @@ final class WakingTests: XCTestCase {
                                                  resend: {}, waited: { await told.add($0) })
 
         XCTAssertEqual(outcome, .answered)
-        let asks = await told.values.count
-        XCTAssertEqual(asks, 3, "a 503 and a 500 were taken for the recorder answering")
+        expectEqual(await told.values.count, 3, "a 503 and a 500 were taken for the recorder answering")
     }
 }
 

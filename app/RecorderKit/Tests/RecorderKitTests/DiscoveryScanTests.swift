@@ -134,8 +134,7 @@ final class DiscoveryScanTests: XCTestCase {
                                          found: { recorder in Task { await handedOver.add(recorder.host) } })
         XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the sleep, ends the probe")
         XCTAssertEqual(found.map(\.host), ["192.0.2.10"])
-        let hosts = await handedOver.hosts
-        XCTAssertEqual(hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
+        expectEqual(await handedOver.hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
     }
 
     /// A recorder the router has given another address is found by the MAC the app keeps for waking it, which

@@ -92,8 +92,7 @@ final class GuideRefreshTests: XCTestCase {
         }
         let urls = await transport.requests.map(\.url.absoluteString)
         XCTAssertEqual(urls.last.map { $0.hasSuffix(Codes.epgFiles["bs"]!) }, true, "nothing asked after BS")
-        let counts = try await store.counts()
-        XCTAssertEqual(counts["td"]?.programs, 4, "the type fetched before it stays")
+        expectEqual(try await store.counts()["td"]?.programs, 4, "the type fetched before it stays")
     }
 
     /// Silence while fetching a type's logos stops it too, though the logos alone are only looks.
@@ -109,8 +108,7 @@ final class GuideRefreshTests: XCTestCase {
         let store = try GuideStore(path: ":memory:")
 
         await XCTAssertThrowsErrorAsync(try await GuideRefresh.run(client: client, store: store))
-        let sent = await transport.requests.count
-        XCTAssertEqual(sent, 2, "the guide and its logos, and then nothing")
+        expectEqual(await transport.requests.count, 2, "the guide and its logos, and then nothing")
     }
 
     /// Cancelled, it stops before the next type rather than going through all four: the overnight run's time
@@ -131,8 +129,7 @@ final class GuideRefreshTests: XCTestCase {
 
         XCTAssertTrue(outcome.cancelled)
         XCTAssertEqual(outcome.answered, ["td"])
-        let sent = await transport.requests.count
-        XCTAssertEqual(sent, 2, "the first type's guide and logos")
+        expectEqual(await transport.requests.count, 2, "the first type's guide and logos")
     }
 }
 
