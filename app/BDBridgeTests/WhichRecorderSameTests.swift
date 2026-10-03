@@ -191,7 +191,11 @@ extension WhichRecorderTests {
 
         await model.adopt(host: Bench.otherHost)
 
-        XCTAssertFalse(model.connected)
+        XCTAssertFalse(model.connected, "the app looks connected to the recorder it has left")
+        XCTAssertFalse(model.gaveUp, "an answer was taken for silence")
+        XCTAssertFalse(model.offline)
+        XCTAssertNotNil(model.problem, "nothing on screen says why the app is not connected")
+        XCTAssertTrue(model.reservations.isEmpty, "the last recorder's reservations still mark the guide")
         try await expect(bench, keeps: .all(of: 1), "the cache is still the first recorder's")
 
         await model.adopt(host: Bench.host)

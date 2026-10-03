@@ -5,39 +5,25 @@ import XCTest
 
 /// The paths with no screen -- the Shortcuts action, the overnight run -- and a recorder the cache is not of.
 extension WhichRecorderTests {
-    /// With no screen the recorder the phone knows is sent the queue as before: when the cache has no owner
-    /// written yet -- the app not opened since this was kept -- and when it has.
+    /// With no screen the recorder the phone knows is sent the queue as before, the cache's owner written down.
+    /// A cache with no owner written yet -- the app not opened since this was kept -- is SendWaitingTests' case.
     ///
     /// No MAC is handed to these, here or below. The paths with no screen send their packet themselves, not
     /// through the model, and a MAC would put one on the network this is run on.
     func testWithNoScreenTheRecorderThePhoneKnowsIsSentTheQueue() async throws {
-        for ownerWritten in [false, true] {
-            let bench = try aBench()
-            let recorder = NamedRecorder(1)
-            let model: AppModel
-            if ownerWritten {
-                model = try await connected(bench, at: [Bench.host: recorder])
-            } else {
-                // A cache nobody has answered for since the owner was kept: the app's own connect met silence.
-                try await bench.cacheAGuide()
-                model = bench.model(recorders: [:])
-                await model.start()
-                try await untilGivenUp(model)
-            }
-            let cache = try store(bench)
-            let owner = try await cache.owner()
-            XCTAssertEqual(owner, ownerWritten ? NamedRecorder.udn(1) : nil)
-            try await queueAReservation(bench, model)
+        let bench = try aBench()
+        let recorder = NamedRecorder(1)
+        let model = try await connected(bench, at: [Bench.host: recorder])
+        let cache = try store(bench)
+        let owner = try await cache.owner()
+        XCTAssertEqual(owner, NamedRecorder.udn(1))
+        try await queueAReservation(bench, model)
 
-            let sending = await BackgroundWork.sendWaiting(client: client(recorder), store: cache, mac: nil)
+        let sending = await BackgroundWork.sendWaiting(client: client(recorder), store: cache, mac: nil)
 
-            guard case .sent(let outcome) = sending else {
-                XCTFail("not sent, with the owner \(ownerWritten ? "written" : "not written"): \(sending)")
-                continue
-            }
-            XCTAssertEqual(outcome.sent.count, 1)
-            expectTrue(try await cache.pendingReservations().isEmpty)
-        }
+        guard case .sent(let outcome) = sending else { return XCTFail("not sent: \(sending)") }
+        XCTAssertEqual(outcome.sent.count, 1)
+        expectTrue(try await cache.pendingReservations().isEmpty)
     }
 
     /// The Shortcuts action knocks at the saved address with no screen to say who answered. A recorder the
