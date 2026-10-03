@@ -39,6 +39,7 @@
 		9277152955475487A3BAFC2E /* WhichRecorderSameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325A314CEB4BE74CC8873400 /* WhichRecorderSameTests.swift */; };
 		9D285EC3CAB8B0E9FA779BA2 /* SearchScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */; };
 		9D4B2B7D2175AE991FC5DDF8 /* DemoModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5943E199C95C53A2502F0A9 /* DemoModeTests.swift */; };
+		A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */; };
 		A2D675299DA83AA65ED2C0F5 /* SendWaitingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD763834B679DA7C20BD17A4 /* SendWaitingIntent.swift */; };
 		A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */; };
 		C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58160E6F634978F81AD1D797 /* DuplicatesView.swift */; };
@@ -84,6 +85,7 @@
 		1279E749BC680BAC08A88565 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderRulesScreen.swift; sourceTree = "<group>"; };
+		235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchRecorderTests.swift; sourceTree = "<group>"; };
 		259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationsScreen.swift; sourceTree = "<group>"; };
 		27CD60B317CB821D06B202C9 /* AppModelBulkWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelBulkWork.swift; sourceTree = "<group>"; };
 		2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
@@ -204,6 +206,7 @@
 			children = (
 				BE5AB54284C614E923F22A57 /* AppModelTests.swift */,
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
+				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
 				5C28691CB271964372E64ECD /* TVLinkTests.swift */,
@@ -424,6 +427,7 @@
 			files = (
 				2A5F2491A817C5DE1C5445D9 /* AppModelTests.swift in Sources */,
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
+				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
 				5CCDBEDD17EE4C991CC6FA4B /* TVLinkTests.swift in Sources */,
