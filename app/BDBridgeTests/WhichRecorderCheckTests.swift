@@ -98,6 +98,34 @@ extension WhichRecorderTests {
         }
     }
 
+    /// A change or a delete of a reservation asked for while the check is out, which then hears another
+    /// recorder. The second holds a reservation under the same number, as it holds a recording under the
+    /// first's: nothing is sent to it, and the answer is no.
+    ///
+    /// What is said is not looked at. Each of the two looks again at whether the app is offline once the read
+    /// of the list has come back, and the connect that takes the newcomer up may have made its client by then:
+    /// the line then says that the reservation has gone from the recorder, and not that another recorder
+    /// answered. The list is empty in that turn either way, so nothing is found in it to send. (A gate, as
+    /// `ReservationGateTests` are: a later change makes the guard the link's, and says why -- A4, A8 -- and what
+    /// is looked at here stands.)
+    func testAChangeOrADeleteAskedOfWhatTurnsOutToBeAnotherRecorderIsNotSent() async throws {
+        for write in ReservationWrite.allCases {
+            let (bench, recorder, model) = try await atHome()
+            let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+
+            let done = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) {
+                await write.ask(model, row)
+            }
+
+            XCTAssertFalse(done, "\(write.name) is said to have been done")
+            try await untilTakenUp(model, 2, "the newcomer was never taken up, after \(write.name)")
+            expectEqual(await recorder.asked(write.rawValue), 0,
+                        "\(write.name) was sent to the second recorder, for its reservation of that number")
+            XCTAssertTrue(model.reservations.contains { $0.id == row.id },
+                          "the newcomer was meant to hold a reservation under the same number")
+        }
+    }
+
     /// Another recorder heard by the check while a bulk job is under way -- parked, here, with the app in the
     /// background, which is when an address has the time to change hands. The job is stopped and nothing of
     /// it is sent; the connect that takes the newcomer up waits for it to end, since a connect does not start

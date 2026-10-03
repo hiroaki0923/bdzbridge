@@ -630,6 +630,15 @@ extension XCTestCase {
         try await untilConnected(model)
         return (bench, recorder, model)
     }
+
+    /// 再接続, as the reader asks for it once silence has lost the recorder. Over when the reads that follow a
+    /// connect are.
+    @MainActor
+    func reconnect(_ model: AppModel, file: StaticString = #filePath, line: UInt = #line) async {
+        await model.connect()
+        let why = model.problem(for: .recorder) ?? "no reason given"
+        XCTAssertTrue(model.connected, "the recorder did not come back: \(why)", file: file, line: line)
+    }
 }
 
 /// A client of the test's own asking `recorder`, with no pause before a 503 is sent again: the recorder's own

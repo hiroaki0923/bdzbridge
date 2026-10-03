@@ -33,6 +33,7 @@
 		73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876473CEF55BCCD5F9711580 /* Bench.swift */; };
 		76ED0C5B6EF50D56EDA4BABA /* TVReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD47A3421B468B94D0D99B31 /* TVReservationTests.swift */; };
 		792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707BB81A9C87370E84230350 /* ReservationSheet.swift */; };
+		79B51016207881ED3A02D336 /* ReservationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */; };
 		7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */; };
 		83A6197597396CD9817718C0 /* WhichRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55A0269B3E380C998AB5300 /* WhichRecorderTests.swift */; };
 		8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */; };
@@ -106,6 +107,7 @@
 		6C50D9578B5D62CFBB300399 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		6FAB63DB5A7CE51AB42D8DBD /* WhichRecorderNoScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderNoScreenTests.swift; sourceTree = "<group>"; };
 		707BB81A9C87370E84230350 /* ReservationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationSheet.swift; sourceTree = "<group>"; };
+		817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationGateTests.swift; sourceTree = "<group>"; };
 		83E965F5A7D72F5934B73195 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		876473CEF55BCCD5F9711580 /* Bench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bench.swift; sourceTree = "<group>"; };
 		A483A42044BA0ED0BA176891 /* GuideScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideScreen.swift; sourceTree = "<group>"; };
@@ -210,6 +212,7 @@
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
+				817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
 				5C28691CB271964372E64ECD /* TVLinkTests.swift */,
@@ -432,6 +435,7 @@
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
+				79B51016207881ED3A02D336 /* ReservationGateTests.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
 				5CCDBEDD17EE4C991CC6FA4B /* TVLinkTests.swift in Sources */,
