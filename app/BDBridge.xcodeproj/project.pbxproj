@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */; };
 		05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E69E6BE470039076D6A3C271 /* TitleSheet.swift */; };
+		0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C6866852333929A48A535D /* QueueGateTests.swift */; };
 		0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1279E749BC680BAC08A88565 /* AppModel.swift */; };
 		0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */; };
 		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
@@ -90,6 +91,7 @@
 		235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchRecorderTests.swift; sourceTree = "<group>"; };
 		259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationsScreen.swift; sourceTree = "<group>"; };
 		27CD60B317CB821D06B202C9 /* AppModelBulkWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelBulkWork.swift; sourceTree = "<group>"; };
+		29C6866852333929A48A535D /* QueueGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueGateTests.swift; sourceTree = "<group>"; };
 		2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		320A5AF47092867E2DBFE5F0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		325A314CEB4BE74CC8873400 /* WhichRecorderSameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderSameTests.swift; sourceTree = "<group>"; };
@@ -212,6 +214,7 @@
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
+				29C6866852333929A48A535D /* QueueGateTests.swift */,
 				817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
@@ -435,6 +438,7 @@
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
+				0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */,
 				79B51016207881ED3A02D336 /* ReservationGateTests.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
