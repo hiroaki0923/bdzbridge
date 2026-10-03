@@ -318,7 +318,7 @@ final class AppModel: LinkHost {
 
     /// The check under way, so that everything asked for while it runs waits for its answer rather than
     /// sending a probe -- and a magic packet -- of its own.
-    var wakeCheck: Task<Bool, Never>? { recorder.wakeCheck }
+    var wakeCheck: Task<NotUp?, Never>? { recorder.wakeCheck }
 
     /// How many guide downloads are under way. A count, so that one ending does not say the other has.
     var guideDownloads = 0

@@ -128,6 +128,44 @@ public protocol LinkDriver: AnyObject, Sendable {
     func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool)
 }
 
+/// Why a device is not up for what the reader asked for: what the check before an operation found
+/// (`DeviceLink.check`). With any of these, nothing has been sent.
+public enum NotUp: Sendable, Equatable {
+    /// No client, or the last ask met silence: the app is not connected. The host has said so
+    /// (`sayNotConnected`).
+    case notConnected
+    /// Silence because local network privacy stopped the ask. The app waits for the permission. The line of
+    /// what went wrong was cleared, not written: the screens say this from the session (`connectBlocked`).
+    case waitingForPermission
+    /// Another device answered where the one in play was, on the probe or after a waking. The host has been
+    /// told (`anotherAnsweredTheCheck`).
+    case anotherAnswered
+    /// Silent to the probe, woken, and the attach that followed was turned away: busy, a fault, not a
+    /// recorder. It is there and not given up on, and the attach has said why. An attach its host broke off
+    /// -- over a cache that could not be made over, the device let go of -- ends here as well, the host
+    /// having said why: the two are not told apart.
+    case turnedAway
+    /// Nothing answered, the waking included. The link is lost (`lost`), and the line is the waking's own
+    /// sentence, or the driver's `noAnswerLine` where there was nothing to wake the device with.
+    case silent
+}
+
+/// What the check before an operation found: the client to ask, or why nothing is to be asked.
+public enum LinkCheck: Sendable {
+    case up(any LinkClient)
+    case notUp(NotUp)
+
+    /// What a check that ended in `why` is to whoever asked it with `client` in hand.
+    fileprivate init(_ why: NotUp?, asking client: any LinkClient) {
+        self = why.map(Self.notUp) ?? .up(client)
+    }
+
+    /// Why not, or nil when the device is up.
+    public var whyNot: NotUp? {
+        if case .notUp(let why) = self { why } else { nil }
+    }
+}
+
 /// The app's connection to one device: when it is asked, woken, made sure of and given up on, and when it is
 /// asked again -- on coming back to the app, when the network changes, when the local network permission comes.
 /// The decisions are `LinkRules`'s and the order of an attempt is `Reach`'s; what is particular to the kind of
@@ -146,8 +184,9 @@ public final class DeviceLink {
     /// The client of the attempt under way or the last one. Nil when the device has been let go of.
     public var client: (any LinkClient)?
     /// The check before an operation that is out, so that everything asked for while it runs waits for its
-    /// answer rather than sending a probe -- and a magic packet -- of its own.
-    public private(set) var wakeCheck: Task<Bool, Never>?
+    /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
+    /// from it when the device is up.
+    public private(set) var wakeCheck: Task<NotUp?, Never>?
     @ObservationIgnored private var settling: Task<Void, Never>?
     @ObservationIgnored public weak var owner: (any LinkHost)?
     @ObservationIgnored public let driver: any LinkDriver
@@ -269,27 +308,39 @@ public final class DeviceLink {
     // MARK: - making sure before an operation
 
     /// Makes sure the device is up before something the reader asked for is sent to it, and wakes it if it is
-    /// not. Whether it is there to ask. Asked first and briefly, with the client already in hand. `evenIfRecent`
-    /// asks whatever the time since the last answer, for when the network has changed since.
-    public func ensureUp(evenIfRecent: Bool = false) async -> Bool {
+    /// not. The client to ask, or why nothing is to be asked. Asked first and briefly, with the client already
+    /// in hand, which is the one handed back. `evenIfRecent` asks whatever the time since the last answer, for
+    /// when the network has changed since.
+    ///
+    /// What a check tells the host on the way -- that another device answered, the wait for the permission,
+    /// the sentence of a silence -- it tells once, however many were waiting for its answer. That the app is
+    /// not connected is said to each who asks.
+    public func check(evenIfRecent: Bool = false) async -> LinkCheck {
         guard let client, !offline else {
             owner?.sayNotConnected()
-            return false
+            return .notUp(.notConnected)
         }
         // Already at it: a connect, or the waking of an earlier check -- whose attach reads lists of its own
         // through here, and must not wait for itself.
-        if session.connecting || session.waking { return true }
-        if let wakeCheck { return await wakeCheck.value }
+        if session.connecting || session.waking { return .up(client) }
+        if let wakeCheck { return LinkCheck(await wakeCheck.value, asking: client) }
         let check = Task { await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent) }
         wakeCheck = check
-        let answered = await check.value
+        let why = await check.value
         if wakeCheck == check { wakeCheck = nil }
-        return answered
+        return LinkCheck(why, asking: client)
     }
 
-    private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> Bool {
+    /// The check as a Bool: whether the device is there to ask.
+    public func ensureUp(evenIfRecent: Bool = false) async -> Bool {
+        if case .up = await check(evenIfRecent: evenIfRecent) { return true }
+        return false
+    }
+
+    /// The check itself. Nil when the device is up.
+    private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> NotUp? {
         if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
-            return true
+            return nil
         }
         // Where it was asked, not where the phone is once the silence is over: see `lost`.
         let network = environment.networkSignature()
@@ -318,21 +369,21 @@ public final class DeviceLink {
             // has turned the app to it already.
             if stranger || (known != nil && session.device != known) {
                 owner?.anotherAnsweredTheCheck()
-                return false
+                return .anotherAnswered
             }
-            return true
+            return nil
         case .refused:
             // On the probe: something answered, so what is wrong is for the request itself to say. After the
             // waking: it answered only to refuse, which the attach has said already.
-            return answeredTheProbe
+            return answeredTheProbe ? nil : .turnedAway
         case .blocked:
             waitForPermission()
-            return false
+            return .waitingForPermission
         case .silent:
             lost()
             // Waking says why it gave up; without a way to wake it there was no waking to say it.
             if !driver.canWake(self) { owner?.problem = driver.noAnswerLine }
-            return false
+            return .silent
         }
     }
 
