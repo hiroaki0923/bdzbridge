@@ -128,7 +128,7 @@ extension AppModel {
     ///
     /// False when the recorder is not there to ask: silence met by anything stops the job, not only silence met
     /// by the job. A check of the recorder that is out is heard first: its verdict may be that another recorder
-    /// answers here now, which stops the job (`makeSureItIsUp`).
+    /// answers here now, which stops the job (`anotherAnsweredTheCheck`).
     private func readyForNextStep() async -> Bool {
         if inBackground {
             await withCheckedContinuation { backInFront = $0 }

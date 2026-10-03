@@ -55,7 +55,7 @@ extension AppModel {
     /// lists must not stand over a client that points elsewhere. That includes the same recorder at an
     /// address the router has moved it to, at the cost of reading its lists again. The address in use, chosen
     /// again, forgets nothing and connects as 再接続 does. Only memory goes here; what the phone keeps is
-    /// decided by who answers (`settle(whoAnswered:)`).
+    /// decided by who answers (`RecorderDriver.attach`).
     func adopt(host chosen: String) async {
         guard canChangeRecorder else { return }
         // The reader has chosen, so the rest of the subnet no longer matters -- and a scan left running would
@@ -77,26 +77,24 @@ extension AppModel {
     }
 
     /// Lets go of the recorder in play as far as memory goes: what it said of itself and which it was, the
-    /// client that asked it, and the lists the app holds of it. Until the next connect there is no client, so
-    /// nothing can be sent from a list that is no longer there. The queue, the MAC and what the phone keeps
-    /// are left: those are decided when a recorder answers (`settle(whoAnswered:)`).
+    /// client that asked it, a wait for the permission at it, and the lists the app holds of it. Until the next
+    /// connect there is no client, so nothing can be sent from a list that is no longer there. The queue, the
+    /// MAC and what the phone keeps are left: those are decided when a recorder answers
+    /// (`RecorderDriver.attach`).
     func forgetTheRecorder() {
-        session.forgotTheDevice()
-        client = nil
+        recorder.forgetTheDevice()
         forgetWhatTheRecorderSaid()
         problem = nil
-        accessWatch?.cancel()
-        accessWatch = nil
     }
 
     /// Empties what the app holds in memory that a recorder said: its lists, the sets of copies with their
     /// ticks and the texts they were built on, the last job, and the lists' filters. Each recorder numbers
     /// its own, so a row left from one would be sent, by its number, to the next. For a choice
     /// (`forgetTheRecorder`), and for another recorder answering where nobody chose one
-    /// (`settle(whoAnswered:)`); the screens are told (`timesForgotten`).
+    /// (`anotherDeviceDescribedItself`); the screens are told (`timesForgotten`).
     ///
     /// A finished job goes because the duplicates view takes it for having looked. One still running is
-    /// stopped by the check that hears the other recorder (`makeSureItIsUp`).
+    /// stopped by the check that hears the other recorder (`anotherAnsweredTheCheck`).
     func forgetWhatTheRecorderSaid() {
         reservations = []
         titles = []

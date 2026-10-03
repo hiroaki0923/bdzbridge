@@ -14,7 +14,7 @@ enum DefaultsKey {
     static let recorderHost = "recorderHost"
     /// Its wired MAC, for waking it. See `AppModel.remember(mac:)`.
     static let recorderMac = "recorderMac"
-    /// The address the recorder was at when it reported the MAC. See `AppModel.macWasReadHere`.
+    /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
 
     // MARK: - what the screens keep between launches
