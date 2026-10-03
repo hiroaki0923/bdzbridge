@@ -53,8 +53,26 @@ final class Bench {
         return model(saved: nil) { _ in nobody }
     }
 
+    /// Another address reserved for documentation, for the television.
+    static let tvHost = "192.0.2.30"
+
+    /// A model with the recorder saved as `model(recorder:)` makes it, and a television at `tvHost` that answers
+    /// through `television`: saved as the app's when `saved`, with its registration in `credentials`.
+    func model(recorder: any HTTPTransport, television: any HTTPTransport, credentials: any TVCredentialStore,
+               saved: Bool = true) -> AppModel {
+        if saved {
+            defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.tvHost)
+        }
+        return model(transport: { _ in recorder }, tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() },
+                     tvCredentials: credentials)
+    }
+
     private func model(saved: String? = Bench.host,
-                       transport: @escaping (String) -> any HTTPTransport) -> AppModel {
+                       transport: @escaping (String) -> any HTTPTransport,
+                       tvTransport: @escaping (String) -> any HTTPTransport = { _ in NoTelevision() },
+                       tvCredentials: any TVCredentialStore = MemoryTVCredentials()) -> AppModel {
         if let saved {
             defaults.set(saved, forKey: DefaultsKey.recorderHost)
         } else {
@@ -73,7 +91,9 @@ final class Bench {
             reachesTheLAN: false,
             asksAboutNotifications: false,
             busyRetryDelay: 0...0,
-            storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds))
+            storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
+            tvTransport: tvTransport,
+            tvCredentials: tvCredentials))
     }
 
     /// The database a model made here opens for a real recorder.

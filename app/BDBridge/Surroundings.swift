@@ -37,6 +37,11 @@ struct Surroundings {
     /// How long a write to the cache waits for another connection's: five seconds, shortened only by a test that
     /// holds the lock on purpose and has no reason to wait them out.
     var storeBusyTimeoutMilliseconds: Int32 = 5000
+    /// How requests reach the television at an address: a transport that keeps no cookies of its own, since
+    /// the client sends its registration's by hand. Nothing answers unless a test says otherwise.
+    var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
+    /// Where the television's registration is kept: the Keychain in the app, memory in a test.
+    var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
 
     static var app: Surroundings {
         Surroundings(defaults: .standard,
@@ -44,6 +49,15 @@ struct Surroundings {
                      transport: { _ in URLSessionTransport() },
                      networkSignature: LocalNetwork.signature,
                      reachesTheLAN: true,
-                     asksAboutNotifications: true)
+                     asksAboutNotifications: true,
+                     tvTransport: { _ in URLSessionTransport.withoutCookies() },
+                     tvCredentials: KeychainTVCredentials())
+    }
+}
+
+/// What a television's link reaches where no television has been given: silence.
+actor NoTelevision: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        throw RecorderError.transport("No television here.")
     }
 }

@@ -138,12 +138,18 @@ extension AppModel {
         // Before any of the reasons not to connect: a day may have gone by while the app was away, with or
         // without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
-        await recorder.returned(wasAway: wasAway, busy: busy != nil)
+        // The television's beside the recorder's, so that neither waits for the other's silence.
+        let isBusy = busy != nil
+        let television = Task { await self.tv?.returned(wasAway: wasAway, busy: isBusy) }
+        await recorder.returned(wasAway: wasAway, busy: isBusy)
+        await television.value
     }
 
-    /// The watcher's report of the network, looked at again for a while (`DeviceLink.networkReported`).
+    /// The watcher's report of the network, looked at again for a while (`DeviceLink.networkReported`), by each
+    /// device's link.
     func networkReported() {
         recorder.networkReported()
+        tv?.networkReported()
     }
 
     /// One look at the network (`DeviceLink.networkChangedWhileOpen`): whether it led to an attempt, or to

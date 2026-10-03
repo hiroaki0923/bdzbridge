@@ -26,6 +26,11 @@ final class AppModel: LinkHost {
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
     let recorder: DeviceLink
+    /// The television's link, while one is saved and the demo is off (`makeTVLink`), and what it tells the app.
+    var tv: DeviceLink?
+    var tvHost: TVHost?
+    /// The client id a registration under way goes with, until the PIN it asked for comes back with it.
+    var tvClientID: String?
 
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
     /// has moved it since (`RecorderDriver.findElsewhere`). Written down whenever it is set (`keepAddress`).
@@ -199,6 +204,7 @@ final class AppModel: LinkHost {
         day = days.first ?? Date()
         recorder.environment = linkEnvironment()
         recorder.owner = self
+        makeTVLink()
     }
 
     var connected: Bool { session.connected }
@@ -292,7 +298,10 @@ final class AppModel: LinkHost {
     }
 
     private func connectFirstTime() async {
+        // Beside the recorder's rather than after it: neither device's silence holds the other up.
+        let television = Task { await self.tv?.connect() }
         if !host.isEmpty { await connect() }
+        await television.value
         // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
         // soon as it starts, and that would be a second connect racing the first.
         watchNetwork()
