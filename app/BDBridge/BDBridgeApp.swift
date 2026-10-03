@@ -116,6 +116,7 @@ struct RecorderActivityBar: View {
     /// would end the demo under a sheet still showing one of the demo's recordings, whose buttons would then
     /// go to whichever recorder came after it.
     var inSheet = false
+    @State private var registeringTV = false
 
     /// Whether any strip is up: what the animation follows. Not which strip it is, nor what it says: one strip
     /// taking over from another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is
@@ -123,7 +124,12 @@ struct RecorderActivityBar: View {
     private var showing: Bool {
         model.busy != nil || saysAnotherTookOver || model.flushReport != nil
             || (model.demo && DemoData.banner && !inSheet) || model.connectBlocked || model.gaveUp
+            || tvNeedsPairing || tvGaveUp
     }
+
+    /// The television's own two lines, after everything about the recorder, and only when one is saved.
+    private var tvNeedsPairing: Bool { model.tvDriver?.facts.needsPairing == true }
+    private var tvGaveUp: Bool { model.tv?.session.gaveUp == true }
 
     /// Whether to say that another recorder has answered where the last one was. Only while connected: the
     /// line says the lists were read again, which they were not if that recorder went quiet before it had
@@ -134,6 +140,7 @@ struct RecorderActivityBar: View {
         // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
         VStack(spacing: 0) { content }
             .animation(.default, value: showing)
+            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "") }
     }
 
     @ViewBuilder
@@ -203,6 +210,31 @@ struct RecorderActivityBar: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
                 .disabled(model.jobRunning)
+            }
+        } else if tvNeedsPairing {
+            // It answers, so it is there; nothing can be asked of it until the app is registered with it again.
+            strip {
+                Image(systemName: "tv").font(.footnote)
+                Text("テレビの登録が必要です").font(.footnote)
+                Spacer()
+                Button { registeringTV = true } label: {
+                    Text("登録").hitArea(horizontal: 13, vertical: Self.rim)
+                }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            }
+        } else if tvGaveUp {
+            strip {
+                Image(systemName: "tv").font(.footnote)
+                Text("テレビに接続していません").font(.footnote)
+                Spacer()
+                Button { Task { await model.tv?.connect() } } label: {
+                    Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+                }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
             }
         }
     }

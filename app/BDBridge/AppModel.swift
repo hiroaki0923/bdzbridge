@@ -26,6 +26,14 @@ final class AppModel: LinkHost {
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
     let recorder: DeviceLink
+    /// The television's link, while one is saved and the demo is off (`makeTVLink`), and what it tells the app.
+    var tv: DeviceLink?
+    var tvHost: TVHost?
+    /// The television's lines among `activities`: what the television does is no reason to hold the recorder's
+    /// rules or buttons back (`isBusy`), nor the recorder's the television's.
+    var televisionLines: Set<Activities.Token> = []
+    /// The client id a registration under way goes with, until the PIN it asked for comes back with it.
+    var tvClientID: String?
 
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
     /// has moved it since (`RecorderDriver.findElsewhere`). Written down whenever it is set (`keepAddress`).
@@ -199,6 +207,7 @@ final class AppModel: LinkHost {
         day = days.first ?? Date()
         recorder.environment = linkEnvironment()
         recorder.owner = self
+        makeTVLink()
     }
 
     var connected: Bool { session.connected }
@@ -214,7 +223,7 @@ final class AppModel: LinkHost {
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
     /// one of them, on purpose -- see `waking`.
-    var working: Bool { busy != nil && !waking }
+    var working: Bool { isBusy && !waking }
 
     /// Whether the recorder in play may be changed now: into the demo or out of it, or to another address.
     /// Not while anything is under way with the one in play: a connect or a load carries on with the client
@@ -222,8 +231,9 @@ final class AppModel: LinkHost {
     /// alone leaves gaps inside a connect, such as the check of the local network permission, so `connecting`
     /// counts as well. Nor while a bulk job runs, which holds the client and the list it started from. Nor
     /// while the recorder is being made sure of (`wakeIfDozing`), whose first ask has no line of its own: a
-    /// recorder it wakes would be attached as whichever recorder is in play by then.
-    var canChangeRecorder: Bool { busy == nil && !connecting && !jobRunning && wakeCheck == nil }
+    /// recorder it wakes would be attached as whichever recorder is in play by then. The television's work
+    /// does not count: it is on a client of its own.
+    var canChangeRecorder: Bool { !isBusy && !connecting && !jobRunning && wakeCheck == nil }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
     /// last ask got silence. Every list guards on it, so that going out of range costs one timeout rather
@@ -292,7 +302,10 @@ final class AppModel: LinkHost {
     }
 
     private func connectFirstTime() async {
+        // Beside the recorder's rather than after it: neither device's silence holds the other up.
+        let television = Task { await self.tv?.connect() }
         if !host.isEmpty { await connect() }
+        await television.value
         // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
         // soon as it starts, and that would be a second connect racing the first.
         watchNetwork()

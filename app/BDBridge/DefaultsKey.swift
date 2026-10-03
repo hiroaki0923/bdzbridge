@@ -17,6 +17,14 @@ enum DefaultsKey {
     /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
 
+    // MARK: - the television
+
+    /// Its address, written as the recorder's is. The registration that goes with it is in the Keychain
+    /// (`KeychainTVCredentials`), not here.
+    static let tvHost = "tvHost"
+    /// The MAC it wakes on, which is what tells it from any other. Kept to recognise it, never to wake it.
+    static let tvMac = "tvMac"
+
     // MARK: - what the screens keep between launches
 
     static let guideBroadcasting = "guideBroadcasting"

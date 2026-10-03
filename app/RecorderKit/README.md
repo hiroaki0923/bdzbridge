@@ -41,6 +41,9 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
 | `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission |
 | `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address |
+| `ScalarClient.swift` | A Sony BRAVIA's own control API: the JSON-RPC envelope, its errors, the registration by PIN and the cookie it hands out |
+| `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered |
+| `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |

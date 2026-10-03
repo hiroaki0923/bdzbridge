@@ -19,6 +19,10 @@ public final class SessionState {
     /// What the device said of itself the last time it was asked, while it is answering. Nil once it has
     /// stopped: nothing answered, so the app is not connected, whatever a description read earlier says.
     public private(set) var info: RecorderDescription?
+    /// Set while a device that says who it is by an identity alone -- a television, by the MAC it wakes on,
+    /// having no recorder's description to give -- is answering (`identified(as:)`). It stands for such a
+    /// device where `info` stands for a recorder, and goes wherever `info` goes.
+    public private(set) var named = false
     /// Empty, and `storage` nil, when the device would not say. Both are only shown.
     public private(set) var firmware = ""
     public private(set) var storage: (free: Int, total: Int)?
@@ -51,12 +55,15 @@ public final class SessionState {
     /// (`forgotTheDevice`). Nil before any has, and for a device that gives no UDN.
     public private(set) var device: String?
 
-    /// `mac` is what was saved, as it was saved.
-    public init(mac: String? = nil) {
+    /// `mac` is what was saved, as it was saved. `device` is which device was saved, for one that has nothing
+    /// else to be known by from one launch to the next -- a television, by its MAC; a recorder is known by its
+    /// cache's owner -- so that another at its address is another from the first answer.
+    public init(mac: String? = nil, device: String? = nil) {
         self.mac = mac
+        self.device = device
     }
 
-    public var connected: Bool { info != nil }
+    public var connected: Bool { info != nil || named }
     /// True once a MAC is known, which is what a magic packet needs.
     public var canWake: Bool { mac != nil }
 
@@ -108,6 +115,35 @@ public final class SessionState {
         if who != .same, !description.udn.isEmpty { device = description.udn }
         return who
     }
+    /// Who a device that gives an identity rather than a description is, measured as `recognises` measures a
+    /// recorder: against `device`, and an empty identity is taken for the one known.
+    public func recognises(identity: String) -> Recognition {
+        guard let device, !device.isEmpty else { return .first }
+        return identity.isEmpty || identity.caseInsensitiveCompare(device) == .orderedSame ? .same : .another
+    }
+
+    /// `described`, for such a device: it said who it is, and the app is connected. Another one forgets what
+    /// the last said of itself, as `described` does.
+    @discardableResult
+    public func identified(as identity: String) -> Recognition {
+        let who = recognises(identity: identity)
+        if who == .another {
+            firmware = ""
+            storage = nil
+            needsPower = false
+        }
+        named = true
+        if who != .same, !identity.isEmpty { device = identity }
+        return who
+    }
+
+    /// Something answered at the address that is not the device the app knows, and nothing of it is taken up:
+    /// not connected, and not unreachable either, since something answered.
+    public func strangerAnswered() {
+        info = nil
+        named = false
+    }
+
     public func learned(firmware: String) { self.firmware = firmware }
     public func learned(storage: (free: Int, total: Int)?) { self.storage = storage }
     /// It answered everything asked of it so far.
@@ -122,7 +158,10 @@ public final class SessionState {
     /// the caller forgets the last one at the choice (`forgotTheDevice`).
     public func attachFailed(_ failure: DeviceFailure?) {
         unreachable = failure == .silent
-        if failure == .silent || failure == .badAddress { info = nil }
+        if failure == .silent || failure == .badAddress {
+            info = nil
+            named = false
+        }
     }
 
     // MARK: - silence
@@ -132,6 +171,7 @@ public final class SessionState {
     public func wentSilent(on network: String) {
         unreachable = true
         info = nil
+        named = false
         link.tried(on: network)
     }
 
@@ -141,6 +181,7 @@ public final class SessionState {
     public func lost() {
         unreachable = true
         info = nil
+        named = false
         gaveUp = true
     }
 
@@ -181,6 +222,7 @@ public final class SessionState {
     public func forgotTheDevice() {
         device = nil
         info = nil
+        named = false
         firmware = ""
         storage = nil
         unreachable = false

@@ -155,6 +155,8 @@ struct SettingsScreen: View {
                     }
                 }
 
+                TVSection()
+
                 Section {
                     NavigationLink("チャンネルの表示と並び順") {
                         ChannelsScreen(broadcasting: model.broadcasting)

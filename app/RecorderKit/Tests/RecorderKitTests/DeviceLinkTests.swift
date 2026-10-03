@@ -17,77 +17,6 @@ final class DeviceLinkTests: XCTestCase {
     static let moved = "192.0.2.20"
     static let noAnswer = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
 
-    /// Everything beyond the link: the app it tells (`LinkHost`) and the network it reaches (`LinkEnvironment`).
-    /// What the link did to either is put down in `events`, in the order it did it.
-    @MainActor
-    final class World: LinkHost {
-        var events: [String] = []
-        /// Whether local network privacy is what stops the asks.
-        var blocked = false
-        /// The addresses the app gives to look through for a recorder that has moved.
-        var near: [String] = []
-        /// What a search of them finds.
-        var found: RecorderDescription?
-        var recorders: [String: Recorder] = [:]
-        /// At an address with no recorder, nothing answers.
-        private let nobody = Recorder(at: "", udn: "", silent: true)
-
-        var problem: String?
-        var macReadAt: String?
-        private(set) var waitingAt: String?
-        private var lines = Activities()
-
-        var environment: LinkEnvironment {
-            LinkEnvironment(
-                transport: { host in self.recorders[host] ?? self.nobody },
-                networkSignature: { "home" },
-                sendPacket: { mac, host in self.events.append("packet \(mac) for \(host)") },
-                lanIsBlocked: { host in
-                    self.events.append("permission at \(host)")
-                    return self.blocked
-                },
-                hostsNear: { _ in self.near },
-                findRecorder: { mac, _ in
-                    self.events.append("search for \(mac)")
-                    return self.found
-                })
-        }
-
-        func put(_ event: String) { events.append(event) }
-
-        /// The packets and the asks of who is there, without the rest.
-        var onTheNetwork: [String] {
-            events.filter { $0.hasPrefix("packet") || $0.hasPrefix("ask description.xml") }
-        }
-
-        func count(_ prefix: String) -> Int { events.filter { $0.hasPrefix(prefix) }.count }
-
-        func beginActivity(_ text: String) -> Activities.Token { lines.begin(text) }
-        func updateActivity(_ token: Activities.Token, to text: String) { lines.update(token, to: text) }
-        func endActivity(_ token: Activities.Token) { lines.end(token) }
-        var isBusy: Bool { false }
-        var holdsOffConnect: Bool { false }
-        var isDemo: Bool { false }
-        var cache: GuideStore? { nil }
-        func cacheForAttempt() async {}
-        func keepAddress(_ host: String) { events.append("address \(host)") }
-        func keepMAC(_ text: String) {}
-        func macWasReadAt(_ host: String) {
-            macReadAt = host
-            events.append("MAC read at \(host)")
-        }
-        func forgetMac() { events.append("MAC forgotten") }
-        func anotherDeviceDescribedItself(wasConnected: Bool) { events.append("another device") }
-        func cacheMadeOver() async {}
-        func cacheCouldNotBeMadeOver() {}
-        func sendWhatWaits() async {}
-        func reached() async { events.append("reached") }
-        func anotherAnsweredTheCheck() { events.append("another device on the check") }
-        func sayNotConnected() {}
-        func waitForPermission(at host: String) { waitingAt = host }
-        func stopWaitingForPermission() { waitingAt = nil }
-    }
-
     /// A recorder at one address: it says who it is as the recorder of the vectors does, under the UDN it is
     /// given, and refuses the rest, which an attach does without. Each ask is put down in the world.
     actor Recorder: HTTPTransport {
@@ -95,9 +24,9 @@ final class DeviceLinkTests: XCTestCase {
         private let description: String
         private var silent: Bool
         private var busy = false
-        private weak var world: World?
+        private weak var world: LinkWorld?
 
-        init(at host: String, udn: String, silent: Bool = false, world: World? = nil) {
+        init(at host: String, udn: String, silent: Bool = false, world: LinkWorld? = nil) {
             self.host = host
             self.silent = silent
             self.world = world
@@ -121,7 +50,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// A link to the recorder at `Stub.host`, woken by `mac` when there is one, whose waking gives up after a
     /// twentieth of a second rather than half a minute.
-    private func makeLink(mac: String? = nil, _ world: World) -> DeviceLink {
+    private func makeLink(mac: String? = nil, _ world: LinkWorld) -> DeviceLink {
         let link = DeviceLink(host: Stub.host, session: SessionState(mac: mac),
                               driver: RecorderDriver(holdingTheQueueWith: "held", wakingLimit: 0.05,
                                                      wakingInterval: .milliseconds(10), busyRetryDelay: 0...0),
@@ -132,9 +61,9 @@ final class DeviceLinkTests: XCTestCase {
 
     /// Puts the recorder at `host`, and hands it back for the test to silence or keep busy.
     @discardableResult
-    private func place(at host: String = Stub.host, silent: Bool = false, in world: World) -> Recorder {
+    private func place(at host: String = Stub.host, silent: Bool = false, in world: LinkWorld) -> Recorder {
         let recorder = Recorder(at: host, udn: Self.udn, silent: silent, world: world)
-        world.recorders[host] = recorder
+        world.devices[host] = recorder
         return recorder
     }
 
@@ -160,7 +89,7 @@ final class DeviceLinkTests: XCTestCase {
     /// asleep is on its way up while the ask waits, and one awake ignores it. One that answered a moment ago is
     /// not made sure of at all.
     func testThePacketGoesBeforeTheFirstAsk() async {
-        let world = World()
+        let world = LinkWorld()
         place(in: world)
         let link = makeLink(mac: Self.mac, world)
         let packetThenAsk = ["packet \(Self.mac) for \(Stub.host)", "ask description.xml at \(Stub.host)"]
@@ -181,7 +110,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// With no MAC there is nothing to send a packet to.
     func testWithNoMACNoPacketIsSent() async {
-        let world = World()
+        let world = LinkWorld()
         place(in: world)
         let link = makeLink(world)
 
@@ -197,7 +126,7 @@ final class DeviceLinkTests: XCTestCase {
     /// for it: no waking, which would be half a minute of nothing, and no search. The attempt stays given up until
     /// the permission comes, and then it connects.
     func testSilenceThatIsThePermissionWaitsForItInsteadOfWaking() async {
-        let world = World()
+        let world = LinkWorld()
         let recorder = place(silent: true, in: world)
         world.blocked = true
         world.near = [Self.moved]
@@ -225,7 +154,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// The permission that comes for an address the link has left connects nothing.
     func testThePermissionForAnAddressLeftConnectsNothing() async {
-        let world = World()
+        let world = LinkWorld()
         place(silent: true, in: world)
         place(at: Self.moved, in: world)
         world.blocked = true
@@ -243,7 +172,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// The check before an operation asks about the permission too, and waits for it rather than wake.
     func testTheCheckBeforeAnOperationAsksAboutThePermissionToo() async {
-        let world = World()
+        let world = LinkWorld()
         let recorder = place(in: world)
         let link = makeLink(mac: Self.mac, world)
         await link.connect()
@@ -263,7 +192,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// A connect is what the wait was waiting to find out, one way or the other: it ends the wait.
     func testAConnectEndsTheWaitForThePermission() async {
-        let world = World()
+        let world = LinkWorld()
         let recorder = place(silent: true, in: world)
         world.blocked = true
         let link = makeLink(world)
@@ -280,7 +209,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// So does letting go of the device: the permission that came would connect to a device the app has left.
     func testForgettingTheDeviceEndsTheWaitForThePermission() async {
-        let world = World()
+        let world = LinkWorld()
         place(silent: true, in: world)
         world.blocked = true
         let link = makeLink(world)
@@ -300,7 +229,7 @@ final class DeviceLinkTests: XCTestCase {
     /// the looks at the network start again, and the first finds that it moved since the last attempt. Without
     /// them the app stayed given up whenever the looks set going by the reports had run out first.
     func testSilenceAfterAnotherNetworkLooksAtTheNetworkAgain() async throws {
-        let world = World()
+        let world = LinkWorld()
         place(in: world)
         let link = makeLink(world)
         await link.connect()
@@ -319,7 +248,7 @@ final class DeviceLinkTests: XCTestCase {
     /// A recorder that answered, if only to say it is busy, is there: it is neither woken nor looked for, and not
     /// given up on.
     func testARecorderThatAnswersBusyIsNeitherWokenNorLookedFor() async {
-        let world = World()
+        let world = LinkWorld()
         await place(in: world).goBusy()
         world.near = [Self.moved]
         world.found = foundAt(Self.moved)
@@ -336,7 +265,7 @@ final class DeviceLinkTests: XCTestCase {
     /// A waking that gets no answer, and a search that finds nothing after it, give up and say why: the waking's
     /// line, put back after the search.
     func testAWakingThatGetsNoAnswerGivesUpAndSaysSo() async {
-        let world = World()
+        let world = LinkWorld()
         place(silent: true, in: world)
         world.near = [Self.moved]
         let link = makeLink(mac: Self.mac, world)
@@ -353,7 +282,7 @@ final class DeviceLinkTests: XCTestCase {
     /// ends with. Found, it is the recorder the app had and nothing of it is forgotten: the address moves --
     /// written down, then where the MAC was read -- and it is attached there with a client of its own.
     func testARecorderThatMovedIsFoundByItsMACAndFollowed() async {
-        let world = World()
+        let world = LinkWorld()
         let recorder = place(in: world)
         let link = makeLink(mac: Self.mac, world)
         await link.connect()
@@ -384,7 +313,7 @@ final class DeviceLinkTests: XCTestCase {
     /// Not looked for while the MAC kept was read at another address: after the reader types another recorder's
     /// address the MAC is still the last one's, and the search would go back to the recorder just left.
     func testNoSearchWhileTheMACWasReadAtAnotherAddress() async {
-        let world = World()
+        let world = LinkWorld()
         place(silent: true, in: world)
         world.near = [Self.moved]
         world.found = foundAt(Self.moved)
@@ -400,7 +329,7 @@ final class DeviceLinkTests: XCTestCase {
 
     /// Nor where the app gives nowhere to look: in the demo, in the background, on a Wi-Fi the address is not on.
     func testNoSearchWithNowhereToLook() async {
-        let world = World()
+        let world = LinkWorld()
         place(silent: true, in: world)
         world.found = foundAt(Self.moved)
         let link = makeLink(mac: Self.mac, world)
@@ -414,7 +343,7 @@ final class DeviceLinkTests: XCTestCase {
     /// The check before an operation wakes the recorder but does not look for it elsewhere: silence after the
     /// waking leaves the app offline, given up, where it was.
     func testTheCheckBeforeAnOperationDoesNotLookElsewhere() async {
-        let world = World()
+        let world = LinkWorld()
         let recorder = place(in: world)
         let link = makeLink(mac: Self.mac, world)
         await link.connect()

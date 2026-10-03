@@ -8,7 +8,9 @@
   `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). The connection to the recorder -- when
   it is asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's
   `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
-  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What the app knows of the
+  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). A television, once added in the
+  settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
+  `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the app knows of the
   recorder and of the link to it -- described, unreachable, given up on, being woken -- is `SessionState`,
   which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
@@ -92,7 +94,8 @@ thrown away when it ends, and what the tests wait for and look at over and over 
 in the line that reads it. Nothing leaves the machine. So what the link does on the LAN itself -- the
 packet before the first ask, the wait for the local network permission, the search for a recorder the router
 has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
-test's own.
+test's own. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
+`TVDriverTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that

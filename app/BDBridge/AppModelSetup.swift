@@ -13,6 +13,8 @@ extension AppModel {
         // A scan still waiting on the local network question has nothing to do with the invented recorder,
         // and the demo is exactly the path that must never raise that question.
         stopScanning()
+        // The real television is let go of for the demo's length, or it would answer beside the invented recorder.
+        dropTVLink()
         DemoData.turnOn(realHost: host, realMac: mac, in: defaults)
         demo = true
         await openStore()
@@ -39,6 +41,9 @@ extension AppModel {
         demoRecorder = nil
         if let folder = try? surroundings.folder() { Storage.removeDemoGuide(in: folder) }
         if let mac = before.mac { remember(mac: mac) } else { forgetMac() }
+        // The real television, when one is saved, comes back with the real recorder.
+        makeTVLink()
+        if let tv { Task { await tv.connect() } }
         return before.host
     }
 
