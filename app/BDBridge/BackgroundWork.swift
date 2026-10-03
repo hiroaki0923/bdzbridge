@@ -193,10 +193,11 @@ enum BackgroundWork {
     /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC, for
     /// the reason they hand `sendWaiting` none.
     static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling) async -> Bool {
-        guard await reach(client, mac: mac), !Task.isCancelled else { return false }
-        // Another recorder than the one this cache is of is left alone: see `isTheOneKnown`. Said only when
-        // something was waiting to go to it, which is what the reader would otherwise miss.
-        guard await isTheOneKnown(client, to: store) else {
+        guard await RecorderDriver.reachWithNoScreen(client, sendPacket: packet(for: client, mac: mac)),
+              !Task.isCancelled else { return false }
+        // Another recorder than the one this cache is of is left alone: see `RecorderDriver.isTheOneKnown`.
+        // Said only when something was waiting to go to it, which is what the reader would otherwise miss.
+        guard await RecorderDriver.isTheOneKnown(client, to: store) else {
             if PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? []) {
                 await telling.heldBack()
             }
@@ -246,7 +247,7 @@ enum BackgroundWork {
     }
 
     /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC: the
-    /// packet goes out from here (`reach`) and not through `Surroundings`, so one handed in is sent on
+    /// packet goes out from here (`packet`) and not through `Surroundings`, so one handed in is sent on
     /// whatever network the tests are run on.
     ///
     /// The queue is read before anything goes on the network. The automation runs at every arrival home,
@@ -257,65 +258,19 @@ enum BackgroundWork {
                             now: Date = Date()) async -> Sending {
         let waiting = (try? await store.pendingReservations()) ?? []
         guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return .nothingWaiting }
-        guard await reach(client, mac: mac) else { return .unreachable }
-        guard await isTheOneKnown(client, to: store) else { return .anotherRecorder }
+        guard await RecorderDriver.reachWithNoScreen(client, sendPacket: packet(for: client, mac: mac)) else {
+            return .unreachable
+        }
+        guard await RecorderDriver.isTheOneKnown(client, to: store) else { return .anotherRecorder }
         return .sent(await PendingQueue.flush(client: client, store: store, now: now))
     }
 
-    /// Whether the recorder that has just answered is the one this phone's cache is of, or the first it has
-    /// heard from (`GuideStore.recognises`). The saved address may be answered by another: one the reader has
-    /// typed and not yet seen answer, or one the router has handed the address to. The screens take such a
-    /// recorder up (`RecorderDriver.attach`); with no screen nothing is taken up and nothing sent,
-    /// since the queue was made for the recorder known and the guide would go into a cache that is still its
-    /// own. Nor when it cannot be told: an owner that cannot be read, a device that did not describe itself.
-    private static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {
-        guard let answering = await client.info, let who = try? await store.recognises(answering) else {
-            return false
-        }
-        return who != .another
-    }
-
-    /// Answers, or answers after a magic packet. The MAC is what the app wrote down the last time it reached
-    /// the recorder; without one there is nothing to send and nothing to wait for.
-    ///
-    /// The packet goes before the first probe, as the screens send it (docs/porting.md): a recorder asleep is
-    /// on its way up while the probe waits, and one awake ignores it. That saves five seconds the Shortcuts
-    /// action can ill afford: how long the system lets it run in the background is not published. The wait is
-    /// the one the screens use (`Waking`), with the longer limit and the next packet timed from this one.
-    private static func reach(_ client: RecorderClient, mac: String?) async -> Bool {
+    /// The magic packet for the recorder the client asks, to the MAC the app wrote down the last time it
+    /// reached it, and whether one went out: without a MAC there is nothing to send and nothing to wait for.
+    /// It goes before the first probe (`RecorderDriver.reachWithNoScreen`), which saves five seconds the
+    /// Shortcuts action can ill afford: how long the system lets it run in the background is not published.
+    private static func packet(for client: RecorderClient, mac: String?) -> @Sendable () -> Bool {
         let host = client.host
-        let wake: @Sendable () -> Int = {
-            mac.map { WakeOnLan.wake($0, addresses: WakeOnLan.addresses(forRecorderAt: host)) } ?? 0
-        }
-        // Both are set as the packet goes, which is the first step.
-        var wentAt = Date()
-        var went = false
-        // The order is `Reach.run`'s, the one the screens follow. Unlike them, this waits for a recorder that
-        // answered the first ask with an error too -- one still starting up may answer anything, and nobody
-        // is watching the wait -- except at an address that is not one, where nothing could be asked. There
-        // is no screen to explain the local network permission on, and nowhere else is looked.
-        let outcome = await Reach.run(Reach.Steps(
-            sendPacket: {
-                wentAt = Date()
-                went = wake() > 0
-            },
-            probe: {
-                do {
-                    try await client.describe(timeout: RecorderClient.probeTimeout)
-                    return nil
-                } catch let error as any DeviceError {
-                    return error.failure
-                } catch {
-                    return .unexpected(String(describing: error))
-                }
-            },
-            wake: {
-                // No MAC, or not a packet out: nothing is coming up to wait for.
-                guard went else { return .silent }
-                let waited = await Waking.waitForAnswer(from: client, limit: Waking.backgroundLimit,
-                                                        packetSentAt: wentAt, resend: { _ = wake() })
-                return waited == .answered ? nil : .silent
-            }), wakesAfterRefusal: true)
-        return outcome == .answered
+        return { mac.map { WakeOnLan.wake($0, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 } ?? false }
     }
 }
