@@ -98,7 +98,9 @@ in the line that reads it. Nothing leaves the machine. So what the link does on 
 packet before the first ask, the wait for the local network permission, the search for a recorder the router
 has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
 test's own. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
-`TVReservationTests`, `TVDriverTests`).
+`TVReservationTests`, `TVDriverTests`). All of these hand the client a transport of their own; what
+`URLSession` itself does with an answer -- it sends a request again for a 401 that asks for a password -- is
+tried against a server on the loopback (`URLSessionTransportTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that

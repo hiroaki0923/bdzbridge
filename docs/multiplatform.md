@@ -45,21 +45,21 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-42 ファイル、7,116 行（空行とコメントを含み、`Package.swift` を除く）。テストは 7,389 行。
+42 ファイル、7,165 行（空行とコメントを含み、`Package.swift` を除く）。テストは 7,633 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,847 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
 | 非同期の段取り | 2,727 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver, ScalarClient, TVDriver, DemoTV |
-| OS に縛られるもの | 546 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
+| OS に縛られるもの | 595 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
-本当に OS に縛られるのは 546 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
+本当に OS に縛られるのは 595 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
 ものです。非同期と SQLite まで持てる仕組み（Swift そのもの、または Rust）なら、RecorderKit の 9 割を共有できます。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,876 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,878 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
 何を取るか）で、AppModel（9 ファイルで 2,293 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
