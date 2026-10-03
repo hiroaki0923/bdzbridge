@@ -125,6 +125,8 @@ struct TVRegisterSheet: View {
     private var tidied: String { RecorderAddress.tidy(host).host }
 
     private func next() async {
+        // A second tap before the button is drawn disabled would send the whole of it again.
+        guard !working else { return }
         working = true
         defer { working = false }
         message = nil
