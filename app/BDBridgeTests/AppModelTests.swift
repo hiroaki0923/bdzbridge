@@ -33,10 +33,10 @@ final class AppModelTests: XCTestCase {
         try await until("the first connect never asked the recorder") { await recorder.asked > 0 }
         let results = try await within(5, "search() waited for the connect") { await model.search("サンプル") }
         XCTAssertFalse(results.hits.isEmpty, "the search found nothing in the cached guide")
-        XCTAssertTrue(model.connecting, "the connect was over before the recorder had said anything")
+        XCTAssertTrue(isConnecting(model), "the connect was over before the recorder had said anything")
 
         await recorder.letGo()
-        try await until("the connect never ended") { !model.connecting }
+        try await untilTheConnectEnds(model)
         XCTAssertTrue(model.gaveUp)
     }
 
@@ -48,7 +48,7 @@ final class AppModelTests: XCTestCase {
         let model = bench.model(recorder: DemoRecorder())
 
         try await within(5, "start() did not return") { await model.start() }
-        try await until("the first connect never finished") { model.connected && !model.connecting }
+        try await until("the first connect never finished") { model.connected && !isConnecting(model) }
         XCTAssertFalse(model.reservations.isEmpty, "the connect did not read the reservations")
         expectFalse(try await within(5, "search() did not return") { await model.search("サンプル") }.hits.isEmpty)
         try await within(5, "loadReservations() did not return") { await model.loadReservations() }
@@ -86,7 +86,7 @@ final class AppModelTests: XCTestCase {
         try await bench.cacheAGuide()
         let model = bench.model(recorder: DemoRecorder())
         await model.start()
-        try await until("the first connect never finished") { model.connected && !model.connecting }
+        try await until("the first connect never finished") { model.connected && !isConnecting(model) }
 
         // The reservations tab loading when the recordings tab is opened for the first time, in that order: the
         // recordings begin while the reservations are still on their way, and the reservations, asked for
@@ -127,9 +127,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.offline)
         let askedBefore = await recorder.asked
 
-        let later = Date().addingTimeInterval(3600)
-        let found = await model.search("サンプル").hits.first { $0.program.start > later }
-        let program = try XCTUnwrap(found?.program, "the cached guide had nothing an hour or more ahead")
+        let program = try await aProgramme(model)
         let kept = await model.reserve(program, quality: "DR", repeating: "none")
 
         XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
@@ -157,7 +155,7 @@ final class AppModelTests: XCTestCase {
 
         model.wentToBackground()
         await model.returnedToForeground()
-        await model.networkChangedWhileOpen()
+        await lookAtTheNetwork(model)
         model.networkReported()
         await model.loadReservations()
         await model.loadTitles()
@@ -186,7 +184,7 @@ final class AppModelTests: XCTestCase {
         let recorder = RecorderAtHome()
         let model = bench.model(recorder: recorder)
         await model.start()
-        try await until("the first connect never finished") { model.connected && !model.connecting }
+        try await until("the first connect never finished") { model.connected && !isConnecting(model) }
 
         bench.network = ""
         await recorder.setReachable(false)
@@ -215,7 +213,7 @@ final class AppModelTests: XCTestCase {
         let recorder = RecorderAtHome()
         let model = bench.model(recorder: recorder)
         await model.start()
-        try await until("the first connect never finished") { model.connected && !model.connecting }
+        try await until("the first connect never finished") { model.connected && !isConnecting(model) }
 
         bench.network = ""
         await recorder.setReachable(false, holding: true)

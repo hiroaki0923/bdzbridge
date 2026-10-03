@@ -74,14 +74,6 @@ final class WhichRecorderTests: XCTestCase {
         try GuideStore(path: bench.guidePath)
     }
 
-    /// A programme from the cached guide that starts an hour or more from now: the first, or the one after
-    /// as many as `skipping`.
-    func aProgramme(_ model: AppModel, skipping: Int = 0) async throws -> GuideProgramRow {
-        let later = Date().addingTimeInterval(3600)
-        let found = await model.search("サンプル").hits.filter { $0.program.start > later }.dropFirst(skipping).first
-        return try XCTUnwrap(found?.program, "the cached guide had nothing more an hour or more ahead")
-    }
-
     /// Puts a reservation for it in the queue, as the app queues one away from home.
     func queueAReservation(_ bench: Bench, _ model: AppModel) async throws {
         let program = try await aProgramme(model)
@@ -145,7 +137,7 @@ final class WhichRecorderTests: XCTestCase {
     func untilTakenUp(_ model: AppModel, _ number: Int,
                               _ what: String = "the newcomer was never taken up") async throws {
         try await until(what) {
-            model.info?.udn == NamedRecorder.udn(number) && !model.connecting && model.busy == nil
+            model.info?.udn == NamedRecorder.udn(number) && !isConnecting(model) && model.busy == nil
         }
     }
 }
