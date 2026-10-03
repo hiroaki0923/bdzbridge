@@ -10,9 +10,12 @@
   `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
   model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). A television, once added in the
   settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
-  `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the app knows of the
-  recorder and of the link to it -- described, unreachable, given up on, being woken -- is `SessionState`,
-  which changes only by what happened to it; the screens read it through `AppModel`.
+  `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
+  its reservations -- is kept by that host and goes with its link; reading and deleting them are the driver's
+  steps, and `AppModelReservations` only puts the two devices' lists together for the screens and sends a
+  change or a delete to the device that holds the row. What the app knows of the recorder and of the link to
+  it -- described, unreachable, given up on, being woken -- is `SessionState`, which changes only by what
+  happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
@@ -95,7 +98,7 @@ in the line that reads it. Nothing leaves the machine. So what the link does on 
 packet before the first ask, the wait for the local network permission, the search for a recorder the router
 has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
 test's own. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
-`TVDriverTests`).
+`TVReservationTests`, `TVDriverTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
