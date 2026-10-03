@@ -1,5 +1,6 @@
 import Foundation
 import RecorderKit
+import SQLite3
 import XCTest
 @testable import BDBridge
 
@@ -217,6 +218,11 @@ actor NotARecorder: HTTPTransport {
 /// A request held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is
 /// asked who it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving
 /// another -- and answering everything else: there, and not saying which it is, until `comeFree()`.
+///
+/// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
+/// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
+/// busy, and `beAMomentBehind` has the list after its next delete be the one from before it. `heard` is
+/// everything it was asked, in the order it arrived.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -231,6 +237,15 @@ actor NamedRecorder: HTTPTransport {
     private var held: [CheckedContinuation<Void, Never>] = []
     private var busy = false
     private(set) var asked: [String: Int] = [:]
+    /// Everything it was asked, in the order it arrived, by SOAP action or by the file's name.
+    private(set) var heard: [String] = []
+    /// What it was told to answer, by kind (`answer`).
+    private var told: [String: (answer: Answer, times: Int, after: Int)] = [:]
+    /// Whether the list after its next delete of a reservation is to be an old one (`beAMomentBehind`), the
+    /// last list it gave, and the old one it is about to give.
+    private var behind = false
+    private var lastList: HTTPResponse?
+    private var staleList: HTTPResponse?
 
     init(_ last: Int) {
         udn = Self.udn(last)
@@ -248,6 +263,8 @@ actor NamedRecorder: HTTPTransport {
     func become(_ last: Int) {
         udn = Self.udn(last)
         recorder = DemoRecorder()
+        // The list it was behind with was the other recorder's. What a test told it with `answer` stays.
+        (behind, lastList, staleList) = (false, nil, nil)
     }
 
     /// The same recorder, no longer saying which it is.
@@ -285,10 +302,35 @@ actor NamedRecorder: HTTPTransport {
         busy = false
     }
 
+    /// Answers the next `times` requests of one kind -- a SOAP action, or a file by its name -- with `answer` in
+    /// place of the demo's, once it has let `skipping` more of that kind through. One script to a kind. A request
+    /// held and then let go meets it; one `goQuiet` took does not count. Counted in `asked` like any other.
+    func answer(_ what: String, with answer: Answer, times: Int = 1, after skipping: Int = 0) {
+        told[what] = (answer, times, skipping)
+    }
+
+    /// Busy with somebody else for one whole call of one kind: a 503 to the request and to both tries the client
+    /// makes after it, which is three in `asked`. Fewer than three is a call that goes through late.
+    func beBusy(with what: String, after skipping: Int = 0) {
+        answer(what, with: .status(503), times: 3, after: skipping)
+    }
+
+    /// A moment behind itself, once: the list it gives after the next reservation it deletes still has it.
+    /// The old list is the last one it gave, so it has to have given one: armed before any read, it does
+    /// nothing.
+    func beAMomentBehind() {
+        behind = true
+    }
+
     /// How often it has been asked for `what` -- a SOAP action, or a file by its name: since it was made, or
     /// since `before`, which is its `asked` at an earlier moment.
     func asked(_ what: String, since before: [String: Int] = [:]) -> Int {
         (asked[what] ?? 0) - (before[what] ?? 0)
+    }
+
+    /// What it has been asked since it had been asked `count` things (`heard.count` at an earlier moment).
+    func heard(since count: Int) -> [String] {
+        Array(heard.dropFirst(count))
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -296,6 +338,7 @@ actor NamedRecorder: HTTPTransport {
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
         let what = action ?? request.url.lastPathComponent
         asked[what, default: 0] += 1
+        heard.append(what)
         if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
         if quietOn == what {
             quietOn = nil
@@ -309,12 +352,73 @@ actor NamedRecorder: HTTPTransport {
                 throw RecorderError.transport("The request timed out.")
             }
         }
+        if var script = told[what] {
+            if script.after > 0 {
+                script.after -= 1
+                told[what] = script
+            } else {
+                script.times -= 1
+                told[what] = script.times > 0 ? script : nil
+                return script.answer.response
+            }
+        }
         if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
         if action == "X_GetPrivateIp" { return HTTPResponse(statusCode: 500) }
+        let list = "X_GetRecordScheduleList"
+        if what == list, let stale = staleList {
+            staleList = nil
+            return stale
+        }
         let response = try await recorder.send(request)
+        if what == list { lastList = response }
+        if what == "X_DeleteRecordSchedule", behind {
+            behind = false
+            staleList = lastList
+        }
         guard request.url.path == "/description.xml" else { return response }
         let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
         return HTTPResponse(statusCode: 200, body: Data(described.utf8))
+    }
+}
+
+extension NamedRecorder {
+    /// What it answers in place of the demo's answer, when a test has it do so (`answer`).
+    ///
+    /// Some of these a BDZ-FBT4100 has been seen to give (docs/xsrs-api.md, docs/porting.md): 804 to a change or
+    /// a delete of a reservation it no longer has, 820 to a recording it no longer has, 831 to a reservation
+    /// that follows a programme on a channel it cannot receive, 880 to playback in standby, a 503 while it is
+    /// busy with somebody else, a 500 for a guide file it has not built. The rest stand in for a recorder that
+    /// turns something down, or answers oddly, where none has been seen to: 402 to anything but a request of
+    /// the wrong shape -- to a read, above all -- a `Result` that is not XML, and the list a moment behind
+    /// (`beAMomentBehind`).
+    enum Answer: Sendable, Equatable {
+        /// A SOAP fault as a BDZ gives one: HTTP 500 with the UPnP error code in its body.
+        case fault(Int)
+        /// A status and nothing with it.
+        case status(Int)
+        /// HTTP 200 and this text as the `Result` of a SOAP answer, escaped as the recorder sends one.
+        case result(String)
+
+        /// The fault's body is the one the package's own tests use (`StubTransport.fault`), and the code in it
+        /// has nothing around it: it is compared as text. The `Result` is in the envelope the demo builds.
+        var response: HTTPResponse {
+            let open = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+                + "<s:Body>"
+            let close = "</s:Body></s:Envelope>"
+            switch self {
+            case .status(let status):
+                return HTTPResponse(statusCode: status)
+            case .fault(let code):
+                let fault = "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>"
+                    + "<UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>\(code)</errorCode></UPnPError>"
+                    + "</detail></s:Fault>"
+                return HTTPResponse(statusCode: 500, body: Data((open + fault + close).utf8))
+            case .result(let text):
+                let result = "<u:Response xmlns:u=\"\(Upnp.xsrsService)\"><Result>\(Soap.escape(text))</Result>"
+                    + "</u:Response>"
+                return HTTPResponse(statusCode: 200, body: Data((open + result + close).utf8))
+            }
+        }
     }
 }
 
@@ -376,6 +480,23 @@ actor HeldTelevision: HTTPTransport {
         let body = try? JSONSerialization.jsonObject(with: request.body ?? Data())
         return (body as? [String: Any])?["method"] as? String
     }
+}
+
+/// Another connection writing to the cache, until it lets go: a write of the app's waits behind it for as
+/// long as the busy timeout, and then fails.
+final class Writer {
+    private var connection: OpaquePointer?
+
+    init(to path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK)
+    }
+
+    func letGo() {
+        XCTAssertEqual(sqlite3_exec(connection, "ROLLBACK", nil, nil, nil), SQLITE_OK)
+    }
+
+    deinit { sqlite3_close(connection) }
 }
 
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
@@ -481,7 +602,114 @@ extension XCTestCase {
         let found = await model.search("サンプル").hits.filter { $0.program.start > later }.dropFirst(skipping).first
         return try XCTUnwrap(found?.program, "the cached guide had nothing more an hour or more ahead")
     }
+
+    /// `count` programmes of the cached guide, an hour or more ahead, that the recorder holds no reservation of
+    /// and none waits for: for a test that looks at whether one was made. (`aProgramme` can hand back one the demo
+    /// has reserved already.)
+    @MainActor
+    func programmesNotReserved(_ model: AppModel, _ count: Int) async throws -> [GuideProgramRow] {
+        let later = Date().addingTimeInterval(3600)
+        let free = await model.search("サンプル").hits.map(\.program).filter {
+            $0.start > later && model.reservation(for: $0) == nil && model.pending(for: $0) == nil
+        }
+        return try XCTUnwrap(free.count >= count ? Array(free.prefix(count)) : nil,
+                             "the cached guide had only \(free.count) programmes ahead that are not reserved")
+    }
+
+    /// The usual start of a gate: a bench, the first recorder at `Bench.host`, and a model started and connected
+    /// to it with nothing under way. `guide: false` leaves the cache empty, for a gate that needs no programme:
+    /// the first connect then asks for the four guide files, which the demo answers with none. `wakeable` saves
+    /// the MAC the recorder's UDN carries; the model sends no packet (`Surroundings.reachesTheLAN`).
+    @MainActor
+    func connectedHome(guide: Bool = true, wakeable: Bool = false) async throws
+        -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
+        let bench = try aBench()
+        if guide { try await bench.cacheAGuide() }
+        if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
+        let recorder = NamedRecorder(1)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        return (bench, recorder, model)
+    }
+
+    /// 再接続, as the reader asks for it once silence has lost the recorder. Over when the reads that follow a
+    /// connect are.
+    @MainActor
+    func reconnect(_ model: AppModel, file: StaticString = #filePath, line: UInt = #line) async {
+        await model.connect()
+        let why = model.problem(for: .recorder) ?? "no reason given"
+        XCTAssertTrue(model.connected, "the recorder did not come back: \(why)", file: file, line: line)
+    }
 }
+
+/// A client of the test's own asking `recorder`, with no pause before a 503 is sent again: the recorder's own
+/// screen, or a look at what the recorder really holds.
+@MainActor
+func aClient(of recorder: any HTTPTransport) -> RecorderClient {
+    RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0)
+}
+
+// MARK: - what the app says
+
+/// What the app says about the recorder, in the words the reader sees: literals, so that a sentence moved from
+/// one type to another is still the same sentence, and one changed by a character is caught.
+enum Said {
+    static let notConnected = "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
+    static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。再接続してから一覧で確かめてください。"
+    static let reservationMayHaveArrived = "予約の登録中にレコーダーの応答がなくなりました。"
+        + "届いている場合もあるため、送信待ちにはしていません。再接続してから予約一覧で確かめてください。"
+    static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
+        + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+        + "少し待ってから、もう一度お試しください。"
+    /// Written on the rows of the phone's queue, and counted by being equal to this.
+    static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
+        + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+    static func heldBack(_ count: Int) -> String {
+        "別のレコーダーに切り替わったため、送信待ちの予約 \(count) 件は送らずに残しています。予約タブから送り直せます"
+    }
+    static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、"
+        + "送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
+    static let gone = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+    static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+    static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+
+    // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
+    // about the first by its title, and how many more went that way. Here, and not in the tests that look at
+    // them, so that a rewording is one edit.
+    static func sent(_ title: String, andOthers others: Int = 0) -> String {
+        "送信待ちだった\(naming(title, others))を登録しました"
+    }
+    static func expired(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))は放送が終わっていたため、送らずに削除しました"
+    }
+    static func refused(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))はレコーダーが受け付けませんでした。理由は予約タブにあります"
+    }
+    static func deferred(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))は送れなかったため、次の機会にもう一度送ります"
+    }
+    static let interrupted = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
+    private static func naming(_ title: String, _ others: Int) -> String {
+        others == 0 ? "「\(title)」" : "「\(title)」ほか \(others) 件"
+    }
+
+    // The package's own, which do not move: by what they are called there.
+    static let noAnswer = RecorderError.transport("").explanation
+    static func fault(_ code: Int, _ action: String) -> String {
+        RecorderError.soap(action: action, status: 500, code: "\(code)", body: "").explanation
+    }
+    static func busy(_ action: String) -> String { RecorderError.busy(action: action).explanation }
+}
+
+/// A line an earlier operation left, for a test that looks at whether it was cleared or written over.
+let lineLeft = "前の操作が残した文"
+
+/// Leaves it on the recorder's line of what went wrong.
+@MainActor
+func leaveALine(on model: AppModel) { model.problem = lineLeft }
 
 // MARK: - what the tests do to the connection
 //

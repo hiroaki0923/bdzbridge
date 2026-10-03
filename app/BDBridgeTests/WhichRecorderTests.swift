@@ -124,7 +124,7 @@ final class WhichRecorderTests: XCTestCase {
     func expectHeld(_ model: AppModel, _ count: Int, _ message: String = "",
                             file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(model.pending.map(\.problem),
-                       Array(repeating: AppModel.heldForAnotherRecorder, count: count), message, file: file, line: line)
+                       Array(repeating: Said.heldForAnotherRecorder, count: count), message, file: file, line: line)
     }
 
     func expectTheStripSaysWhatIsHeld(_ model: AppModel, file: StaticString = #filePath, line: UInt = #line) {
