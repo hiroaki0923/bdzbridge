@@ -24,6 +24,9 @@ public struct DeviceSlot: RawRepresentable, Hashable, Sendable {
     }
 
     public static let recorder = DeviceSlot(rawValue: "recorder")
+    /// The household's television. The spelling will be written on what waits for it, as the recorder's is,
+    /// so it is not to change.
+    public static let tv = DeviceSlot(rawValue: "tv")
 }
 
 /// A device the guide can be fetched from, a broadcasting type at a time.

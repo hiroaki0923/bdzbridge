@@ -1,7 +1,10 @@
 import Foundation
 
-/// A recording schedule as the recorder reports it.
+/// A recording schedule as the recorder reports it, or as a television's row is read into the same terms
+/// (`TVScheduleRow.reservation`).
 public struct Reservation: Equatable, Sendable, Identifiable {
+    /// The device's own name for it, as read: what a change or a delete sends back, so never rewritten. Two
+    /// devices number for themselves, so it tells rows apart on one device only (see `listKey`).
     public var id: String
     public var title: String
     public var start: Date
@@ -20,11 +23,23 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     public var creator: String?
     /// ARIB content nibbles as level1 * 16 + level2.
     public var genreCode: Int?
+    /// The device that holds it. Whatever writes looks here first: a television's row sent to the recorder would
+    /// be found there by its channel and start (`current`), and the recorder's own reservation of that programme
+    /// changed or deleted in its place.
+    public var device: DeviceSlot = .recorder
+    /// The television's row this was read from, for a television's: what a delete sends back as it was read, and
+    /// what the reservation is found again by (`tvTarget`).
+    public var tvRow: TVScheduleRow?
 
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }
     public var qualityName: String? { Codes.quality(code: qualityCode) }
     public var repeatName: String? { Codes.repeatName(code: repeatCode) }
+
+    /// What tells the rows apart in a list that shows the reservations of more than one device. A recorder's is
+    /// its id as it stands, as it was while the recorder's were the only ones; any other device's carries the
+    /// device in front.
+    public var listKey: String { device == .recorder ? id : "\(device.rawValue)|\(id)" }
 
     /// An app on the network set this up: this one, or the official one.
     public var createdByApp: Bool { creator == "2200" }

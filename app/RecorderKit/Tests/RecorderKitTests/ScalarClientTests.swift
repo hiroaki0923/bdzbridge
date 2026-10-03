@@ -3,8 +3,8 @@ import XCTest
 @testable import RecorderKit
 
 /// A television's control API as the client speaks it: the envelope, the answers in their two depths, the
-/// errors, and the registration with its cookie. The answers are written here in the television's shapes with
-/// invented values: nothing in them comes from a real one.
+/// errors, the registration with its cookie, and its reservations read and deleted. The answers are written
+/// here in the television's shapes with invented values: nothing in them comes from a real one.
 final class ScalarClientTests: XCTestCase {
     private func ok(_ result: String, id: Int = 1) -> HTTPResponse {
         HTTPResponse(statusCode: 200, body: Data(#"{"result":\#(result),"id":\#(id)}"#.utf8))
@@ -67,6 +67,35 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertEqual(interface, TVInterface(productCategory: "tv", productName: "BRAVIA", modelName: "KJ-SAMPLE",
                                               interfaceVersion: "5.7.0"))
         XCTAssertEqual(mac, "f8:4e:17:00:00:02")
+    }
+
+    /// What is at an address, asked with nothing registered and nothing changed there: a television, in
+    /// standby or on, by its model; nothing, where nothing answers or the address is not one, which is sent
+    /// nothing; and something that is no television, by what it calls itself or by answering as none does.
+    func testWhatIsAtAnAddress() async {
+        let standby = DemoTV(), on = DemoTV(power: "active"), silent = DemoTV()
+        await silent.goSilent()
+        let recorder = StubTransport(always: ok(#"[{"status":"active","productCategory":"recorder"}]"#))
+        let stranger = StubTransport(always: HTTPResponse(statusCode: 404))
+        let cases: [(any HTTPTransport, String, TVPresence)] = [
+            (standby, Stub.host, .standby(model: DemoTV.model)), (on, Stub.host, .on(model: DemoTV.model)),
+            (silent, Stub.host, .nothing), (standby, "192.0.2.10:80", .nothing),
+            (recorder, Stub.host, .notATelevision), (stranger, Stub.host, .notATelevision),
+        ]
+        for (transport, host, expected) in cases {
+            let tv = ScalarClient(host: host, transport: transport, credentials: MemoryTVCredentials(Self.kept))
+            expectEqual(await tv.presence(), expected, "\(expected) at \(host)")
+        }
+        expectEqual(await standby.calls, ["getPowerStatus cookie=no pin=no",
+                                          "getInterfaceInformation cookie=no pin=no"])
+        expectEqual(await stranger.requests.count, 1, "asked on after an answer no television gives")
+
+        // Short, and the caller's to say: the reader is waiting at a sheet for it.
+        let asked = StubTransport(always: ok(#"[{"status":"active","productCategory":"tv","modelName":"KJ-SAMPLE"}]"#))
+        let tv = ScalarClient(host: Stub.host, transport: asked, credentials: MemoryTVCredentials())
+        _ = await tv.presence()
+        _ = await tv.presence(timeout: 2)
+        expectEqual(await asked.requests.map(\.timeout), [5, 5, 2, 2])
     }
 
     /// The method's own errors come as HTTP 200, and are read by code: only the codes seen from the methods the
@@ -264,6 +293,240 @@ final class ScalarClientTests: XCTestCase {
         }
         let once = await refusing.requests
         XCTAssertEqual(once.count, 1, "sent again with the same cookie")
+    }
+
+    // MARK: - reservations
+
+    private static let uri = "tv:isdbt?trip=65534.65533.1024&srvName=サンプルテレビ"
+    private static let kept = TVCredentials(clientID: "BDBridge:test", cookie: "kept")
+
+    /// What an operation failed as, for the rules; nil when it went through.
+    private func failure(of operation: () async throws -> Void) async -> DeviceFailure? {
+        do {
+            try await operation()
+            return nil
+        } catch {
+            return (error as? any DeviceError)?.failure ?? .unexpected(String(describing: error))
+        }
+    }
+
+    /// The list is asked for once, 130 rows from the first, with the cookie; and each row is kept as it was
+    /// written -- one that follows its programme, one made by its times, which has no `eventId`, and a reminder
+    /// to watch, which has no `quality` and starts a second early.
+    func testTheReservationsAreReadInOneRequest() async throws {
+        let transport = StubTransport(always: ok(#"""
+        [[{"id":"recording.31","type":"recording","uri":"\#(Self.uri)","title":"サンプル劇場",
+           "channelName":"サンプルテレビ","startDateTime":"2026-11-01T21:00:00+0900","durationSec":3600,
+           "repeatType":"w7","overlapStatus":"fullyOverlapped","recordingStatus":"notStarted","quality":"DR",
+           "eventId":"12345"},
+          {"id":"recording.30","type":"recording","uri":"\#(Self.uri)","title":"サンプル天気",
+           "channelName":"サンプルテレビ","startDateTime":"2026-11-02T06:30:00+0900","durationSec":900,
+           "repeatType":"1","overlapStatus":"notOverlapped","recordingStatus":"notStarted","quality":"DR"},
+          {"id":"reminder.22","type":"reminder","uri":"\#(Self.uri)","title":"サンプル劇場",
+           "channelName":"サンプルテレビ","startDateTime":"2026-11-01T20:59:59+0900","durationSec":3600,
+           "repeatType":"1","overlapStatus":"notOverlapped","recordingStatus":"notStarted","eventId":"12345"}]]
+        """#))
+        let (tv, _) = client(transport, Self.kept)
+
+        let rows = try await tv.schedules()
+
+        XCTAssertEqual(rows, [
+            TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                          startDateTime: "2026-11-01T21:00:00+0900", durationSec: 3600, title: "サンプル劇場",
+                          channelName: "サンプルテレビ", repeatType: "w7", overlapStatus: "fullyOverlapped",
+                          recordingStatus: "notStarted", quality: "DR", eventId: "12345"),
+            TVScheduleRow(id: "recording.30", type: "recording", uri: Self.uri,
+                          startDateTime: "2026-11-02T06:30:00+0900", durationSec: 900, title: "サンプル天気",
+                          channelName: "サンプルテレビ", repeatType: "1", overlapStatus: "notOverlapped",
+                          recordingStatus: "notStarted", quality: "DR"),
+            TVScheduleRow(id: "reminder.22", type: "reminder", uri: Self.uri,
+                          startDateTime: "2026-11-01T20:59:59+0900", durationSec: 3600, title: "サンプル劇場",
+                          channelName: "サンプルテレビ", repeatType: "1", overlapStatus: "notOverlapped",
+                          recordingStatus: "notStarted", eventId: "12345"),
+        ])
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, ["/sony/recording"], "read a second page, or another service")
+        XCTAssertEqual(sent[0].headers["Cookie"], "auth=kept")
+        let body = try json(sent[0])
+        XCTAssertEqual(body["method"] as? String, "getScheduleList")
+        XCTAssertEqual(body["version"] as? String, "1.1")
+        XCTAssertEqual(body["params"] as? NSArray, [["stIdx": 0, "cnt": 130]] as NSArray)
+    }
+
+    /// A row without one of the five fields every row has, or with a start that is no time, is left out and
+    /// the rest of the list is read; an empty list is one; and an answer that is no list of rows is not taken
+    /// for a television with nothing reserved.
+    func testARowThatCannotBeReadIsLeftOut() async throws {
+        let whole: [String: Any] = ["id": "recording.31", "type": "recording", "uri": Self.uri,
+                                    "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 3600]
+        var rows: [Any] = whole.keys.sorted().map { field in whole.filter { $0.key != field } }
+        rows.append(whole.merging(["startDateTime": "あした"]) { $1 })
+        rows.append(7)
+        rows.append(whole)
+        let answer = HTTPResponse(statusCode: 200,
+                                  body: try JSONSerialization.data(withJSONObject: ["result": [rows], "id": 1]))
+        let (tv, _) = client(StubTransport(always: answer), Self.kept)
+
+        let read = try await tv.schedules()
+
+        XCTAssertEqual(rows.count, 8)
+        XCTAssertEqual(read, [TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                                            startDateTime: "2026-11-01T21:00:00+0900", durationSec: 3600)])
+
+        let (empty, _) = client(StubTransport(always: ok("[[]]")), Self.kept)
+        let none = try await empty.schedules()
+        XCTAssertEqual(none, [])
+        for shape in ["[]", #"[{"id":"recording.31"}]"#, #"{"rows":[]}"#] {
+            let (other, _) = client(StubTransport(always: ok(shape)), Self.kept)
+            do {
+                _ = try await other.schedules()
+                XCTFail("\(shape) was read as a list")
+            } catch let error as ScalarError {
+                XCTAssertEqual(error, .unreadable(method: "getScheduleList"))
+            }
+        }
+    }
+
+    /// A delete sends the row back as it was read, in a list of its own inside the parameters: the six fields
+    /// and no others, the start as the television wrote it, the title in the television's form whatever is in
+    /// it -- a character outside the BMP, an ideographic space, a slash, a quotation mark -- and not escaped
+    /// into ASCII. A row that came with no title sends an empty one.
+    func testADeleteSendsTheRowBackAsItWasRead() async throws {
+        let title = "\u{1F211}サンプル劇場\u{3000}第５話/前編 \"夜\""
+        let listed: [String: Any] = [
+            "id": "recording.31", "type": "recording", "uri": Self.uri, "title": title, "channelName": "サンプルテレビ",
+            "startDateTime": "2026-11-01T20:59:59+0900", "durationSec": 3541, "repeatType": "1",
+            "overlapStatus": "notOverlapped", "recordingStatus": "notStarted", "quality": "DR", "eventId": "12345",
+        ]
+        let list = try JSONSerialization.data(withJSONObject: ["result": [[listed]], "id": 1])
+        let transport = StubTransport { _, index in
+            HTTPResponse(statusCode: 200, body: index == 0 ? list : Data(#"{"result":[],"id":2}"#.utf8))
+        }
+        let (tv, _) = client(transport, Self.kept)
+
+        let row = try await tv.schedules()[0]
+        try await tv.deleteSchedule(row)
+        var untitled = row
+        untitled.title = nil
+        try await tv.deleteSchedule(untitled)
+
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, Array(repeating: "/sony/recording", count: 3))
+        XCTAssertEqual(sent[1].headers["Cookie"], "auth=kept")
+        let body = try json(sent[1])
+        XCTAssertEqual(body["method"] as? String, "deleteSchedule")
+        XCTAssertEqual(body["version"] as? String, "1.1")
+        var expected: [String: Any] = ["id": "recording.31", "startDateTime": "2026-11-01T20:59:59+0900",
+                                       "title": title, "durationSec": 3541, "type": "recording", "uri": Self.uri]
+        XCTAssertEqual(body["params"] as? NSArray, [[expected]] as NSArray)
+        expectTrue(await transport.bodies[1].contains("\u{1F211}サンプル劇場\u{3000}第５話/前編"), "escaped")
+        expected["title"] = ""
+        XCTAssertEqual(try json(sent[2])["params"] as? NSArray, [[expected]] as NSArray)
+    }
+
+    /// The start goes back as the string that was read, and is not written again from the time it names: here
+    /// one spelled with a colon in its offset, as the television has not been seen to spell one.
+    func testADeleteSendsTheStartAsItWasSpelled() async throws {
+        let start = "2026-11-01T21:00:00+09:00"
+        let list = ok(#"""
+        [[{"id":"recording.34","type":"recording","uri":"\#(Self.uri)","startDateTime":"\#(start)","durationSec":1800}]]
+        """#)
+        let done = ok("[]")
+        let transport = StubTransport { _, index in index == 0 ? list : done }
+        let (tv, _) = client(transport, Self.kept)
+
+        let row = try await tv.schedules()[0]
+        try await tv.deleteSchedule(row)
+
+        XCTAssertEqual(row.reservation()?.start, Date(timeIntervalSince1970: 1_793_534_400))
+        let params = try json(await transport.requests[1])["params"] as? [[[String: Any]]]
+        XCTAssertEqual(params?.first?.first?["startDateTime"] as? String, start)
+    }
+
+    /// An answer of 130 rows, all that was asked for, is not read on from: one request, as for any other.
+    func testAFullAnswerIsNotReadOnFrom() async throws {
+        let rows: [[String: Any]] = (100..<230).map { number in
+            ["id": "recording.\(number)", "type": "recording", "uri": Self.uri,
+             "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 1800]
+        }
+        let answer = HTTPResponse(statusCode: 200,
+                                  body: try JSONSerialization.data(withJSONObject: ["result": [rows], "id": 1]))
+        let transport = StubTransport(always: answer)
+        let (tv, _) = client(transport, Self.kept)
+
+        let read = try await tv.schedules()
+
+        XCTAssertEqual(read.map(\.id), (100..<230).map { "recording.\($0)" })
+        expectEqual(await transport.requests.count, 1)
+    }
+
+    /// The same against the invented television, which holds what it is given: the rows put on it are read
+    /// back in its order, a reminder among them; a delete takes one off; the same delete again, and a row sent
+    /// with another title, are answered as a row it does not have; and a cookie it does not know is refused,
+    /// for the list and for a delete.
+    func testReadingAndDeletingOnTheInventedTelevision() async throws {
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let followed = DemoTV.Schedule(id: "recording.24", start: start, eventId: 12345)
+        let weekly = DemoTV.Schedule(id: "recording.105", scheme: "isdbbs", serviceID: 2048, station: "サンプルBS",
+                                     title: "サンプル音楽館", start: start.addingTimeInterval(3600), repeatType: "w7")
+        let reminder = DemoTV.Schedule(id: "reminder.23", type: "reminder", start: start.addingTimeInterval(-1),
+                                       quality: nil, eventId: 12345)
+        await television.put([followed, reminder, weekly])
+        let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials(Self.kept))
+
+        let rows = try await tv.schedules()
+        XCTAssertEqual(rows, [weekly.row, followed.row, reminder.row])
+
+        try await tv.deleteSchedule(rows[1])
+        expectEqual(await television.schedules, [reminder, weekly])
+        expectEqual(await failure { try await tv.deleteSchedule(rows[1]) }, .unknownItem)
+        var retitled = rows[0]
+        retitled.title = "サンプル討論"
+        expectEqual(await failure { try await tv.deleteSchedule(retitled) }, .unknownItem)
+
+        let stale = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "stale"))
+        let stranger = ScalarClient(host: Stub.host, transport: television, credentials: stale)
+        expectEqual(await failure { _ = try await stranger.schedules() }, .needsPairing)
+        expectEqual(await failure { try await stranger.deleteSchedule(rows[0]) }, .needsPairing)
+        expectEqual(await television.schedules, [reminder, weekly])
+    }
+
+    /// The invented television takes a delete only for the row as it holds it. One that differs in any of the
+    /// six fields is answered as a row it does not have, and the row stays: the id among them, a start that
+    /// names the same time in another spelling, and a title that is the same text in other scalars. A reminder
+    /// it holds is listed without a mode, whatever it was made with.
+    func testTheInventedTelevisionTakesOnlyTheRowAsItHoldsIt() async throws {
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        let held = DemoTV.Schedule(id: "recording.24", start: Date(timeIntervalSince1970: 1_790_000_000),
+                                   eventId: 12345)
+        await television.put([held])
+        let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials(Self.kept))
+        let decomposed = "サンフ\u{309A}ル番組"
+        XCTAssertEqual(decomposed, held.title, "the same text to a comparison of strings")
+        let changes: [(String, (inout TVScheduleRow) -> Void)] = [
+            ("id", { $0.id = "recording.25" }),
+            ("startDateTime", { $0.startDateTime = String($0.startDateTime.dropLast(5)) + "+09:00" }),
+            ("title", { $0.title = decomposed }),
+            ("durationSec", { $0.durationSec += 1 }),
+            ("type", { $0.type = "reminder" }),
+            ("uri", { $0.uri += "2" }),
+        ]
+        for (field, change) in changes {
+            var row = held.row
+            change(&row)
+            expectEqual(await failure { try await tv.deleteSchedule(row) }, .unknownItem, field)
+            expectEqual(await television.schedules, [held], field)
+        }
+        try await tv.deleteSchedule(held.row)
+        expectEqual(await television.schedules, [])
+
+        let reminder = DemoTV.Schedule(id: "reminder.23", type: "reminder", start: held.start, quality: "DR")
+        await television.put([reminder])
+        expectEqual(try await tv.schedules().map(\.quality), [nil])
+        XCTAssertNil(reminder.row.quality)
     }
 
     func testTheCookieIsReadFromItsHeader() {

@@ -81,6 +81,18 @@ final class XsrsVectorTests: XCTestCase {
         XCTAssertEqual(reservation.genreCode, expected.int("genre_code"))
     }
 
+    /// A reservation read from the recorder is the recorder's: no row of a television's comes with it, and what
+    /// tells it apart in a list of both devices is its id as it stands.
+    func testAReservationReadFromTheRecorderIsTheRecorders() throws {
+        let vector = try Vectors.load("xsrs.json").dictionary("parse_reservation")
+        let reservation = try XCTUnwrap(XsrsParse.reservation(try XmlNode.parse(vector.string("item"))))
+
+        XCTAssertEqual(reservation.device, .recorder)
+        XCTAssertNil(reservation.tvRow)
+        XCTAssertFalse(reservation.id.isEmpty)
+        XCTAssertEqual(reservation.listKey, reservation.id)
+    }
+
     func testTitleParsingMatchesTheVectors() throws {
         let cases = try Vectors.load("xsrs.json").dictionaries("parse_title")
         XCTAssertFalse(cases.isEmpty)

@@ -47,6 +47,15 @@ final class LinkWorld: LinkHost {
 
     func count(_ prefix: String) -> Int { events.filter { $0.hasPrefix(prefix) }.count }
 
+    /// The line on screen for what is under way, or nil when nothing is.
+    var line: String? { lines.current }
+    /// What `sayNotConnected` says, as each of the app's hosts has a sentence of its own for it.
+    static let notConnected = "not connected"
+
+    /// What the host does once a connect has reached the device, inside that connect: a read, for a test of one
+    /// asked for from there.
+    var onReached: (@MainActor () async -> Void)?
+
     func beginActivity(_ text: String) -> Activities.Token { lines.begin(text) }
     func updateActivity(_ token: Activities.Token, to text: String) { lines.update(token, to: text) }
     func endActivity(_ token: Activities.Token) { lines.end(token) }
@@ -66,9 +75,12 @@ final class LinkWorld: LinkHost {
     func cacheMadeOver() async {}
     func cacheCouldNotBeMadeOver() {}
     func sendWhatWaits() async { events.append("send what waits") }
-    func reached() async { events.append("reached") }
+    func reached() async {
+        events.append("reached")
+        await onReached?()
+    }
     func anotherAnsweredTheCheck() { events.append("another device on the check") }
-    func sayNotConnected() {}
+    func sayNotConnected() { problem = Self.notConnected }
     func waitForPermission(at host: String) { waitingAt = host }
     func stopWaitingForPermission() { waitingAt = nil }
 }
