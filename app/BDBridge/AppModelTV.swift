@@ -14,14 +14,16 @@ extension AppModel {
     /// What the television is listed as among the devices registered with it.
     static let tvNickname = "BD Bridge"
 
-    /// Makes the television's link from what is saved, when a television is saved and the demo is off. Connects
-    /// nothing.
+    /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
+    /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
+    /// Connects nothing.
     func makeTVLink() {
         guard tv == nil, !demo, let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return }
         let owner = TVHost(model: self)
-        let link = DeviceLink(host: host, session: SessionState(mac: nil),
-                              driver: TVDriver(credentials: surroundings.tvCredentials, nickname: Self.tvNickname),
-                              environment: tvLinkEnvironment())
+        let driver = TVDriver(credentials: surroundings.tvCredentials, nickname: Self.tvNickname,
+                              inFront: { [weak self] in self.map { !$0.inBackground } ?? false })
+        let link = DeviceLink(host: host, session: SessionState(device: defaults.string(forKey: DefaultsKey.tvMac)),
+                              driver: driver, environment: tvLinkEnvironment())
         link.owner = owner
         owner.link = link
         tvHost = owner
@@ -90,7 +92,8 @@ extension AppModel {
 
     /// Registers with the television at `host`: with nothing at first, when it answers by putting its PIN on its
     /// screen, and then with the PIN the reader read there. The client id is made once and kept, so that the PIN
-    /// goes with the request that asked for it. Registered, the television is saved and connected to.
+    /// goes with the request that asked for it. Registered, the television is saved and connected to on a link
+    /// made afresh: an attach still out on the last one, with the last cookie, ends there.
     func registerTV(at host: String, pin: String?) async -> TVRegistered {
         let credentials = surroundings.tvCredentials
         let clientID = credentials.load()?.clientID ?? tvClientID ?? "BDBridge:\(UUID().uuidString)"
@@ -103,12 +106,13 @@ extension AppModel {
                 return .pinNeeded
             case .registered:
                 tvClientID = nil
-                // Another television at the address than the one saved is this one from now on.
-                if host != defaults.string(forKey: DefaultsKey.tvHost) || mac != defaults.string(forKey: DefaultsKey.tvMac) {
-                    dropTVLink()
-                }
+                dropTVLink()
                 defaults.set(host, forKey: DefaultsKey.tvHost)
-                if let mac { defaults.set(mac, forKey: DefaultsKey.tvMac) }
+                if let mac {
+                    defaults.set(mac, forKey: DefaultsKey.tvMac)
+                } else {
+                    defaults.removeObject(forKey: DefaultsKey.tvMac)
+                }
                 makeTVLink()
                 await tv?.connect()
                 return .registered

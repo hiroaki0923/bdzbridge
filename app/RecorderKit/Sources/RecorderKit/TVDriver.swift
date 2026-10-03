@@ -27,10 +27,14 @@ public final class TVDriver: LinkDriver {
     private let credentials: any TVCredentialStore
     /// What the television lists the app as, among the devices registered with it.
     private let nickname: String
+    /// Whether the app is in front, the only place a renewal is asked for: what a television that no longer
+    /// lists the app does with one is not known, and a screen lit by it should have the reader there to see why.
+    private let inFront: @MainActor () -> Bool
 
-    public init(credentials: any TVCredentialStore, nickname: String) {
+    public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool) {
         self.credentials = credentials
         self.nickname = nickname
+        self.inFront = inFront
     }
 
     public var probeTimeout: TimeInterval { 5 }
@@ -76,11 +80,9 @@ public final class TVDriver: LinkDriver {
             }
             facts.storage = try await client.storage()
             facts.needsPairing = false
-            if credentials.load()?.renewalDue(now: Date()) == true, let clientID = credentials.load()?.clientID {
+            if inFront(), credentials.load()?.renewalDue(now: Date()) == true {
                 // A renewal that fails costs nothing: the cookie in hand is still good.
-                _ = try await RecorderError.silenceOnly {
-                    try await client.register(clientID: clientID, nickname: nickname, pin: nil)
-                }
+                _ = try await RecorderError.silenceOnly { try await client.renew(nickname: nickname) }
             }
             link.session.answered()
             owner?.problem = nil

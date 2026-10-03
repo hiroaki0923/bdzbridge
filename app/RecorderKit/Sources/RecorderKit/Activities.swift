@@ -28,6 +28,12 @@ public struct Activities: Sendable, Equatable {
 
     public var isEmpty: Bool { lines.isEmpty }
 
+    /// Whether anything is under way besides the lines `tokens` were issued for: one device's work, with
+    /// another's lines left out.
+    public func any(besides tokens: Set<Token>) -> Bool {
+        lines.contains { !tokens.contains($0.token) }
+    }
+
     /// Puts up a line and returns the token that changes it and takes it away.
     public mutating func begin(_ text: String) -> Token {
         issued += 1

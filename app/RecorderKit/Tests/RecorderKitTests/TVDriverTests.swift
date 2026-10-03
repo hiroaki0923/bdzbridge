@@ -6,12 +6,15 @@ import XCTest
 /// registration when it has none that works, and given a new cookie when the one in hand is past half its life.
 @MainActor
 final class TVDriverTests: XCTestCase {
-    /// A link to `television` at `Stub.host`, its driver keeping `credentials`.
-    private func makeLink(_ television: DemoTV, _ credentials: MemoryTVCredentials) -> (DeviceLink, TVDriver, LinkWorld) {
+    /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
+    /// launch and the app in front unless `inFront` is false.
+    private func makeLink(_ television: DemoTV, _ credentials: MemoryTVCredentials, saved: String? = nil,
+                          inFront: Bool = true) -> (DeviceLink, TVDriver, LinkWorld) {
         let world = LinkWorld()
         world.devices[Stub.host] = television
-        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge")
-        let link = DeviceLink(host: Stub.host, session: SessionState(), driver: driver, environment: world.environment)
+        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { inFront })
+        let link = DeviceLink(host: Stub.host, session: SessionState(device: saved), driver: driver,
+                              environment: world.environment)
         link.owner = world
         return (link, driver, world)
     }
@@ -77,12 +80,18 @@ final class TVDriverTests: XCTestCase {
     }
 
     /// A cookie past half its life is renewed by a connect, after the read that shows the registration is
-    /// there, with nothing on the request: the cookie in hand stays good, and the new one is kept.
+    /// there, with nothing on the request: the cookie in hand stays good, and the new one is kept. Only with the
+    /// app in front.
     func testACookiePastHalfItsLifeIsRenewedWithNothingOnIt() async throws {
         let television = DemoTV()
         let credentials = await registered(with: television, daysAgo: 8)
-        let (link, _, _) = makeLink(television, credentials)
+        let (behind, _, _) = makeLink(television, credentials, inFront: false)
+        await behind.connect()
+        XCTAssertTrue(behind.session.connected)
+        let asked = await television.calls
+        XCTAssertFalse(asked.contains { $0.hasPrefix("actRegister") }, "renewed with the app behind")
 
+        let (link, _, _) = makeLink(television, credentials)
         await link.connect()
 
         XCTAssertTrue(link.session.connected)
@@ -94,7 +103,8 @@ final class TVDriverTests: XCTestCase {
     }
 
     /// Another television at the address is not taken up: its cookie would not do, and what waits was made for
-    /// the one registered. Nothing that needs a registration is sent to it.
+    /// the one registered. Nothing that needs a registration is sent to it, and its MAC is not written down --
+    /// after the one registered has answered, and from the first answer after a launch, by the MAC saved.
     func testAnotherTelevisionAtTheAddressIsNotTakenUp() async {
         let television = DemoTV()
         let (link, _, world) = makeLink(television, await registered(with: television))
@@ -109,6 +119,16 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(world.problem, TVDriver.anotherAnswered)
         let after = await television.calls.dropFirst(before)
         XCTAssertEqual(Array(after), ["getSystemSupportedFunction cookie=no pin=no"])
+
+        let (launched, _, fresh) = makeLink(television, await registered(with: television), saved: DemoTV.mac)
+        let beforeLaunch = await television.calls.count
+        await launched.connect()
+
+        XCTAssertFalse(launched.session.connected)
+        XCTAssertEqual(fresh.problem, TVDriver.anotherAnswered)
+        XCTAssertFalse(fresh.events.contains { $0.hasPrefix("MAC") }, "the other television's MAC was written down")
+        let afterLaunch = await television.calls.dropFirst(beforeLaunch)
+        XCTAssertEqual(Array(afterLaunch), ["getSystemSupportedFunction cookie=no pin=no"])
     }
 
     /// Silence is given up on at once: a television is not woken, nor looked for elsewhere.

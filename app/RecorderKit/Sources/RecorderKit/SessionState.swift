@@ -55,9 +55,12 @@ public final class SessionState {
     /// (`forgotTheDevice`). Nil before any has, and for a device that gives no UDN.
     public private(set) var device: String?
 
-    /// `mac` is what was saved, as it was saved.
-    public init(mac: String? = nil) {
+    /// `mac` is what was saved, as it was saved. `device` is which device was saved, for one that has nothing
+    /// else to be known by from one launch to the next -- a television, by its MAC; a recorder is known by its
+    /// cache's owner -- so that another at its address is another from the first answer.
+    public init(mac: String? = nil, device: String? = nil) {
         self.mac = mac
+        self.device = device
     }
 
     public var connected: Bool { info != nil || named }

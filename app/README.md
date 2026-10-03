@@ -10,7 +10,7 @@
   `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
   model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). A television, once added in the
   settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
-  `AppModelTV`), so that neither device's silence or trouble is the other's. What the app knows of the
+  `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the app knows of the
   recorder and of the link to it -- described, unreachable, given up on, being woken -- is `SessionState`,
   which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).

@@ -160,6 +160,27 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertEqual(client["level"] as? String, "private")
     }
 
+    /// A renewal is a registration with no PIN for the client id in the store, and its cookie is kept only while
+    /// the store still holds that registration: one taken away while the request was out stays away.
+    func testARenewalIsKeptOnlyWhileTheRegistrationIs() async throws {
+        let renewed = HTTPResponse(statusCode: 200, body: Data(#"{"result":[],"id":1}"#.utf8),
+                                   headers: ["Set-Cookie": "auth=renewed; Path=/sony/; Max-Age=1209600"])
+        let (tv, store) = client(StubTransport(always: renewed), TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
+        let kept = try await tv.renew(nickname: "BD Bridge")
+        XCTAssertTrue(kept)
+        XCTAssertEqual(store.load()?.clientID, "BDBridge:test")
+        XCTAssertEqual(store.load()?.cookie, "renewed")
+
+        let taken = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
+        let away = ScalarClient(host: Stub.host, transport: StubTransport { _, _ in
+            taken.remove()
+            return renewed
+        }, credentials: taken)
+        let keptAfterwards = try await away.renew(nickname: "BD Bridge")
+        XCTAssertFalse(keptAfterwards)
+        XCTAssertNil(taken.load(), "a registration taken away while the renewal was out came back")
+    }
+
     /// A read that needs the registration sends the cookie kept, and sends nothing without one.
     func testWhatNeedsTheRegistrationSendsTheCookie() async throws {
         let transport = StubTransport(always: ok(#"[[{"uri":"usb:recStorage","mounted":"mounted","wholeCapacityMB":1000,"freeCapacityMB":400}]]"#))

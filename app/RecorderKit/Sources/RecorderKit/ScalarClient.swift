@@ -192,6 +192,27 @@ public actor ScalarClient {
     /// cookie included -- a renewal carrying one ends it before its answer arrives, and a request already out
     /// with it would then be refused as if nothing had been registered.
     public func register(clientID: String, nickname: String, pin: String?) async throws -> Registration {
+        guard let cookie = try await actRegister(clientID: clientID, nickname: nickname, pin: pin) else {
+            return .pinNeeded
+        }
+        keep(cookie, for: clientID)
+        return .registered
+    }
+
+    /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
+    /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept.
+    @discardableResult
+    public func renew(nickname: String) async throws -> Bool {
+        guard let clientID = credentials.load()?.clientID,
+              let cookie = try await actRegister(clientID: clientID, nickname: nickname, pin: nil),
+              credentials.load()?.clientID == clientID else { return false }
+        keep(cookie, for: clientID)
+        return true
+    }
+
+    /// The request itself: the cookie it was answered with, or nil when the television asked for its PIN.
+    private func actRegister(clientID: String, nickname: String,
+                             pin: String?) async throws -> (value: String, maxAge: TimeInterval?)? {
         var headers = ["Content-Type": "application/json"]
         if let pin {
             headers["Authorization"] = "Basic " + Data(":\(pin)".utf8).base64EncodedString()
@@ -200,14 +221,17 @@ public actor ScalarClient {
                              [["value": "no", "function": "WOL"]]]
         let response = try await send("accessControl", "actRegister", version: "1.0", params: params,
                                       headers: headers, timeout: nil)
-        if response.statusCode == 401 { return .pinNeeded }
+        if response.statusCode == 401 { return nil }
         _ = try Self.result(of: response, method: "actRegister", version: "1.0")
         guard let cookie = response.header("Set-Cookie").flatMap(Self.authCookie) else {
             throw ScalarError.unreadable(method: "actRegister")
         }
+        return cookie
+    }
+
+    private func keep(_ cookie: (value: String, maxAge: TimeInterval?), for clientID: String) {
         credentials.save(TVCredentials(clientID: clientID, cookie: cookie.value, cookieReceived: Date(),
                                        cookieMaxAge: cookie.maxAge))
-        return .registered
     }
 
     /// The `auth` cookie of a `Set-Cookie` value, and its Max-Age. The Expires beside it is in a form of the

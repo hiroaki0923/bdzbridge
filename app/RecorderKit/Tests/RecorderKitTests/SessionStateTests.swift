@@ -437,7 +437,7 @@ final class SessionStateTests: XCTestCase {
     }
 
     /// Measured as a UDN is: case does not matter, an empty identity is the one known, and another one takes away
-    /// what the last said of itself.
+    /// what the last said of itself. One saved at the last launch is known before anything has answered.
     func testAnIdentityIsRecognisedAsAUDNIs() {
         let session = SessionState()
         session.identified(as: "f8:4e:17:00:00:02")
@@ -447,6 +447,11 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(session.identified(as: "f8:4e:17:00:00:03"), .another)
         XCTAssertNil(session.storage)
         XCTAssertEqual(session.device, "f8:4e:17:00:00:03")
+
+        let launched = SessionState(device: "f8:4e:17:00:00:02")
+        XCTAssertFalse(launched.connected)
+        XCTAssertEqual(launched.recognises(identity: "f8:4e:17:00:00:03"), .another)
+        XCTAssertEqual(launched.recognises(identity: "f8:4e:17:00:00:02"), .same)
     }
 
     /// Something else answering at the address is not connected, and not silence either.
