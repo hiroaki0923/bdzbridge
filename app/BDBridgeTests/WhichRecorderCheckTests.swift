@@ -16,7 +16,7 @@ extension WhichRecorderTests {
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
-        XCTAssertEqual(model.problem, AppModel.anotherAnswered, "nothing says why what was asked for was not sent")
+        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why what was asked for was not sent")
         try await untilTakenUp(model, 2)
         // The connect has taken the failure line away, and a sheet the reader asked from was closed with
         // its alert: the strip is what still says it.
@@ -39,7 +39,7 @@ extension WhichRecorderTests {
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
-        XCTAssertEqual(model.problem, AppModel.anotherAnswered, "nothing says why what was asked for was not sent")
+        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why what was asked for was not sent")
         try await untilTakenUp(model, 2)
         XCTAssertTrue(model.anotherTookOver, "nothing is left saying why what was asked for was not done")
         XCTAssertFalse(model.reservations.isEmpty, "the newcomer's reservations were never read")
@@ -68,7 +68,7 @@ extension WhichRecorderTests {
         let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) { await model.delete(title) }
 
         XCTAssertFalse(deleted)
-        XCTAssertEqual(model.problem, AppModel.anotherAnswered, "nothing says why it was not deleted")
+        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why it was not deleted")
         try await untilTakenUp(model, 2, "the newcomer was never taken up")
         expectEqual(await recorder.asked("X_DeleteTitle"), 0,
                     "the second recorder was asked to delete its recording of that number")

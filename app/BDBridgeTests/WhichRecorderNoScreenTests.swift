@@ -38,7 +38,7 @@ extension WhichRecorderTests {
         let sending = await BackgroundWork.sendWaiting(client: client(stranger), store: cache, mac: nil)
 
         XCTAssertEqual(sending, .anotherRecorder)
-        XCTAssertEqual(SendWaitingIntent.saying(sending), Notify.anotherRecorderAnswered)
+        XCTAssertEqual(SendWaitingIntent.saying(sending), Said.anotherAnsweredWithNoScreen)
         expectEqual(await stranger.asked("X_CreateRecordSchedule"), 0)
         let left = try await cache.pendingReservations()
         XCTAssertEqual(left.map(\.problem), [nil], "left as it was, for the recorder it was made for")

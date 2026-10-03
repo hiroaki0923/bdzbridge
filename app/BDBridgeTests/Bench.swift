@@ -1,5 +1,6 @@
 import Foundation
 import RecorderKit
+import SQLite3
 import XCTest
 @testable import BDBridge
 
@@ -479,6 +480,23 @@ actor HeldTelevision: HTTPTransport {
     }
 }
 
+/// Another connection writing to the cache, until it lets go: a write of the app's waits behind it for as
+/// long as the busy timeout, and then fails.
+final class Writer {
+    private var connection: OpaquePointer?
+
+    init(to path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK)
+    }
+
+    func letGo() {
+        XCTAssertEqual(sqlite3_exec(connection, "ROLLBACK", nil, nil, nil), SQLITE_OK)
+    }
+
+    deinit { sqlite3_close(connection) }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 
@@ -582,6 +600,36 @@ extension XCTestCase {
         let found = await model.search("サンプル").hits.filter { $0.program.start > later }.dropFirst(skipping).first
         return try XCTUnwrap(found?.program, "the cached guide had nothing more an hour or more ahead")
     }
+
+    /// `count` programmes of the cached guide, an hour or more ahead, that the recorder holds no reservation of
+    /// and none waits for: for a test that looks at whether one was made. (`aProgramme` can hand back one the demo
+    /// has reserved already.)
+    @MainActor
+    func programmesNotReserved(_ model: AppModel, _ count: Int) async throws -> [GuideProgramRow] {
+        let later = Date().addingTimeInterval(3600)
+        let free = await model.search("サンプル").hits.map(\.program).filter {
+            $0.start > later && model.reservation(for: $0) == nil && model.pending(for: $0) == nil
+        }
+        return try XCTUnwrap(free.count >= count ? Array(free.prefix(count)) : nil,
+                             "the cached guide had only \(free.count) programmes ahead that are not reserved")
+    }
+
+    /// The usual start of a gate: a bench, the first recorder at `Bench.host`, and a model started and connected
+    /// to it with nothing under way. `guide: false` leaves the cache empty, for a gate that needs no programme:
+    /// the first connect then asks for the four guide files, which the demo answers with none. `wakeable` saves
+    /// the MAC the recorder's UDN carries; the model sends no packet (`Surroundings.reachesTheLAN`).
+    @MainActor
+    func connectedHome(guide: Bool = true, wakeable: Bool = false) async throws
+        -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
+        let bench = try aBench()
+        if guide { try await bench.cacheAGuide() }
+        if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
+        let recorder = NamedRecorder(1)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        return (bench, recorder, model)
+    }
 }
 
 /// A client of the test's own asking `recorder`, with no pause before a 503 is sent again: the recorder's own
@@ -590,6 +638,67 @@ extension XCTestCase {
 func aClient(of recorder: any HTTPTransport) -> RecorderClient {
     RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0)
 }
+
+// MARK: - what the app says
+
+/// What the app says about the recorder, in the words the reader sees: literals, so that a sentence moved from
+/// one type to another is still the same sentence, and one changed by a character is caught.
+enum Said {
+    static let notConnected = "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
+    static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。再接続してから一覧で確かめてください。"
+    static let reservationMayHaveArrived = "予約の登録中にレコーダーの応答がなくなりました。"
+        + "届いている場合もあるため、送信待ちにはしていません。再接続してから予約一覧で確かめてください。"
+    static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
+        + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+        + "少し待ってから、もう一度お試しください。"
+    /// Written on the rows of the phone's queue, and counted by being equal to this.
+    static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
+        + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+    static func heldBack(_ count: Int) -> String {
+        "別のレコーダーに切り替わったため、送信待ちの予約 \(count) 件は送らずに残しています。予約タブから送り直せます"
+    }
+    static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、"
+        + "送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
+    static let gone = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+    static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+    static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+
+    // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
+    // about the first by its title, and how many more went that way. Here, and not in the tests that look at
+    // them, so that a rewording is one edit.
+    static func sent(_ title: String, andOthers others: Int = 0) -> String {
+        "送信待ちだった\(naming(title, others))を登録しました"
+    }
+    static func expired(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))は放送が終わっていたため、送らずに削除しました"
+    }
+    static func refused(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))はレコーダーが受け付けませんでした。理由は予約タブにあります"
+    }
+    static func deferred(_ title: String, andOthers others: Int = 0) -> String {
+        "\(naming(title, others))は送れなかったため、次の機会にもう一度送ります"
+    }
+    static let interrupted = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
+    private static func naming(_ title: String, _ others: Int) -> String {
+        others == 0 ? "「\(title)」" : "「\(title)」ほか \(others) 件"
+    }
+
+    // The package's own, which do not move: by what they are called there.
+    static let noAnswer = RecorderError.transport("").explanation
+    static func fault(_ code: Int, _ action: String) -> String {
+        RecorderError.soap(action: action, status: 500, code: "\(code)", body: "").explanation
+    }
+    static func busy(_ action: String) -> String { RecorderError.busy(action: action).explanation }
+}
+
+/// A line an earlier operation left, for a test that looks at whether it was cleared or written over.
+let lineLeft = "前の操作が残した文"
+
+/// Leaves it on the recorder's line of what went wrong.
+@MainActor
+func leaveALine(on model: AppModel) { model.problem = lineLeft }
 
 // MARK: - what the tests do to the connection
 //

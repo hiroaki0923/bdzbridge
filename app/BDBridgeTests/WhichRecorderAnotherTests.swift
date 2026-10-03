@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SQLite3
 import XCTest
 @testable import BDBridge
 
@@ -67,7 +66,7 @@ extension WhichRecorderTests {
         await recorder.goQuiet(for: 1, after: 1)
         await model.connect()
         XCTAssertTrue(model.gaveUp, "the attach was meant to meet silence after the description")
-        expectEqual(try await store(bench).pendingReservations().map(\.problem), [AppModel.heldForAnotherRecorder])
+        expectEqual(try await store(bench).pendingReservations().map(\.problem), [Said.heldForAnotherRecorder])
         expectHeld(model, 1, "the row on screen still says it goes at the next connect")
 
         await model.connect()
@@ -152,7 +151,7 @@ extension WhichRecorderTests {
         await model.adopt(host: Bench.otherHost)
 
         XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
-        XCTAssertEqual(model.problem, AppModel.cacheNotMadeOver)
+        XCTAssertEqual(model.problem, Said.cacheNotMadeOver)
         XCTAssertFalse(model.gaveUp, "it answered: this is not silence")
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0)
         try await expect(bench, keeps: .all(of: 1))
@@ -191,7 +190,7 @@ extension WhichRecorderTests {
         writer.letGo()
 
         XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
-        XCTAssertEqual(model.problem, AppModel.cacheNotMadeOver)
+        XCTAssertEqual(model.problem, Said.cacheNotMadeOver)
         XCTAssertTrue(model.anotherTookOver, "nothing on the strip says another recorder answered")
     }
 
@@ -226,24 +225,5 @@ extension WhichRecorderTests {
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 0,
                     "what was waiting for the first recorder was made on the second")
         expectHeld(model, 1)
-    }
-
-    // MARK: - a cache that is being written to
-
-    /// Another connection writing to the cache, until it lets go: a write of the app's waits behind it for as
-    /// long as the busy timeout, and then fails.
-    private final class Writer {
-        private var connection: OpaquePointer?
-
-        init(to path: String) {
-            XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
-            XCTAssertEqual(sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK)
-        }
-
-        func letGo() {
-            XCTAssertEqual(sqlite3_exec(connection, "ROLLBACK", nil, nil, nil), SQLITE_OK)
-        }
-
-        deinit { sqlite3_close(connection) }
     }
 }
