@@ -2,7 +2,8 @@ import Foundation
 
 /// What is particular to a BDZ recorder in a link: it is woken by a magic packet and waited for, found at another
 /// address by the MAC at the end of its UDN, recognised by that UDN, and read on every attach for its firmware,
-/// its MAC and its free space, which are only shown or kept and must not fail the attach.
+/// its MAC and its free space, which are only shown or kept and must not fail the attach. The runs with no screen,
+/// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
@@ -223,5 +224,60 @@ public final class RecorderDriver: LinkDriver {
         } catch {
             return ((error as? any DeviceError)?.failure ?? .unexpected(String(describing: error)), false)
         }
+    }
+
+    // MARK: - the runs with no screen
+
+    /// One attempt at the recorder for a run with no screen -- the overnight refresh and the Shortcuts action,
+    /// which have no link -- in the order `Reach.run` keeps. Unlike the screens it waits for a recorder that
+    /// answered the first ask with an error too -- one still starting up may answer anything, and nobody is
+    /// watching the wait -- except at an address that is not one, where nothing could be asked. There is no
+    /// screen to explain the local network permission on, and nowhere else is looked.
+    ///
+    /// `sendPacket` sends the magic packet and says whether one went out: nothing here puts one on the LAN by
+    /// itself. Without one there is nothing coming up to wait for. The wait is the screens' (`Waking`), with the
+    /// longer limit and the next packet timed from the first; `limit` and `interval` are given only by the tests.
+    public nonisolated static func reachWithNoScreen(_ client: RecorderClient,
+                                                     limit: TimeInterval = Waking.backgroundLimit,
+                                                     interval: Duration = .seconds(1),
+                                                     sendPacket: @escaping @Sendable () -> Bool) async -> Bool {
+        // Both are set as the packet goes, which is the first step.
+        var wentAt = Date()
+        var went = false
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: {
+                wentAt = Date()
+                went = sendPacket()
+            },
+            probe: {
+                do {
+                    try await client.describe(timeout: RecorderClient.probeTimeout)
+                    return nil
+                } catch let error as any DeviceError {
+                    return error.failure
+                } catch {
+                    return .unexpected(String(describing: error))
+                }
+            },
+            wake: {
+                guard went else { return .silent }
+                let waited = await Waking.waitForAnswer(from: client, limit: limit, interval: interval,
+                                                        packetSentAt: wentAt, resend: { _ = sendPacket() })
+                return waited == .answered ? nil : .silent
+            }), wakesAfterRefusal: true)
+        return outcome == .answered
+    }
+
+    /// Whether the recorder that has just answered is the one this phone's cache is of, or the first it has
+    /// heard from (`GuideStore.recognises`). The saved address may be answered by another: one the reader has
+    /// typed and not yet seen answer, or one the router has handed the address to. The screens take such a
+    /// recorder up (`attach`); with no screen nothing is taken up and nothing sent, since the queue was made for
+    /// the recorder known and the guide would go into a cache that is still its own. Nor when it cannot be told:
+    /// an owner that cannot be read, a device that did not describe itself.
+    public nonisolated static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {
+        guard let answering = await client.info, let who = try? await store.recognises(answering) else {
+            return false
+        }
+        return who != .another
     }
 }

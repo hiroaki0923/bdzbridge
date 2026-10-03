@@ -23,7 +23,8 @@ Android 版はないか、という問い合わせを受けての調査です。
   状態**（`SessionState.swift`）を移し、最後に**接続そのもの**を、機器に共通の `DeviceLink.swift` とレコーダーに
   固有の `RecorderDriver.swift` に移した。AppModel に残るのは、画面の行と一覧、端末に保存するもの、通知、前面と
   背景の出入り、ネットワークと許可の見張り、一括処理の一時停止、LAN に出る口（`LinkEnvironment`）を作ること。
-  画面の無い処理（深夜とショートカット）の試みは、まだ `BackgroundWork` にある。
+  画面の無い処理（深夜とショートカット）の試みも `RecorderDriver` にあり、マジックパケットの送り方だけをアプリが
+  渡す。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
   取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
@@ -41,13 +42,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-38 ファイル、5,817 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,910 行。
+38 ファイル、5,873 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,989 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,614 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
 | SQLite の上のもの | 993 | GuideStore, Sqlite |
-| 非同期の段取り | 1,688 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver |
+| 非同期の段取り | 1,744 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver |
 | OS に縛られるもの | 522 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 522 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -55,12 +56,12 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,069 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,025 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
-ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の試みで、AppModel（8 ファイルで
-2,122 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と BackgroundWork、Notify、
-SendWaitingIntent を合わせて約 860 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で
-書き直します。
+ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
+何を取るか）で、AppModel（8 ファイルで 2,123 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。RecorderKit だけを共有する案では、どれを
+選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの
 
@@ -228,8 +229,12 @@ AppModel の中の関数ではなく振る舞いで書き直してあります�
 ドライバーに入れた変異（規則を 1 つずつ壊したもの）で、どちらのテストでも落ちないものが 1 つだけありました。
 別のネットワークに出たあとの無応答で、ネットワークの見直しを始め直す規則です（移す前のコードでも同じでした）。
 アプリのテストでは、通知が始めた見直しがまだ残っている間に無応答が来るので、始め直さなくても通っていました。
-これも `DeviceLinkTests` で押さえました。レコーダー以外の機器を
-足すときは、同じ形のドライバーを書きます。
+これも `DeviceLinkTests` で押さえました。レコーダー以外の機器を足すときは、同じ形のドライバーを書きます。
+
+画面の無い処理（深夜の更新とショートカット）の試みも、そのあと `RecorderDriver` に移しました（`reachWithNoScreen`、
+`isTheOneKnown`）。マジックパケットの送り方だけをアプリから受け取ります。アプリのテストはこの 2 つの処理に MAC を
+渡せない（渡すと本物のパケットが出る）ので、起こして待つ部分には届いていませんでしたが、今は偽のパケットで
+確かめています（`NoScreenReachTests`）。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と
