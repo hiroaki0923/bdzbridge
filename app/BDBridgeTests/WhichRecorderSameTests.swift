@@ -97,11 +97,11 @@ extension WhichRecorderTests {
         let attached = model.timesAttached
         let before = await recorder.asked
 
-        expectTrue(await model.wakeIfDozing(evenIfRecent: true), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem ?? "no reason given")
         XCTAssertEqual(model.timesAttached, attached)
 
         await recorder.goQuiet(for: 1)
-        expectTrue(await model.wakeIfDozing(evenIfRecent: true), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem ?? "no reason given")
         XCTAssertEqual(model.timesAttached, attached + 1)
         XCTAssertTrue(model.titlesLoaded)
         XCTAssertNil(model.problem)
@@ -153,7 +153,7 @@ extension WhichRecorderTests {
         await model.loadTitles()
         let attached = model.timesAttached
         await recorder.goQuiet(for: 1)
-        expectTrue(await model.wakeIfDozing(evenIfRecent: true), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem ?? "no reason given")
         XCTAssertTrue(model.titlesLoaded, "its lists were forgotten as a stranger's")
         XCTAssertEqual(model.timesAttached, attached + 1)
     }

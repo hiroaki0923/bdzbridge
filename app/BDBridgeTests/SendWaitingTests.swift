@@ -71,9 +71,7 @@ final class SendWaitingTests: XCTestCase {
         try await untilConnected(model)
         // Queued once the model is connected: its first connect would have sent it by itself.
         let store = try GuideStore(path: bench.guidePath)
-        let later = Date().addingTimeInterval(3600)
-        let found = await model.search("サンプル").hits.first { $0.program.start > later }
-        let program = try XCTUnwrap(found?.program, "the cached guide had nothing an hour or more ahead")
+        let program = try await aProgramme(model)
         let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
         try await store.queue(PendingReservation(request: request, serviceName: program.serviceName))
         // The recorder takes its time over a reservation, so that whichever sends first is still at it when
@@ -103,9 +101,7 @@ final class SendWaitingTests: XCTestCase {
         let model = bench.model(recorder: SilentRecorder())
         await model.start()
         try await untilGivenUp(model)
-        let later = Date().addingTimeInterval(3600)
-        let found = await model.search("サンプル").hits.first { $0.program.start > later }
-        let program = try XCTUnwrap(found?.program, "the cached guide had nothing an hour or more ahead")
+        let program = try await aProgramme(model)
         let kept = await model.reserve(program, quality: "DR", repeating: "none")
         XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
         return try XCTUnwrap(model.queued)

@@ -12,6 +12,8 @@ final class Bench {
     let folder: URL
     /// What the model is told the network is. A different value is a different network.
     var network = "home"
+    /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
+    private(set) var clientsMade = 0
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -59,7 +61,10 @@ final class Bench {
         return AppModel(surroundings: Surroundings(
             defaults: defaults,
             folder: { folder },
-            transport: transport,
+            transport: { [weak self] host in
+                self?.clientsMade += 1
+                return transport(host)
+            },
             // Weak: the looks after a network report can outlast the test that made them.
             networkSignature: { [weak self] in self?.network ?? "" },
             reachesTheLAN: false,
@@ -187,8 +192,8 @@ actor NotARecorder: HTTPTransport {
 /// `stopSayingWhich` has it go on as itself with no UDN in its description.
 /// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind -- for a test that
 /// looks at the app in between, and `goQuiet` has it say nothing to a few requests, as a recorder that has
-/// left the network does: the next ones, or the ones after it has answered so many. A request held and then
-/// let go is one of them.
+/// left the network does: the next ones, or the ones after it has answered so many, or the next of one kind.
+/// A request held and then let go is one of them.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -197,6 +202,7 @@ actor NamedRecorder: HTTPTransport {
     private var udn: String
     private var quiet = 0
     private var answersBeforeQuiet = 0
+    private var quietOn: String?
     private var holding = false
     private var holdingOnly: String?
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -242,6 +248,11 @@ actor NamedRecorder: HTTPTransport {
         answersBeforeQuiet = answering
     }
 
+    /// Silent to the next request of one kind -- a SOAP action, or a file by its name -- whatever comes before it.
+    func goQuiet(on what: String) {
+        quietOn = what
+    }
+
     /// How often it has been asked for `what` -- a SOAP action, or a file by its name: since it was made, or
     /// since `before`, which is its `asked` at an earlier moment.
     func asked(_ what: String, since before: [String: Int] = [:]) -> Int {
@@ -254,6 +265,10 @@ actor NamedRecorder: HTTPTransport {
         let what = action ?? request.url.lastPathComponent
         asked[what, default: 0] += 1
         if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
+        if quietOn == what {
+            quietOn = nil
+            throw RecorderError.transport("The request timed out.")
+        }
         if quiet > 0 {
             if answersBeforeQuiet > 0 {
                 answersBeforeQuiet -= 1
@@ -272,8 +287,8 @@ actor NamedRecorder: HTTPTransport {
 
 /// A recorder that is busy with somebody else when it is asked who it is -- 503 to its description -- and
 /// answers everything else: one that is there, and has not said which it is. It says so once `comeFree()` has
-/// been called. It counts the reservations it is asked to make, and keeps its MAC to itself, as
-/// `RecorderAtHome` does.
+/// been called, and is busy at the door again after `busyAgain()`. It counts the reservations it is asked to
+/// make, and keeps its MAC to itself, as `RecorderAtHome` does.
 actor RecorderBusyAtTheDoor: HTTPTransport {
     private let recorder = DemoRecorder()
     private var busy = true
@@ -281,6 +296,10 @@ actor RecorderBusyAtTheDoor: HTTPTransport {
 
     func comeFree() {
         busy = false
+    }
+
+    func busyAgain() {
+        busy = true
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -336,6 +355,9 @@ actor RecorderPartWayThroughAnAttach: HTTPTransport {
     private var reachable = true
     private var holding = false
     private var held: [CheckedContinuation<Void, Never>] = []
+
+    /// Whether a read is waiting for `letGo()`: the description has been answered, and nothing after it yet.
+    var isHolding: Bool { !held.isEmpty }
 
     func setReachable(_ value: Bool) {
         reachable = value
@@ -413,14 +435,14 @@ extension XCTestCase {
     @MainActor
     func untilIdle(_ model: AppModel, _ what: String = "the connect never finished",
                    within seconds: TimeInterval = 10) async throws {
-        try await until(what, within: seconds) { !model.connecting && model.busy == nil }
+        try await until(what, within: seconds) { !isConnecting(model) && model.busy == nil }
     }
 
     /// Waits for a connect that met silence to have given up.
     @MainActor
     func untilGivenUp(_ model: AppModel, _ what: String = "the first connect never gave up",
                       within seconds: TimeInterval = 10) async throws {
-        try await until(what, within: seconds) { model.gaveUp && !model.connecting }
+        try await until(what, within: seconds) { model.gaveUp && !isConnecting(model) }
     }
 
     /// Waits for the model to be connected with nothing under way. The first connect of a launch above all,
@@ -428,8 +450,56 @@ extension XCTestCase {
     @MainActor
     func untilConnected(_ model: AppModel, _ what: String = "the first connect never finished",
                         within seconds: TimeInterval = 20) async throws {
-        try await until(what, within: seconds) { model.connected && !model.connecting && model.busy == nil }
+        try await until(what, within: seconds) { model.connected && !isConnecting(model) && model.busy == nil }
     }
+
+    /// Waits for the connect under way to end, whichever way it went.
+    @MainActor
+    func untilTheConnectEnds(_ model: AppModel, _ what: String = "the connect never ended",
+                             within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) { !isConnecting(model) }
+    }
+
+    /// A programme from the cached guide that starts an hour or more from now: the first, or the one after
+    /// as many as `skipping`.
+    @MainActor
+    func aProgramme(_ model: AppModel, skipping: Int = 0) async throws -> GuideProgramRow {
+        let later = Date().addingTimeInterval(3600)
+        let found = await model.search("サンプル").hits.filter { $0.program.start > later }.dropFirst(skipping).first
+        return try XCTUnwrap(found?.program, "the cached guide had nothing more an hour or more ahead")
+    }
+}
+
+// MARK: - what the tests do to the connection
+//
+// By what each does rather than by the model's name for it. Where the connection lives can change; the tests
+// go on calling these, and only the bodies here change with it.
+
+/// Makes sure of the recorder as the check before an operation does, however short a time it has been since it
+/// last answered. Whether it is there to ask.
+@MainActor
+func makeSure(_ model: AppModel) async -> Bool {
+    await model.wakeIfDozing(evenIfRecent: true)
+}
+
+/// One look at the network, of the kind the app takes after a change is reported. Whether it led to an attempt
+/// at the recorder, or to making sure of it.
+@MainActor
+@discardableResult
+func lookAtTheNetwork(_ model: AppModel) async -> Bool {
+    await model.networkChangedWhileOpen()
+}
+
+/// Whether the check before an operation is out.
+@MainActor
+func isMakingSure(_ model: AppModel) -> Bool {
+    model.wakeCheck != nil
+}
+
+/// Whether a connect is under way.
+@MainActor
+func isConnecting(_ model: AppModel) -> Bool {
+    model.connecting
 }
 
 /// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take

@@ -89,7 +89,7 @@ extension WhichRecorderTests {
         var told = model.timesForgotten
 
         await model.connect()
-        _ = await model.wakeIfDozing(evenIfRecent: true)
+        _ = await makeSure(model)
         await model.adopt(host: Bench.host)
         XCTAssertEqual(model.timesForgotten, told, "the screens were told to close what is still the recorder's")
         XCTAssertFalse(model.anotherTookOver, "the strip says another recorder answered, of the same one")
@@ -101,7 +101,7 @@ extension WhichRecorderTests {
 
         try await untilIdle(model)
         await recorder.become(1)
-        _ = await model.wakeIfDozing(evenIfRecent: true)
+        _ = await makeSure(model)
         XCTAssertGreaterThan(model.timesForgotten, told, "another recorder answered the check")
         try await untilTakenUp(model, 1)
         told = model.timesForgotten
@@ -171,6 +171,24 @@ extension WhichRecorderTests {
         try await expect(bench, keeps: .nothing(nowOf: 2))
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0)
         expectHeld(model, 2)
+    }
+
+    /// Another recorder answers where the first one was, and the cache cannot be made over to it. Both are
+    /// said: why the app is not connected, and, on the strip, that another recorder answered, which nobody
+    /// chose. Letting go of the first recorder takes the strip's line with it, so it is put back.
+    func testAnotherRecorderTurnedAwayForItsCacheIsStillSaidToHaveAnswered() async throws {
+        let bench = try aBench()
+        let recorder = NamedRecorder(1)
+        let model = try await connected(bench, at: [Bench.host: recorder])
+
+        let writer = Writer(to: bench.guidePath)
+        await recorder.become(2)
+        await model.connect()
+        writer.letGo()
+
+        XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
+        XCTAssertEqual(model.problem, AppModel.cacheNotMadeOver)
+        XCTAssertTrue(model.anotherTookOver, "nothing on the strip says another recorder answered")
     }
 
     /// The first recorder's name could not be put down -- the cache was being written to when it first

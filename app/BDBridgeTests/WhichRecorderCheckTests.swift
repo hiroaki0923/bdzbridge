@@ -12,7 +12,7 @@ extension WhichRecorderTests {
         let (bench, recorder, model) = try await atHome()
 
         await recorder.become(2)
-        let answering = await model.wakeIfDozing(evenIfRecent: true)
+        let answering = await makeSure(model)
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
@@ -29,13 +29,13 @@ extension WhichRecorderTests {
     /// that follows reads them. The MAC that woke it was the first recorder's, and is not kept for the second.
     func testAnotherRecorderAnsweringAfterAWakingIsSentNothingEither() async throws {
         let (bench, recorder, model) = try await atHome(wakeable: true)
-        XCTAssertTrue(model.canWake)
+        XCTAssertNotNil(model.mac)
         try await queueAReservation(bench, model)
 
         // Silent to the check's probe, and another recorder by the time the waking asks again.
         await recorder.become(2)
         await recorder.goQuiet(for: 1)
-        let answering = await model.wakeIfDozing(evenIfRecent: true)
+        let answering = await makeSure(model)
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
@@ -114,7 +114,7 @@ extension WhichRecorderTests {
         try await until("the job never waited for the app to come back") { model.backInFront != nil }
         await recorder.become(2)
         bench.network = "another"
-        await model.networkChangedWhileOpen()
+        await lookAtTheNetwork(model)
         XCTAssertFalse(model.connected)
         XCTAssertTrue(model.titles.isEmpty)
         // Stopped by the check, as 中止 stops one: a scan under way in front goes by this alone, since it
@@ -123,7 +123,7 @@ extension WhichRecorderTests {
 
         await model.returnedToForeground()
         try await until("the newcomer was never taken up", within: 20) {
-            model.info?.udn == NamedRecorder.udn(2) && !model.connecting && !model.jobRunning
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && !model.jobRunning
         }
 
         expectEqual(await recorder.asked("X_DeleteTitle"), 0,
@@ -148,8 +148,8 @@ extension WhichRecorderTests {
         model.startBulk(.delete, ids: Array(ids))
         try await until("the job never came to its first delete") { await recorder.asked("X_DeleteTitle") == 1 }
         bench.network = "away"
-        let check = Task { await model.networkChangedWhileOpen() }
-        try await until("the recorder was never made sure of") { model.wakeCheck != nil }
+        let check = Task { await lookAtTheNetwork(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
         await recorder.become(2)
         await recorder.letGo()
         _ = await check.value
@@ -180,7 +180,7 @@ extension WhichRecorderTests {
         bench.network = "away"
         await recorder.hold()
         let asked = await recorder.asked("description.xml")
-        let check = Task { await model.networkChangedWhileOpen() }
+        let check = Task { await lookAtTheNetwork(model) }
         try await until("the recorder was never made sure of") { await recorder.asked("description.xml") > asked }
         let answer = Task { await something() }
         try await until("what was asked for was never begun") { model.busy != nil }
