@@ -69,6 +69,15 @@ final class Bench {
                      tvCredentials: credentials)
     }
 
+    /// A model as the app makes one in a home with a television and no recorder: no recorder saved and nothing
+    /// answering as one anywhere, and the television saved at `tvHost` with its registration in `credentials`.
+    func modelWithNoRecorder(television: any HTTPTransport, credentials: any TVCredentialStore) -> AppModel {
+        defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+        let nobody = SilentRecorder()
+        return model(saved: nil, transport: { _ in nobody },
+                     tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() }, tvCredentials: credentials)
+    }
+
     private func model(saved: String? = Bench.host,
                        transport: @escaping (String) -> any HTTPTransport,
                        tvTransport: @escaping (String) -> any HTTPTransport = { _ in NoTelevision() },
@@ -326,6 +335,49 @@ actor RecorderWithACopy: HTTPTransport {
     }
 }
 
+/// The invented television with its answers held until `letGo()`. Unless told otherwise it holds every answer
+/// from the first: a television part way through an attach. Made `holding: false` it answers, until `hold` has
+/// it keep its requests waiting -- or only those of one method -- for a test that looks at the app while a read
+/// or a delete is out. A request held is not among the television's `calls` until it is let go.
+actor HeldTelevision: HTTPTransport {
+    private let television: DemoTV
+    private var holding: Bool
+    private var holdingOnly: String?
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    init(_ television: DemoTV, holding: Bool = true) {
+        self.television = television
+        self.holding = holding
+    }
+
+    var isHolding: Bool { !held.isEmpty }
+
+    func hold(only method: String? = nil) {
+        holding = true
+        holdingOnly = method
+    }
+
+    func letGo() {
+        holding = false
+        holdingOnly = nil
+        for request in held { request.resume() }
+        held = []
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if holding, holdingOnly == nil || holdingOnly == Self.method(of: request) {
+            await withCheckedContinuation { held.append($0) }
+        }
+        return try await television.send(request)
+    }
+
+    /// The method a request asks for, as the television's API names it in the body.
+    private static func method(of request: HTTPRequest) -> String? {
+        let body = try? JSONSerialization.jsonObject(with: request.body ?? Data())
+        return (body as? [String: Any])?["method"] as? String
+    }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 
@@ -400,6 +452,25 @@ extension XCTestCase {
     func untilTheConnectEnds(_ model: AppModel, _ what: String = "the connect never ended",
                              within seconds: TimeInterval = 10) async throws {
         try await until(what, within: seconds) { !isConnecting(model) }
+    }
+
+    /// Waits for the television to be connected and its connect to be over, which is once its reservations
+    /// have been read: that read is inside the connect.
+    @MainActor
+    func untilTheTelevisionIsConnected(_ model: AppModel, _ what: String = "the television was never connected",
+                                       within seconds: TimeInterval = 10) async throws {
+        try await until(what, within: seconds) {
+            model.tv?.session.connected == true && model.tv?.session.connecting == false
+        }
+    }
+
+    /// Credentials the television knows, with a cookie it gave out `daysAgo`.
+    @MainActor
+    func registered(with television: DemoTV, daysAgo: Double = 1) async -> MemoryTVCredentials {
+        await television.knows("BDBridge:test", cookie: "kept")
+        return MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                 cookieReceived: Date().addingTimeInterval(-daysAgo * 86_400),
+                                                 cookieMaxAge: 1_209_600))
     }
 
     /// A programme from the cached guide that starts an hour or more from now: the first, or the one after

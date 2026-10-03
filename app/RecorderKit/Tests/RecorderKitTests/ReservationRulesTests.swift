@@ -55,6 +55,19 @@ final class ReservationRulesTests: XCTestCase {
         XCTAssertNil([Reservation]().current(held))
     }
 
+    /// A television numbers its reservations for itself and may hold the same programme. Its row is not found
+    /// among the recorder's, by the id or by the channel and the start, though it shares them all: what was
+    /// found would be changed or deleted in its place. In a list of both, each finds its own.
+    func testARowOfAnotherDeviceIsNotIt() {
+        let held = reservation(id: "0x1")
+        var televisions = held
+        televisions.device = .tv
+        XCTAssertNil([held].current(televisions), "found by its id")
+        XCTAssertNil([reservation(id: "0x9")].current(televisions), "found by its channel and its start")
+        XCTAssertEqual([televisions, held].current(held), held)
+        XCTAssertEqual([held, televisions].current(televisions), televisions)
+    }
+
     // MARK: - the request for a new one
 
     private func program(broadcasting: String = "td") -> GuideProgramRow {

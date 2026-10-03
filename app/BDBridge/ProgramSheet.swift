@@ -3,6 +3,8 @@ import SwiftUI
 
 /// One programme: what it is, whether the recorder is already set to record it -- or will be, once a
 /// reservation waiting on this phone reaches it -- and the two choices that go with a new reservation.
+/// Whether the television is set to record it is said beside that, and is no part of it: a reservation is
+/// made on the recorder, and what the television holds neither stands in for one nor is in the way of one.
 struct ProgramSheet: View {
     let program: GuideProgramRow
     @Environment(AppModel.self) private var model
@@ -37,7 +39,11 @@ struct ProgramSheet: View {
     @State private var lastRecorderGone = false
     @State private var checks = 0
 
-    private var reservation: Reservation? { model.reservation(for: program) }
+    /// The recorder's reservation of this programme, and the television's, held apart. Everything about
+    /// making one reads the recorder's alone: a programme only the television is set to record can still be
+    /// reserved on the recorder.
+    private var reservation: Reservation? { model.reservations(for: program).first { $0.device == .recorder } }
+    private var televisions: Reservation? { model.reservations(for: program).first { $0.device == .tv } }
     private var waiting: PendingReservation? { model.pending(for: program) }
     private var past: Bool { program.end <= Date() }
 
@@ -72,8 +78,11 @@ struct ProgramSheet: View {
                             Button("予約を変更する") { editing = reservation }
                         }
                         Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
-                            .disabled(model.busy != nil)
+                            .disabled(model.isBusy(for: .recorder))
                     }
+                }
+                if let televisions {
+                    televisionSection(televisions)
                 }
                 if let waiting {
                     pendingSection(waiting)
@@ -118,10 +127,15 @@ struct ProgramSheet: View {
             // (`AppModel.timesForgotten`). What it holds of that recorder goes: the reservation picked for
             // deletion, whose number would go to the next recorder, and the clashes that recorder named, which
             // the next one attached is asked for. A reservation's sheet open over this one closes itself.
+            // A television's reservation picked for deletion is not the recorder's to take, and goes with
+            // the television's lists instead (`AppModel.tvTimesForgotten`).
             .onChange(of: model.timesForgotten) {
-                if case .cancel = ask { ask = nil }
+                if case .cancel(let picked) = ask, picked.device == .recorder { ask = nil }
                 conflicts = nil
                 lastRecorderGone = true
+            }
+            .onChange(of: model.tvTimesForgotten) {
+                if case .cancel(let picked) = ask, picked.device == .tv { ask = nil }
             }
             .onChange(of: model.timesAttached) {
                 guard lastRecorderGone else { return }
@@ -150,7 +164,10 @@ struct ProgramSheet: View {
                     Button("削除する", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
-                            if !done { ask = .failed(model.problem ?? "レコーダーがエラーを返しました") }
+                            if !done {
+                                ask = .failed(model.problem(for: reservation.device)
+                                              ?? "\(reservation.device.label)がエラーを返しました")
+                            }
                         }
                     }
                 case .cancelPending(let waiting):
@@ -179,7 +196,7 @@ struct ProgramSheet: View {
                             : "レコーダーに予約を登録します。"))
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから削除されます。")
+                         + "\(reservation.device.label)から削除されます。")
                 case .cancelPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
                          + "この端末から削除し、レコーダーには送りません。")
@@ -208,6 +225,21 @@ struct ProgramSheet: View {
     }
 
     private var taskKey: String { "\(program.id)-\(quality)-\(repeating)-\(checks)" }
+
+    /// The television's reservation of this programme: that it is there, and the way to delete it. Nothing
+    /// changes one yet, so there is no way to its own sheet from here. What went wrong with the television
+    /// is said under the button that ran into it, and not at the sheet's foot, which is the recorder's.
+    private func televisionSection(_ reservation: Reservation) -> some View {
+        Section("テレビで予約済みです") {
+            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+            if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+            Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
+                .disabled(model.isBusy(for: .tv))
+            if let problem = model.problem(for: .tv) {
+                Text(problem).foregroundStyle(.red).font(.callout)
+            }
+        }
+    }
 
     /// A reservation made while the recorder could not be reached. It shows what was asked for, since the
     /// recorder has not made anything of it yet, and what the recorder said if it refused.

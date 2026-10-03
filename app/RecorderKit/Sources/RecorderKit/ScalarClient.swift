@@ -112,6 +112,26 @@ public struct TVInterface: Sendable, Equatable {
     public var interfaceVersion: String
 }
 
+/// What answers at an address given for a television, asked before anything is registered there.
+public enum TVPresence: Equatable, Sendable {
+    /// Nothing answered, or the address is not one a request can be sent to.
+    case nothing
+    /// Something answered that is not a television.
+    case notATelevision
+    /// A television, in standby: it shows its PIN only when it is on.
+    case standby(model: String)
+    case on(model: String)
+}
+
+/// What asking to be registered came to.
+public enum TVEnrolment: Sendable, Equatable {
+    /// The television wants its PIN, which it shows on its screen when it is showing a broadcast.
+    case pinNeeded
+    /// Registered, with the MAC it wakes on when it gave one, normalised.
+    case registered(mac: String?)
+    case failed(String)
+}
+
 /// The USB disk a television records to: mounted or not, and its space when it is.
 public struct TVStorage: Sendable, Equatable {
     public var mounted: Bool
@@ -176,6 +196,23 @@ public actor ScalarClient {
         return rows.first { $0["option"] as? String == "WOL" }?["value"] as? String
     }
 
+    /// What is at the address: `getPowerStatus`, then `getInterfaceInformation`, neither of which needs a
+    /// registration or changes anything on the television. Silence is nothing there, and so is an address
+    /// nothing can be sent to. Whatever else goes wrong came from something that answered, and that is no
+    /// television; nor is one that names another category than `tv`.
+    public func presence(timeout: TimeInterval = 5) async -> TVPresence {
+        do {
+            let power = try await powerStatus(timeout: timeout)
+            let television = try await interface(timeout: timeout)
+            guard television.productCategory == "tv" else { return .notATelevision }
+            return power == "standby" ? .standby(model: television.modelName) : .on(model: television.modelName)
+        } catch let error as ScalarError where error.failure == .silent || error.failure == .badAddress {
+            return .nothing
+        } catch {
+            return .notATelevision
+        }
+    }
+
     // MARK: - registration
 
     public enum Registration: Sendable, Equatable {
@@ -200,6 +237,31 @@ public actor ScalarClient {
         keep(cookie, for: clientID)
         return .registered
     }
+
+    /// The steps of registering, and what each failure is said as: with no PIN at first, when the television
+    /// answers by putting its PIN on its screen, and then with the PIN the reader read there, under the same
+    /// client id. The MAC is read first, with the short `timeout`: it tells this television from any other
+    /// afterwards, and reading it needs no registration, so a television that does not answer is found out
+    /// before a PIN is asked for. Never throws: what went wrong is the sentence to show.
+    public func enrol(clientID: String, nickname: String, pin: String?,
+                      timeout: TimeInterval = 5) async -> TVEnrolment {
+        do {
+            let mac = try await wakeOnLANAddress(timeout: timeout).flatMap(WakeOnLan.normalise)
+            switch try await register(clientID: clientID, nickname: nickname, pin: pin) {
+            case .pinNeeded: return .pinNeeded
+            case .registered: return .registered(mac: mac)
+            }
+        } catch let error as any DeviceError {
+            // Its display went off after it was found on: it shows no PIN then, and turns the request down.
+            return .failed(error.failure == .needsPower ? Self.screenIsOff : error.explanation)
+        } catch {
+            return .failed(String(describing: error))
+        }
+    }
+
+    /// Said when a registration is turned down because the television shows nothing to read a PIN from.
+    public static let screenIsOff = "テレビの画面が消えているため、登録できませんでした。"
+        + "テレビの電源を入れて、放送を映してから、もう一度お試しください。"
 
     /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
     /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept.
@@ -259,6 +321,28 @@ public actor ScalarClient {
         }
         return TVStorage(mounted: row["mounted"] as? String == "mounted",
                          freeMB: row["freeCapacityMB"] as? Int, totalMB: row["wholeCapacityMB"] as? Int)
+    }
+
+    /// What the television is set to record, and the reminders to watch it lists among them, in its own
+    /// order: the reservations were seen newest first, and the one reminder ever seen came after them, which
+    /// says little of where reminders go. Version 1.1 only. One request for 130 rows, the most it is said to
+    /// hold, and never a second: what `stIdx` counts from has not been measured. A row without what every row
+    /// has is left out (`TVScheduleRow.init`), as the recorder's are.
+    func schedules() async throws -> [TVScheduleRow] {
+        let result = try await authenticated("recording", "getScheduleList", version: "1.1",
+                                             params: [["stIdx": 0, "cnt": 130]])
+        guard let rows = (result as? [Any])?.first as? [Any] else {
+            throw ScalarError.unreadable(method: "getScheduleList")
+        }
+        return rows.compactMap { ($0 as? [String: Any]).flatMap { TVScheduleRow($0) } }
+    }
+
+    /// Takes a reservation off the television: the row as it was read (`TVScheduleRow.deletion`), in a list of
+    /// its own inside the parameters. One row to a request is all that has ever been sent. One request removes
+    /// a repeating reservation whole. A row the television no longer has is answered with error 41200, an id
+    /// it never gave as well. Nothing is sent a second time for silence: the first may have arrived.
+    func deleteSchedule(_ row: TVScheduleRow) async throws {
+        _ = try await authenticated("recording", "deleteSchedule", version: "1.1", params: [[row.deletion]])
     }
 
     // MARK: - plumbing

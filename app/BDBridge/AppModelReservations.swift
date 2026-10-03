@@ -4,6 +4,10 @@ import SwiftUI
 
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.
+///
+/// The recorder's are read, changed and deleted here. A television's are its host's (`TVHost`), which keeps
+/// them apart from the recorder's: here the two lists are only put together for the screens, and a change or a
+/// delete is sent to the device that holds the row (`Reservation.device`), before anything else is done.
 extension AppModel {
     func loadReservations() async {
         await start()
@@ -61,12 +65,27 @@ extension AppModel {
         var id: String { title }
     }
 
+    /// The reservations of both devices, the recorder's first, whichever kind is shown and in no order of the
+    /// list's: put together each time they are read, and kept apart where they are held, since a read of
+    /// either replaces its own list whole. For the screens that look through every row: the search, and
+    /// whether there is anything to show at all.
+    var allReservations: [Reservation] { reservations + (tvHost?.reservations ?? []) }
+
+    /// What the list shows. A television's reservation has no creator, so it is among 通常の予約 and never
+    /// among おまかせ.
     var shownReservations: [Reservation] {
         switch reservationKind {
-        case .all: reservations
-        case .mine: reservations.filter { !$0.createdByRecorder }
-        case .automatic: reservations.filter(\.createdByRecorder)
+        case .all: allReservations
+        case .mine: allReservations.filter { !$0.createdByRecorder }
+        case .automatic: allReservations.filter(\.createdByRecorder)
         }
+    }
+
+    /// One row of the list by what tells its rows apart (`Reservation.listKey`), whichever kind is shown: a
+    /// row picked on the screen, found again as it is held now. Not by its id, which the two devices each
+    /// number for themselves.
+    func reservation(listKey: String) -> Reservation? {
+        allReservations.first { $0.listKey == listKey }
     }
 
     /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first
@@ -104,19 +123,28 @@ extension AppModel {
         return order.map { ReservationSection(title: $0, items: grouped[$0] ?? []) }
     }
 
-    /// The reservation that follows this programme, if there is one. Time-only reservations carry no
+    /// The reservation that follows this programme, if there is one: the recorder's, or the television's when
+    /// the recorder has none, which is all the guide's mark needs to know. Time-only reservations carry no
     /// programme id and so cannot be matched to one.
     func reservation(for program: GuideProgramRow) -> Reservation? {
         guard let key = Self.key(program) else { return nil }
-        return reservationsByProgram[key]
+        return reservationsByProgram[key] ?? tvHost?.reservationsByProgram[key]
+    }
+
+    /// Every reservation that follows this programme, one for each device that holds one, the recorder's
+    /// first: for whatever has to say on which device a programme is set to record.
+    func reservations(for program: GuideProgramRow) -> [Reservation] {
+        guard let key = Self.key(program) else { return [] }
+        return [reservationsByProgram[key], tvHost?.reservationsByProgram[key]].compactMap { $0 }
     }
 
     /// The other reservations whose hours overlap this one's, soonest first, for a reservation the recorder
     /// marks 重複, which says that something clashes but not with what. The sheet names them as reservations at
     /// the same time rather than as the clash itself: the recorder has more than one tuner, so hours in common
-    /// are not by themselves what it is complaining about.
+    /// are not by themselves what it is complaining about. Only among the reservations of the device that
+    /// holds this one: what another device records at the same hour is in nobody's way.
     func overlapping(_ reservation: Reservation) -> [Reservation] {
-        reservations
+        (reservation.device == .tv ? tvHost?.reservations ?? [] : reservations)
             .filter { $0.id != reservation.id && $0.start < reservation.end && reservation.start < $0.end }
             .sorted { $0.start < $1.start }
     }
@@ -307,7 +335,16 @@ extension AppModel {
     /// Changes the quality or the repeat of a reservation the recorder already holds, found again in a list
     /// read afresh, as for a deletion (`cancel`). The request keeps everything else, including the programme
     /// id, so a reservation that follows its programme goes on following it.
+    ///
+    /// A television's reservation is its host's to change, and is handed over before anything else: nothing
+    /// below is for it, whatever state the recorder is in. Looked for in the recorder's list it would not be
+    /// found -- a row of another device is no match there (`current`) -- so the recorder's branch could only
+    /// say that the reservation had been deleted: this routing is what sends it to the television. With no
+    /// television in play nothing is sent.
     func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
+        if reservation.device == .tv {
+            return await tvHost?.update(reservation, quality: quality, repeating: repeating) ?? false
+        }
         await start()
         guard client != nil else { return false }
         // Sending would only wait out a timeout, from a list that could not be read again first.
@@ -355,8 +392,11 @@ extension AppModel {
     /// and the moment it starts (`current`).
     ///
     /// Also a write. A recorder that refuses says why, and the reason is left on screen, not reloaded away.
+    ///
+    /// A television's reservation is its host's to delete, handed over first as for a change (`update`).
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
+        if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }
         await start()
         guard client != nil else { return false }
         // as for a change: the list has to be read first, and nothing can be read
@@ -399,8 +439,11 @@ extension AppModel {
         return true
     }
 
+    /// What to call the channel a reservation is on: the guide's name for it, and for a television's row on a
+    /// channel the guide does not have, the name the television gave with the row.
     func channelName(for reservation: Reservation) -> String {
         channelNames["\(reservation.broadcastingType)-\(reservation.serviceID)"]
+            ?? reservation.tvRow?.channelName.flatMap { $0.isEmpty ? nil : $0 }
             ?? Codes.broadcastingLabel[Codes.broadcasting(code: reservation.broadcastingType) ?? ""]
             ?? "不明な局"
     }

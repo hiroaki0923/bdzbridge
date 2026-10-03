@@ -7,14 +7,6 @@ import XCTest
 /// device held up by the other's silence. Let go of in the demo and given back after it, and taken away whole.
 @MainActor
 final class TVLinkTests: XCTestCase {
-    /// Credentials the television knows, with a cookie it gave out `daysAgo`.
-    private func registered(with television: DemoTV, daysAgo: Double = 1) async -> MemoryTVCredentials {
-        await television.knows("BDBridge:test", cookie: "kept")
-        return MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
-                                                 cookieReceived: Date().addingTimeInterval(-daysAgo * 86_400),
-                                                 cookieMaxAge: 1_209_600))
-    }
-
     /// A television is found at its address, asks for its PIN, and with it is registered, saved and connected:
     /// its address and its MAC go in the defaults, its registration in the store.
     func testATelevisionIsAddedByItsPIN() async throws {
@@ -57,7 +49,7 @@ final class TVLinkTests: XCTestCase {
         let calls = await television.calls
         XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") })
 
-        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .failed(AppModel.tvScreenIsOff))
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .failed(ScalarClient.screenIsOff))
         XCTAssertNil(credentials.load())
         XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvHost))
         XCTAssertNil(model.tv)
@@ -150,6 +142,41 @@ final class TVLinkTests: XCTestCase {
         XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.tvMac), "f8:4e:17:00:00:0b")
         let calls = await television.calls
         XCTAssertFalse(calls.contains { $0.hasPrefix("getStorageList") }, "the cookie went to another television")
+    }
+
+    /// A registration writes down the MAC the television gave as it registered, over whatever was saved: the
+    /// link made next knows the television by it. Over a MAC saved for another television -- this one stands
+    /// where that one did, and was not taken up -- the television registered is connected to with nothing said
+    /// to be wrong, and the MAC saved is its own. A television that gives no MAC leaves none saved: the one
+    /// from before would be kept as its own.
+    func testARegistrationWritesDownTheMACItRead() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        bench.defaults.set("f8:4e:17:00:00:0b", forKey: DefaultsKey.tvMac)
+        let television = DemoTV()
+        let model = bench.model(recorder: DemoRecorder(), television: television,
+                                credentials: await registered(with: television))
+        await model.start()
+        try await until("the other television was not said to be another") {
+            model.tvHost?.problem == TVDriver.anotherAnswered
+        }
+
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .registered)
+
+        XCTAssertEqual(model.tv?.session.connected, true, "the television registered was not taken up")
+        XCTAssertNil(model.problem(for: .tv))
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.tvMac), DemoTV.mac)
+
+        let other = try aBench()
+        other.defaults.set("f8:4e:17:00:00:0b", forKey: DefaultsKey.tvMac)
+        let nameless = DemoTV(mac: "")
+        let second = other.model(recorder: SilentRecorder(), television: nameless,
+                                 credentials: await registered(with: nameless))
+
+        expectEqual(await second.registerTV(at: Bench.tvHost, pin: nil), .registered)
+
+        XCTAssertEqual(second.tv?.session.connected, true)
+        XCTAssertNil(other.defaults.string(forKey: DefaultsKey.tvMac), "the MAC saved before was left for this one")
     }
 
     /// What each device is doing is its own: while the television attaches, the recorder is not busy and may be
@@ -271,29 +298,5 @@ final class TVLinkTests: XCTestCase {
         host.keepMAC(DemoTV.mac)
         XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvHost))
         XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvMac))
-    }
-}
-
-/// The invented television with every answer held until `letGo()`: one part way through an attach.
-private actor HeldTelevision: HTTPTransport {
-    private let television: DemoTV
-    private var holding = true
-    private var held: [CheckedContinuation<Void, Never>] = []
-
-    init(_ television: DemoTV) {
-        self.television = television
-    }
-
-    var isHolding: Bool { !held.isEmpty }
-
-    func letGo() {
-        holding = false
-        for request in held { request.resume() }
-        held = []
-    }
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if holding { await withCheckedContinuation { held.append($0) } }
-        return try await television.send(request)
     }
 }

@@ -29,7 +29,9 @@ Android 版はないか、という問い合わせを受けての調査です。
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
   取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
   レコーダーに対する動きは変わらない。テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
-  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。
+  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧と削除も
+  `TVDriver` の手順で（1 行の読みと、消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文もそこにある。
+  アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。
 
 ## 比べた案
 
@@ -43,13 +45,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-41 ファイル、6,502 行（空行とコメントを含み、`Package.swift` を除く）。テストは 6,196 行。
+42 ファイル、7,116 行（空行とコメントを含み、`Package.swift` を除く）。テストは 7,389 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,651 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
+| 入出力を持たないロジック | 2,847 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 2,309 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 2,727 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 546 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 546 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -57,7 +59,7 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,563 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,876 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
 何を取るか）で、AppModel（9 ファイルで 2,293 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と

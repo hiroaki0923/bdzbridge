@@ -3,7 +3,8 @@ import SwiftUI
 
 /// One box that searches the three lists the app holds: programmes still to come, what is set to record,
 /// and what is already recorded. The guide half reads the on-device cache, so it works away from home; the
-/// other two read what the recorder has said, which needs it to be reachable.
+/// other two read what the recorder has said, which needs it to be reachable -- and, of what is set to record,
+/// what the television has said as well.
 struct SearchScreen: View {
     @Environment(AppModel.self) private var model
     // `-searchFor ニュース` fills the box at launch, which is how the results are checked without typing.
@@ -39,13 +40,16 @@ struct SearchScreen: View {
             }
         }
 
-        var explanation: String {
+        /// What the scope looks through. The reservations' names the television too where one is registered,
+        /// since its reservations are among what is found.
+        func explanation(withTelevision: Bool) -> String {
             switch self {
             case .guide:
                 "番組名、番組内容、出演者などの詳細に含まれる言葉で、今後 8 日分の番組を検索します。"
                     + "番組名に含まれるものから順に並びます。"
             case .reservations:
-                "レコーダーに登録されている予約を番組名で検索します。おまかせ・まる録による予約も含みます。"
+                (withTelevision ? "レコーダーとテレビ" : "レコーダー")
+                    + "に登録されている予約を番組名で検索します。おまかせ・まる録による予約も含みます。"
             case .recordings:
                 "レコーダーに録画されている番組を番組名で検索します。"
             }
@@ -59,8 +63,9 @@ struct SearchScreen: View {
         Search.matches(query, in: text)
     }
 
+    /// Of both devices, as the reservations' own tab lists them.
     private var reservations: [Reservation] {
-        model.reservations.filter { matches($0.title) }
+        model.allReservations.filter { matches($0.title) }
     }
 
     private var recordings: [RecordedTitle] {
@@ -103,7 +108,8 @@ struct SearchScreen: View {
                     ContentUnavailableView {
                         Label("\(scope.label)を検索", systemImage: "magnifyingglass")
                     } description: {
-                        Text(scope.explanation + "\nスペースで区切ると、すべての語を含むものに絞り込みます。"
+                        Text(scope.explanation(withTelevision: model.tv != nil)
+                             + "\nスペースで区切ると、すべての語を含むものに絞り込みます。"
                              + "全角と半角、大文字と小文字は区別しません。")
                     }
                 } else if waiting {
@@ -162,6 +168,11 @@ struct SearchScreen: View {
                 case .recordings: await model.loadTitles()
                 }
             }
+            // The television's reservations in a task of its own, as on the reservations' tab: the one above
+            // asks the recorder, and is not to run again for anything that becomes of the television.
+            .task(id: scope) {
+                if scope == .reservations { await model.tvHost?.loadReservations() }
+            }
             .sheet(item: $openedProgram) { ProgramSheet(program: $0) }
             .sheet(item: $openedReservation) { ReservationSheet(reservation: $0) }
             .sheet(item: $openedTitle) { TitleSheet(title: $0) }
@@ -192,11 +203,12 @@ struct SearchScreen: View {
             }
             .listStyle(.plain)
         case .reservations:
-            List(reservations) { reservation in
+            List(reservations, id: \.listKey) { reservation in
                 Button { openedReservation = reservation } label: {
                     ReservationRowView(reservation: reservation,
                                        channel: model.channelName(for: reservation),
-                                       logo: model.logo(for: reservation))
+                                       logo: model.logo(for: reservation),
+                                       device: model.tv != nil ? reservation.device.label : nil)
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)

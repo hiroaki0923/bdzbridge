@@ -99,9 +99,12 @@ public protocol LinkHost: AnyObject, Sendable {
 }
 
 /// What a link asks of the kind of device it is about: how to make a client, wake one, find one that has moved,
-/// and read one as it answers. The recorder's is `RecorderDriver`.
+/// and read one as it answers. The recorder's is `RecorderDriver`, a television's `TVDriver`. A driver belongs
+/// to one link, which it holds: what the app asks of a device after its attach is asked of the driver alone.
 @MainActor
 public protocol LinkDriver: AnyObject, Sendable {
+    /// The link this is the driver of, set by the link as it is made.
+    var link: DeviceLink? { get set }
     /// How long the first ask of an attempt, and the check before an operation, wait.
     var probeTimeout: TimeInterval { get }
     /// What is said when the check before an operation met silence and nothing could be done about it.
@@ -150,12 +153,14 @@ public final class DeviceLink {
     @ObservationIgnored public let driver: any LinkDriver
     @ObservationIgnored public var environment: LinkEnvironment
 
-    /// Writes nothing: `host` is the address as saved, or the demo's.
+    /// Writes nothing: `host` is the address as saved, or the demo's. The driver is told whose it is, and is
+    /// to be no other link's.
     public init(host: String, session: SessionState, driver: any LinkDriver, environment: LinkEnvironment) {
         self.host = host
         self.session = session
         self.driver = driver
         self.environment = environment
+        driver.link = self
     }
 
     /// True while there is no point asking the device anything: nothing has been set up, or the last ask got

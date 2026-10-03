@@ -6,7 +6,8 @@ import XCTest
 /// permission instead of a waking, the waking that gets no answer, and the search for a recorder the router has
 /// moved. The app's own tests run with nothing on the LAN, where none of this happens; here the link is handed a
 /// world of the test's own, which puts down what it was asked to do and answers as the test says. Also one rule
-/// whose moment the app's tests cannot reach: silence met after another network sets the looks going again.
+/// whose moment the app's tests cannot reach: silence met after another network sets the looks going again. And
+/// one of a link's own life: let go of, it goes, though its driver is kept.
 @MainActor
 final class DeviceLinkTests: XCTestCase {
     /// The recorder's MAC and the UDN that ends with it: Sony's OUI and the rest zeroed, as everywhere in this
@@ -361,5 +362,29 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertEqual(link.host, Stub.host)
         XCTAssertTrue(link.session.gaveUp)
         XCTAssertTrue(link.offline)
+    }
+
+    // MARK: - letting go
+
+    /// A link goes when the app lets go of it, though its driver is kept: the link holds the driver, and the
+    /// driver holds its link only as long as something else does. Held both ways neither would ever go, and a
+    /// recorder taken out of the app would leave its link behind with its client and its session.
+    func testALinkLetGoOfGoesThoughItsDriverIsKept() async {
+        let world = LinkWorld()
+        place(in: world)
+        let driver: any LinkDriver
+        weak var link: DeviceLink?
+        do {
+            let made = makeLink(world)
+            await made.connect()
+            XCTAssertTrue(made.session.connected)
+            XCTAssertTrue(made.driver is RecorderDriver)
+            XCTAssertTrue(made.driver.link === made, "the driver was not told whose it is")
+            driver = made.driver
+            link = made
+        }
+
+        XCTAssertNil(link, "the driver keeps its link")
+        XCTAssertNil(driver.link)
     }
 }

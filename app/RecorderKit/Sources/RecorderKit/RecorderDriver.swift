@@ -6,6 +6,8 @@ import Foundation
 /// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
+    /// Not read yet: the recorder's operations are still the app's, and will be asked of this on its link.
+    public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`).
     private let heldForAnotherRecorder: String
