@@ -181,7 +181,8 @@ final class AppModel: LinkHost {
         recorder = DeviceLink(
             host: demo ? DemoData.host : saved,
             session: SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
-            driver: RecorderDriver(holdingTheQueueWith: Self.heldForAnotherRecorder),
+            driver: RecorderDriver(holdingTheQueueWith: Self.heldForAnotherRecorder,
+                                   busyRetryDelay: surroundings.busyRetryDelay),
             environment: Self.nowhere)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
@@ -270,7 +271,8 @@ final class AppModel: LinkHost {
     private func readCache() async {
         guard store == nil else { return }
         do {
-            store = try GuideStore(path: try guidePath())
+            store = try GuideStore(path: try guidePath(),
+                                   busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
             // Invented programmes: for the screenshots, and for anyone without a recorder to hand. See
             // DemoData.
             if demo, let store { try? await DemoData.seed(store: store) }

@@ -165,7 +165,7 @@ extension AppModel {
                 guard let self else { return Unreachable() }
                 guard self.demo else { return self.surroundings.transport(host) }
                 // Kept for as long as the demo lasts, because it holds what the reader has done to it.
-                let recorder = self.demoRecorder ?? DemoRecorder()
+                let recorder = self.demoRecorder ?? DemoRecorder(delay: DemoData.answerDelay)
                 self.demoRecorder = recorder
                 return recorder
             },

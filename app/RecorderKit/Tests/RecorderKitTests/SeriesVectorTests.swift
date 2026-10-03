@@ -3,6 +3,9 @@ import XCTest
 
 /// Every case the server's heuristic was tuned on, taken from real recordings.
 final class SeriesVectorTests: XCTestCase {
+    /// Among the cases: one programme's episodes share a key however it is spelled (日曜劇場「SAMPLE」 第1話 and
+    /// 日曜劇場「ＳＡＭＰＬＥ」第１８話…), a showing again shares its episode's same-title key (ドラマＡ　第３話[再] and
+    /// ドラマA 第3話), and the next episode has one of its own (ドラマＡ　第４話).
     func testProgrammeNamesAndKeysMatchTheVectors() throws {
         let cases = try Vectors.load("series.json").dictionaries("titles")
         XCTAssertGreaterThan(cases.count, 30)
@@ -23,14 +26,9 @@ final class SeriesVectorTests: XCTestCase {
         XCTAssertEqual(Series.summaryKey(nil), "")
     }
 
-    func testEpisodesOfOneProgrammeShareAKeyAndOtherEpisodesDoNot() {
-        XCTAssertEqual(Series.key("日曜劇場「SAMPLE」 第1話"), Series.key("日曜劇場「ＳＡＭＰＬＥ」第１８話"))
-        XCTAssertEqual(Series.sameTitleKey("ドラマＡ　第３話[再]"), Series.sameTitleKey("ドラマA 第3話"))
-        XCTAssertNotEqual(Series.sameTitleKey("ドラマＡ　第３話"), Series.sameTitleKey("ドラマＡ　第４話"))
-    }
-
+    /// The marks `Arib.clean` spells out for the guide's symbols are not part of a programme's name. The
+    /// vectors carry [字][再][無][初][S][吹][終]; these five are among the ones they do not.
     func testEveryMarkTheGuideSpellsOutIsLeftOutOfTheKeys() {
-        XCTAssertEqual(Series.sameTitleKey("[無][初]サンプル体操[S][吹]"), Series.sameTitleKey("サンプル体操"))
         XCTAssertEqual(Series.key("[HV][双][N][前][声]サンプル紀行"), Series.key("サンプル紀行"))
     }
 }

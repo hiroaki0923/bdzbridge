@@ -122,11 +122,6 @@ public enum Codes {
     public static func repeatName(code: String) -> String? {
         repeatCodes.first { $0.value == code }?.key
     }
-
-    /// `genreID` on reservations and recordings: ARIB content nibbles as level1 * 16 + level2.
-    public static func genreLevels(_ genreCode: Int) -> (level1: Int, level2: Int) {
-        (genreCode / 16, genreCode % 16)
-    }
 }
 
 /// Where the recorder listens and what its UPnP services are called.

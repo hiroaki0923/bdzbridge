@@ -1,8 +1,8 @@
 import XCTest
 @testable import RecorderKit
 
-/// The code tables and constants must match the ones the server uses. `logo_clut` is left for the logo decoder
-/// and the EPG-specific vectors for the guide decoder; those arrive with their steps.
+/// The code tables and constants must match the ones the server uses. `logo_clut` is checked beside the logo
+/// decoder, in LogoVectorTests.
 final class CodesVectorTests: XCTestCase {
     func testTablesMatchTheVectors() throws {
         let vectors = try Vectors.load("codes.json")
@@ -57,11 +57,5 @@ final class CodesVectorTests: XCTestCase {
         XCTAssertEqual(Upnp.xsrsControlURL, controlURLs.string("xsrs"))
         XCTAssertEqual(Upnp.pvrControlURL, controlURLs.string("pvr"))
         XCTAssertEqual(Upnp.contentDirectoryControlURL, controlURLs.string("cds"))
-    }
-
-    func testGenreCodeSplitsIntoAribNibbles() {
-        XCTAssertEqual(Codes.genreLevels(168).level1, 0xA)
-        XCTAssertEqual(Codes.genreLevels(168).level2, 0x8)
-        XCTAssertEqual(Codes.genreLabel[Codes.genreLevels(48).level1], "ドラマ")
     }
 }

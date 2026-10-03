@@ -124,7 +124,7 @@ final class DeviceLinkTests: XCTestCase {
     private func makeLink(mac: String? = nil, _ world: World) -> DeviceLink {
         let link = DeviceLink(host: Stub.host, session: SessionState(mac: mac),
                               driver: RecorderDriver(holdingTheQueueWith: "held", wakingLimit: 0.05,
-                                                     wakingInterval: .milliseconds(10)),
+                                                     wakingInterval: .milliseconds(10), busyRetryDelay: 0...0),
                               environment: world.environment)
         link.owner = world
         return link

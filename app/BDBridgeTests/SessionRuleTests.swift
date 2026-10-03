@@ -35,7 +35,8 @@ final class SessionRuleTests: XCTestCase {
     /// the next return to the app from asking again.
     func testARecorderThatAnswersBusyIsNotGivenUpOn() async throws {
         let bench = try aBench()
-        let recorder = BusyRecorder()
+        let recorder = NamedRecorder(1)
+        await recorder.busyAtTheDoor()
         let model = try await started(bench, recorder: recorder)
 
         XCTAssertFalse(model.connected)
@@ -43,10 +44,10 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertFalse(model.offline)
         XCTAssertNotNil(model.problem, "nothing on screen says why the app is not connected")
 
-        let asked = await recorder.asked
+        let asked = await recorder.asked("description.xml")
         model.wentToBackground()
         await model.returnedToForeground()
-        let askedAgain = await recorder.asked
+        let askedAgain = await recorder.asked("description.xml")
         XCTAssertGreaterThan(askedAgain, asked, "coming back to the app did not ask a recorder that is there")
     }
 
@@ -55,8 +56,8 @@ final class SessionRuleTests: XCTestCase {
     /// that failed the whole connect with the recorder answering, and nothing after it was read.
     func testARecorderThatRefusesWhatIsOnlyShownIsStillConnected() async throws {
         let bench = try aBench()
-        let recorder = PickyRecorder(refusing: ["X_GetFirmwareVersion", "X_GetPrivateIp",
-                                                "X_HDLnkGetRecordDestinationInfo"])
+        let recorder = RecorderAtHome(refusing: ["X_GetFirmwareVersion", "X_GetPrivateIp",
+                                                 "X_HDLnkGetRecordDestinationInfo"])
         let model = try await started(bench, recorder: recorder)
 
         XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
@@ -97,16 +98,16 @@ final class SessionRuleTests: XCTestCase {
     /// is what the load itself checks.
     func testAListIsReadOnceTheRecorderHasAnsweredAndNotTheMomentItDescribesItself() async throws {
         let bench = try aBench()
-        let recorder = RecorderPartWayThroughAnAttach()
-        await recorder.setReachable(false)
+        let recorder = NamedRecorder(1)
+        await recorder.goQuiet(for: .max)
         let model = try await started(bench, recorder: recorder)
         XCTAssertTrue(model.gaveUp)
         XCTAssertTrue(model.offline)
 
-        await recorder.setReachable(true)
-        await recorder.holdAfterTheDescription()
+        await recorder.goQuiet(for: 0)
+        await recorder.hold(only: "X_GetFirmwareVersion")   // the first read after the description
         let connecting = Task { await model.connect() }
-        try await until("the recorder never described itself") { await recorder.isHolding }
+        try await until("the recorder never described itself") { await recorder.asked("X_GetFirmwareVersion") > 0 }
         XCTAssertFalse(model.connected && !model.offline,
                        "the screens would read their lists before the attach had read the rest")
         // Not awaited bare: with the mark gone too soon the list is asked for, behind the read that is held,
@@ -255,14 +256,13 @@ final class SessionRuleTests: XCTestCase {
     /// reader asked for goes ahead, and says for itself what is wrong, if anything is.
     func testARecorderThatAnswersTheCheckBusyLetsTheOperationGoAhead() async throws {
         let bench = try aBench()
-        let recorder = RecorderBusyAtTheDoor()
-        await recorder.comeFree()
+        let recorder = NamedRecorder(1)
         let model = try await started(bench, recorder: recorder)
         XCTAssertTrue(model.connected)
         await model.loadTitles()
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
 
-        await recorder.busyAgain()
+        await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered was taken for gone")
         XCTAssertFalse(model.offline)
         expectTrue(await model.delete(title), model.problem ?? "no reason given")
@@ -271,25 +271,7 @@ final class SessionRuleTests: XCTestCase {
     // MARK: - waking
 
     /// A recorder that says nothing to the first ask, with a MAC to wake it by, is woken and connected to,
-    /// not given up on.
-    func testASilentRecorderWithAMACIsWokenAndConnectedTo() async throws {
-        let bench = try aBench()
-        bench.keep(mac: WhichRecorderTests.firstsMAC)
-        try await bench.cacheAGuide()
-        let recorder = NamedRecorder(1)
-        await recorder.goQuiet(for: 1)
-        let model = bench.model(recorder: recorder)
-
-        await model.start()
-        try await untilConnected(model)
-
-        XCTAssertFalse(model.gaveUp)
-        XCTAssertNil(model.problem)
-        let asked = await recorder.asked("description.xml")
-        XCTAssertGreaterThanOrEqual(asked, 2, "nothing was asked after the silence")
-    }
-
-    /// The wait for a woken recorder goes on in a task of its own: a connect abandoned half way -- a pull on
+    /// not given up on. The wait for it goes on in a task of its own: a connect abandoned half way -- a pull on
     /// the list let go of -- does not leave the app given up on a recorder that is coming up.
     func testAConnectAbandonedDuringTheWakingDoesNotGiveUpOnTheRecorder() async throws {
         let bench = try aBench()
@@ -307,6 +289,7 @@ final class SessionRuleTests: XCTestCase {
 
         try await untilConnected(model, "the recorder coming up was given up on")
         XCTAssertFalse(model.gaveUp)
+        XCTAssertNil(model.problem)
     }
 
     /// A connect asked for while the check before an operation is waking the recorder waits for that check
@@ -517,29 +500,6 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertTrue(model.duplicatePicks.isEmpty)
     }
 
-    /// What answers at the address chosen need not be a recorder, and a recorder there may be busy with
-    /// somebody else. The last recorder's description stood through either answer -- something had answered,
-    /// so what was known stood -- and the app looked connected to the recorder it had left, with its lists up,
-    /// while every request went to the new address.
-    func testAnAddressThatAnswersWithoutDescribingItselfIsNotTakenForTheLastRecorder() async throws {
-        let answering: [any HTTPTransport] = [NotARecorder(), BusyRecorder()]
-        for other in answering {
-            let bench = try aBench()
-            let model = try await settledIn(bench, others: [Bench.otherHost: other])
-
-            await model.adopt(host: Bench.otherHost)
-
-            XCTAssertEqual(model.host, Bench.otherHost)
-            XCTAssertFalse(model.connected, "the app looks connected to the recorder it has left")
-            XCTAssertFalse(model.gaveUp, "an answer was taken for silence")
-            XCTAssertFalse(model.offline)
-            XCTAssertNotNil(model.problem, "nothing on screen says why the app is not connected")
-            XCTAssertTrue(model.titles.isEmpty, "the last recorder's recordings are still listed")
-            XCTAssertTrue(model.reservations.isEmpty)
-            XCTAssertTrue(model.duplicatePicks.isEmpty)
-        }
-    }
-
     /// The address already in use, chosen again -- its own row in a scan's list, or typed once more -- is the
     /// recorder the app has, and connects again as 再接続 does. Nothing it said is thrown away: well over a
     /// thousand recordings would be read a second time, and the reader's ticks would go.
@@ -597,35 +557,6 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertNotNil(model.pending(for: program), "the reservation waiting is no longer shown")
         let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()
         XCTAssertEqual(onDisk.map(\.request.eventID), [program.eventID])
-    }
-
-    /// What waits goes to a recorder that has said who it is, and to nothing else, whoever asks for it to be
-    /// sent. A recorder that answered the choice with a 503 -- busy with somebody else as it was asked -- has
-    /// not, and the app is not connected to it. It answered, though, so the screens do not take it for gone,
-    /// and pulling the reservations down read its list and then sent the queue: that handed what was waiting
-    /// for the last recorder to whatever was at the address. Pulling down connects instead now, and what waits
-    /// goes only once something has said who it is.
-    func testTheQueueIsNotSentToARecorderThatHasNotSaidWhoItIs() async throws {
-        let bench = try aBench()
-        let recorder = RecorderAtHome(), other = RecorderBusyAtTheDoor()
-        await recorder.setReachable(false)
-        try await bench.cacheAGuide()
-        let model = bench.model(recorders: [Bench.host: recorder, Bench.otherHost: other])
-        await model.start()
-        try await untilGivenUp(model)
-        let program = try await aProgramme(model)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"), model.problem ?? "no reason given")
-
-        await model.adopt(host: Bench.otherHost)
-        XCTAssertFalse(model.connected)
-        XCTAssertFalse(model.offline, "it answered, so the screens do not take it for gone")
-        await model.refreshReservations()   // pulling the reservations down
-
-        expectEqual(await other.made, 0, "what was waiting was sent to a recorder that never said which it is")
-        XCTAssertNotNil(model.pending(for: program), "the reservation waiting is no longer shown")
-        let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()
-        XCTAssertEqual(onDisk.map(\.request.eventID), [program.eventID])
-        XCTAssertEqual(onDisk.map(\.problem), [nil], "the reservation was held back, with a reason, by nobody")
     }
 
     /// While the recorder is being made sure of, with nothing on the strip to say so, another cannot be
@@ -770,8 +701,9 @@ final class SessionRuleTests: XCTestCase {
     /// connected to, and not given up on. No other recorder has been chosen: an ordinary launch can end here.
     /// One reservation waits on disk, turned down before when `refused` gives the reason.
     private func leftAtTheDoor(_ bench: Bench, refused reason: String? = nil) async throws
-        -> (model: AppModel, recorder: RecorderBusyAtTheDoor, waiting: PendingReservation, program: GuideProgramRow) {
-        let recorder = RecorderBusyAtTheDoor()
+        -> (model: AppModel, recorder: NamedRecorder, waiting: PendingReservation, program: GuideProgramRow) {
+        let recorder = NamedRecorder(1)
+        await recorder.busyAtTheDoor()
         try await bench.cacheAGuide()
         let model = bench.model(recorders: [Bench.host: recorder])
         await model.start()
@@ -798,14 +730,17 @@ final class SessionRuleTests: XCTestCase {
         let (model, recorder, _, program) = try await leftAtTheDoor(bench)
 
         await model.refreshReservations()
-        var made = await recorder.made
+        var made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 0, "what waits was sent to a recorder that has not said which it is")
         XCTAssertFalse(model.connected)
         XCTAssertNotNil(model.pending(for: program), "the reservation waiting is no longer shown")
+        let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()
+        XCTAssertEqual(onDisk.map(\.request.eventID), [program.eventID])
+        XCTAssertEqual(onDisk.map(\.problem), [nil], "the reservation was held back, with a reason, by nobody")
 
         await recorder.comeFree()
         await model.refreshReservations()
-        made = await recorder.made
+        made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 1, "the recorder was not asked again, or what waits was not sent once it answered")
         XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
@@ -819,14 +754,14 @@ final class SessionRuleTests: XCTestCase {
         let (model, recorder, waiting, program) = try await leftAtTheDoor(bench, refused: "refused")
 
         await model.resend(waiting)
-        var made = await recorder.made
+        var made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 0, "what waits was sent to a recorder that has not said which it is")
         XCTAssertFalse(model.connected)
         XCTAssertNotNil(model.problem, "nothing on screen says why it was not sent")
 
         await recorder.comeFree()
         await model.resend(waiting)
-        made = await recorder.made
+        made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 1, "the recorder was not asked again, or what waits was not sent once it answered")
         XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
@@ -842,6 +777,7 @@ final class SessionRuleTests: XCTestCase {
         let model = try await started(bench, recorder: recorder)
         XCTAssertTrue(model.gaveUp)
         let asked = await recorder.asked
+        XCTAssertEqual(asked, 1, "a connect whose network stayed where it was tries once")
 
         await model.connect()
 
@@ -868,16 +804,6 @@ final class SessionRuleTests: XCTestCase {
         expectEqual(await recorder.asked, 2, "one try on the network that went and one on the network that came")
         XCTAssertTrue(model.gaveUp)
         expectFalse(await lookAtTheNetwork(model), "the app gave up on a network it had not tried")
-    }
-
-    /// A connect whose network stayed where it was tries once.
-    func testAConnectOnOneNetworkTriesOnce() async throws {
-        let bench = try aBench()
-        let recorder = SilentRecorder()
-        let model = try await started(bench, recorder: recorder)
-
-        expectEqual(await recorder.asked, 1)
-        XCTAssertTrue(model.gaveUp)
     }
 
     /// Becoming active is not coming back. Control Centre, a notification pulled down and a system alert

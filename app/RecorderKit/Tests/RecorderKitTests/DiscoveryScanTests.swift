@@ -93,7 +93,7 @@ final class DiscoveryScanTests: XCTestCase {
     }
 
     func testScanningFindsOnlyRecorders() async throws {
-        let description = try Vectors.load("description.json").string("description_xml")
+        let description = try Vectors.descriptionXML()
         let television = "<root xmlns=\"urn:schemas-upnp-org:device-1-0\"><device>"
             + "<manufacturer>Sony Corporation</manufacturer><friendlyName>TV</friendlyName></device></root>"
         let transport = StubTransport { request, _ in
@@ -121,7 +121,7 @@ final class DiscoveryScanTests: XCTestCase {
     /// A request the session never gives up on must not hold the whole scan: seen on an iPhone, stuck at
     /// its last address.
     func testAProbeThatNeverAnswersStillEnds() async throws {
-        let description = try Vectors.load("description.json").string("description_xml")
+        let description = try Vectors.descriptionXML()
         let transport = StubTransport { request, _ in
             if request.url.host == "192.0.2.9" {
                 try await Task.sleep(for: .seconds(60))   // cancelled by the deadline, never by itself
@@ -140,14 +140,12 @@ final class DiscoveryScanTests: XCTestCase {
     /// A recorder the router has given another address is found by the MAC the app keeps for waking it, which
     /// is the tail of its UDN, and not mistaken for any other recorder on the LAN.
     func testARecorderThatMovedIsFoundByTheMACAtTheEndOfItsUDN() async throws {
-        let description = try Vectors.load("description.json").string("description_xml")
-        let recorder = { (mac: String) -> HTTPResponse in
-            let udn = "uuid:00000000-0000-0000-0000-" + mac
-            let xml = description.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+        let recorder = { (mac: String) throws -> HTTPResponse in
+            let xml = try Vectors.descriptionXML(udn: "uuid:00000000-0000-0000-0000-" + mac)
             return HTTPResponse(statusCode: 200, body: Data(xml.utf8))
         }
-        let another = recorder("f84e17000001")   // somebody else's recorder, or a second one
-        let ours = recorder("f84e17000000")
+        let another = try recorder("f84e17000001")   // somebody else's recorder, or a second one
+        let ours = try recorder("f84e17000000")
         let transport = StubTransport { request, _ in
             switch request.url.host() {
             case "192.0.2.10": return another
@@ -171,7 +169,7 @@ final class DiscoveryScanTests: XCTestCase {
     }
 
     func testAUDNIsMatchedOnlyByTheMACItEndsWith() throws {
-        let description = try Vectors.load("description.json").string("description_xml")
+        let description = try Vectors.descriptionXML()
         var recorder = try XCTUnwrap(Discovery.parseDescription(description, host: "192.0.2.63",
                                                                 location: "", via: "scan"))
         recorder.udn = "uuid:00000000-0000-0000-0000-f84e17000000"

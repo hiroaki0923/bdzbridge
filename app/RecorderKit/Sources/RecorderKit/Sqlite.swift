@@ -6,7 +6,7 @@ import SQLite3
 final class Sqlite {
     private let handle: OpaquePointer
 
-    init(path: String) throws {
+    init(path: String, busyTimeoutMilliseconds: Int32 = Sqlite.busyTimeoutMilliseconds) throws {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK, let handle else {
@@ -20,7 +20,7 @@ final class Sqlite {
         // writes second fails at once with "database is locked", and a reservation already sent whose row could
         // not then be taken out of the queue would be sent again. Five seconds is several times longer than any
         // write here has been seen to take on a Mac.
-        sqlite3_busy_timeout(handle, Self.busyTimeoutMilliseconds)
+        sqlite3_busy_timeout(handle, busyTimeoutMilliseconds)
         try execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")
     }
 

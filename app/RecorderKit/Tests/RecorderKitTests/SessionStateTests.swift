@@ -31,23 +31,14 @@ final class SessionStateTests: XCTestCase {
         return session
     }
 
-    func testNothingIsKnownAtFirst() {
-        let session = SessionState()
-        XCTAssertFalse(session.connected)
-        XCTAssertFalse(session.unreachable)
-        XCTAssertFalse(session.gaveUp)
-        XCTAssertFalse(session.canWake)
-        XCTAssertEqual(session.timesAttached, 0)
-        XCTAssertTrue(session.networkChanged(now: "home"))
-        XCTAssertEqual(SessionState(mac: "F8-4E-17-00-00-00").mac, "F8-4E-17-00-00-00", "kept as it was saved")
-    }
-
     /// Connected is decided by the description alone, and from the moment it arrives: the rest is read
-    /// after, and is only shown.
+    /// after, and is only shown. What the device would not say is put down as not known, over what an earlier
+    /// attach read.
     func testADeviceThatDescribesItselfIsConnectedBeforeTheRestIsRead() {
         let session = SessionState()
         session.described(description())
         XCTAssertTrue(session.connected)
+        XCTAssertFalse(session.unreachable, "nothing has gone unanswered")
         XCTAssertEqual(session.firmware, "")
         XCTAssertNil(session.storage)
         XCTAssertEqual(session.timesAttached, 0, "not counted until the attach is through")
@@ -59,6 +50,12 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(session.firmware, "1.0")
         XCTAssertEqual(session.storage?.free, 100)
         XCTAssertEqual(session.timesAttached, 1)
+
+        // The next attach, at which it would say neither.
+        session.learned(firmware: "")
+        session.learned(storage: nil)
+        XCTAssertEqual(session.firmware, "")
+        XCTAssertNil(session.storage)
     }
 
     /// After silence, the description makes it connected at once and the mark of having been unreachable
@@ -69,23 +66,6 @@ final class SessionStateTests: XCTestCase {
         session.lost()
         session.described(description())
         XCTAssertTrue(session.connected)
-        XCTAssertTrue(session.unreachable)
-        session.answered()
-        XCTAssertFalse(session.unreachable)
-    }
-
-    /// What the device would not say is put down as not known, over what an earlier attach read.
-    func testWhatTheDeviceWouldNotSayThisTimeIsForgotten() {
-        let session = attached()
-        session.learned(firmware: "")
-        session.learned(storage: nil)
-        XCTAssertEqual(session.firmware, "")
-        XCTAssertNil(session.storage)
-    }
-
-    func testAnAnswerClearsHavingBeenUnreachable() {
-        let session = attached()
-        session.lost()
         XCTAssertTrue(session.unreachable)
         session.answered()
         XCTAssertFalse(session.unreachable)
@@ -373,6 +353,7 @@ final class SessionStateTests: XCTestCase {
     }
 
     /// Anything that is not a MAC is ignored rather than kept, so a half-typed one never replaces a good one.
+    /// A MAC saved earlier is kept as it was saved.
     func testOnlyAMacIsRemembered() {
         let session = SessionState()
         XCTAssertFalse(session.remember(mac: "not a mac"))
@@ -385,20 +366,18 @@ final class SessionStateTests: XCTestCase {
         session.forgetMac()
         XCTAssertNil(session.mac)
         XCTAssertFalse(session.canWake)
+
+        XCTAssertEqual(SessionState(mac: "F8-4E-17-00-00-00").mac, "F8-4E-17-00-00-00", "kept as it was saved")
     }
 
+    /// A waking that is over, and a wish for power that has been met, are shown no more. Nothing else reads these
+    /// two going down; the flags going up, and the connect's either way, are read where they are used.
     func testTheFlagsSayWhatIsUnderWay() {
         let session = SessionState()
-        session.beginConnecting()
-        XCTAssertTrue(session.connecting)
-        session.endConnecting()
-        XCTAssertFalse(session.connecting)
         session.beginWaking()
-        XCTAssertTrue(session.waking)
         session.endWaking()
         XCTAssertFalse(session.waking)
         session.powerNeeded(true)
-        XCTAssertTrue(session.needsPower)
         session.powerNeeded(false)
         XCTAssertFalse(session.needsPower)
     }
@@ -421,14 +400,5 @@ final class SessionStateTests: XCTestCase {
         session.lost()
         XCTAssertEqual(gaveUp.times, 1)
         XCTAssertEqual(connected.times, 1)
-    }
-
-    func testTheNetworkIsNotedAndComparedThroughTheLink() {
-        let session = SessionState()
-        session.tried(on: "home")
-        XCTAssertFalse(session.networkChanged(now: "home"))
-        session.noted(network: "")
-        XCTAssertTrue(session.networkChanged(now: "home"))
-        XCTAssertTrue(session.link.sawAnotherNetwork)
     }
 }

@@ -44,6 +44,9 @@ final class DuplicatesVectorTests: XCTestCase {
         XCTAssertEqual(candidates.map { $0.map(\.id) }, vectors.list("candidates") as? [[String]])
     }
 
+    /// The guide has the daily show's text on two broadcast days, so it is a fixed one. Twice in one night,
+    /// either side of midnight, is one broadcast day: 深夜のサンプル is shown again, not given a text used every
+    /// day. And 刑事サンプル, on two days with two different texts, has no fixed one.
     func testFixedBlurbsMatchTheVectors() throws {
         let expected = try Vectors.load("titles.json").dictionary("duplicates").dictionaries("fixed_blurbs").map {
             Duplicates.Blurb(titleKey: $0.string("same_title_key"), summaryKey: $0.string("summary_key"))
@@ -52,6 +55,9 @@ final class DuplicatesVectorTests: XCTestCase {
         XCTAssertFalse(expected.isEmpty)
     }
 
+    /// In the vectors: 0xd3 is not a copy, its text being a different one, and nor is 0xd4, half an hour longer.
+    /// 0xd2, watched partway, is kept over 0xd1's better recording mode. The daily show and the mini anime agree
+    /// only on a text they carry every time: the guide repeats the one, and the other's is a line long.
     func testSetsMatchTheVectors() throws {
         let (_, _, vectors) = try sample()
         let sets = try sampleSets()
@@ -69,20 +75,6 @@ final class DuplicatesVectorTests: XCTestCase {
         }
     }
 
-    func testARecordingWhoseTextDiffersIsNotACopy() throws {
-        let sets = try sampleSets()
-        let everyItem = sets.flatMap { $0.items.map(\.id) }
-        XCTAssertFalse(everyItem.contains("0xd3"), "its programme text is a different one")
-        XCTAssertFalse(everyItem.contains("0xd4"), "half an hour longer, so not the same broadcast")
-    }
-
-    func testWatchedPartwayOutranksTheBetterRecordingMode() throws {
-        let sets = try sampleSets()
-        let set = try XCTUnwrap(sets.first { $0.confidence == .high })
-        XCTAssertEqual(set.keep, "0xd2")
-        XCTAssertEqual(set.reasons["0xd2"], "視聴途中")
-    }
-
     /// Two recordings with no text agree on the title and the length alone, which is not enough to tick one
     /// of them for deletion on the reader's behalf. Nor is a text the programme carries every time.
     func testOnlyASetConfirmedByItsTextComesUpTicked() throws {
@@ -90,32 +82,23 @@ final class DuplicatesVectorTests: XCTestCase {
         XCTAssertEqual(Duplicates.picks(for: sets, shown: [], picked: []), ["0xd1", "0xf1"])
     }
 
-    /// A daily show whose text the guide repeats, and a mini anime whose text is a line long, agree on their
-    /// text without that making them the same broadcast. The daily show is told only by the guide: without
-    /// it, its text is long enough to pass for an episode's.
-    func testATextTheProgrammeCarriesEveryTimeDoesNotConfirmACopy() throws {
-        let sets = try sampleSets()
-        let daily = try XCTUnwrap(sets.first { $0.items.contains { $0.id == "0xb1" } })
-        let mini = try XCTUnwrap(sets.first { $0.items.contains { $0.id == "0xa1" } })
-        XCTAssertEqual(daily.confidence, .boilerplate)
-        XCTAssertEqual(mini.confidence, .boilerplate)
-        XCTAssertEqual(daily.confidence.label, "説明文が毎回同じ（内容は未確認）")
-
+    /// A daily show's text is long enough to pass for an episode's, so only the guide tells that the show
+    /// carries it every time: without the guide, two of its recordings read as one broadcast. With it (the
+    /// vectors), the set tells the reader that the text was not enough to go by.
+    func testOnlyTheGuideTellsADailyShowsTextIsAFixedOne() throws {
         let (titles, summaries, _) = try sample()
         let withoutGuide = Duplicates.sets(candidates: Duplicates.candidates(titles), summaries: summaries)
         XCTAssertEqual(withoutGuide.first { $0.items.contains { $0.id == "0xb1" } }?.confidence, .high)
-        XCTAssertEqual(withoutGuide.first { $0.items.contains { $0.id == "0xa1" } }?.confidence, .boilerplate)
+        XCTAssertEqual(DuplicateSet.Confidence.boilerplate.label, "説明文が毎回同じ（内容は未確認）")
     }
 
-    /// Twice in one night, either side of midnight, is one broadcast day: a showing again, not a text used
-    /// every day. And a title the guide has on two days with two different texts has no fixed one.
-    func testOnlyATextOnTwoBroadcastDaysIsAFixedOne() throws {
-        let fixed = try fixedBlurbs()
-        XCTAssertFalse(fixed.contains { $0.titleKey == Series.sameTitleKey("深夜のサンプル") })
-        XCTAssertFalse(fixed.contains { $0.titleKey == Series.sameTitleKey("刑事サンプル（４８）「幻の宝石」") })
+    /// Narrowed to the titles a scan is about, no other title is looked at, and what is found for those is what
+    /// the whole guide says of them.
+    func testFixedBlurbsCanBeNarrowedToTheTitlesAskedAbout() throws {
         XCTAssertEqual(Duplicates.fixedBlurbs(in: try guide(), among: [Series.sameTitleKey("深夜のサンプル")]), [],
                        "narrowed to one title, the others are not looked at")
-        XCTAssertEqual(Duplicates.fixedBlurbs(in: try guide(), among: [Series.sameTitleKey("サンプル体操")]), fixed)
+        XCTAssertEqual(Duplicates.fixedBlurbs(in: try guide(), among: [Series.sameTitleKey("サンプル体操")]),
+                       try fixedBlurbs())
     }
 
     /// Deleting or protecting something elsewhere builds the sets again. One still made of the same

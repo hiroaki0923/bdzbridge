@@ -46,13 +46,8 @@ final class DeviceFailureTests: XCTestCase {
             XCTAssertEqual(row.error.failure, row.failure, "\(row.error)")
             XCTAssertEqual(row.error.failure.turnsTheRequestDown, row.turnsDown, "\(row.error)")
         }
-    }
-
-    /// What a caller that knows no device catches.
-    func testTheRecordersErrorIsADeviceError() {
-        let thrown: any Error = RecorderError.transport("timed out")
-        let device = thrown as? any DeviceError
-        XCTAssertEqual(device?.failure, .silent)
-        XCTAssertEqual(device?.explanation, RecorderError.transport("timed out").explanation)
+        // 831 is the recorder refusing a channel it cannot receive -- a pay channel not subscribed to -- and reads
+        // as a broken app unless the sentence says so.
+        XCTAssertTrue(fault("831").explanation.contains("受信"), fault("831").explanation)
     }
 }

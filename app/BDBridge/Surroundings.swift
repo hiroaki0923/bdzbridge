@@ -31,6 +31,12 @@ struct Surroundings {
     /// Whether the model asks the system about notifications. The dialog waits for a tap, and in a test
     /// there is nobody to give it.
     var asksAboutNotifications: Bool
+    /// How long the recorder's client pauses before sending again what was answered 503. A test has no seconds
+    /// to spend on it: that the request is sent again is RecorderKit's to test.
+    var busyRetryDelay: ClosedRange<Double> = 0.5...1
+    /// How long a write to the cache waits for another connection's: five seconds, shortened only by a test that
+    /// holds the lock on purpose and has no reason to wait them out.
+    var storeBusyTimeoutMilliseconds: Int32 = 5000
 
     static var app: Surroundings {
         Surroundings(defaults: .standard,

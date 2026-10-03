@@ -18,7 +18,7 @@ final class NoScreenReachTests: XCTestCase {
     /// The recorder of the vectors, answering each ask of who it is with the next of `answers` and the last
     /// for ever after: a status, or nil for silence.
     private func recorder(_ answers: [Int?], _ events: Events) throws -> StubTransport {
-        let description = try Vectors.load("description.json").string("description_xml")
+        let description = try Vectors.descriptionXML()
         return StubTransport { _, index in
             events.put("ask")
             guard let status = answers[min(index, answers.count - 1)] else {

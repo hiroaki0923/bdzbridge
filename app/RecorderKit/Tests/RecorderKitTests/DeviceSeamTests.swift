@@ -8,39 +8,10 @@ import XCTest
 /// `DeviceFailure`. The recorder's own tests show nothing changed for a recorder; these show that the rules
 /// hold for something that has no SOAP, no XML and no `RecorderError` in it.
 final class DeviceSeamTests: XCTestCase {
-    private func store() throws -> GuideStore {
-        try GuideStore(path: FileManager.default.temporaryDirectory
-            .appendingPathComponent("seam-\(UUID().uuidString).sqlite3").path)
-    }
-
-    private func pending(_ title: String, eventID: Int, start: Date) -> PendingReservation {
-        PendingReservation(request: ReservationRequest(title: title, start: start, durationSec: 3600,
-                                                       repeatCode: "1", broadcastingType: 2, serviceID: 0x428,
-                                                       qualityCode: 240, eventID: eventID),
-                           serviceName: "サンプルテレビ")
-    }
-
-    func testTheWaitEndsWhenTheDeviceAnswersItsProbe() async throws {
-        let device = OtherDevice(silentProbes: 2)
-
-        let outcome = await Waking.waitForAnswer(from: device, limit: 5, interval: .milliseconds(1), resend: {})
-
-        XCTAssertEqual(outcome, .answered)
-        expectEqual(await device.probes, 3)
-    }
-
-    func testADeviceThatNeverAnswersItsProbeIsSilent() async throws {
-        let device = OtherDevice(silentProbes: .max)
-
-        let outcome = await Waking.waitForAnswer(from: device, limit: 0.1, interval: .milliseconds(10), resend: {})
-
-        XCTAssertEqual(outcome, .silent)
-    }
-
     /// Refused keeps its reason and waits for the reader, busy waits as it was, and silence stops the flush
     /// with the rest untouched: the queue's rules, read off the failure and not off the kind of error.
     func testTheQueueReadsTheFailureAndNotTheKindOfError() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let titles = ["断られる番組", "混んでいる番組", "送られる番組", "応答のない番組", "残される番組"]
         for (index, title) in titles.enumerated() {
@@ -76,7 +47,7 @@ final class DeviceSeamTests: XCTestCase {
     /// A type the device has nothing for is noted, one that fails is passed over with the device's own words,
     /// and silence ends the refresh there.
     func testTheRefreshReadsTheFailureAndNotTheKindOfError() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let start = Date(timeIntervalSince1970: 1_790_000_000)
         let service = GuideService(serviceID: 0x400, name: "サンプル総合", programs: [
             GuideProgram(serviceID: 0x400, eventID: 1, start: start, end: start.addingTimeInterval(1800),
@@ -127,25 +98,20 @@ private struct OtherError: DeviceError, Equatable {
 
 /// A device with nothing of a recorder about it: it is probed, asked for guides and reserved on.
 private actor OtherDevice: GuideSource, ReservationTarget {
-    private(set) var probes = 0
     private(set) var probeTimeouts: [TimeInterval] = []
     private(set) var created: [ReservationRequest] = []
     private(set) var guidesAsked: [String] = []
-    private let silentProbes: Int
     private let creating: @Sendable (ReservationRequest) throws -> Void
     private let guides: [String: Result<[GuideService]?, OtherError>]
 
-    init(silentProbes: Int = 0, guides: [String: Result<[GuideService]?, OtherError>] = [:],
+    init(guides: [String: Result<[GuideService]?, OtherError>] = [:],
          creating: @escaping @Sendable (ReservationRequest) throws -> Void = { _ in }) {
-        self.silentProbes = silentProbes
         self.guides = guides
         self.creating = creating
     }
 
     func probe(timeout: TimeInterval) async throws {
-        probes += 1
         probeTimeouts.append(timeout)
-        if probes <= silentProbes { throw OtherError(failure: .silent) }
     }
 
     func guide(_ broadcasting: String) async throws -> [GuideService]? {

@@ -56,24 +56,22 @@ extension WhichRecorderTests {
         expectTheStripSaysWhatIsHeld(model)
     }
 
-    /// Something asked of a recording while the check is out, which then hears another recorder -- answering
-    /// its probe, or answering after a waking. The recording's number is the first recorder's, and the
-    /// second, which numbers its own from the same start, has one under it: nothing is sent, and the reader is
-    /// told why.
+    /// Something asked of a recording while the check is out, which then hears another recorder. The
+    /// recording's number is the first recorder's, and the second, which numbers its own from the same start,
+    /// has one under it: nothing is sent, and the reader is told why. A delete only waits for what the check
+    /// found, however the check ended, so the probe's way is enough here; the waking's way is the
+    /// reservation's below, which had a fault of its own on each.
     func testADeleteAskedOfWhatTurnsOutToBeAnotherRecorderIsNotSent() async throws {
-        for heard in Heard.allCases {
-            let (bench, recorder, model) = try await atHome(wakeable: true)
-            let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let (bench, recorder, model) = try await atHome(wakeable: true)
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
 
-            let deleted = try await asking(model, on: bench, of: recorder, heard: heard) { await model.delete(title) }
+        let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) { await model.delete(title) }
 
-            let exit = heard.rawValue
-            XCTAssertFalse(deleted, exit)
-            XCTAssertEqual(model.problem, AppModel.anotherAnswered, "nothing says why it was not deleted, \(exit)")
-            try await untilTakenUp(model, 2, "the newcomer was never taken up, \(exit)")
-            expectEqual(await recorder.asked("X_DeleteTitle"), 0,
-                        "the second recorder was asked to delete its recording of that number, \(exit)")
-        }
+        XCTAssertFalse(deleted)
+        XCTAssertEqual(model.problem, AppModel.anotherAnswered, "nothing says why it was not deleted")
+        try await untilTakenUp(model, 2, "the newcomer was never taken up")
+        expectEqual(await recorder.asked("X_DeleteTitle"), 0,
+                    "the second recorder was asked to delete its recording of that number")
     }
 
     /// A reservation asked for while the check is out, which then hears another recorder -- answering its

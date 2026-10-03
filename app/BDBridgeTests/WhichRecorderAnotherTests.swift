@@ -142,6 +142,8 @@ extension WhichRecorderTests {
     /// sent, and the next connect, with the cache free, takes it over.
     func testACacheThatCannotBeMadeOverIsNotConnectedOver() async throws {
         let bench = try aBench()
+        // The lock is held on purpose: what is tested is giving up, not the wait.
+        bench.storeBusyTimeoutMilliseconds = 200
         let second = NamedRecorder(2)
         let model = try await connected(bench, at: [Bench.host: NamedRecorder(1), Bench.otherHost: second])
         try await queueAReservation(bench, model)
@@ -178,6 +180,8 @@ extension WhichRecorderTests {
     /// chose. Letting go of the first recorder takes the strip's line with it, so it is put back.
     func testAnotherRecorderTurnedAwayForItsCacheIsStillSaidToHaveAnswered() async throws {
         let bench = try aBench()
+        // The lock is held on purpose: what is tested is giving up, not the wait.
+        bench.storeBusyTimeoutMilliseconds = 200
         let recorder = NamedRecorder(1)
         let model = try await connected(bench, at: [Bench.host: recorder])
 
@@ -197,6 +201,8 @@ extension WhichRecorderTests {
     /// is held, not sent to the second as the first answerer of a cache that is nobody's.
     func testAnotherRecorderTakesACacheWhoseOwnerCouldNotBeWrittenDown() async throws {
         let bench = try aBench()
+        // The lock is held on purpose: what is tested is giving up, not the wait.
+        bench.storeBusyTimeoutMilliseconds = 200
         try await bench.cacheAGuide()
         let recorder = NamedRecorder(1)
         let writer = Writer(to: bench.guidePath)

@@ -10,19 +10,6 @@ final class LogoVectorTests: XCTestCase {
         return (data, expected)
     }
 
-    /// The chunk types and payload lengths of a PNG, in order.
-    private func chunks(_ png: Data) -> [(type: String, length: Int)] {
-        var out: [(String, Int)] = []
-        var index = png.startIndex + 8
-        while index + 8 <= png.endIndex {
-            let length = png.subdata(in: index..<index + 4).reduce(0) { $0 << 8 | Int($1) }
-            let type = String(decoding: png.subdata(in: index + 4..<index + 8), as: UTF8.self)
-            out.append((type, length))
-            index += 12 + length
-        }
-        return out
-    }
-
     func testTheSampleFileIsTheOneTheVectorDescribes() throws {
         let (data, expected) = try sample()
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -42,18 +29,12 @@ final class LogoVectorTests: XCTestCase {
         }
     }
 
-    func testThePaletteIsInsertedAfterTheHeaderAndOnlyOnce() throws {
+    /// A PNG that already carries the palette is handed back as it is. Where the palette goes, after the header,
+    /// is pinned byte for byte by the decoding vector.
+    func testThePaletteIsInsertedOnlyOnce() throws {
         let (data, _) = try sample()
         let png = try XCTUnwrap(try LogoFile.decode(data).first?.png)
-
-        XCTAssertEqual(chunks(png).map(\.type), ["IHDR", "PLTE", "tRNS", "IDAT", "IEND"])
-        XCTAssertEqual(chunks(png).first { $0.type == "PLTE" }?.length, 3 * LogoFile.clut.count)
-        XCTAssertEqual(chunks(png).first { $0.type == "tRNS" }?.length, LogoFile.clut.count)
         XCTAssertEqual(try LogoFile.withPalette(png), png, "inserting twice would break the image")
-
-        // the standard table: white is opaque, and the entry the broadcasters use for transparency is clear
-        XCTAssertEqual(LogoFile.clut[7], LogoColor(255, 255, 255, 255))
-        XCTAssertEqual(LogoFile.clut[8], LogoColor(0, 0, 0, 0))
     }
 
     /// ARIB STD-B24 Vol.2 Part 2 App.2 Table 5-7, which TR-B15 App.1 makes the logos' table: every colour of the

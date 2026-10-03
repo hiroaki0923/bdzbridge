@@ -63,34 +63,6 @@ final class RecorderClientTests: XCTestCase {
             XCTAssertEqual(status, 500)
             XCTAssertEqual(code, "402")
             XCTAssertTrue(error.explanation.contains("402"))
-            XCTAssertNotEqual(error.failure, .needsPower)
-        }
-    }
-
-    /// 831 on a create is the recorder refusing to follow a programme on a channel it cannot receive, seen
-    /// on a BDZ-FBT4100 with a pay channel the box is not subscribed to. It reads as a broken app unless it
-    /// says what it is, so it has its own wording, and the queue holds it back like any refusal.
-    func testAnUnreceivableChannelHasItsOwnWording() async throws {
-        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("831")))
-        do {
-            try await client.create(ReservationRequest(
-                title: "x", start: Date(), durationSec: 1800, repeatCode: "1", broadcastingType: 4,
-                serviceID: 298, qualityCode: 240, eventID: 1))
-            XCTFail("a fault should throw")
-        } catch let error as RecorderError {
-            XCTAssertEqual(error.failure, .refused(reason: error.explanation))
-            XCTAssertTrue(error.explanation.contains("831"))
-            XCTAssertTrue(error.explanation.contains("受信"))
-        }
-    }
-
-    func testStandbyIsRecognisedSoTheCallerCanPowerTheRecorderOn() async throws {
-        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("880")))
-        do {
-            try await client.playControl(titleID: "0x1", operation: "play")
-            XCTFail("a fault should throw")
-        } catch let error as RecorderError {
-            XCTAssertEqual(error.failure, .needsPower)
         }
     }
 

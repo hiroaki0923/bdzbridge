@@ -29,6 +29,8 @@ final class TitlesVectorTests: XCTestCase {
         }
     }
 
+    /// The commonest spelling names a group, and the first one seen wins a tie: ドラマＡＢＣ is spelled in full
+    /// width twice and in half width once, ニュース７ once each.
     func testGroupingMatchesTheVectors() throws {
         let (titles, vectors) = try sample()
         assertGroups(TitleGroup.group(titles), match: vectors.dictionaries("groups"))
@@ -39,15 +41,6 @@ final class TitlesVectorTests: XCTestCase {
         let filtered = vectors.dictionary("groups_drama_only")
         let genre = try XCTUnwrap(filtered.int("genre"))
         assertGroups(TitleGroup.group(titles, genre: genre), match: filtered.dictionaries("groups"))
-    }
-
-    func testTheCommonestSpellingNamesTheGroupAndTheFirstWinsATie() throws {
-        let (titles, _) = try sample()
-        let groups = TitleGroup.group(titles)
-        let drama = try XCTUnwrap(groups.first { $0.count == 3 })
-        XCTAssertEqual(drama.name, "ドラマＡＢＣ", "two full-width spellings against one half-width")
-        let news = try XCTUnwrap(groups.first { $0.count == 2 })
-        XCTAssertEqual(news.name, "ニュース７", "one each, so the first one seen")
     }
 
     private func assertGroups(_ groups: [TitleGroup], match expected: [[String: Any]]) {

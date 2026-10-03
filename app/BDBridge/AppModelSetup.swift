@@ -125,7 +125,9 @@ extension AppModel {
         // let go of when another answers a check, under a list of found recorders the reader may be reading.
         found = []
         scanOutcome = nil
-        store = (try? guidePath()).flatMap { try? GuideStore(path: $0) }
+        store = (try? guidePath()).flatMap {
+            try? GuideStore(path: $0, busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
+        }
         if let store {
             if demo { try? await DemoData.seed(store: store) }
             await reloadFromCache()

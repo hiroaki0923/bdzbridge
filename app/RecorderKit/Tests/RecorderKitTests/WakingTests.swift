@@ -6,11 +6,9 @@ import XCTest
 /// Shortcuts action all do through `Waking`. Nothing here waits in real time: the limits and the pauses are
 /// milliseconds, and the packet is a closure that counts.
 final class WakingTests: XCTestCase {
-    private static let vectors = "description.json"
-
     /// Silence for the first asks, then the recorder's description: what a recorder coming up looks like.
     private func recorder(silentFor asks: Int) throws -> StubTransport {
-        let xml = try Vectors.load(Self.vectors).string("description_xml")
+        let xml = try Vectors.descriptionXML()
         return StubTransport { _, index in
             guard index >= asks else { throw RecorderError.transport("silence") }
             return HTTPResponse(statusCode: 200, body: Data(xml.utf8))
@@ -109,7 +107,7 @@ final class WakingTests: XCTestCase {
     /// starting up -- is not the recorder describing itself, and the wait goes on, as both of the loops this
     /// replaced did.
     func testAnErrorIsNotAnAnswer() async throws {
-        let xml = try Vectors.load(Self.vectors).string("description_xml")
+        let xml = try Vectors.descriptionXML()
         // A 503 is sent again twice by the client before it is thrown, so the first ask is three requests.
         let transport = StubTransport { _, index in
             switch index {

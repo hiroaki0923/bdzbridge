@@ -12,6 +12,9 @@ final class Bench {
     let folder: URL
     /// What the model is told the network is. A different value is a different network.
     var network = "home"
+    /// How long the model's writes to its cache wait for another connection: the app's five seconds, unless a
+    /// test that holds the lock on purpose shortens it before making the model.
+    var storeBusyTimeoutMilliseconds: Int32 = 5000
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     private let suite: String
@@ -68,7 +71,9 @@ final class Bench {
             // Weak: the looks after a network report can outlast the test that made them.
             networkSignature: { [weak self] in self?.network ?? "" },
             reachesTheLAN: false,
-            asksAboutNotifications: false))
+            asksAboutNotifications: false,
+            busyRetryDelay: 0...0,
+            storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds))
     }
 
     /// The database a model made here opens for a real recorder.
@@ -123,7 +128,8 @@ actor SilentRecorder: HTTPTransport {
 /// wake and gives up at once instead of spending the half minute of waking a real app would. `holding` keeps
 /// what was sent while away waiting until `letGo()`, and then it fails however the phone is by then: a request
 /// that went out while the Wi-Fi was gone is lost even if the Wi-Fi comes back before it times out. `refusing`
-/// names calls it turns down while at home, as `PickyRecorder` does.
+/// names SOAP actions it turns down with a 500 and nothing in it while at home: how another model of the series
+/// might answer a call the app only makes to show something.
 actor RecorderAtHome: HTTPTransport {
     private let recorder = DemoRecorder()
     private let refusing: Set<String>
@@ -161,25 +167,11 @@ actor RecorderAtHome: HTTPTransport {
     }
 }
 
-/// A recorder that is there and busy with somebody else: every request is answered 503, as a BDZ answers one
-/// that arrives while it is serving another. An answer, so not silence.
-actor BusyRecorder: HTTPTransport {
-    private(set) var asked = 0
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        asked += 1
-        return HTTPResponse(statusCode: 503)
-    }
-}
-
 /// Something at the address that is not a recorder -- a television, a router's own page: it answers, and
 /// every answer is a 404. An answer, so not silence, and nothing that describes a recorder.
 actor NotARecorder: HTTPTransport {
-    private(set) var asked = 0
-
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        asked += 1
-        return HTTPResponse(statusCode: 404)
+        HTTPResponse(statusCode: 404)
     }
 }
 
@@ -193,7 +185,9 @@ actor NotARecorder: HTTPTransport {
 /// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind -- for a test that
 /// looks at the app in between, and `goQuiet` has it say nothing to a few requests, as a recorder that has
 /// left the network does: the next ones, or the ones after it has answered so many, or the next of one kind.
-/// A request held and then let go is one of them.
+/// A request held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is
+/// asked who it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving
+/// another -- and answering everything else: there, and not saying which it is, until `comeFree()`.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -206,6 +200,7 @@ actor NamedRecorder: HTTPTransport {
     private var holding = false
     private var holdingOnly: String?
     private var held: [CheckedContinuation<Void, Never>] = []
+    private var busy = false
     private(set) var asked: [String: Int] = [:]
 
     init(_ last: Int) {
@@ -253,6 +248,14 @@ actor NamedRecorder: HTTPTransport {
         quietOn = what
     }
 
+    func busyAtTheDoor() {
+        busy = true
+    }
+
+    func comeFree() {
+        busy = false
+    }
+
     /// How often it has been asked for `what` -- a SOAP action, or a file by its name: since it was made, or
     /// since `before`, which is its `asked` at an earlier moment.
     func asked(_ what: String, since before: [String: Int] = [:]) -> Int {
@@ -277,37 +280,12 @@ actor NamedRecorder: HTTPTransport {
                 throw RecorderError.transport("The request timed out.")
             }
         }
+        if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
         if action == "X_GetPrivateIp" { return HTTPResponse(statusCode: 500) }
         let response = try await recorder.send(request)
         guard request.url.path == "/description.xml" else { return response }
         let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
         return HTTPResponse(statusCode: 200, body: Data(described.utf8))
-    }
-}
-
-/// A recorder that is busy with somebody else when it is asked who it is -- 503 to its description -- and
-/// answers everything else: one that is there, and has not said which it is. It says so once `comeFree()` has
-/// been called, and is busy at the door again after `busyAgain()`. It counts the reservations it is asked to
-/// make, and keeps its MAC to itself, as `RecorderAtHome` does.
-actor RecorderBusyAtTheDoor: HTTPTransport {
-    private let recorder = DemoRecorder()
-    private var busy = true
-    private(set) var made = 0
-
-    func comeFree() {
-        busy = false
-    }
-
-    func busyAgain() {
-        busy = true
-    }
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
-        let action = request.headers["SOAPACTION"] ?? ""
-        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
-        if action.contains("#X_CreateRecordSchedule") { made += 1 }
-        return try await recorder.send(request)
     }
 }
 
@@ -325,62 +303,6 @@ actor RecorderWithACopy: HTTPTransport {
         guard action.contains("#X_GetTitleList") else { return response }
         let twice = response.text.replacingOccurrences(of: "第３話", with: "第４話")
         return HTTPResponse(statusCode: response.statusCode, body: Data(twice.utf8))
-    }
-}
-
-/// The demo's recorder, except that it turns down the SOAP actions named in `refusing` with a 500 and nothing
-/// in it: how another model of the series might answer a call the app only makes to show something.
-actor PickyRecorder: HTTPTransport {
-    private let recorder = DemoRecorder()
-    private let refusing: Set<String>
-
-    init(refusing: Set<String>) {
-        self.refusing = refusing
-    }
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if let action = request.headers["SOAPACTION"], refusing.contains(where: { action.contains("#\($0)") }) {
-            return HTTPResponse(statusCode: 500)
-        }
-        return try await recorder.send(request)
-    }
-}
-
-/// The demo's recorder, away or at home as the test says, which can be made to keep the read that follows its
-/// description waiting until `letGo()`: a recorder that has said who it is and nothing else yet, held there
-/// for a test to look at the app in between. It keeps its MAC to itself, as `RecorderAtHome` does, so that a
-/// model which has met it wakes nothing afterwards.
-actor RecorderPartWayThroughAnAttach: HTTPTransport {
-    private let recorder = DemoRecorder()
-    private var reachable = true
-    private var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
-
-    /// Whether a read is waiting for `letGo()`: the description has been answered, and nothing after it yet.
-    var isHolding: Bool { !held.isEmpty }
-
-    func setReachable(_ value: Bool) {
-        reachable = value
-    }
-
-    func holdAfterTheDescription() {
-        holding = true
-    }
-
-    func letGo() {
-        holding = false
-        for request in held { request.resume() }
-        held = []
-    }
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        guard reachable else { throw RecorderError.transport("The request timed out.") }
-        let action = request.headers["SOAPACTION"] ?? ""
-        if action.contains("#X_GetPrivateIp") { return HTTPResponse(statusCode: 500) }
-        if holding, action.contains("#X_GetFirmwareVersion") {
-            await withCheckedContinuation { held.append($0) }
-        }
-        return try await recorder.send(request)
     }
 }
 

@@ -19,6 +19,15 @@ enum Vectors {
         return object
     }
 
+    /// What the recorder of the vectors says of itself at description.xml (description.json), under `udn` in
+    /// place of its own when one is given.
+    static func descriptionXML(udn: String? = nil) throws -> String {
+        let vector = try load("description.json")
+        let xml = vector.string("description_xml")
+        guard let udn else { return xml }
+        return xml.replacingOccurrences(of: vector.dictionary("expected").string("udn"), with: udn)
+    }
+
     enum VectorError: Error { case shape(String) }
 }
 

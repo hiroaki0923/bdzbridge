@@ -127,12 +127,15 @@ public actor GuideStore {
     CREATE INDEX IF NOT EXISTS ix_programs_ref ON programs (bt, ref_event_id);
     """
 
-    public init(path: String) throws {
-        try self.init(path: path, schemaVersion: Self.currentSchemaVersion)
+    /// `busyTimeoutMilliseconds` is how long a write waits for another connection's to finish before it fails:
+    /// five seconds, which only a test that holds the lock on purpose has reason to shorten.
+    public init(path: String, busyTimeoutMilliseconds: Int32 = 5000) throws {
+        try self.init(path: path, schemaVersion: Self.currentSchemaVersion,
+                      busyTimeoutMilliseconds: busyTimeoutMilliseconds)
     }
 
-    init(path: String, schemaVersion: String) throws {
-        let db = try Sqlite(path: path)
+    init(path: String, schemaVersion: String, busyTimeoutMilliseconds: Int32 = 5000) throws {
+        let db = try Sqlite(path: path, busyTimeoutMilliseconds: busyTimeoutMilliseconds)
         try db.execute(Self.schema)
         let stored = try db.query("SELECT value FROM meta WHERE key='schema_version'") { $0.string("value") }.first
         if stored != schemaVersion {
