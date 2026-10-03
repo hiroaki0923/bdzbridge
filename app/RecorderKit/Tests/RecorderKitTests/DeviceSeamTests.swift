@@ -102,16 +102,6 @@ final class DeviceSeamTests: XCTestCase {
         XCTAssertEqual(asked, ["td", "bs", "cs", "bs4k"], "the type after the silent one was not asked for")
     }
 
-    /// The recorder is one of the things all three take, as it always was. Nothing here can fail when run:
-    /// what it checks is that it compiles, which it stops doing if `RecorderClient` loses a conformance.
-    func testTheRecorderIsADeviceOfEveryKindTheRulesTake() {
-        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: HTTPResponse(statusCode: 200)))
-        let probed: any DeviceEndpoint = client
-        let asked: any GuideSource = client
-        let reserved: any ReservationTarget = client
-        _ = (probed, asked, reserved)
-    }
-
     /// A device that is slower to say who it is than a recorder is asked with its own timeout.
     func testTheProbeIsGivenTheTimeoutTheCallerNames() async throws {
         let device = OtherDevice()
@@ -165,9 +155,8 @@ private actor OtherDevice: GuideSource, ReservationTarget {
 
     func logos(_ broadcasting: String) async throws -> [StationLogo]? { nil }
 
-    func create(_ request: ReservationRequest) async throws -> ReservationReceipt {
+    func create(_ request: ReservationRequest) async throws {
         created.append(request)
         try creating(request)
-        return .lookUpByChannelAndStart
     }
 }

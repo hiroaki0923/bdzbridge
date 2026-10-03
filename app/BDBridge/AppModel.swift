@@ -367,10 +367,10 @@ final class AppModel {
             try await work(activity)
             problem = nil
             return true
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             lostTheRecorder()
             problem = sending ? Self.mayHaveArrived : error.explanation
-        } catch let error as RecorderError {
+        } catch let error as any DeviceError {
             problem = error.explanation
         } catch {
             problem = String(describing: error)

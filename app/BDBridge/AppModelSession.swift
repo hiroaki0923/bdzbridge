@@ -228,14 +228,14 @@ extension AppModel {
             session.attached()
             return true
         } catch {
-            let recorderError = error as? RecorderError
+            let deviceError = error as? any DeviceError
             // Nothing answered, so the app is not connected, whatever a description read earlier says; nor
             // when the address is not an address. Anything else answered, and what is known of the recorder
             // stands (`SessionState.attachFailed`).
-            session.attachFailed(recorderError?.failure)
+            session.attachFailed(deviceError?.failure)
             // Quiet only keeps silence off the screen, since only silence is answered with a magic packet.
             // Anything else is where this ends, and the reader is told.
-            if !quiet || !unreachable { problem = recorderError?.explanation ?? String(describing: error) }
+            if !quiet || !unreachable { problem = deviceError?.explanation ?? String(describing: error) }
             return false
         }
     }

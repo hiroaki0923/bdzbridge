@@ -30,10 +30,10 @@ public enum PendingQueue {
     /// A programme already over is dropped rather than sent; one on air is still sent, because the recorder
     /// records what is left of it. A recorder that goes away mid-flush leaves the rest queued.
     ///
-    /// One the recorder refused with a reason of its own (`DeviceFailure.turnsTheRequestDown`, which for a
-    /// recorder is `RecorderError.refusal`) keeps that reason and is not sent again, since the answer would be
-    /// the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`) or cancel it. A
-    /// failure that says nothing about the reservation -- a 503, an answer with no code -- leaves it as it was.
+    /// One the recorder refused with a reason of its own (`DeviceFailure.turnsTheRequestDown`) keeps that reason
+    /// and is not sent again, since the answer would be the same: it waits for the reader to clear the reason
+    /// (`GuideStore.setPendingProblem`) or cancel it. A failure that says nothing about the reservation -- a
+    /// 503, an answer with no code -- leaves it as it was.
     ///
     /// One flush at a time in the process, whoever asks: a second waits for the first and then reads the queue
     /// afresh. The screens and the overnight run each have a client and a connection of their own and can run
@@ -68,7 +68,7 @@ public enum PendingQueue {
                 continue
             }
             do {
-                _ = try await client.create(pending.request)
+                try await client.create(pending.request)
                 try? await store.removePending(pending.id)
                 outcome.sent.append(pending)
             } catch let error as any DeviceError where error.failure == .silent {

@@ -48,10 +48,10 @@ public extension RecorderClient {
 
         do {
             _ = try await titleDetail(id: title.id)
-        } catch let error as RecorderError {
-            if case .soap(_, _, "820", _) = error { return .gone }
+        } catch let error as any DeviceError {
+            if error.failure == .unknownItem { return .gone }
             // nothing has been deleted yet, but the delete would only wait out the same silence
-            if error.unreachable { throw error }
+            if error.failure == .silent { throw error }
         } catch {
             // anything else here is not worth giving up on; the delete below will say what went wrong
         }
@@ -59,9 +59,9 @@ public extension RecorderClient {
         do {
             try await deleteTitle(id: title.id)
             return .changed
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             throw error
-        } catch let error as RecorderError {
+        } catch let error as any DeviceError {
             return .skipped(reason: error.explanation)
         } catch {
             return .skipped(reason: String(describing: error))
@@ -73,10 +73,10 @@ public extension RecorderClient {
     func summary(of id: String) async throws -> SummaryRead {
         do {
             return .read(try await titleDetail(id: id).summary)
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             throw error
-        } catch let error as RecorderError {
-            if case .soap(_, _, "820", _) = error { return .gone }
+        } catch let error as any DeviceError {
+            if error.failure == .unknownItem { return .gone }
             return .failed(reason: error.explanation)
         } catch {
             return .failed(reason: String(describing: error))
@@ -91,9 +91,9 @@ public extension RecorderClient {
         do {
             try await updateTitle(id: title.id, protected: on)
             return .changed
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             throw error
-        } catch let error as RecorderError {
+        } catch let error as any DeviceError {
             return .skipped(reason: error.explanation)
         } catch {
             return .skipped(reason: String(describing: error))

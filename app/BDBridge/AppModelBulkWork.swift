@@ -197,7 +197,7 @@ extension AppModel {
                     let read: SummaryRead
                     do {
                         read = try await keepingAlive { try await client.summary(of: title.id) }
-                    } catch let error as RecorderError where error.unreachable {
+                    } catch let error as any DeviceError where error.failure == .silent {
                         // Stop at the first silence rather than wait it out once for every recording left,
                         // and keep nothing for this one: silence says nothing about what it is.
                         lostTheRecorder()

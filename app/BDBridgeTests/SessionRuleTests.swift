@@ -560,7 +560,7 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertFalse(model.offline, "it answered, so the screens do not take it for gone")
         XCTAssertFalse(model.gaveUp)
         let program = try await aProgramme(model)
-        let request = try XCTUnwrap(model.request(for: program, quality: "DR", repeating: "none"))
+        let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
         let waiting = PendingReservation(request: request, serviceName: program.serviceName, problem: reason)
         try await GuideStore(path: bench.guidePath).queue(waiting)
         await model.loadPending()

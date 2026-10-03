@@ -19,7 +19,7 @@ final class RecorderAddressTests: XCTestCase {
                 XCTFail("\(host.debugDescription) should not describe anything")
             } catch let error as RecorderError {
                 XCTAssertEqual(error, .badAddress(host: host), host.debugDescription)
-                XCTAssertFalse(error.unreachable, "no magic packet for \(host.debugDescription)")
+                XCTAssertNotEqual(error.failure, .silent, "no magic packet for \(host.debugDescription)")
                 XCTAssertTrue(error.explanation.contains("IP アドレス"), error.explanation)
             }
             // the SOAP calls and the guide files build their URLs the same way

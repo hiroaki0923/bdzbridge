@@ -222,8 +222,8 @@ extension LiveRecorderTests {
             }
         }
 
-        let id = try await client.createReservation(request("LSR"))
-        print("created \(id) for \(RecorderTime.format(program.start))")
+        try await client.create(request("LSR"))
+        print("created one for \(RecorderTime.format(program.start))")
         do {
             let found = try await mine()
             let made = try XCTUnwrap(found, "the reservation should be in the list")
