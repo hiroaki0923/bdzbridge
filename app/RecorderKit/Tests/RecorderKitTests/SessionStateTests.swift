@@ -401,4 +401,61 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(gaveUp.times, 1)
         XCTAssertEqual(connected.times, 1)
     }
+
+    // MARK: - a device that gives an identity rather than a description
+
+    /// A television says who it is by the MAC it wakes on. That makes it connected as a description makes a
+    /// recorder, and every event that ends a recorder's description ends it the same way.
+    func testAnIdentityConnectsAndGoesWhereADescriptionGoes() {
+        let session = SessionState()
+        XCTAssertFalse(session.connected)
+        XCTAssertEqual(session.identified(as: "f8:4e:17:00:00:02"), .first)
+        XCTAssertTrue(session.connected)
+        XCTAssertNil(session.info, "an identity made up a recorder's description")
+
+        session.attachFailed(.needsPairing)
+        XCTAssertTrue(session.connected, "a device that answered with a refusal stopped counting as connected")
+        session.attachFailed(.silent)
+        XCTAssertFalse(session.connected)
+
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.wentSilent(on: "home")
+        XCTAssertFalse(session.connected)
+
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.lost()
+        XCTAssertFalse(session.connected)
+
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.attachFailed(.badAddress)
+        XCTAssertFalse(session.connected)
+
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.forgotTheDevice()
+        XCTAssertFalse(session.connected)
+        XCTAssertNil(session.device)
+    }
+
+    /// Measured as a UDN is: case does not matter, an empty identity is the one known, and another one takes away
+    /// what the last said of itself.
+    func testAnIdentityIsRecognisedAsAUDNIs() {
+        let session = SessionState()
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.learned(storage: (free: 1, total: 2))
+        XCTAssertEqual(session.recognises(identity: "F8:4E:17:00:00:02"), .same)
+        XCTAssertEqual(session.recognises(identity: ""), .same)
+        XCTAssertEqual(session.identified(as: "f8:4e:17:00:00:03"), .another)
+        XCTAssertNil(session.storage)
+        XCTAssertEqual(session.device, "f8:4e:17:00:00:03")
+    }
+
+    /// Something else answering at the address is not connected, and not silence either.
+    func testAStrangerIsNeitherConnectedNorUnreachable() {
+        let session = SessionState()
+        session.identified(as: "f8:4e:17:00:00:02")
+        session.strangerAnswered()
+        XCTAssertFalse(session.connected)
+        XCTAssertFalse(session.unreachable)
+        XCTAssertEqual(session.device, "f8:4e:17:00:00:02", "the device known was forgotten for a stranger")
+    }
 }
