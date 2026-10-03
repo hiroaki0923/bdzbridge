@@ -254,8 +254,8 @@ final class AppModel: LinkHost {
 
     /// Bumped each time what a recorder said is let go of (`forgetWhatTheRecorderSaid`), for the screens to
     /// let go of what they hold of it: a row picked for a dialog, and the sheets on a recording or a
-    /// reservation, which close themselves (`closesWithItsRecorder`). Left up over an emptied list, a sheet's
-    /// buttons would send its row's number to the next recorder.
+    /// reservation, which close themselves (`closesWithItsRecorder`, `closesWithItsDevice`). Left up over an
+    /// emptied list, a sheet's buttons would send its row's number to the next recorder.
     var timesForgotten = 0
 
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and

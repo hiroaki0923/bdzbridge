@@ -298,22 +298,36 @@ extension View {
         }
     }
 
-    /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings, a
-    /// reservation: closes it when that recorder's lists are let go of (`AppModel.timesForgotten`). The row is
-    /// the last recorder's from then on, and the buttons on the sheet would send its number to the next one.
-    /// Said in the sheet rather than by whatever opened it, so that it holds whichever screen that was.
+    /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings: closes it
+    /// when that recorder's lists are let go of (`AppModel.timesForgotten`). The row is the last recorder's
+    /// from then on, and the buttons on the sheet would send its number to the next one. Said in the sheet
+    /// rather than by whatever opened it, so that it holds whichever screen that was.
     func closesWithItsRecorder() -> some View {
-        modifier(ClosesWithItsRecorder())
+        closesWithItsDevice(.recorder)
+    }
+
+    /// The same for a sheet whose row is either device's -- a reservation: closes it when the lists of the
+    /// device that holds the row are let go of, the recorder's as above or the television's
+    /// (`AppModel.tvTimesForgotten`). What becomes of the other device is nothing to the row, and leaves the
+    /// sheet up.
+    func closesWithItsDevice(_ device: DeviceSlot) -> some View {
+        modifier(ClosesWithItsDevice(device: device))
     }
 }
 
-private struct ClosesWithItsRecorder: ViewModifier {
+private struct ClosesWithItsDevice: ViewModifier {
+    let device: DeviceSlot
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     func body(content: Content) -> some View {
-        content.onChange(of: model.timesForgotten) { dismiss() }
+        content.onChange(of: device == .tv ? model.tvTimesForgotten : model.timesForgotten) { dismiss() }
     }
+}
+
+extension DeviceSlot {
+    /// The device's word on the screens, where a row or a sentence has to say which of the two it is about.
+    var label: String { self == .tv ? "テレビ" : "レコーダー" }
 }
 
 /// What to say when there is no recorder to talk to, in two situations that need different words: nothing has

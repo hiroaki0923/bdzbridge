@@ -137,7 +137,8 @@ final class TVReservationTests: XCTestCase {
 
     /// Each device numbers its own, so a row of each can carry the same id. In the list of both they are told
     /// apart by their keys, and the television's is found by its own and deleted without a word to the
-    /// recorder. The television's rows are among 通常の予約 and never among おまかせ; what overlaps a
+    /// recorder. The television's rows are among 通常の予約 and never among おまかせ, and the rows of both
+    /// devices that the screens look through are every row, whichever kind is shown; what overlaps a
     /// reservation is looked for among its own device's; and a channel the guide does not have goes by the
     /// name the television gave. A delete the television turns down is said on the television's line, the
     /// recorder's left as it was, and the list read on the way is the one kept.
@@ -162,10 +163,13 @@ final class TVReservationTests: XCTestCase {
         XCTAssertEqual(model.reservation(listKey: twinRow.listKey), twinRow)
         XCTAssertEqual(model.reservation(listKey: recorders.listKey), recorders)
         XCTAssertEqual(model.shownReservations, model.reservations + host.reservations)
+        XCTAssertEqual(model.allReservations, model.reservations + host.reservations)
         XCTAssertEqual(model.shownReservations.filter { $0.id == recorders.id }.map(\.device), [.recorder, .tv])
         model.reservationKind = .automatic
         XCTAssertFalse(model.shownReservations.isEmpty, "the recorder has none of its own to tell them from")
         XCTAssertFalse(model.shownReservations.contains { $0.device == .tv }, "a television's row among おまかせ")
+        XCTAssertEqual(model.allReservations, model.reservations + host.reservations,
+                       "the rows of both devices were narrowed to the kind shown")
         XCTAssertNotNil(model.reservation(listKey: twinRow.listKey), "found only among the kind shown")
         model.reservationKind = .mine
         XCTAssertEqual(model.shownReservations.filter { $0.device == .tv }, host.reservations)
@@ -207,8 +211,8 @@ final class TVReservationTests: XCTestCase {
     /// carried through, it writes nothing over what the registration saved, puts no line up and asks the
     /// television nothing. Taken away while a read of its list is out, the television leaves no host and no
     /// row behind, the screens are told, and the read's line comes down there and then, not when the read
-    /// ends. A row held from before is then nobody's: asked to delete or change it, the app sends neither
-    /// device anything and says nothing.
+    /// ends. A row held from before is then nobody's: its buttons are held back, and asked to delete or change
+    /// it all the same, the app sends neither device anything and says nothing.
     func testATelevisionLetGoOfTakesItsListWithIt() async throws {
         let home = try await atHome([Self.row(41), Self.row(42)])
         let (recorder, television, door, model) = (home.recorder, home.television, home.door, home.model)
@@ -261,6 +265,7 @@ final class TVReservationTests: XCTestCase {
         XCTAssertNil(model.tvHost)
         XCTAssertEqual(model.tvTimesForgotten, told + 1)
         XCTAssertFalse(model.shownReservations.contains { $0.device == .tv })
+        XCTAssertTrue(model.isBusy(for: .tv), "a row of a television taken away is offered a button to press")
         XCTAssertNil(model.busy, "the line of a read still out on a television taken away was left up")
         XCTAssertTrue(model.televisionLines.isEmpty)
         await door.letGo()
@@ -336,6 +341,7 @@ final class TVReservationTests: XCTestCase {
         let listed = model.reservations
         XCTAssertFalse(listed.isEmpty, "the invented recorder's reservations were not read")
         XCTAssertEqual(model.shownReservations, listed)
+        XCTAssertEqual(model.allReservations, listed)
         model.problem = Self.left
         let calls = await television.calls
 
@@ -370,6 +376,8 @@ final class TVReservationTests: XCTestCase {
         let host = try XCTUnwrap(model.tvHost)
         // The first line of a model that has not been started, so the first number its list gives out.
         let mine = model.beginActivity("録画一覧を取得中")
+        XCTAssertTrue(model.isBusy(for: .recorder))
+        XCTAssertFalse(model.isBusy(for: .tv), "the recorder's work holds a button of the television's back")
         model.removeTV()
 
         let line = host.beginActivity(TVDriver.deletingLine)
@@ -451,13 +459,16 @@ final class TVReservationTests: XCTestCase {
 
     /// Reading the television's list is the television's work alone: while a read is out the recorder is not
     /// busy and may be changed, and has been asked nothing -- not made sure of, which is where it would be
-    /// woken. A television that cannot be asked, its cookie no longer taken, is not sent the read a screen asks
-    /// for as it appears, and the line and the list it left are not written over.
+    /// woken. The buttons of a television's row are held back meanwhile, and those of a recorder's are not. A
+    /// television that cannot be asked, its cookie no longer taken, is not sent the read a screen asks for as
+    /// it appears, and the line and the list it left are not written over: the list is old from when it was
+    /// read.
     func testReadingTheTelevisionsListIsNoWorkOfTheRecorders() async throws {
         let home = try await atHome([Self.row(41)])
         let (recorder, television, door, model) = (home.recorder, home.television, home.door, home.model)
         let host = try XCTUnwrap(model.tvHost)
         let asked = await recorder.asked
+        XCTAssertFalse(model.isBusy(for: .tv), "a television with nothing under way holds its buttons back")
 
         await door.hold(only: "getScheduleList")
         let reading = Task { await host.loadReservations() }
@@ -465,6 +476,8 @@ final class TVReservationTests: XCTestCase {
 
         XCTAssertEqual(model.busy, TVDriver.readingLine, "the television's line is not on the strip")
         XCTAssertTrue(host.isBusy)
+        XCTAssertTrue(model.isBusy(for: .tv), "a button of the television's is not held back by its read")
+        XCTAssertFalse(model.isBusy(for: .recorder), "the television's read holds a button of the recorder's back")
         XCTAssertFalse(model.isBusy, "the television's read made the recorder busy")
         XCTAssertTrue(model.canChangeRecorder, "the television's read held the recorder's choice back")
         expectEqual(await recorder.asked, asked, "the television's read asked the recorder")
@@ -477,6 +490,8 @@ final class TVReservationTests: XCTestCase {
         await host.loadReservations()
         XCTAssertEqual(model.tvDriver?.facts.needsPairing, true)
         XCTAssertEqual(model.problem(for: .tv), ScalarError.notRegistered.explanation)
+        XCTAssertEqual(host.staleSince, try XCTUnwrap(host.reservationsRead),
+                       "the list of a television to be registered again is not said to be old")
         host.problem = Self.left
         let calls = await television.calls, read = host.reservationsRead
 
@@ -494,6 +509,8 @@ final class TVReservationTests: XCTestCase {
     /// one given up on after silence it is the reader asking for it to be tried again: the television is
     /// connected to, and its list read as that connect reaches it. A delete asked for while it is given up on
     /// is turned down with nothing read, which the line says, and the list it gave stands with its time.
+    /// That time is since when the list is old, for the screens to say, for as long as the television cannot
+    /// be asked: not while it can, and not of a list with no rows.
     func testPullingDownReadsTheListOrConnectsAndReadsIt() async throws {
         let home = try await atHome([Self.row(41)])
         let (television, model) = (home.television, home.model)
@@ -505,18 +522,31 @@ final class TVReservationTests: XCTestCase {
 
         expectEqual(Array(await television.calls.dropFirst(calls.count)), ["getScheduleList cookie=yes pin=no"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.42", "recording.41"])
+        XCTAssertNil(host.staleSince, "the list of a television that can be asked is said to be old")
+
+        // The app connects again whenever it comes back. While that connect is out the television cannot be
+        // asked, and its list is not old yet: it answered last time, and is read again as the connect gets there.
+        await home.door.hold(only: "getSystemSupportedFunction")
+        let connecting = Task { await link.connect() }
+        try await until("the connect to the television was never out") { await home.door.isHolding }
+        XCTAssertNil(host.staleSince, "a connect to a television that answered last time made its list old")
+        await home.door.letGo()
+        await connecting.value
+        XCTAssertNil(host.staleSince)
 
         await television.goSilent()
         _ = await link.ensureUp(evenIfRecent: true)
         XCTAssertTrue(link.session.gaveUp)
         let listed = host.reservations, read = host.reservationsRead
         let row = try XCTUnwrap(listed.first)
+        XCTAssertEqual(host.staleSince, try XCTUnwrap(read), "the list a television given up on left is not old")
 
         expectFalse(await model.cancel(row))
 
         XCTAssertEqual(model.problem(for: .tv), TVDriver.notConnected)
         XCTAssertEqual(host.reservations, listed, "a delete turned down unread took the television's list")
         XCTAssertEqual(host.reservationsRead, read, "a delete turned down unread counts as a read")
+        XCTAssertEqual(host.staleSince, read)
 
         await television.goSilent(false)
         await television.put([Self.row(41), Self.row(42), Self.row(43)])
@@ -529,5 +559,17 @@ final class TVReservationTests: XCTestCase {
                     ["getSystemSupportedFunction", "getInterfaceInformation", "getStorageList", "getScheduleList"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43", "recording.42", "recording.41"])
         XCTAssertNil(model.problem(for: .tv))
+        XCTAssertNil(host.staleSince, "the list just read from a television connected to again is said to be old")
+
+        // A television that holds nothing and then goes quiet has left nothing old on the screens: its list
+        // was read, and has no rows.
+        await television.put([])
+        await host.refreshReservations()
+        XCTAssertTrue(host.reservations.isEmpty)
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp)
+        XCTAssertNotNil(host.reservationsRead)
+        XCTAssertNil(host.staleSince, "a list with no rows is said to be old")
     }
 }

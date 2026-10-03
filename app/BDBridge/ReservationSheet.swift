@@ -1,10 +1,15 @@
 import RecorderKit
 import SwiftUI
 
-/// One reservation as the recorder holds it, with the way to undo it.
+/// One reservation as the device that holds it has it -- the recorder, or the television -- with the way to
+/// undo it.
 ///
 /// This does not go through the guide, so it works for a reservation whose programme has dropped out of the
 /// eight days the recorder publishes, and for one that records by time only.
+///
+/// A television's is shown and deleted, and nothing more: nothing here changes one yet, so it has no choices
+/// to make and no button that sends them. Whatever is held back, said in red or reported as a failure is the
+/// row's own device's, and the other device's work and trouble are left out of it.
 struct ReservationSheet: View {
     let reservation: Reservation
     @Environment(AppModel.self) private var model
@@ -20,48 +25,33 @@ struct ReservationSheet: View {
     @State private var saved = false
 
     private var past: Bool { reservation.end <= Date() }
+    private var onTelevision: Bool { reservation.device == .tv }
 
     /// A weekly repeat has to fall on the programme's own weekday, so that is the only weekly one offered.
     private var repeatOptions: [String] {
         ["none", "title", "daily", Codes.weekdayRepeat(for: reservation.start), "mon-fri", "mon-sat"]
     }
 
+    /// Never for a television's row, which has no pickers: what they are seeded with is not a choice made.
     private var changed: Bool {
-        quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
+        !onTelevision
+            && (quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none"))
     }
 
     var body: some View {
         NavigationStack {
             List {
-                WakingSection()
+                // A television is never woken, so the recorder's waking is nothing to a row of its own.
+                if !onTelevision { WakingSection() }
                 Section {
                     Text(reservation.title).font(.headline)
                     LabeledContent("放送", value: model.channelName(for: reservation))
                     LabeledContent("開始", value: Format.dateTime.string(from: reservation.start))
                     LabeledContent("長さ", value: Format.duration(reservation.durationSec))
-                    if past || reservation.recording {
-                        LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
-                                       ?? reservation.qualityName ?? "-")
-                        LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+                    if onTelevision {
+                        televisionsValues
                     } else {
-                        Picker("録画モード", selection: $quality) {
-                            ForEach(Codes.qualityOrder, id: \.self) { code in
-                                Text(Codes.qualityLabel[code] ?? code).tag(code)
-                            }
-                        }
-                        Picker("毎回録画", selection: $repeating) {
-                            ForEach(repeatOptions, id: \.self) { key in
-                                Text(Codes.repeatLabel[key] ?? key).tag(key)
-                            }
-                        }
-                    }
-                    if reservation.eventID != nil {
-                        LabeledContent("番組追従", value: "時間が変わっても追いかけます")
-                    }
-                    LabeledContent("登録元", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
-                                   : reservation.createdByApp ? "アプリから" : "不明")
-                    if let size = reservation.sizeMB {
-                        LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
+                        recordersValues
                     }
                 }
 
@@ -90,10 +80,10 @@ struct ReservationSheet: View {
                         Button("変更をレコーダーに送る") {
                             Task {
                                 saved = await model.update(reservation, quality: quality, repeating: repeating)
-                                if !saved { failure = model.problem ?? "レコーダーがエラーを返しました" }
+                                if !saved { failure = whatWentWrong }
                             }
                         }
-                        .disabled(model.busy != nil)
+                        .disabled(model.isBusy(for: reservation.device))
                     } footer: {
                         Text(reservation.eventID != nil
                              ? "番組追従はそのままです。"
@@ -105,10 +95,10 @@ struct ReservationSheet: View {
                 // beside キャンセル in the dialog, two words for going back on something.
                 Section {
                     Button("予約を削除", role: .destructive) { confirming = true }
-                        .disabled(model.busy != nil)
+                        .disabled(model.isBusy(for: reservation.device))
                 }
 
-                if let problem = model.problem {
+                if let problem = model.problem(for: reservation.device) {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }
@@ -125,12 +115,12 @@ struct ReservationSheet: View {
             // asking and reporting never happen at once. The red line further up the sheet was missed.
             .alert(failure == nil ? "この予約を削除しますか？" : "エラー",
                    isPresented: Binding(get: { confirming || failure != nil },
-                                        set: { if !$0 { confirming = false; failure = nil } })) {
+                                        set: { if !$0 { alertClosed() } })) {
                 if failure == nil {
                     Button("削除する", role: .destructive) {
                         Task {
                             done = await model.cancel(reservation)
-                            if !done { failure = model.problem ?? "レコーダーがエラーを返しました" }
+                            if !done { failure = whatWentWrong }
                         }
                     }
                     Button("キャンセル", role: .cancel) {}
@@ -142,15 +132,71 @@ struct ReservationSheet: View {
                     Text(failure)
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから削除されます。"
+                         + "\(reservation.device.label)から削除されます。"
                          + (reservation.createdByRecorder
                             ? "\nおまかせ・まる録による予約のため、レコーダーが再登録することがあります。"
                             : ""))
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
-            .closesWithItsRecorder()
+            .closesWithItsDevice(reservation.device)
         }
+    }
+
+    /// The alert has been closed, whichever it was. For a television's row the report of a failed delete
+    /// takes the sheet with it: the list was read again on the way, and the row this sheet holds may no
+    /// longer be the television's, so trying again starts from the list. Looked at here and not in the
+    /// button, before the report is cleared: closing the alert is what clears it.
+    private func alertClosed() {
+        if failure != nil, onTelevision { done = true }
+        confirming = false
+        failure = nil
+    }
+
+    /// What a change or a delete that failed is reported as: the line of the row's device, which is where
+    /// its operations say what went wrong.
+    private var whatWentWrong: String {
+        model.problem(for: reservation.device) ?? "\(reservation.device.label)がエラーを返しました"
+    }
+
+    /// What the recorder holds of it beyond the times, and the two choices that can still be changed.
+    @ViewBuilder
+    private var recordersValues: some View {
+        if past || reservation.recording {
+            LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
+                           ?? reservation.qualityName ?? "-")
+            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+        } else {
+            Picker("録画モード", selection: $quality) {
+                ForEach(Codes.qualityOrder, id: \.self) { code in
+                    Text(Codes.qualityLabel[code] ?? code).tag(code)
+                }
+            }
+            Picker("毎回録画", selection: $repeating) {
+                ForEach(repeatOptions, id: \.self) { key in
+                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                }
+            }
+        }
+        if reservation.eventID != nil {
+            LabeledContent("番組追従", value: "時間が変わっても追いかけます")
+        }
+        LabeledContent("登録元", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
+                       : reservation.createdByApp ? "アプリから" : "不明")
+        if let size = reservation.sizeMB {
+            LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
+        }
+    }
+
+    /// What a television's row says of how it records, as values: the mode only when the row carries one,
+    /// which a television's need not. Who made it and how large it will be a television's row does not say,
+    /// and that a reservation goes after its programme when the times change is known of the recorder only.
+    @ViewBuilder
+    private var televisionsValues: some View {
+        if let quality = reservation.qualityName {
+            LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
+        }
+        LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
     }
 
     /// The recorder's 重複, and the reservations at the same hours, by when, where and what: the recorder does

@@ -21,6 +21,14 @@ extension AppModel {
         device == .tv ? tvHost?.problem : problem
     }
 
+    /// Whether a device is busy, for the buttons that write to the device a reservation is held by: the
+    /// recorder's work is the model's own (`isBusy`), the television's its host's, and neither holds back a
+    /// button of the other's. A television the app has let go of counts as busy: a row of its still on a
+    /// screen has nothing to be sent to.
+    func isBusy(for device: DeviceSlot) -> Bool {
+        device == .tv ? tvHost?.isBusy ?? true : isBusy
+    }
+
     /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
     /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
     /// Connects nothing.

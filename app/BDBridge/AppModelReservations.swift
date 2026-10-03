@@ -65,17 +65,19 @@ extension AppModel {
         var id: String { title }
     }
 
-    /// The reservations of both devices, the recorder's first: put together each time they are read, and
-    /// kept apart where they are held, since a read of either replaces its own list whole.
-    private var reservationsOfBoth: [Reservation] { reservations + (tvHost?.reservations ?? []) }
+    /// The reservations of both devices, the recorder's first, whichever kind is shown and in no order of the
+    /// list's: put together each time they are read, and kept apart where they are held, since a read of
+    /// either replaces its own list whole. For the screens that look through every row: the search, and
+    /// whether there is anything to show at all.
+    var allReservations: [Reservation] { reservations + (tvHost?.reservations ?? []) }
 
     /// What the list shows. A television's reservation has no creator, so it is among 通常の予約 and never
     /// among おまかせ.
     var shownReservations: [Reservation] {
         switch reservationKind {
-        case .all: reservationsOfBoth
-        case .mine: reservationsOfBoth.filter { !$0.createdByRecorder }
-        case .automatic: reservationsOfBoth.filter(\.createdByRecorder)
+        case .all: allReservations
+        case .mine: allReservations.filter { !$0.createdByRecorder }
+        case .automatic: allReservations.filter(\.createdByRecorder)
         }
     }
 
@@ -83,7 +85,7 @@ extension AppModel {
     /// row picked on the screen, found again as it is held now. Not by its id, which the two devices each
     /// number for themselves.
     func reservation(listKey: String) -> Reservation? {
-        reservationsOfBoth.first { $0.listKey == listKey }
+        allReservations.first { $0.listKey == listKey }
     }
 
     /// Reservations under a heading: the day they record on, or the genre, or the channel. Soonest first

@@ -92,6 +92,18 @@ final class TVHost: LinkHost {
         reservationsRead = Date()
     }
 
+    /// Since when what is shown of the television is old, for the screens to say so: the time its list was
+    /// read, while that list has rows and the television cannot be asked for them now -- not connected, to be
+    /// registered again, or its link gone. Nil while it can be asked, since the list is then read as a screen
+    /// appears; and nil with no rows, when nothing old is shown. Nil too while a connect to a television that
+    /// answered last time is under way: the app connects again whenever it comes back, the list is read as
+    /// that connect gets there, and it is old only once the connect has failed.
+    var staleSince: Date? {
+        guard !reservations.isEmpty, driver?.canBeAsked != true else { return nil }
+        if let session = link?.session, session.connecting, session.connected { return nil }
+        return reservationsRead
+    }
+
     // MARK: - what the link tells the app
 
     /// On the app's one list, marked as the television's. From a host the app has let go of the line goes on

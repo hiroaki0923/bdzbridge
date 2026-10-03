@@ -1,16 +1,27 @@
 import RecorderKit
 import SwiftUI
 
-/// What the recorder is going to record, under the day it records on, or the genre, or the channel.
+/// What the recorder is going to record, and the television when one is registered, under the day it is
+/// recorded on, or the genre, or the channel. The two devices' reservations are one list, each row saying
+/// which device holds it while there are two to tell apart.
 struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
-    /// The row swiped, by id rather than by value: the reservation itself is read back out of the model
-    /// when the dialog asks, so a delete can only ever be sent for a row the list still holds.
-    @State private var removing: String?
+    /// The row swiped, by its key in the list rather than by value: the reservation itself is read back out
+    /// of the model when the dialog asks, so a delete can only ever be sent for a row the list still holds.
+    /// By its key and not its id, which each device numbers for itself: a television's row is found by no
+    /// id among the recorder's, and an id the two share would find the recorder's row for the television's.
+    /// The device that holds it is kept with the key: the row is let go of when that device's lists are, and
+    /// not when the other's are.
+    @State private var removing: Picked?
     /// The same for a reservation waiting to be sent, read back out of the queue.
     @State private var removingPending: String?
     @State private var failure: String?
     @State private var opened: Reservation?
+
+    private struct Picked {
+        var listKey: String
+        var device: DeviceSlot
+    }
 
     /// One alert does every job, because two on the same view is not something SwiftUI promises to honour.
     /// A failure wins: it is the answer to what was just asked.
@@ -22,7 +33,7 @@ struct ReservationsScreen: View {
 
     private var shown: Shown? {
         if let failure { return .failed(failure) }
-        if let id = removing, let reservation = model.reservations.first(where: { $0.id == id }) {
+        if let removing, let reservation = model.reservation(listKey: removing.listKey) {
             return .confirm(reservation)
         }
         if let id = removingPending, let waiting = model.pending.first(where: { $0.id == id }) {
@@ -43,8 +54,8 @@ struct ReservationsScreen: View {
         NavigationStack {
             Group {
                 // Away from home there is still something to show: what the recorder said last time, and
-                // above all the queue, which is in use exactly then.
-                if !model.connected, model.reservations.isEmpty, model.pending.isEmpty {
+                // the television, and above all the queue, which is in use exactly then.
+                if !model.connected, model.allReservations.isEmpty, model.pending.isEmpty {
                     NoRecorderView(icon: "clock")
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
@@ -98,8 +109,13 @@ struct ReservationsScreen: View {
                 }
             }
             // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
-            // the app is not connected to.
-            .refreshable { await model.refreshReservations() }
+            // the app is not connected to, and at a television. The two side by side: neither device's
+            // silence holds the other's list up.
+            .refreshable {
+                async let television: Void? = model.tvHost?.refreshReservations()
+                await model.refreshReservations()
+                await television
+            }
             // Keyed as the recordings are, on `connected` and on what the load itself checks. A connect reads
             // this list by itself, but the waking that a check before an operation does reads it only when it
             // has sent something from the queue, and the screen would go on showing what was read before the
@@ -110,11 +126,18 @@ struct ReservationsScreen: View {
                 await model.loadPending()
                 await model.loadReservations()
             }
+            // The television's list in a task of its own, and not in the one above: keyed on the television
+            // as well, that one would have the recorder made sure of, and woken, whenever the television's
+            // state moved. A television that cannot be asked is sent nothing by this; a connect that reaches
+            // one reads its list itself (`TVHost.reached`).
+            .task { await model.tvHost?.loadReservations() }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // The reservation picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
-            // is the reader's and no recorder's.
-            .onChange(of: model.timesForgotten) { removing = nil }
+            // is the reader's and no recorder's. A television's row goes the same way with the television's
+            // lists (`tvTimesForgotten`), and neither device's going lets go of a row of the other's.
+            .onChange(of: model.timesForgotten) { if removing?.device == .recorder { removing = nil } }
+            .onChange(of: model.tvTimesForgotten) { if removing?.device == .tv { removing = nil } }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .alert(alertTitle,
@@ -126,7 +149,8 @@ struct ReservationsScreen: View {
                     Button("削除する", role: .destructive) {
                         Task {
                             if await !model.cancel(reservation) {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
+                                failure = model.problem(for: reservation.device)
+                                    ?? "\(reservation.device.label)がエラーを返しました"
                             }
                         }
                     }
@@ -143,7 +167,7 @@ struct ReservationsScreen: View {
                 switch shown {
                 case .confirm(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "レコーダーから削除されます。"
+                         + "\(reservation.device.label)から削除されます。"
                          + (reservation.createdByRecorder
                             ? "\nこれはおまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
                             : ""))
@@ -154,7 +178,8 @@ struct ReservationsScreen: View {
                     Text(reason)
                 }
             }
-            // whatever goes wrong here has to be visible on this screen, not only on the others
+            // whatever goes wrong here has to be visible on this screen, not only on the others: the
+            // recorder's line, and the television's when the recorder has nothing to say
             .safeAreaInset(edge: .bottom) {
                 if let busy = model.busy {
                     Label(busy, systemImage: "arrow.triangle.2.circlepath")
@@ -162,7 +187,7 @@ struct ReservationsScreen: View {
                         .padding(10)
                         .frame(maxWidth: .infinity)
                         .background(.regularMaterial)
-                } else if let problem = model.problem {
+                } else if let problem = model.problem ?? model.problem(for: .tv) {
                     Text(problem)
                         .font(.callout)
                         .foregroundStyle(.red)
@@ -188,6 +213,18 @@ struct ReservationsScreen: View {
 
     private var list: some View {
         List {
+            if let since = model.tvHost?.staleSince, model.shownReservations.contains(where: { $0.device == .tv }) {
+                // A television that cannot be asked leaves its last list up, and what is on screen says how
+                // old that is -- above its rows only, so not while the kind shown leaves them out. The words
+                // turn over once a minute and never say less than one: a count of seconds would stand still
+                // until the next turn. On the list's own ground, as a heading is: in a row's white it reads
+                // as a row to tap.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text("テレビの予約は\(Self.ago(min(since, context.date.addingTimeInterval(-60))))に読んだものです")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+            }
             if !model.pending.isEmpty {
                 Section {
                     ForEach(model.pending) { waiting in
@@ -216,18 +253,25 @@ struct ReservationsScreen: View {
             }
             ForEach(model.reservationSections) { section in
                 Section(section.title) {
-                    ForEach(section.items) { reservation in
+                    ForEach(section.items, id: \.listKey) { reservation in
                         Button { opened = reservation } label: {
                             ReservationRowView(reservation: reservation,
                                                channel: model.channelName(for: reservation),
-                                               logo: model.logo(for: reservation))
+                                               logo: model.logo(for: reservation),
+                                               device: model.tv != nil ? reservation.device.label : nil)
                                 .rowHitArea()
                         }
                         .buttonStyle(.plain)
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
-                            Button("削除") { removing = reservation.id }.tint(.red)
+                            // A television's row stays listed until its delete has read the list again,
+                            // and a second delete sent meanwhile would be answered as if the first had failed.
+                            Button("削除") {
+                                removing = Picked(listKey: reservation.listKey, device: reservation.device)
+                            }
+                            .tint(.red)
+                            .disabled(reservation.device == .tv && model.isBusy(for: .tv))
                         }
                     }
                 }
@@ -235,12 +279,22 @@ struct ReservationsScreen: View {
         }
         .listStyle(.insetGrouped)
     }
+
+    /// How long ago, in numbers and in Japanese (5 分前, and hours and days as they come): the words are part
+    /// of a Japanese sentence wherever the phone is set to, and 昨日 for a list read a day ago would say less
+    /// than the count does.
+    private static func ago(_ date: Date) -> String {
+        date.formatted(.relative(presentation: .numeric).locale(Locale(identifier: "ja_JP")))
+    }
 }
 
 struct ReservationRowView: View {
     let reservation: Reservation
     let channel: String
     let logo: Data?
+    /// The word for the device that holds the reservation, said first on the row's second line. Nil where
+    /// there is one device and nothing to tell apart, and the row is then drawn without it.
+    var device: String? = nil
 
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
 
@@ -289,9 +343,10 @@ struct ReservationRowView: View {
             .clipShape(Capsule())
     }
 
-    /// The channel and how it records, as one line of text for the same reason.
+    /// The device when it is said, the channel and how it records, as one line of text for the same reason.
     private var meta: Text {
         var parts: [Text] = []
+        if let device { parts.append(Text(device)) }
         if !channel.isEmpty { parts.append(Text(channel)) }
         if let quality = reservation.qualityName { parts.append(Text(quality)) }
         if let name = reservation.repeatName, name != "none" { parts.append(Text(Codes.repeatLabel[name] ?? name)) }
