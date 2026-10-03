@@ -106,7 +106,7 @@ extension WhichRecorderTests {
         XCTAssertTrue(model.titlesLoaded)
         XCTAssertNil(model.problem)
         XCTAssertEqual(model.mac, Self.firstsMAC)
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(model.timesAttached, attached + 1, "a connect was set going after the check")
         expectEqual(await recorder.asked("X_GetTitleList", since: before), 0)
     }

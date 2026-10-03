@@ -45,6 +45,9 @@ enum DemoData {
 
     static let host = "192.0.2.63"          // reserved for documentation (RFC 5737): never a real host
     static let mac = "f8:4e:17:00:00:00"    // Sony's OUI, the rest zeroed, as everywhere else in this repo
+    /// How long the demo's recorder takes to answer: slow enough to look like a recorder on the far side of a
+    /// room, fast enough not to wait about.
+    static let answerDelay: Duration = .milliseconds(120)
     static let firmware = "1.234"
     static let totalBytes = 2_000_000_000_000
     static let freeBytes = 412_300_000_000
@@ -686,10 +689,16 @@ actor DemoRecorder: HTTPTransport {
     private var titles = DemoData.titleItems
     private var rules = DemoData.ruleObjects
     private var nextID = 0xaf00
+    /// How long each answer takes: `DemoData.answerDelay` in the demo, nothing in a test unless it needs the
+    /// moment between a request and its answer.
+    private let delay: Duration
+
+    init(delay: Duration = .zero) {
+        self.delay = delay
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        // Slow enough to look like a recorder on the far side of a room, fast enough not to wait about.
-        try? await Task.sleep(for: .milliseconds(120))
+        if delay > .zero { try? await Task.sleep(for: delay) }
 
         if request.url.path == "/description.xml" {
             return HTTPResponse(statusCode: 200, body: Data(DemoData.descriptionXml.utf8))

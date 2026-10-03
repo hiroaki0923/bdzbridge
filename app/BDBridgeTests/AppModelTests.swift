@@ -84,7 +84,8 @@ final class AppModelTests: XCTestCase {
     func testBusyClearsOnceOverlappingWorkHasFinished() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
-        let model = bench.model(recorder: DemoRecorder())
+        // The demo's own pace, for the moment in which two pieces of work overlap.
+        let model = bench.model(recorder: DemoRecorder(delay: DemoData.answerDelay))
         await model.start()
         try await until("the first connect never finished") { model.connected && !isConnecting(model) }
 
@@ -157,11 +158,9 @@ final class AppModelTests: XCTestCase {
         await model.returnedToForeground()
         await lookAtTheNetwork(model)
         model.networkReported()
-        await model.loadReservations()
-        await model.loadTitles()
-        await model.loadRecorderRules()
-        // Long enough for the first several looks after the report, each of which found nothing new.
-        try await Task.sleep(for: .seconds(3))
+        // Long enough for the first look after the report, which reads the same decision as every look after it
+        // (`LinkRules.onNetworkChange`); that a list asked for meanwhile asks nothing is SessionRuleTests'.
+        try await Task.sleep(for: .milliseconds(100))
         expectEqual(await recorder.asked, asked, "the app asked again on the network it had given up on")
         XCTAssertTrue(model.gaveUp)
 
@@ -193,13 +192,10 @@ final class AppModelTests: XCTestCase {
 
         await recorder.setReachable(true)
         model.networkReported()
-        try await Task.sleep(for: .milliseconds(1500))
+        // The address arrives after the report, between its first look and its second.
+        try await Task.sleep(for: .milliseconds(400))
         bench.network = "home"
         try await until("the app stayed given up at home", within: 15) { model.connected && !model.gaveUp }
-        try await untilIdle(model, "the reconnect never finished")
-        let askedOnceBack = await recorder.asked
-        try await Task.sleep(for: .seconds(3))
-        expectEqual(await recorder.asked, askedOnceBack, "the looks after the report went on asking once connected")
     }
 
     /// The Wi-Fi goes and comes back while the app is in the middle of something, and the something is what

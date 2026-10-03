@@ -12,13 +12,17 @@ public final class RecorderDriver: LinkDriver {
     /// How long the screens wait for the recorder to answer after the packet, and how often they ask meanwhile.
     private let wakingLimit: TimeInterval
     private let wakingInterval: Duration
+    /// How long a client waits before sending again what the recorder answered 503 (`RecorderClient`).
+    private let busyRetryDelay: ClosedRange<Double>
 
-    /// The waking's limit and interval are given only by the tests, which have no half a minute to wait.
+    /// The waking's limit and interval, and the pause before a 503 is sent again, are given only by the tests,
+    /// which have no seconds to wait.
     public init(holdingTheQueueWith reason: String, wakingLimit: TimeInterval = Waking.screenLimit,
-                wakingInterval: Duration = .seconds(1)) {
+                wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1) {
         heldForAnotherRecorder = reason
         self.wakingLimit = wakingLimit
         self.wakingInterval = wakingInterval
+        self.busyRetryDelay = busyRetryDelay
     }
 
     /// Short: a recorder that has left the network says nothing rather than refuse, and a patient timeout is
@@ -28,7 +32,8 @@ public final class RecorderDriver: LinkDriver {
     public var noAnswerLine: String { RecorderError.transport("no answer").explanation }
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
-        RecorderClient(host: link.host, transport: link.environment.transport(link.host))
+        RecorderClient(host: link.host, transport: link.environment.transport(link.host),
+                       busyRetryDelay: busyRetryDelay)
     }
 
     /// Once a MAC is known, which is what a magic packet needs. The address cannot be guessed and iOS will not

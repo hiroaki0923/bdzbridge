@@ -12,6 +12,9 @@ final class Bench {
     let folder: URL
     /// What the model is told the network is. A different value is a different network.
     var network = "home"
+    /// How long the model's writes to its cache wait for another connection: the app's five seconds, unless a
+    /// test that holds the lock on purpose shortens it before making the model.
+    var storeBusyTimeoutMilliseconds: Int32 = 5000
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     private let suite: String
@@ -68,7 +71,9 @@ final class Bench {
             // Weak: the looks after a network report can outlast the test that made them.
             networkSignature: { [weak self] in self?.network ?? "" },
             reachesTheLAN: false,
-            asksAboutNotifications: false))
+            asksAboutNotifications: false,
+            busyRetryDelay: 0...0,
+            storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds))
     }
 
     /// The database a model made here opens for a real recorder.
