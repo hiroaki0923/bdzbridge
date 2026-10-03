@@ -88,8 +88,10 @@ invented recorder as the transport -- the demo's `DemoRecorder`, which answers a
 demo's pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse
 the calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and
 recorders that each say which they are, one of which can start answering as another or stop saying which, be
-busy when asked who it is, or hold or ignore requests of one kind -- and a network it changes when the phone is
-meant to have moved.
+busy when asked who it is, hold or ignore requests of one kind, or answer a request of one kind as the test
+tells it -- a fault with one of the recorder's own codes, a 503, a list a moment behind itself (`answer`,
+`beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) -- and a network it
+changes when the phone is meant to have moved.
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
@@ -112,6 +114,16 @@ phone's address arrives after the report of it or the Wi-Fi went and came back w
 the Shortcuts action sending what is waiting, leaving it where it was when the recorder says nothing, and not
 asking the recorder at all when nothing is waiting (`SendWaitingTests`). A test of something that used to wait
 for ever fails after a few seconds rather than waiting with it.
+
+`FunnelGateTests`, `ReservationGateTests` and `QueueGateTests` are gates rather than rules. The recorder's
+operations are to move out of the model and into RecorderKit with the app behaving as it did, and each of
+these pins what the app does today -- what an operation says and leaves behind when it goes through, is
+refused or meets silence; how a reservation is found again before it is changed or deleted; what becomes of
+the queue of waiting reservations and in what words -- so that the same can be shown afterwards with the
+test's body unchanged. That includes behaviour nobody would choose, and a test says so where it holds some.
+They ask only what a screen asks and read only what a screen reads, and the sentences they compare with are
+written out once, in `Bench` (`Said`): one of them is stored on the rows of the phone's queue and counted by
+being equal to it, so a letter changed there is a row no longer counted.
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
