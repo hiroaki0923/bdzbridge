@@ -316,6 +316,8 @@ actor NamedRecorder: HTTPTransport {
     }
 
     /// A moment behind itself, once: the list it gives after the next reservation it deletes still has it.
+    /// The old list is the last one it gave, so it has to have given one: armed before any read, it does
+    /// nothing.
     func beAMomentBehind() {
         behind = true
     }

@@ -106,7 +106,7 @@ extension WhichRecorderTests {
     /// of the list has come back, and the connect that takes the newcomer up may have made its client by then:
     /// the line then says that the reservation has gone from the recorder, and not that another recorder
     /// answered. The list is empty in that turn either way, so nothing is found in it to send. (A gate, as
-    /// `ReservationGateTests` are: a later change makes the guard the link's, and says why -- A4, A8 -- and what
+    /// `ReservationGateTests` are: a later change makes the guard the link's, and says why, and what
     /// is looked at here stands.)
     func testAChangeOrADeleteAskedOfWhatTurnsOutToBeAnotherRecorderIsNotSent() async throws {
         for write in ReservationWrite.allCases {

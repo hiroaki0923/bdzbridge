@@ -28,7 +28,7 @@ final class ReservationGateTests: XCTestCase {
     /// itself, whose next list still has it, does not bring it back; and a read the recorder turns down takes
     /// nothing back -- the delete is done, and the read's refusal is what is left on screen.
     ///
-    /// Which line is up while the lists are read is to change (A3). The line is looked at only while the write
+    /// Which line is up while the lists are read is to change. The line is looked at only while the write
     /// itself is out, where it is the same before and after.
     func testADeleteOrAChangeThatGoesThroughIsReadBack() async throws {
         let (_, recorder, model) = try await connectedHome()
@@ -91,8 +91,7 @@ final class ReservationGateTests: XCTestCase {
     /// that, not even the list is asked for, and the app says it is not connected. A change to a mode the tables
     /// do not know reads the list, and then sends nothing and says nothing.
     ///
-    /// As it is today: with no recorder in hand both are false without a word, where a later change says why
-    /// (A8).
+    /// As it is today: with no recorder in hand both are false without a word, where a later change says why.
     func testADeleteOrAChangeThatCannotBeSentSaysWhyAndSendsNothing() async throws {
         let (_, recorder, model) = try await connectedHome()
         let rows = try ReservationWrite.rows(of: model, atLeast: 3)
@@ -155,7 +154,7 @@ final class ReservationGateTests: XCTestCase {
     ///
     /// As it is today: a number that still stands is taken at its word whatever else of the row differs --
     /// another channel, another programme. A later change sends nothing then, and says that the list has been
-    /// updated (A5).
+    /// updated.
     func testAReservationTheRecorderHasRenumberedIsFoundByItsChannelAndStart() async throws {
         let (_, recorder, model) = try await connectedHome()
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -209,7 +208,7 @@ final class ReservationGateTests: XCTestCase {
     /// nothing is sent a second time, the recorder is kept and the list is as it was.
     ///
     /// As it is today: that sentence stands, saying the list has been updated, when the read after the 804 was
-    /// itself turned down. A later change leaves the read's own sentence there (A6).
+    /// itself turned down. A later change leaves the read's own sentence there.
     func testADeleteOrAChangeTheRecorderTurnsDownIsSaidAndNotSentAgain() async throws {
         let (_, recorder, model) = try await connectedHome()
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -287,7 +286,7 @@ final class ReservationGateTests: XCTestCase {
         }
     }
 
-    /// As it is today, and to be rewritten whole (A1): only silence stops a write after the read before it. A
+    /// As it is today, and to be rewritten whole: only silence stops a write after the read before it. A
     /// read the recorder turned down -- with a fault, or busy through both tries after the first -- leaves the
     /// app not offline, so the reservation is looked for in the list in hand, and the write goes out. Afterwards
     /// the answer is no, under the read's sentence, and nothing is written.
@@ -311,7 +310,7 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(model.reservations.first { $0.id == rows[1].id }?.qualityCode, Codes.quality["ER"])
     }
 
-    /// As it is today, and to be rewritten (A2): the reservations' operations ask whether the app is offline,
+    /// As it is today, and to be rewritten: the reservations' operations ask whether the app is offline,
     /// not whether it is connected. A recorder that answered the connect busy with somebody else, and so never
     /// said which it is, is not offline: its list is read, and a reservation is made, changed and deleted on
     /// it, each sent once and none queued, with the app not connected throughout. (What waits in the queue does
@@ -351,13 +350,22 @@ final class ReservationGateTests: XCTestCase {
         }
         expectEqual(await recorder.asked(Kind.description, since: before), 0, "it was asked again who it is")
         XCTAssertFalse(model.connected)
+
+        // Silence from it is silence all the same: it is lost and given up on, and the line says so, as for
+        // a recorder the app was connected to.
+        await recorder.goQuiet(on: Kind.list)
+        await model.loadReservations()
+        XCTAssertTrue(model.offline, "silence from a recorder that has not said which it is did not lose it")
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
     }
 
-    /// As it is today, and the delete's half to be rewritten (A1, A2): the one answer of the check before an
+    /// As it is today, and the delete's half to be rewritten: the one answer of the check before an
     /// operation that leaves the recorder neither connected nor offline. It says nothing to the check, is woken,
     /// and is then busy with somebody else as the waking's attach asks who it is: there, without having said
     /// which it is, and the check's answer is no. A reservation asked for meanwhile is queued unsent, and
-    /// keeping it takes away what the attach had said. A delete asked for meanwhile is sent all the same: the
+    /// keeping it takes away what the attach had said -- as it is today: a later change leaves the device's
+    /// line to the device. A delete asked for meanwhile is sent all the same: the
     /// read before it was not made, the app is not offline, and the reservation is found in the list in hand.
     func testACheckThatWokeTheRecorderOnlyToBeTurnedAwayQueuesAReservationAndStillSendsADelete() async throws {
         do {

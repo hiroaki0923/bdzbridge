@@ -31,8 +31,8 @@ final class QueueGateTests: XCTestCase {
     /// reader asked the recorder for and is left as it was. Leaving the app takes the strip's line away: it was
     /// for that visit.
     ///
-    /// The strip's two sentences are to name the device (C). The read after something was made has to stay
-    /// when the two reads of a connect become one (A10).
+    /// The strip's two sentences are to name the device. The read after something was made has to stay
+    /// when the two reads of a connect become one.
     func testPullingDownWhileConnectedReadsThenSendsWhatWaitsUnderALineOfItsOwn() async throws {
         let (bench, recorder, model) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
@@ -102,7 +102,7 @@ final class QueueGateTests: XCTestCase {
     /// already set to record from that list. So a connect that sent something reads the list twice, and nothing
     /// of the guide is asked for before the second.
     ///
-    /// The two reads are to become one (A10), and the strip's sentence is to name the device (C).
+    /// The two reads are to become one, and the strip's sentence is to name the device.
     func testAConnectSendsWhatWaitsThenReadsTheReservationsThenTheGuide() async throws {
         let bench = try aBench()
         // No guide in the cache, so every type of it is behind; and so the reservation is of the test's making.
@@ -135,7 +135,7 @@ final class QueueGateTests: XCTestCase {
     /// ever set going either. One that is kept asks the recorder nothing.
     ///
     /// As it is today: keeping one takes away what was on the failure line. A later change leaves the device's
-    /// line to the device (A9), and gives what is not the device's failure a line of its own. Both sentences
+    /// line to the device, and gives what is not the device's failure a line of its own. Both sentences
     /// stay as they are.
     func testAReservationThatCannotBeKeptOnThePhoneIsNotSaidToBeWaiting() async throws {
         let bench = try aBench()
@@ -229,7 +229,7 @@ final class QueueGateTests: XCTestCase {
     /// sentence carries the count, comes first, and is joined to what was sent with a full stop; and one the
     /// reader asks for again goes to the recorder in play.
     ///
-    /// The sentence on the rows is never to change. The strip's own may be reworded (C).
+    /// The sentence on the rows is never to change. The strip's own may be reworded.
     func testWhatIsHeldForAnotherRecorderIsCountedByTheSentenceWrittenOnIt() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
@@ -279,7 +279,7 @@ final class QueueGateTests: XCTestCase {
     /// connect: what a sending came to cannot be made by hand. The queue is emptied before each, so that what one
     /// left behind is not what the next one finds.
     ///
-    /// The sentences are to be reworded on purpose (C), and to move beside the queue.
+    /// The sentences are to be reworded on purpose, and to move beside the queue.
     func testWhatBecameOfTheQueueIsSaidInTheseWords() async throws {
         let store = try GuideStore(path: try aBench().guidePath)
         // Read from the queue in the order they start: the one that is over, then the morning's, then noon's.

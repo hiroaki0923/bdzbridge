@@ -10,10 +10,9 @@ import XCTest
 /// These are gates rather than rules. The recorder's operations are to move out of the model and into
 /// RecorderKit with the app behaving as it did, and each test here pins what the app does today, so that it can
 /// be shown to do the same afterwards with the test's body unchanged. That includes behaviour nobody would
-/// choose. Where a test holds something that is to be changed on purpose, it says so, with the name that change
-/// goes by in the plan for the move in brackets -- (A4), (R2) -- and that change rewrites it. So a test asks
-/// only what a screen asks and reads only what a screen reads, with the bench's own words for the rest
-/// (`Said`, `leaveALine`, `makeSure`): where an operation lives can change under it.
+/// choose. Where a test holds something that is to be changed on purpose, it says so, and that change rewrites
+/// it. So a test asks only what a screen asks and reads only what a screen reads, with the bench's own words
+/// for the rest (`Said`, `leaveALine`, `makeSure`): where an operation lives can change under it.
 ///
 /// The recorder is the bench's (`NamedRecorder`), told what to answer a request at a time. It is told just
 /// before the operation that is to meet it, since a connect asks for some of the same things.
@@ -44,7 +43,9 @@ final class FunnelGateTests: XCTestCase {
     /// cleared. It went once, and the model holds what it did without reading again a list it can put right.
     ///
     /// The last step is as it is today: a condition the recorder no longer has is sent for deletion all the
-    /// same, with nothing read first. A later change reads the list first and says so instead (R3).
+    /// same, with nothing read first. A later change reads the list first and says so instead, which puts a
+    /// read before every delete of a condition: the count of reads here and the rows that remove a condition
+    /// in the two tests below go with it.
     func testEachOperationSaysWhatItIsDoingHoldsTheRecorderAndOnlySuccessClearsTheLine() async throws {
         let (_, recorder, model, subjects) = try await settled()
         let atTheStart = await recorder.asked
@@ -113,7 +114,7 @@ final class FunnelGateTests: XCTestCase {
     /// a read, whose silence is the newer thing to say.
     ///
     /// Playing, pausing, stopping and powering on say the read's sentence today, though each asks the recorder to
-    /// do something. A later change counts them as sent (R2), which is four rows' sentence here.
+    /// do something. A later change counts them as sent, which is four rows' sentence here.
     func testSilenceOnAnOperationLosesTheRecorderAndSaysWhetherItMayHaveArrived() async throws {
         let (_, recorder, model, subjects) = try await settled()
         let unread: Set = [Kind.changeRecording, Kind.deleteRecording]
@@ -196,7 +197,7 @@ final class FunnelGateTests: XCTestCase {
     /// written is turned down before anything is sent. And a recorder that will not say how much room it has,
     /// after a delete, leaves the delete done and the room unknown.
     ///
-    /// Where the sentence of an answer that cannot be read is put may change (A9): it is not the recorder's.
+    /// Where the sentence of an answer that cannot be read is put may change: it is not the recorder's.
     func testARefusalIsSaidAndTheRecorderIsKept() async throws {
         let (_, recorder, model, subjects) = try await settled()
 
@@ -275,8 +276,8 @@ final class FunnelGateTests: XCTestCase {
     /// As it is today in three places. A protect and a delete mark the recordings unread although nothing was
     /// sent, which costs a read of the list after the reconnect. The conditions' screen, with no list read,
     /// gives the line an earlier operation left as its reason. And with no recorder in hand a write fails
-    /// without a word, where a later change says why (A8); another keeps a write from a recorder that has not
-    /// said which it is (A2).
+    /// without a word, where a later change says why; another keeps a write from a recorder that has not
+    /// said which it is.
     func testNothingIsSentToARecorderTheAppIsNotConnectedTo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         await recorder.goQuiet(for: 1)
@@ -471,7 +472,7 @@ final class FunnelGateTests: XCTestCase {
         expectEqual(await recorder.asked(Kind.deleteRecording, since: before), 1)
     }
 
-    /// As it is today, and to be rewritten (A4): the same with the connect answered by another recorder, whose
+    /// As it is today, and to be rewritten: the same with the connect answered by another recorder, whose
     /// arrival empties the lists in that turn. Nothing in the funnel asks whether the recorder it began with
     /// was let go of, so a read that comes back afterwards is put over the emptied list, and a write's silence
     /// is taken for the newcomer's: the app gives up on a recorder that has just answered, under a sentence
@@ -527,7 +528,7 @@ final class FunnelGateTests: XCTestCase {
     /// Playing itself, which turns the recorder on and waits for it under a line that counts the seconds, is
     /// not here: the model hands the client no interval, so a test of it waits a real second. The sequence is
     /// held in the package (`RecorderClientTests`), and the app's part of it goes with the recordings' own gates.
-    /// The sentence a power request's silence leaves is to change (R2).
+    /// The sentence a power request's silence leaves is to change.
     func testStandbyIsSaidAndPowerIsOfferedUntilItIsPutOnOrPlaybackIsAskedForAgain() async throws {
         let (_, recorder, model, subjects) = try await settled()
         let before = await recorder.asked
