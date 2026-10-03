@@ -123,6 +123,15 @@ public enum TVPresence: Equatable, Sendable {
     case on(model: String)
 }
 
+/// What asking to be registered came to.
+public enum TVEnrolment: Sendable, Equatable {
+    /// The television wants its PIN, which it shows on its screen when it is showing a broadcast.
+    case pinNeeded
+    /// Registered, with the MAC it wakes on when it gave one, normalised.
+    case registered(mac: String?)
+    case failed(String)
+}
+
 /// The USB disk a television records to: mounted or not, and its space when it is.
 public struct TVStorage: Sendable, Equatable {
     public var mounted: Bool
@@ -228,6 +237,31 @@ public actor ScalarClient {
         keep(cookie, for: clientID)
         return .registered
     }
+
+    /// The steps of registering, and what each failure is said as: with no PIN at first, when the television
+    /// answers by putting its PIN on its screen, and then with the PIN the reader read there, under the same
+    /// client id. The MAC is read first, with the short `timeout`: it tells this television from any other
+    /// afterwards, and reading it needs no registration, so a television that does not answer is found out
+    /// before a PIN is asked for. Never throws: what went wrong is the sentence to show.
+    public func enrol(clientID: String, nickname: String, pin: String?,
+                      timeout: TimeInterval = 5) async -> TVEnrolment {
+        do {
+            let mac = try await wakeOnLANAddress(timeout: timeout).flatMap(WakeOnLan.normalise)
+            switch try await register(clientID: clientID, nickname: nickname, pin: pin) {
+            case .pinNeeded: return .pinNeeded
+            case .registered: return .registered(mac: mac)
+            }
+        } catch let error as any DeviceError {
+            // Its display went off after it was found on: it shows no PIN then, and turns the request down.
+            return .failed(error.failure == .needsPower ? Self.screenIsOff : error.explanation)
+        } catch {
+            return .failed(String(describing: error))
+        }
+    }
+
+    /// Said when a registration is turned down because the television shows nothing to read a PIN from.
+    public static let screenIsOff = "テレビの画面が消えているため、登録できませんでした。"
+        + "テレビの電源を入れて、放送を映してから、もう一度お試しください。"
 
     /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
     /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept.

@@ -22,12 +22,16 @@ public final class TVFacts {
 /// reads that, its model, and its USB disk -- the read that needs a registration, so the one that says whether
 /// there is one -- and renews the cookie when it is past half its life.
 ///
-/// What is asked of a television after its attach is here as well (`reservations`, `cancel`): the steps, what
-/// each can come to, and the sentence said for it, through the link and the link's host. The app keeps what
-/// comes back.
+/// What is asked of a television after its attach is here as well (`reservations`, `refreshReservations`,
+/// `cancel`, `update`): the steps, what each can come to, and the sentence said for it, through the link this
+/// is the driver of and that link's host. It is asked of the driver alone, which is handed no link: with its
+/// link gone nothing is sent. The app keeps what comes back.
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
+    /// The link holds the driver, so weak. Each operation reads it once, as it is asked for, and goes through
+    /// on the link it found there.
+    public weak var link: DeviceLink?
     private let credentials: any TVCredentialStore
     /// What the television lists the app as, among the devices registered with it.
     private let nickname: String
@@ -131,8 +135,11 @@ public final class TVDriver: LinkDriver {
     /// app's cookie, and the client in the link is the one it answered. The first two both, since an attach
     /// that ended in a 403 leaves the session connected: the television said which it is before it refused. The
     /// third because a connect under way has a client of its own and the session still says what the last one
-    /// found: another television may be at the address by now, and the cookie is not for it.
-    public func canBeAsked(_ link: DeviceLink) -> Bool {
+    /// found: another television may be at the address by now, and the cookie is not for it. Never with the
+    /// link gone.
+    public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
+
+    private func canBeAsked(on link: DeviceLink) -> Bool {
         guard let attachedClient, link.session.connected, !facts.needsPairing else { return false }
         return (link.client as? ScalarClient) === attachedClient
     }
@@ -152,15 +159,28 @@ public final class TVDriver: LinkDriver {
         + "送り直していません。再接続してから一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
     public static let deleteRefused = "テレビが削除を受け付けませんでした（41200）。"
-    /// Said by the app when it is asked to change a television's reservation, which nothing here does yet.
+    /// Said when a change to a television's reservation is asked for, which nothing here makes yet (`update`).
     public static let changesNotYet = "テレビの予約の変更は、このアプリではまだできません。"
+    /// For the host to say when nothing could be asked because the app is not connected (`sayNotConnected`).
+    public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
 
     /// What the television is set to record, read now: nil when it could not be read, and the host's line
     /// says why. A television that cannot be asked is sent nothing and nothing is said of it: the screens ask
     /// this as they appear, and the line an earlier operation left is not theirs to write over.
-    public func reservations(on link: DeviceLink) async -> [Reservation]? {
-        guard canBeAsked(link) else { return nil }
+    public func reservations() async -> [Reservation]? {
+        guard let link, canBeAsked(on: link) else { return nil }
         return await read(link)
+    }
+
+    /// What pulling the list down asks for: the list read now, as `reservations` reads it, when the
+    /// television can be asked. When it cannot, the reader has asked for it to be tried again: a connect,
+    /// which tells the host when it reaches the television (`reached`), and nil -- the host reads the list
+    /// from there, inside the connect, and what a connect that got nowhere has to say is on its line.
+    public func refreshReservations() async -> [Reservation]? {
+        guard let link else { return nil }
+        if canBeAsked(on: link) { return await read(link) }
+        await link.connect()
+        return nil
     }
 
     /// One read at a time. The list is asked for when a screen appears, when it is pulled down and when the
@@ -221,6 +241,10 @@ public final class TVDriver: LinkDriver {
     /// Takes a reservation off the television. Whether it was deleted, and the freshest list read on the way
     /// for the caller to keep, nil when none was read.
     ///
+    /// A reservation that is not a television's is refused before anything else: nothing is read, sent or
+    /// said for it. It is another device's to delete, and looked for here it could only be taken for a row
+    /// of the television's. With the link gone any reservation is refused the same way.
+    ///
     /// A television that cannot be asked is sent nothing, and here the line says why: the reader asked for
     /// this. Otherwise the list is read first and the reservation found in it (`tvTarget`): the row sent is
     /// the one just read, and a reservation that has gone, or whose id is now another's, is not written to. A
@@ -233,12 +257,13 @@ public final class TVDriver: LinkDriver {
     /// The reads on the way go under the delete's line, not one of their own. When making sure of the
     /// television ends at the local network permission, the reason is on the session (`connectBlocked`) and
     /// not on the line. Asked for by the reader, a delete is carried through on the link it began on though
-    /// the app has let go of that link meanwhile. Two cancels of one reservation at once would each send their
-    /// delete; the screens hold the second back while the first is out (the host's `isBusy`).
-    public func cancel(_ reservation: Reservation,
-                       on link: DeviceLink) async -> (deleted: Bool, list: [Reservation]?) {
+    /// the app has let go of that link meanwhile: the link is read once, here, and held to the end. Two
+    /// cancels of one reservation at once would each send their delete; the screens hold the second back
+    /// while the first is out (the host's `isBusy`).
+    public func cancel(_ reservation: Reservation) async -> (deleted: Bool, list: [Reservation]?) {
+        guard reservation.device == .tv, let link else { return (false, nil) }
         let owner = link.owner
-        guard canBeAsked(link) else {
+        guard canBeAsked(on: link) else {
             if facts.needsPairing {
                 owner?.problem = ScalarError.notRegistered.explanation
             } else {
@@ -272,6 +297,17 @@ public final class TVDriver: LinkDriver {
         }
         let after = await read(link, underALine: false) ?? list
         return (true, after.filter { $0.id != row.id })
+    }
+
+    /// Changes nothing: nothing here changes a television's reservation yet. Nothing is read and nothing
+    /// sent, and the line says so, since the reader asked for the change. What is handed back has the shape a
+    /// change will have: whether it was made, and the freshest list read on the way, which here is none. A
+    /// reservation that is not a television's is refused as `cancel` refuses it, with nothing said.
+    public func update(_ reservation: Reservation, quality: String,
+                       repeating: String) async -> (changed: Bool, list: [Reservation]?) {
+        guard reservation.device == .tv else { return (false, nil) }
+        link?.owner?.problem = Self.changesNotYet
+        return (false, nil)
     }
 
     // MARK: - the check before an operation

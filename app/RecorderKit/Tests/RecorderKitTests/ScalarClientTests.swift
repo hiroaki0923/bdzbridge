@@ -240,6 +240,54 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertEqual(same.load(), kept)
     }
 
+    /// What asking to be registered comes to, as the steps of it, each on an invented television. One that is
+    /// on and does not list the app wants its PIN; the same request with the PIN registers, the cookie is kept
+    /// and the MAC it wakes on is handed back in the form the app keeps, or none when it gives none. One whose
+    /// display is off turns the request down, which is said as that and not as the error it answered with.
+    /// One that does not answer is found out at the first ask, the MAC, and the registration is not sent.
+    func testWhatAskingToBeRegisteredComesTo() async {
+        let first = "getSystemSupportedFunction cookie=no pin=no"
+        let bare = "actRegister cookie=no pin=no", withPIN = "actRegister cookie=no pin=yes"
+        // The MAC as a television might spell it, which is not how the app keeps one.
+        let on = DemoTV(power: "active", mac: DemoTV.mac.uppercased().replacingOccurrences(of: ":", with: "-"))
+        let noMAC = DemoTV(power: "active", mac: ""), off = DemoTV(), silent = DemoTV(power: "active")
+        await silent.goSilent()
+        let noAnswer = ScalarError.transport("no answer").explanation
+        let turnedDown = ScalarError.rpc(method: "actRegister", version: "1.0", code: 40005, message: "display off")
+        XCTAssertNotEqual(ScalarClient.screenIsOff, turnedDown.explanation)
+        let cases: [(String, DemoTV, String?, TVEnrolment, [String])] = [
+            ("no PIN", on, nil, .pinNeeded, [first, bare]),
+            ("the PIN", on, DemoTV.pin, .registered(mac: DemoTV.mac), [first, withPIN]),
+            ("no MAC given", noMAC, DemoTV.pin, .registered(mac: nil), [first, withPIN]),
+            ("the display off", off, nil, .failed(ScalarClient.screenIsOff), [first, bare]),
+            ("nothing answering", silent, DemoTV.pin, .failed(noAnswer), [first]),
+        ]
+        for (name, television, pin, expected, sent) in cases {
+            let store = MemoryTVCredentials()
+            let tv = ScalarClient(host: Stub.host, transport: television, credentials: store)
+            let before = await television.calls.count
+
+            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: pin), expected, name)
+
+            expectEqual(Array(await television.calls.dropFirst(before)), sent, name)
+            guard case .registered = expected else {
+                XCTAssertNil(store.load(), "\(name): something was kept")
+                continue
+            }
+            XCTAssertEqual(store.load()?.clientID, "BDBridge:test", name)
+            expectNil(await failure { _ = try await tv.storage() }, "\(name): the cookie kept is not taken")
+        }
+
+        // The first ask is short, and the caller's to say: the reader is waiting at a sheet for it. The
+        // registration waits as long as any request.
+        let mac = ok(#"[[{"option":"WOL","value":"\#(DemoTV.mac)"}]]"#)
+        let asked = StubTransport { _, index in index % 2 == 0 ? mac : HTTPResponse(statusCode: 401) }
+        let (tv, _) = client(asked)
+        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil, timeout: 2)
+        expectEqual(await asked.requests.map(\.timeout), [5, ScalarClient.timeout, 2, ScalarClient.timeout])
+    }
+
     /// A read that needs the registration sends the cookie kept, and sends nothing without one.
     func testWhatNeedsTheRegistrationSendsTheCookie() async throws {
         let transport = StubTransport(always: ok(#"[[{"uri":"usb:recStorage","mounted":"mounted","wholeCapacityMB":1000,"freeCapacityMB":400}]]"#))

@@ -4,7 +4,8 @@ import XCTest
 
 /// A television on a link: attached without being woken, told from another by the MAC it wakes on, asked for a
 /// registration when it has none that works, and given a new cookie when the one in hand is past half its life.
-/// And what is asked of it after the attach, through its driver: its reservations read, and one deleted.
+/// And what is asked of it after the attach, of its driver alone: its reservations read, one deleted, a change
+/// turned down, and the list pulled down.
 @MainActor
 final class TVDriverTests: XCTestCase {
     /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
@@ -89,7 +90,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertFalse(bench.driver.facts.needsPairing)
 
         bench.credentials.save(Self.stale)
-        _ = await bench.driver.reservations(on: bench.link)
+        _ = await bench.driver.reservations()
         XCTAssertTrue(bench.driver.facts.needsPairing)
 
         if let known { bench.credentials.save(known) }
@@ -105,15 +106,15 @@ final class TVDriverTests: XCTestCase {
     func testNothingIsAskedOnTheStrengthOfTheLastConnect() async {
         let bench = await attached()
         let last = bench.link.client
-        XCTAssertTrue(bench.driver.canBeAsked(bench.link))
+        XCTAssertTrue(bench.driver.canBeAsked)
         await bench.television.becomeAnother(mac: "f8:4e:17:00:00:0b")
         let before = await bench.gate.asked.count
         await bench.gate.before("getSystemSupportedFunction") { @MainActor in
-            bench.world.put(bench.driver.canBeAsked(bench.link) ? "asked meanwhile" : "not asked meanwhile")
+            bench.world.put(bench.driver.canBeAsked ? "asked meanwhile" : "not asked meanwhile")
         }
 
         await bench.link.connect()
-        let list = await bench.driver.reservations(on: bench.link)
+        let list = await bench.driver.reservations()
 
         XCTAssertEqual(bench.world.events.last, "not asked meanwhile")
         XCTAssertNil(list)
@@ -130,7 +131,7 @@ final class TVDriverTests: XCTestCase {
         await television.put([Self.drama, Self.weather])
         let (link, driver, world) = makeLink(television, await registered(with: television))
         world.onReached = {
-            let list = await driver.reservations(on: link)
+            let list = await driver.reservations()
             world.put("read \(list?.count ?? -1)")
         }
 
@@ -287,7 +288,7 @@ final class TVDriverTests: XCTestCase {
         bench.world.problem = Self.left
         await noteTheLine(at: Self.read, on: bench)
 
-        let list = await bench.driver.reservations(on: bench.link)
+        let list = await bench.driver.reservations()
 
         XCTAssertEqual(list?.map(\.id), ["recording.42", "recording.41"])
         XCTAssertEqual(list, [Self.weather, Self.drama].compactMap { $0.row.reservation() })
@@ -301,14 +302,14 @@ final class TVDriverTests: XCTestCase {
     func testAReadUnderWayIsWaitedForAndNotSentAgain() async {
         let bench = await attached()
 
-        let first = Task { await bench.driver.reservations(on: bench.link) }
-        let second = Task { await bench.driver.reservations(on: bench.link) }
+        let first = Task { await bench.driver.reservations() }
+        let second = Task { await bench.driver.reservations() }
         let lists = await [first.value, second.value]
 
         XCTAssertEqual(lists[0]?.count, 2)
         XCTAssertEqual(lists[0], lists[1])
         expectEqual(await bench.gate.asked.filter { $0 == Self.read }.count, 1)
-        _ = await bench.driver.reservations(on: bench.link)
+        _ = await bench.driver.reservations()
         expectEqual(await bench.gate.asked.filter { $0 == Self.read }.count, 2)
     }
 
@@ -320,19 +321,19 @@ final class TVDriverTests: XCTestCase {
         XCTAssertTrue(refused.link.session.connected)
         XCTAssertTrue(refused.driver.facts.needsPairing)
         let silent = await attached()
-        XCTAssertTrue(silent.driver.canBeAsked(silent.link))
+        XCTAssertTrue(silent.driver.canBeAsked)
         await silent.television.goSilent()
         _ = await silent.link.ensureUp(evenIfRecent: true)
         await silent.television.goSilent(false)
 
         for (bench, why) in [(refused, ScalarError.notRegistered.explanation), (silent, LinkWorld.notConnected)] {
-            XCTAssertFalse(bench.driver.canBeAsked(bench.link), why)
+            XCTAssertFalse(bench.driver.canBeAsked, why)
             bench.world.problem = Self.left
             let asked = await bench.gate.asked
 
-            expectNil(await bench.driver.reservations(on: bench.link), why)
+            expectNil(await bench.driver.reservations(), why)
             XCTAssertEqual(bench.world.problem, Self.left, "a read that was not sent wrote over the line")
-            let cancelled = await bench.driver.cancel(try held(), on: bench.link)
+            let cancelled = await bench.driver.cancel(try held())
 
             XCTAssertFalse(cancelled.deleted, why)
             XCTAssertNil(cancelled.list, why)
@@ -342,13 +343,92 @@ final class TVDriverTests: XCTestCase {
         }
     }
 
+    /// A driver is asked without being handed a link, and holds its own only as long as the app does. Once
+    /// the link has been let go of -- here it is deallocated -- a television that could be asked a moment
+    /// before cannot, and whatever is asked of the driver comes to nothing and is not sent.
+    func testADriverWhoseLinkIsGoneSendsNothing() async throws {
+        let television = DemoTV()
+        await television.put([Self.drama, Self.weather])
+        let credentials = await registered(with: television)
+        let driver: TVDriver
+        weak var link: DeviceLink?
+        do {
+            let (made, itsDriver, _) = makeLink(television, credentials)
+            await made.connect()
+            XCTAssertTrue(itsDriver.canBeAsked)
+            driver = itsDriver
+            link = made
+        }
+        XCTAssertNil(link, "something still holds the link")
+        let asked = await television.calls
+
+        XCTAssertFalse(driver.canBeAsked)
+        expectNil(await driver.reservations())
+        expectNil(await driver.refreshReservations())
+        let cancelled = await driver.cancel(try held())
+        XCTAssertFalse(cancelled.deleted)
+        XCTAssertNil(cancelled.list)
+        expectEqual(await television.calls, asked, "sent by a driver with no link")
+        expectEqual(await television.schedules, [Self.drama, Self.weather])
+    }
+
+    /// A reservation that is not a television's is refused at the door. The recorder's own reservation of the
+    /// drama -- the channel, the start and the programme of a row the television lists -- is not looked for
+    /// here: the television is sent nothing at all, not the read a cancel begins with, and the line is left as
+    /// it was. A change is refused the same way, without the sentence it has for a television's.
+    ///
+    /// The door comes before the asking whether the television can be asked. One that cannot -- its cookie
+    /// refused at the attach, or given up on after silence -- says why to a cancel of a reservation of its
+    /// own; of the recorder's it says nothing, the line staying as it was, and it is sent nothing more.
+    func testAReservationOfAnotherDeviceIsRefusedAtTheDoor() async throws {
+        let bench = await attached()
+        var recorders = try XCTUnwrap(Self.drama.row.reservation())
+        recorders.id = "0x29"
+        recorders.device = .recorder
+        recorders.tvRow = nil
+        bench.world.problem = Self.left
+        let asked = await bench.gate.asked
+
+        let cancelled = await bench.driver.cancel(recorders)
+        let changed = await bench.driver.update(recorders, quality: "DR", repeating: "daily")
+
+        XCTAssertFalse(cancelled.deleted)
+        XCTAssertNil(cancelled.list)
+        XCTAssertFalse(changed.changed)
+        XCTAssertNil(changed.list)
+        expectEqual(await bench.gate.asked, asked, "sent for a reservation that is another device's")
+        XCTAssertEqual(bench.world.problem, Self.left)
+        XCTAssertNil(bench.world.line)
+        expectEqual(await bench.television.schedules, [Self.drama, Self.reminder, Self.weather])
+
+        let refused = await attached(with: MemoryTVCredentials(Self.stale))
+        XCTAssertTrue(refused.driver.facts.needsPairing)
+        let silent = await attached()
+        await silent.television.goSilent()
+        _ = await silent.link.ensureUp(evenIfRecent: true)
+        await silent.television.goSilent(false)
+        XCTAssertTrue(silent.link.session.gaveUp)
+        for (unasked, which) in [(refused, "its cookie refused"), (silent, "given up on")] {
+            XCTAssertFalse(unasked.driver.canBeAsked, which)
+            unasked.world.problem = Self.left
+            let sentSoFar = await unasked.gate.asked
+
+            let turnedAway = await unasked.driver.cancel(recorders)
+
+            XCTAssertFalse(turnedAway.deleted, which)
+            XCTAssertNil(turnedAway.list, which)
+            XCTAssertEqual(unasked.world.problem, Self.left, "\(which): said what is said of a television's own")
+            expectEqual(await unasked.gate.asked, sentSoFar, "\(which): sent for another device's reservation")
+        }
+    }
+
     /// A read that fails hands nothing back and says why. Refused for its cookie -- the app taken off the
     /// television's list since the attach -- it puts down that the registration is wanted, and the television
     /// is still there. Met with silence, it leaves the link as any silence does.
     func testAReadThatFailsSaysWhy() async {
         let refused = await attached()
         refused.credentials.save(Self.stale)
-        expectNil(await refused.driver.reservations(on: refused.link))
+        expectNil(await refused.driver.reservations())
         XCTAssertTrue(refused.driver.facts.needsPairing)
         XCTAssertTrue(refused.link.session.connected)
         XCTAssertEqual(refused.world.problem, ScalarError.notRegistered.explanation)
@@ -356,7 +436,7 @@ final class TVDriverTests: XCTestCase {
 
         let silent = await attached()
         await silent.gate.silence(Self.read)
-        expectNil(await silent.driver.reservations(on: silent.link))
+        expectNil(await silent.driver.reservations())
         XCTAssertFalse(silent.link.session.connected)
         XCTAssertTrue(silent.link.session.gaveUp)
         XCTAssertFalse(silent.driver.facts.needsPairing)
@@ -383,7 +463,7 @@ final class TVDriverTests: XCTestCase {
         await arrange(bench)
         let before = await bench.gate.asked.count
 
-        let cancelled = await bench.driver.cancel(try held(), on: bench.link)
+        let cancelled = await bench.driver.cancel(try held())
 
         XCTAssertNil(bench.world.line, "a line was left up")
         let sent = Array(await bench.gate.asked.dropFirst(before))
@@ -415,13 +495,13 @@ final class TVDriverTests: XCTestCase {
         let bench = await attached()
         let behind = Behind()
         await bench.gate.before(Self.delete) { @MainActor in
-            behind.read = Task { await bench.driver.reservations(on: bench.link) }
+            behind.read = Task { await bench.driver.reservations() }
             await bench.gate.silence(Self.delete)
             await bench.gate.silence(Self.read)
         }
         let before = await bench.gate.asked.count
 
-        let cancelled = await bench.driver.cancel(try held(), on: bench.link)
+        let cancelled = await bench.driver.cancel(try held())
         let list = await behind.read?.value
 
         XCTAssertFalse(cancelled.deleted)
@@ -435,6 +515,48 @@ final class TVDriverTests: XCTestCase {
     @MainActor
     private final class Behind {
         var read: Task<[Reservation]?, Never>?
+    }
+
+    /// A delete is carried through on the link it began on. The reader asked for it, and the app lets go of
+    /// its link meanwhile -- here as the read before the delete is on its way, the last moment before the
+    /// delete is sent, and nothing else holds the link from there. The cancel does not look for its link a
+    /// second time and stop for want of one: the delete is sent, the list read after it, and the reservation
+    /// is off the television.
+    func testADeleteIsCarriedThroughOnTheLinkItBeganOn() async throws {
+        let television = DemoTV()
+        await television.put([Self.drama, Self.reminder, Self.weather])
+        let gate = TVGate(television)
+        let kept = Kept()
+        let driver: TVDriver, world: LinkWorld
+        weak var link: DeviceLink?
+        do {
+            let (made, itsDriver, itsWorld) = makeLink(television, await registered(with: television))
+            itsWorld.devices[Stub.host] = gate
+            await made.connect()
+            XCTAssertTrue(itsDriver.canBeAsked)
+            driver = itsDriver
+            world = itsWorld
+            link = made
+            kept.link = made
+        }
+        await gate.before(Self.read) { @MainActor in kept.link = nil }
+        let before = await gate.asked.count
+
+        let cancelled = await driver.cancel(try held())
+
+        XCTAssertNil(link, "something beside the cancel held the link, which shows nothing of the cancel")
+        XCTAssertTrue(cancelled.deleted)
+        XCTAssertEqual(cancelled.list?.map(\.id), ["recording.42"])
+        expectEqual(Array(await gate.asked.dropFirst(before)), [Self.read, Self.delete, Self.read])
+        expectEqual(await television.schedules, [Self.reminder, Self.weather])
+        XCTAssertNil(world.problem)
+        XCTAssertNil(world.line)
+    }
+
+    /// Holds the one reference a test keeps to its link, to be let go of from inside a request.
+    @MainActor
+    private final class Kept {
+        var link: DeviceLink?
     }
 
     /// What a cancel comes to with something in its way, each on a television of its own.
@@ -513,6 +635,94 @@ final class TVDriverTests: XCTestCase {
                                                     sent: [read, delete], needsPairing: true)) { bench in
             await bench.gate.before(read) { bench.credentials.save(Self.stale) }
         }
+    }
+
+    /// Nothing changes a television's reservation yet. Asked to, the driver reads nothing and sends nothing,
+    /// and says so on the line, over what was there: the reader asked for the change.
+    func testAChangeIsNotMadeAndTheLineSaysSo() async throws {
+        let bench = await attached()
+        bench.world.problem = Self.left
+        let asked = await bench.gate.asked
+
+        let changed = await bench.driver.update(try held(), quality: "DR", repeating: "daily")
+
+        XCTAssertFalse(changed.changed)
+        XCTAssertNil(changed.list)
+        expectEqual(await bench.gate.asked, asked, "sent for a change that is not made")
+        XCTAssertEqual(bench.world.problem, TVDriver.changesNotYet)
+        XCTAssertNil(bench.world.line)
+    }
+
+    // MARK: - pulling the list down
+
+    /// From a television that can be asked, pulling the list down is a read: one request, the list handed
+    /// back, and no connect made for it.
+    func testPullingDownReadsWhenTheTelevisionCanBeAsked() async {
+        let bench = await attached()
+        let tries = bench.link.session.link.tries
+        let before = await bench.gate.asked.count
+
+        let list = await bench.driver.refreshReservations()
+
+        XCTAssertEqual(list?.map(\.id), ["recording.42", "recording.41"])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.read])
+        XCTAssertEqual(bench.link.session.link.tries, tries, "connected to a television that could be asked")
+        XCTAssertEqual(bench.world.count("reached"), 1)
+    }
+
+    /// From a television given up on after silence, pulling down is the reader asking for it to be tried
+    /// again: a connect is made, and nothing is handed back. While the television says nothing still, that
+    /// is all. When it answers again the host is told so, once, inside the connect, and reads the list from
+    /// there.
+    func testPullingDownConnectsWhenTheTelevisionCannotBeAsked() async {
+        let bench = await attached()
+        await bench.television.goSilent()
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(bench.link.session.gaveUp)
+        bench.world.onReached = {
+            let list = await bench.driver.reservations()
+            bench.world.put("told, and read \(list?.count ?? -1)")
+        }
+        let tries = bench.link.session.link.tries
+        var before = await bench.gate.asked.count
+
+        expectNil(await bench.driver.refreshReservations())
+
+        XCTAssertEqual(bench.link.session.link.tries, tries + 1, "no connect was made")
+        XCTAssertFalse(bench.link.session.connected)
+        XCTAssertEqual(bench.world.count("told"), 0)
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), ["getSystemSupportedFunction"])
+
+        await bench.television.goSilent(false)
+        before = await bench.gate.asked.count
+
+        expectNil(await bench.driver.refreshReservations())
+
+        XCTAssertEqual(bench.link.session.link.tries, tries + 2)
+        XCTAssertTrue(bench.driver.canBeAsked)
+        XCTAssertEqual(bench.world.events.filter { $0.hasPrefix("told") }, ["told, and read 2"])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)),
+                    ["getSystemSupportedFunction", "getInterfaceInformation", "getStorageList", Self.read])
+    }
+
+    /// From a television that answered and refused the cookie, pulling down is the reader asking for it to be
+    /// tried again as well: the session is connected, since the television said which it is, and it still
+    /// cannot be asked. So a connect is made -- the only thing that finds out a registration made since --
+    /// and nothing is handed back. Refused again, the connect says on the line that the registration is wanted.
+    func testPullingDownConnectsToATelevisionThatRefusedTheCookie() async {
+        let bench = await attached(with: MemoryTVCredentials(Self.stale))
+        XCTAssertTrue(bench.link.session.connected)
+        XCTAssertTrue(bench.driver.facts.needsPairing)
+        bench.world.problem = Self.left
+        let tries = bench.link.session.link.tries
+        let before = await bench.gate.asked.count
+
+        expectNil(await bench.driver.refreshReservations())
+
+        XCTAssertEqual(bench.link.session.link.tries, tries + 1, "no connect was made")
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)),
+                    ["getSystemSupportedFunction", "getInterfaceInformation", "getStorageList"])
+        XCTAssertEqual(bench.world.problem, ScalarError.notRegistered.explanation)
     }
 }
 

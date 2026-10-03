@@ -23,9 +23,10 @@ public struct Reservation: Equatable, Sendable, Identifiable {
     public var creator: String?
     /// ARIB content nibbles as level1 * 16 + level2.
     public var genreCode: Int?
-    /// The device that holds it. Whatever writes looks here first: a television's row sent to the recorder would
-    /// be found there by its channel and start (`current`), and the recorder's own reservation of that programme
-    /// changed or deleted in its place.
+    /// The device that holds it. Whatever writes looks here first, so that a television's row is not sent to the
+    /// recorder, where the recorder's own reservation of that programme would be changed or deleted in its place.
+    /// The recorder's way of finding a reservation again refuses it as well (`current`): it finds nothing for a
+    /// row of another device.
     public var device: DeviceSlot = .recorder
     /// The television's row this was read from, for a television's: what a delete sends back as it was read, and
     /// what the reservation is found again by (`tvTarget`).
@@ -57,9 +58,12 @@ public extension Array where Element == Reservation {
     ///
     /// Anything that writes finds the reservation again with this first (see `Reservation.createdByRecorder`).
     /// The id comes first so that two reservations of one programme are still told apart while their ids hold.
+    /// Only among the rows of the device that holds it: another device numbers for itself and may hold the
+    /// same programme, so its row would be found here by either, and written to in place of the one meant.
     func current(_ wanted: Reservation) -> Reservation? {
-        first { $0.id == wanted.id }
-            ?? first { $0.broadcastingType == wanted.broadcastingType
+        first { $0.device == wanted.device && $0.id == wanted.id }
+            ?? first { $0.device == wanted.device
+                       && $0.broadcastingType == wanted.broadcastingType
                        && $0.serviceID == wanted.serviceID
                        && $0.start == wanted.start }
     }
