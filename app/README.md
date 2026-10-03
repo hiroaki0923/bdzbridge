@@ -75,14 +75,16 @@ recorder or the network. The model takes what it reaches beyond itself as one va
 `BDBridge/Surroundings.swift`: the defaults it keeps the address and the screens' choices in, the folder its
 databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it
 may put anything on the LAN by itself -- the magic packet, the look at the local network permission, the
-search for a recorder the router has moved, the watch on the network -- or ask about notifications. The app
-passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults suite and a
-temporary folder that are thrown away afterwards, an invented recorder as the transport -- the demo's
-`DemoRecorder`, a `SilentRecorder` that answers nothing, one that is at home or not as the test says, one that
-answers 503 to everything, or only to being asked who it is until it is free, one that refuses the calls named
-to it, one held part way through an attach, one with a broadcast on its disk twice, something that answers and
-is no recorder, and recorders that each say which they are, one of which can start answering as another or
-stop saying which -- and a network it changes when the phone is meant to have moved.
+search for a recorder the router has moved, the watch on the network -- or ask about notifications, and how
+long the recorder's client pauses before sending a 503 again and a write to the cache waits for another
+connection's. The app passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a
+defaults suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an
+invented recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the
+demo's pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse
+the calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and
+recorders that each say which they are, one of which can start answering as another or stop saying which, be
+busy when asked who it is, or hold or ignore requests of one kind -- and a network it changes when the phone is
+meant to have moved.
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
