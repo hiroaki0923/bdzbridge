@@ -5,8 +5,11 @@
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
   `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
   to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
-  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). What it knows of the recorder and of
-  the link to it -- described, unreachable, given up on, being woken -- is RecorderKit's `SessionState`,
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). The connection to the recorder -- when
+  it is asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's
+  `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
+  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What the app knows of the
+  recorder and of the link to it -- described, unreachable, given up on, being woken -- is `SessionState`,
   which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
@@ -84,7 +87,10 @@ stop saying which -- and a network it changes when the phone is meant to have mo
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
 `untilConnected` and `untilGivenUp`, and `expectEqual` and its kin, which check a value that has to be awaited
-in the line that reads it. Nothing leaves the machine.
+in the line that reads it. Nothing leaves the machine. So what the link does on the LAN itself -- the
+packet before the first ask, the wait for the local network permission, the search for a recorder the router
+has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
+test's own.
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -114,7 +120,8 @@ in another case as well; what waits to be sent stays, and is not sent to a recor
 is; pulling the reservations down, and asking for one to be sent again, connect when the app is not connected;
 another recorder cannot be chosen while the last is being made sure of; silence from the recorder left,
 arriving late, is not taken for the one chosen; entering the demo forgets the last job as well; and leaving it
-with no recorder to go back to leaves nobody to ask. Each was seen to fail with its rule broken in `AppModel`.
+with no recorder to go back to leaves nobody to ask. Each was seen to fail with its rule broken, and the
+tests' bodies stayed as they were when the connection moved from `AppModel` to RecorderKit.
 
 `WhichRecorderTests` holds the rules about which recorder is answering, the same way, in a file to each theme
 beside the one that holds what they share. A recorder is known by what it says it is, not by the address it

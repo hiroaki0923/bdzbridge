@@ -5,7 +5,8 @@ import XCTest
 /// A link at work on the local network: the packet before the first ask, the wait for the local network
 /// permission instead of a waking, the waking that gets no answer, and the search for a recorder the router has
 /// moved. The app's own tests run with nothing on the LAN, where none of this happens; here the link is handed a
-/// world of the test's own, which puts down what it was asked to do and answers as the test says.
+/// world of the test's own, which puts down what it was asked to do and answers as the test says. Also one rule
+/// whose moment the app's tests cannot reach: silence met after another network sets the looks going again.
 @MainActor
 final class DeviceLinkTests: XCTestCase {
     /// The recorder's MAC and the UDN that ends with it: Sony's OUI and the rest zeroed, as everywhere in this
@@ -142,6 +143,15 @@ final class DeviceLinkTests: XCTestCase {
         RecorderDescription(host: host, port: 64220, friendlyName: "サンプルレコーダー", product: "BDZ",
                             model: "BDZ-SAMPLE", udn: Self.udn, epgCapable: true,
                             location: "http://\(host):64220/description.xml", via: "scan")
+    }
+
+    /// Waits for `condition`, a few seconds at most: for what the link's own tasks get round to.
+    private func until(_ what: String, within seconds: Double = 3, _ condition: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(seconds)
+        while !condition() {
+            guard Date() < end else { return XCTFail(what) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     // MARK: - the packet
@@ -281,6 +291,27 @@ final class DeviceLinkTests: XCTestCase {
 
         XCTAssertNil(world.waitingAt)
         XCTAssertFalse(link.session.connectBlocked)
+    }
+
+    // MARK: - silence
+
+    /// Silence met after the phone was on another network for a while -- the Wi-Fi went and came back while a
+    /// request was out -- is no reason to stay given up at home, where the phone is the same as before and after:
+    /// the looks at the network start again, and the first finds that it moved since the last attempt. Without
+    /// them the app stayed given up whenever the looks set going by the reports had run out first.
+    func testSilenceAfterAnotherNetworkLooksAtTheNetworkAgain() async throws {
+        let world = World()
+        place(in: world)
+        let link = makeLink(world)
+        await link.connect()
+        XCTAssertTrue(link.session.connected)
+
+        // A look while the phone was elsewhere, as a report of the Wi-Fi going leaves it.
+        link.session.noted(network: "elsewhere")
+        link.lost()
+        XCTAssertTrue(link.session.gaveUp)
+
+        try await until("the app stayed given up at home") { link.session.connected && !link.session.gaveUp }
     }
 
     // MARK: - waking, and a recorder that has moved

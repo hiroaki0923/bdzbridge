@@ -6,14 +6,15 @@ import UserNotifications
 
 /// Everything the screens share: which recorder we talk to, the guide cache, and what is on screen now.
 ///
-/// There is no server in the middle. The app holds one `RecorderClient`, which serialises its own requests,
-/// and one `GuideStore` on disk, so the guide can be read while away from home.
+/// There is no server in the middle. The app holds one `RecorderClient` at a time, in its link to the
+/// recorder, which serialises its own requests, and one `GuideStore` on disk, so the guide can be read while
+/// away from home.
 ///
 /// This file holds the state, how the model is made and started, and the one funnel every action runs
-/// through. What it does is in extensions beside it, one file to a concern: `AppModelSession` (connecting,
-/// waking, giving up, asking again), `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`,
-/// `AppModelReservations` (with the queue), `AppModelRecorderRules`, `AppModelRecordings` and
-/// `AppModelBulkWork` (with the duplicates).
+/// through. What it does is in extensions beside it, one file to a concern: `AppModelSession` (the app's side
+/// of the connection: what the link tells it, what the link reaches, coming and going from the foreground),
+/// `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`, `AppModelReservations` (with the
+/// queue), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
 ///
 /// An extension in another file cannot reach what is private, so much of the state below is internal and
 /// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
@@ -101,7 +102,7 @@ final class AppModel: LinkHost {
     /// answered no -- so that the screens can say so and offer the Settings app.
     var scanBlocked = false
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
-    /// is then waiting for the permission rather than for the recorder; see `watchForAccess`.
+    /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.
     var connectBlocked: Bool { session.connectBlocked }
     /// Either of the two: something the reader wants is waiting on the local network permission.
     var lanBlocked: Bool { scanBlocked || connectBlocked }

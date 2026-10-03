@@ -92,8 +92,8 @@ extension AppModel {
     }
 
     /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
-    /// is not (`DeviceLink.ensureUp`). When it is not, the app has been left offline, `problem` says why, and
-    /// nothing has been sent.
+    /// is not (`DeviceLink.ensureUp`). When it is not, nothing has been sent, and the app has been left offline
+    /// with `problem` saying why, or waiting for the local network permission (`connectBlocked`).
     func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
         await recorder.ensureUp(evenIfRecent: evenIfRecent)
     }

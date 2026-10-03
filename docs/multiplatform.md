@@ -20,8 +20,10 @@ Android 版はないか、という問い合わせを受けての調査です。
   処理で二重に書かれていて、すでに食い違っていたため。そのあと、テストの無かった 4 つの規則（番組表が古いかの判定、
   採番し直された予約の探し直し、予約の要求の組み立て、送信待ちに送るものがあるかの判定）も移した。接続、諦め、
   ネットワーク変化の規則は、**判断**（`LinkRules.swift`）、**1 回の試みの順番**（`Reach.swift`）、**画面が読む
-  状態**（`SessionState.swift`）を移した。各段ですること（帯に出す行、読み取り、クライアントの持ち方）は、まだ
-  AppModel にある。
+  状態**（`SessionState.swift`）を移し、最後に**接続そのもの**を、機器に共通の `DeviceLink.swift` とレコーダーに
+  固有の `RecorderDriver.swift` に移した。AppModel に残るのは、画面の行と一覧、端末に保存するもの、通知、前面と
+  背景の出入り、ネットワークと許可の見張り、一括処理の一時停止、LAN に出る口（`LinkEnvironment`）を作ること。
+  画面の無い処理（深夜とショートカット）の試みは、まだ `BackgroundWork` にある。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
   取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
@@ -39,24 +41,26 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-36 ファイル、5,266 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,526 行。
+38 ファイル、5,817 行（空行とコメントを含み、`Package.swift` を除く）。テストは 5,910 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,663 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
+| 入出力を持たないロジック | 2,614 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities |
 | SQLite の上のもの | 993 | GuideStore, Sqlite |
-| 非同期の段取り | 1,088 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach |
+| 非同期の段取り | 1,688 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, RecorderDriver |
 | OS に縛られるもの | 522 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 522 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
-ものです。非同期と SQLite まで持てる仕組み（Swift そのもの、または Rust）なら、RecorderKit の 8 割以上を共有できます。
+ものです。非同期と SQLite まで持てる仕組み（Swift そのもの、または Rust）なら、RecorderKit の 9 割を共有できます。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,389 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化、
-一括処理の一時停止で、AppModel（8 ファイルで 2,442 行、うち約 3 割がコメント。接続まわりは
-`AppModelSession.swift`）と BackgroundWork、Notify、SendWaitingIntent を
-合わせて約 1,200 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で書き直します。
+RecorderKit の外、アプリ（8,069 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
+ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の試みで、AppModel（8 ファイルで
+2,122 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と BackgroundWork、Notify、
+SendWaitingIntent を合わせて約 860 行です。RecorderKit だけを共有する案では、どれを選んでもこれは Android で
+書き直します。
 
 ## どの案でも Android 側で作るもの
 
@@ -151,10 +155,10 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、65 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、77 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
-（`AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
+（当時の `AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
 送る順序、待つ長さ、取り消しの扱い、エラーで答えたときの扱いが食い違っていました。`PendingQueue` と `GuideRefresh` を
 RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の `Waking.swift` にまとめ、`swift test` で確かめられる
 ようにしました。待つ長さ（画面 30 秒、深夜とショートカット 60 秒）と取り消しの扱いは元のままで、深夜とショートカットも
@@ -183,7 +187,7 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 開いている間にネットワークが変わったら何をするか、通知のあとに見直す間隔、の 6 つです。「どのネットワークで
 最後に試したか、そのあと別のネットワークにいたか、何回試したか」は `LinkState` にまとめ、「試した」と
 「ネットワークを見た」の 2 つの操作でしか変わらないようにしました。AppModel は判断をここに聞き、接続する、起こす、画面に出す、を
-今までどおり自分で行います。
+この時点ではまだ自分で行っていました。
 
 続けて、1 回の試みの**順番**も移しました（`Reach`）。パケット → 短い確認 → 無応答なら許可を確かめる → 起こして
 待つ → それでも無応答なら別のアドレスを探す、です。画面からの接続、操作の前の確認、深夜の処理とショートカットが、
@@ -203,14 +207,33 @@ AppModel の変数だったときは、どこからでも 1 つずつ書けた�
 持つので、画面は今までどおり `model.gaveUp` のように読み、書くことはできません。`@Observable` なので、画面の
 更新は値ごとに今までどおり起きます。
 
-呼ぶ順番は今までどおり呼び出し側のもので、途中の食い違いは設計どおり残っています。説明が届いた時点で接続済みになり、
-以前の無応答の印は残りを読み終える（`answered`）まで残ります。諦めた印は、次の接続が試み終わる（`finishedTrying`）
+呼ぶ順番は呼び出し側（いまは `DeviceLink` と `RecorderDriver`）のもので、途中の食い違いは設計どおり残って
+います。説明が届いた時点で接続済みになり、以前の無応答の印は残りを読み終える（`answered`）まで残ります。諦めた印は、次の接続が試み終わる（`finishedTrying`）
 まで残ります。一覧を読み込むきっかけを「接続済み」だけにすると、この間に読みに行って空振りするので、画面は
 「接続済みで、無応答でもない」をきっかけにします。
 
-`SessionState` は、RecorderKit の中でただ 1 つ、メインアクターと Observation に縛られた型です（ほかの共有の状態は
-値か actor）。iOS の画面の状態だからです。Linux と Android でもビルドとテストは通る見込みですが、Kotlin の画面から
-読むには、メインアクターを Android の Looper で回すことと、変更を伝える橋渡しが要ります。それを作らない限り、
+そのうえで、接続そのものを RecorderKit に移しました。機器に共通の `DeviceLink` が、接続、操作の前の確認、無応答と
+諦め、アプリに戻ったとき、ネットワークの見直し、ローカルネットワークの許可を待つかどうか（下りるのを待つ見張りは
+アプリが 1 つ持つ）を持ち、レコーダーに固有の手順は
+`RecorderDriver` が持ちます（答えた機体の照合とキャッシュの引き継ぎ、接続のたびに読む値、起こして待つ、移った機体の
+探し直し）。判断は `LinkRules`、順番は `Reach` のままです。アプリにしか持てないもの（画面の行と一覧、保存する
+キー、一括処理、通知）に関わる所は、決まった時点で受け手（`LinkHost`。AppModel が受ける）に知らせます。LAN に出る
+もの（通信、マジックパケット、許可の確認、移った機体の走査）は `LinkEnvironment` を通り、アプリが `Surroundings`
+から作ります。サンプルデータのモードと背景で LAN に出さないことは、この口の側で決めています。
+
+この移し替えは、アプリのテスト（77 件）を本体を変えずに通すことを条件にしました。そのために前の段で、テストを
+AppModel の中の関数ではなく振る舞いで書き直してあります。アプリのテストは LAN に何も出さないので届かない規則
+（パケットが最初の確認より前、許可待ちとそれを終わらせるもの、エラーで答えた機器は起こさない、起動待ちが答えずに
+諦める、移った機体の探し直し）は、偽の外界を渡す RecorderKit の `DeviceLinkTests` が確かめます。リンクと
+ドライバーに入れた変異（規則を 1 つずつ壊したもの）で、どちらのテストでも落ちないものが 1 つだけありました。
+別のネットワークに出たあとの無応答で、ネットワークの見直しを始め直す規則です（移す前のコードでも同じでした）。
+アプリのテストでは、通知が始めた見直しがまだ残っている間に無応答が来るので、始め直さなくても通っていました。
+これも `DeviceLinkTests` で押さえました。レコーダー以外の機器を
+足すときは、同じ形のドライバーを書きます。
+
+`SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
+`LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と
+Android でもビルドとテストは通る見込みですが、Kotlin の画面から読むには、メインアクターを Android の Looper で回すことと、変更を伝える橋渡しが要ります。それを作らない限り、
 Android では画面側が自分の状態を持つことになります（進め方の 1、Linux での `swift test` で、Observation が
 使えなければここで止まります）。
 
