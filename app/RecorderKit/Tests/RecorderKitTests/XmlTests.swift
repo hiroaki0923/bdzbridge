@@ -29,19 +29,12 @@ final class XmlTests: XCTestCase {
         XCTAssertEqual(try XsrsParse.items(inResult: "   ").count, 0)
     }
 
+    /// Every symbol is looked up in the table, whose spellings CodesVectorTests pins: the recorder's private-use
+    /// ones and the broadcast symbols Unicode has code points of its own for alike. A private-use character the
+    /// table does not have, which no font would draw, is dropped, and so is a control character.
     func testAribSymbolsAreSpelledOut() {
-        XCTAssertEqual(Arib.clean("ニュース\u{E0FE}\u{E0FD}"), "ニュース[字][手]")
-        XCTAssertEqual(Arib.clean("\u{1F19E}\u{1F1A7}ニュース"), "[4K][HDR]ニュース")
+        XCTAssertEqual(Arib.clean("\u{1F19E}ニュース\u{E0FE}\u{E0FD}"), "[4K]ニュース[字][手]")
         XCTAssertEqual(Arib.clean("謎の\u{E999}記号\u{0000}"), "謎の記号")
-    }
-
-    func testTheRestOfTheSymbolsTheRecorderSendsAreSpelledOut() {
-        // Marks around a title, the way 字 and 再 come.
-        XCTAssertEqual(Arib.clean("\u{E18D}\u{E194}サンプル体操\u{E181}\u{E199}"), "[無][初]サンプル体操[S][吹]")
-        XCTAssertEqual(Arib.clean("\u{E0F8}\u{E0FF}\u{E187}\u{E190}\u{E198}"), "[HV][双][N][前][声]")
-        // ほか ends a cast list and © starts a credit: words in the text, so they are written without brackets.
-        XCTAssertEqual(Arib.clean("出演　架空太郎　\u{E19C}"), "出演　架空太郎　ほか")
-        XCTAssertEqual(Arib.clean("\u{E3A8}架空製作委員会"), "©架空製作委員会")
     }
 }
 

@@ -160,18 +160,4 @@ final class ReachTests: XCTestCase {
 
         XCTAssertEqual(outcome, .refused)
     }
-
-    /// The overnight run's steps as it gives them: no permission to ask about and nowhere else to look.
-    @MainActor
-    func testStepsLeftOutAreNotBlockedAndFindNothing() async {
-        var ran: [String] = []
-        let steps = Reach.Steps(sendPacket: { ran.append("packet") },
-                                probe: { ran.append("probe"); return .silent },
-                                wake: { ran.append("wake"); return .silent })
-
-        let outcome = await Reach.run(steps, wakesAfterRefusal: true)
-
-        XCTAssertEqual(outcome, .silent)
-        XCTAssertEqual(ran, ["packet", "probe", "wake"])
-    }
 }

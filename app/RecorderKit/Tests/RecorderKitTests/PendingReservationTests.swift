@@ -3,31 +3,10 @@ import XCTest
 
 /// The queue of reservations made while the recorder could not be reached.
 final class PendingReservationTests: XCTestCase {
-    private func store() throws -> GuideStore {
-        try GuideStore(path: FileManager.default.temporaryDirectory
-            .appendingPathComponent("pending-\(UUID().uuidString).sqlite3").path)
-    }
-
-    private func request(title: String = "サンプル番組", eventID: Int? = 0x311f,
-                         start: Date = Date(timeIntervalSince1970: 1_790_000_000)) -> ReservationRequest {
-        ReservationRequest(title: title, start: start, durationSec: 3600, repeatCode: "1",
-                           broadcastingType: 2, serviceID: 0x428, qualityCode: 240, eventID: eventID)
-    }
-
-    func testAQueuedReservationComesBackAsItWentIn() async throws {
-        let store = try store()
-        let pending = PendingReservation(request: request(), serviceName: "サンプルテレビ",
-                                         queuedAt: Date(timeIntervalSince1970: 1_789_000_000))
-        try await store.queue(pending)
-
-        let back = try await store.pendingReservations()
-        XCTAssertEqual(back, [pending], "what was queued is what waits, down to the moment it was queued")
-    }
-
     func testTheSameProgrammeQueuedTwiceIsOneReservation() async throws {
-        let store = try store()
-        try await store.queue(PendingReservation(request: request(title: "最初"), serviceName: "サンプルテレビ"))
-        try await store.queue(PendingReservation(request: request(title: "あとから"), serviceName: "サンプルテレビ"))
+        let store = try temporaryStore()
+        try await store.queue(pending("最初"))
+        try await store.queue(pending("あとから"))
 
         let back = try await store.pendingReservations()
         XCTAssertEqual(back.count, 1)
@@ -38,11 +17,9 @@ final class PendingReservationTests: XCTestCase {
     /// devices is two reservations, each kept, found and removed by itself. The recorder's goes by the name
     /// it always had, so that one queued by an earlier version is the same reservation still.
     func testTheSameProgrammeWaitsForTwoDevicesAsTwoReservations() async throws {
-        let store = try store()
-        let queuedAt = Date(timeIntervalSince1970: 1_789_000_000)
-        let recorders = PendingReservation(request: request(), serviceName: "サンプルテレビ", queuedAt: queuedAt)
-        let televisions = PendingReservation(request: request(), serviceName: "サンプルテレビ", queuedAt: queuedAt,
-                                             target: DeviceSlot(rawValue: "tv"))
+        let store = try temporaryStore()
+        let recorders = pending()
+        let televisions = pending(target: DeviceSlot(rawValue: "tv"))
         try await store.queue(recorders)
         try await store.queue(televisions)
 
@@ -50,19 +27,17 @@ final class PendingReservationTests: XCTestCase {
         XCTAssertNotEqual(televisions.id, recorders.id)
         let back = try await store.pendingReservations()
         XCTAssertEqual(back.sorted { $0.id < $1.id }, [recorders, televisions].sorted { $0.id < $1.id },
-                       "each comes back as it went in, the device it waits for with it")
+                       "each comes back as it went in, down to when it was queued and the device it waits for")
 
         try await store.removePending(televisions.id)
         expectEqual(try await store.pendingReservations(), [recorders])
     }
 
     func testAReservationWithoutAProgrammeIdIsKeptByItsTime() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let nine = Date(timeIntervalSince1970: 1_790_000_000)
-        try await store.queue(PendingReservation(request: request(eventID: nil, start: nine),
-                                                 serviceName: "サンプルテレビ"))
-        try await store.queue(PendingReservation(request: request(eventID: nil, start: nine.addingTimeInterval(3600)),
-                                                 serviceName: "サンプルテレビ"))
+        try await store.queue(pending(eventID: nil, start: nine))
+        try await store.queue(pending(eventID: nil, start: nine.addingTimeInterval(3600)))
 
         let back = try await store.pendingReservations()
         XCTAssertEqual(back.count, 2, "two times on one channel are two reservations")
@@ -70,68 +45,25 @@ final class PendingReservationTests: XCTestCase {
     }
 
     func testWhatTheRecorderRefusedIsRemembered() async throws {
-        let store = try store()
-        let pending = PendingReservation(request: request(), serviceName: "サンプルテレビ")
-        try await store.queue(pending)
-        try await store.setPendingProblem(pending.id, "このチャンネルは受信できません")
+        let store = try temporaryStore()
+        let refused = pending()
+        try await store.queue(refused)
+        try await store.setPendingProblem(refused.id, "このチャンネルは受信できません")
 
         var back = try await store.pendingReservations()
         XCTAssertEqual(back.first?.problem, "このチャンネルは受信できません")
 
-        try await store.setPendingProblem(pending.id, nil)
+        try await store.setPendingProblem(refused.id, nil)
         back = try await store.pendingReservations()
         XCTAssertNil(back.first?.problem, "and can be cleared for a retry")
-    }
-
-    /// What the flush uses to decide whether a queued reservation is still worth sending.
-    func testAReservationIsWorthSendingUntilTheProgrammeEnds() {
-        let start = Date(timeIntervalSince1970: 1_790_000_000)
-        let request = request(start: start)
-        XCTAssertEqual(request.end, start.addingTimeInterval(3600))
-        XCTAssertGreaterThan(request.end, start, "a programme on air has not finished")
-    }
-
-    func testRemovingOneLeavesTheOthers() async throws {
-        let store = try store()
-        let first = PendingReservation(request: request(eventID: 1), serviceName: "サンプルテレビ")
-        let second = PendingReservation(request: request(eventID: 2), serviceName: "サンプルテレビ")
-        try await store.queue(first)
-        try await store.queue(second)
-
-        try await store.removePending(first.id)
-        expectEqual(try await store.pendingReservations().map(\.id), [second.id])
-    }
-
-    /// The guide is a cache and is thrown away when the schema moves on; a reservation the reader made is not.
-    func testTheQueueSurvivesTheGuideBeingRebuilt() async throws {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pending-\(UUID().uuidString).sqlite3").path
-        let pending = PendingReservation(request: request(), serviceName: "サンプルテレビ")
-        let before = try GuideStore(path: path, schemaVersion: "1")
-        try await before.queue(pending)
-
-        let after = try GuideStore(path: path, schemaVersion: "2")
-        expectEqual(try await after.pendingReservations().map(\.id), [pending.id])
     }
 }
 
 /// The rules the flush follows, which the app and the overnight run share.
 final class PendingQueueTests: XCTestCase {
-    private func store() throws -> GuideStore {
-        try GuideStore(path: FileManager.default.temporaryDirectory
-            .appendingPathComponent("flush-\(UUID().uuidString).sqlite3").path)
-    }
-
-    private func pending(_ title: String, eventID: Int, start: Date) -> PendingReservation {
-        PendingReservation(request: ReservationRequest(title: title, start: start, durationSec: 3600,
-                                                       repeatCode: "1", broadcastingType: 2, serviceID: 0x428,
-                                                       qualityCode: 240, eventID: eventID),
-                           serviceName: "サンプルテレビ")
-    }
-
     /// One that is over, one on air, one still to come: the first goes, the other two are sent.
     func testWhatIsSentAndWhatIsDropped() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let over = pending("終わった番組", eventID: 1, start: now.addingTimeInterval(-7200))
         let onAir = pending("放送中の番組", eventID: 2, start: now.addingTimeInterval(-600))
@@ -154,13 +86,12 @@ final class PendingQueueTests: XCTestCase {
     /// and is as it was afterwards: still waiting, with no reason written on it. One whose programme is over
     /// is left as well: whether it is dropped is for whatever sends that device its own.
     func testWhatWaitsForAnotherDeviceIsNotSentToTheRecorder() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let television = DeviceSlot(rawValue: "tv")
         let recorders = pending("レコーダーに送る番組", eventID: 1, start: now.addingTimeInterval(3600))
-        var televisions = pending("テレビに送る番組", eventID: 2, start: now.addingTimeInterval(7200))
-        televisions.target = DeviceSlot(rawValue: "tv")
-        var over = pending("テレビ宛の終わった番組", eventID: 3, start: now.addingTimeInterval(-7200))
-        over.target = DeviceSlot(rawValue: "tv")
+        let televisions = pending("テレビに送る番組", eventID: 2, start: now.addingTimeInterval(7200), target: television)
+        let over = pending("テレビ宛の終わった番組", eventID: 3, start: now.addingTimeInterval(-7200), target: television)
         for one in [recorders, televisions, over] { try await store.queue(one) }
 
         let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
@@ -177,33 +108,24 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(left.map(\.problem), [nil, nil])
     }
 
-    /// A recorder that answers and refuses: the reservation stays, with the reason on it.
-    func testARefusedReservationKeepsItsReason() async throws {
-        let store = try store()
+    /// A recorder that answers and refuses: the reservation stays, with the reason on it. Refused once is
+    /// refused until the reader asks again: the recorder is not asked on every connect and every night, and
+    /// the reader is not told about it every morning.
+    func testARefusedReservationKeepsItsReasonAndIsNotSentAgain() async throws {
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         try await store.queue(pending("受信できない局の番組", eventID: 1, start: now.addingTimeInterval(3600)))
-
         let transport = StubTransport(always: Stub.fault("831"))
         let client = RecorderClient(host: "192.0.2.1", transport: transport)
-        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
 
-        XCTAssertTrue(outcome.sent.isEmpty)
-        XCTAssertEqual(outcome.refused.count, 1)
-        XCTAssertFalse(outcome.interrupted)
-        let left = try await store.pendingReservations()
+        let first = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertTrue(first.sent.isEmpty)
+        XCTAssertEqual(first.refused.count, 1)
+        XCTAssertFalse(first.interrupted)
+        var left = try await store.pendingReservations()
         XCTAssertEqual(left.count, 1, "it is still waiting")
         XCTAssertTrue(left.first?.problem?.contains("831") ?? false, "with what the recorder said")
-    }
-
-    /// Refused once is refused until the reader asks again: the recorder is not asked on every connect and
-    /// every night, and the reader is not told about it every morning.
-    func testARefusedReservationIsNotSentAgain() async throws {
-        let store = try store()
-        let now = Date(timeIntervalSince1970: 1_790_000_000)
-        try await store.queue(pending("受信できない局の番組", eventID: 1, start: now.addingTimeInterval(3600)))
-        let transport = StubTransport(always: Stub.fault("831"))
-        let client = RecorderClient(host: "192.0.2.1", transport: transport)
-        _ = await PendingQueue.flush(client: client, store: store, now: now)
         let asked = await transport.requests.count
 
         let again = await PendingQueue.flush(client: client, store: store, now: now)
@@ -212,13 +134,13 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(again.refused.isEmpty, "and it is not news the second time")
         XCTAssertTrue(again.isEmpty)
         XCTAssertEqual(again.held.map(\.request.title), ["受信できない局の番組"])
-        let left = try await store.pendingReservations()
+        left = try await store.pendingReservations()
         XCTAssertNotNil(left.first?.problem, "it keeps its reason")
     }
 
     /// Clearing the reason is the reader asking for another try, and the next flush sends it.
     func testAClearedRefusalIsSentAgain() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let refused = pending("契約した局の番組", eventID: 1, start: now.addingTimeInterval(3600))
         try await store.queue(refused)
@@ -236,7 +158,7 @@ final class PendingQueueTests: XCTestCase {
 
     /// A refused one whose programme has finished goes like any other, and the reader is told.
     func testARefusedReservationStillExpires() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let over = pending("終わった番組", eventID: 1, start: now.addingTimeInterval(-7200))
         try await store.queue(over)
@@ -255,7 +177,7 @@ final class PendingQueueTests: XCTestCase {
     /// the reservation: it waits as it was and goes next time, the ones after it are still tried, and
     /// nothing is said about it overnight.
     func testAFailureWithoutAReasonIsSentAgainNextTime() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         for (i, title) in ["503 の番組", "理由のない 500 の番組", "通る番組"].enumerated() {
             try await store.queue(pending(title, eventID: i + 1, start: now.addingTimeInterval(3600 + Double(i))))
@@ -291,8 +213,7 @@ final class PendingQueueTests: XCTestCase {
     /// be at it together in one process. The second waits for the first and reads the queue after it, so a
     /// reservation is sent once, not once each.
     func testTwoFlushesAtOnceSendAReservationOnce() async throws {
-        let path = FileManager.default.temporaryDirectory.appendingPathComponent("flush-\(UUID().uuidString).sqlite3")
-            .path
+        let path = temporaryPath()
         let screens = try GuideStore(path: path)
         let overnight = try GuideStore(path: path)
         let now = Date(timeIntervalSince1970: 1_790_000_000)
@@ -317,7 +238,7 @@ final class PendingQueueTests: XCTestCase {
 
     /// A recorder that goes away part way leaves the rest alone rather than marking them refused.
     func testTheRestStayQueuedWhenTheRecorderGoesAway() async throws {
-        let store = try store()
+        let store = try temporaryStore()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         for (i, title) in ["一番目", "二番目"].enumerated() {
             try await store.queue(pending(title, eventID: i + 1, start: now.addingTimeInterval(3600)))
@@ -344,13 +265,6 @@ final class PendingQueueTests: XCTestCase {
 final class PendingQueueWorthTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
-    private func pending(start: Date, problem: String? = nil) -> PendingReservation {
-        PendingReservation(request: ReservationRequest(title: "サンプル番組", start: start, durationSec: 3600,
-                                                       repeatCode: "1", broadcastingType: 2, serviceID: 0x428,
-                                                       qualityCode: 240, eventID: 1),
-                           serviceName: "サンプルテレビ", problem: problem)
-    }
-
     func testOneStillToComeOrOnAirIsWorthSending() {
         XCTAssertTrue(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(3600))], now: now))
         XCTAssertTrue(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-600))], now: now))
@@ -363,6 +277,8 @@ final class PendingQueueWorthTests: XCTestCase {
         XCTAssertFalse(PendingQueue.hasSomethingToSend(
             [pending(start: now.addingTimeInterval(3600), problem: "断られました")], now: now))
         XCTAssertFalse(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-7200))], now: now))
+        // Nor one that ended a second ago: a programme ends its length after it starts, and no later.
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(-3601))], now: now))
     }
 
     func testOneWorthSendingAmongOthersIsEnough() {
@@ -374,8 +290,7 @@ final class PendingQueueWorthTests: XCTestCase {
 
     /// What waits for another device is nothing the recorder would be sent, so it is not woken for it.
     func testWhatWaitsForAnotherDeviceIsNotWorthReachingTheRecorderFor() {
-        var elsewhere = pending(start: now.addingTimeInterval(3600))
-        elsewhere.target = DeviceSlot(rawValue: "tv")
+        let elsewhere = pending(start: now.addingTimeInterval(3600), target: DeviceSlot(rawValue: "tv"))
         XCTAssertFalse(PendingQueue.hasSomethingToSend([elsewhere], now: now))
         XCTAssertTrue(PendingQueue.hasSomethingToSend([elsewhere, pending(start: now.addingTimeInterval(3600))],
                                                       now: now))

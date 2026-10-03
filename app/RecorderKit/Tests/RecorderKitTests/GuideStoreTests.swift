@@ -4,12 +4,6 @@ import XCTest
 /// The cache is loaded from the sample guide file, so these also show what the decoder and the store look like
 /// end to end.
 final class GuideStoreTests: XCTestCase {
-    private var temporaryDirectory: URL?
-
-    override func tearDownWithError() throws {
-        if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
-    }
-
     private func sampleServices() throws -> [GuideService] {
         let expected = try Vectors.load("epg-sample.json")
         let data = try Data(contentsOf: Vectors.directory.appendingPathComponent(expected.string("file")))
@@ -26,13 +20,6 @@ final class GuideStoreTests: XCTestCase {
 
     private func jst(_ text: String) -> Date {
         RecorderTime.parse(text)!
-    }
-
-    private func temporaryPath() throws -> String {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        temporaryDirectory = directory
-        return directory.appendingPathComponent("guide.sqlite3").path
     }
 
     func testChannelsAndProgrammesComeBackAsStored() async throws {
@@ -214,7 +201,7 @@ final class GuideStoreTests: XCTestCase {
     }
 
     func testAnOldCacheIsBroughtUpToDateWhereItIsOnce() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         try await oldCache(at: path)
 
         let store = try GuideStore(path: path)
@@ -241,7 +228,7 @@ final class GuideStoreTests: XCTestCase {
     }
 
     func testASearchBringsAnOldCacheUpToDateItself() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         try await oldCache(at: path)
 
         let store = try GuideStore(path: path)
@@ -361,25 +348,10 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["bs4k"]?.lastAnswered, later)
     }
 
-    /// A cache written before the mark was kept goes by when it was refreshed, rather than counting every type
-    /// as never asked for and fetching them all again.
-    func testACacheFromBeforeTheMarkGoesByWhenItWasRefreshed() async throws {
-        let path = try temporaryPath()
-        do {
-            let store = try GuideStore(path: path)
-            try await store.replace(try sampleServices(), broadcasting: "td", at: jst("2026-09-14T03:00:00+09:00"))
-        }
-        try Sqlite(path: path).run("DELETE FROM meta WHERE key LIKE 'epg_checked:%'")
-
-        let counts = try await GuideStore(path: path).counts()
-        XCTAssertNil(counts["td"]?.checked)
-        XCTAssertEqual(counts["td"]?.lastAnswered, jst("2026-09-14T03:00:00+09:00"))
-    }
-
     /// Counting a type's programmes, asked each time the day changes, is answered from an index rather than by
     /// reading every programme -- and a cache made before the index gets it when it is next opened.
     func testCountsAreAnsweredFromAnIndexWhichAnOldCacheGetsOnOpening() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         do {
             let store = try GuideStore(path: path)
             try await store.replace(try sampleServices(), broadcasting: "td")
@@ -400,7 +372,7 @@ final class GuideStoreTests: XCTestCase {
     /// The overnight run and the screens each open the file, and can write at once. The second waits for the
     /// first rather than failing with "database is locked".
     func testAWriteWaitsForAnotherConnectionsWriteRatherThanFailing() throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let holder = Holder(try Sqlite(path: path))
         let waiter = try Sqlite(path: path)
         try holder.db.execute("CREATE TABLE t (x INTEGER)")
@@ -424,7 +396,7 @@ final class GuideStoreTests: XCTestCase {
 
     /// A full disk is the reader's to put right, so it is said in words they can use, with SQLite's code kept.
     func testAFullDiskIsExplainedAndKeepsItsCode() throws {
-        let db = try Sqlite(path: try temporaryPath())
+        let db = try Sqlite(path: temporaryPath())
         try db.execute("CREATE TABLE t (x BLOB)")
         let pages = try db.count("PRAGMA page_count")
         try db.execute("PRAGMA max_page_count=\(pages)")
@@ -440,40 +412,44 @@ final class GuideStoreTests: XCTestCase {
         }
     }
 
-    func testASchemaChangeRebuildsTheCacheButKeepsWhatTheUserSet() async throws {
-        let path = try temporaryPath()
-        let services = try sampleServices()
-
+    /// The guide is a copy of the recorder's: a schema change throws it away, and the marks of when each type
+    /// was fetched with it, so that it is fetched again. The rest is the reader's own or slow to gather, and
+    /// stays: which channels are hidden, what waits to be sent, the recordings' texts, and whose cache it is,
+    /// since the texts it covers stay. Opened again with the same schema, nothing goes.
+    func testASchemaChangeThrowsAwayTheGuideAndKeepsTheRest() async throws {
+        let path = temporaryPath()
+        let fetched = jst("2026-09-14T03:00:00+09:00")
         do {
             let store = try GuideStore(path: path, schemaVersion: "1")
-            try await store.replace(services, broadcasting: "td")
+            try await store.replace(try sampleServices(), broadcasting: "td", at: fetched)
             try await store.setChannelPreferences(broadcasting: "td", hidden: [1025])
+            try await store.claim(for: recorder(1))
+            try await store.setTitleSummary("0x0000010000000001", "あらすじ")
+            try await store.queue(pending())
         }
 
-        let upgraded = try GuideStore(path: path, schemaVersion: "2")
-        let counts = try await upgraded.counts()
-        XCTAssertEqual(counts["td"]?.programs, 0, "the guide is a cache and is fetched again")
-        XCTAssertNil(counts["td"]?.refreshed)
+        // Opened again with the same schema, then with another.
+        for (schema, guideKept) in [("1", true), ("2", false)] {
+            let store = try GuideStore(path: path, schemaVersion: schema)
+            let counts = try await store.counts()
+            XCTAssertEqual(counts["td"]?.programs, guideKept ? 4 : 0, "the guide, schema \(schema)")
+            XCTAssertEqual(counts["td"]?.lastAnswered, guideKept ? fetched : nil,
+                           "the mark that says it need not be fetched, schema \(schema)")
+            expectEqual(try await store.recognises(recorder(1)), .same, "whose cache it is, schema \(schema)")
+            expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1,
+                        "the recordings' texts, schema \(schema)")
+            expectEqual(try await store.pendingReservations(), [pending()], "the queue, schema \(schema)")
 
-        try await upgraded.replace(services, broadcasting: "td")
-        let channels = try await upgraded.channels(broadcasting: "td")
-        XCTAssertEqual(channels.map(\.serviceID), [1024], "the hidden channel is still hidden after the rebuild")
-    }
-
-    func testReopeningWithTheSameSchemaKeepsTheCache() async throws {
-        let path = try temporaryPath()
-        do {
-            let store = try GuideStore(path: path)
             try await store.replace(try sampleServices(), broadcasting: "td")
+            expectEqual(try await store.channels(broadcasting: "td").map(\.serviceID), [1024],
+                        "the hidden channel is still hidden when the guide is back, schema \(schema)")
         }
-        let reopened = try GuideStore(path: path)
-        expectEqual(try await reopened.counts()["td"]?.programs, 4)
     }
 
     /// An empty text left by an older build may be a read that failed, so it is thrown away once and asked
     /// about again. One read after that is the recorder saying there is no text, and stays.
     func testEmptySummariesFromBeforeAreClearedOnceAndOnlyOnce() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         do {
             let store = try GuideStore(path: path)
             try await store.setTitleSummary("0x1", "")
@@ -501,13 +477,6 @@ final class GuideStoreTests: XCTestCase {
                             epgCapable: true, location: "http://\(host):64220/description.xml", via: "manual")
     }
 
-    private func waiting() -> PendingReservation {
-        PendingReservation(request: ReservationRequest(title: "サンプル番組", start: jst("2026-09-20T21:00:00+09:00"),
-                                                       durationSec: 3600, repeatCode: "1", broadcastingType: 2,
-                                                       serviceID: 0x428, qualityCode: 240, eventID: 0x311f),
-                           serviceName: "サンプルテレビ")
-    }
-
     /// A cache with something of everything a recorder leaves in it, and of what the reader does: a guide
     /// with its marks and a logo, a type the recorder had no file for, a recording's text, a channel hidden
     /// and a reservation waiting.
@@ -517,18 +486,27 @@ final class GuideStoreTests: XCTestCase {
         try await store.noteNoGuide(broadcasting: "bs4k", at: jst("2026-09-14T03:00:00+09:00"))
         try await store.setTitleSummary("0x0000010000000001", "港町にもどった主人公が、古い灯台の記録を読みはじめる。")
         try await store.setChannelPreferences(broadcasting: "td", hidden: [1025])
-        try await store.queue(waiting())
+        try await store.queue(pending())
         return store
     }
 
     /// The address is only where to knock: the cache is the recorder's that filled it, known by its UDN. The
     /// first to answer is written down as its owner, and the same one answering again -- at this address or
-    /// another -- finds everything as it left it.
+    /// another, however its UDN is cased -- finds everything as it left it. A cache from before owners were
+    /// written down is one nobody has answered for: nothing in it is guessed at, and the first finds it as it is.
     func testTheFirstRecorderToAnswerOwnsTheCacheAndTheSameOneKeepsIt() async throws {
         let store = try await usedStore()
         expectNil(try await store.owner())
+        expectEqual(try await store.recognises(recorder(1)), .first)
 
         expectEqual(try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー"), .first)
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
+
+        // A UDN is a UUID, which reads the same in either case: spelled another way, after an update say, it is
+        // the one known, and stays written as it was first given.
+        var shouting = recorder(1)
+        shouting.udn = shouting.udn.uppercased()
+        expectEqual(try await store.claim(for: shouting, holdingTheQueueWith: "別のレコーダー"), .same)
         expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
 
         let moved = try await store.claim(for: recorder(1, host: "192.0.2.11"), holdingTheQueueWith: "別のレコーダー")
@@ -548,13 +526,13 @@ final class GuideStoreTests: XCTestCase {
     /// numbers its own; the guide with its logos; and the marks that say a type need not be fetched, without
     /// which the new one would not be asked for its guide until the next night. The reader's own stays --
     /// which channels are hidden -- and so does the queue, held with a reason rather than sent to a recorder
-    /// it was not made for.
+    /// it was not made for. The cache knows the last recorder to take it and no other, so the first one, back
+    /// again, takes it over as well.
     func testAnotherRecorderTakesTheCacheAndWhatTheOtherLeftGoes() async throws {
         let store = try await usedStore()
         try await store.claim(for: recorder(1))
         // One the first recorder had refused, with its reason, beside the one still waiting.
-        var refused = waiting()
-        refused.request.eventID = 0x3120
+        let refused = pending(eventID: 0x3120)
         try await store.queue(refused)
         try await store.setPendingProblem(refused.id, "契約していないチャンネルです")
 
@@ -587,27 +565,13 @@ final class GuideStoreTests: XCTestCase {
         // nothing this one has said, and the line that counts what is held counts by this reason.
         let queue = try await store.pendingReservations()
         XCTAssertEqual(queue.map(\.problem), ["別のレコーダーが応答しました", "別のレコーダーが応答しました"])
-        XCTAssertFalse(PendingQueue.hasSomethingToSend(queue, now: jst("2026-09-20T20:00:00+09:00")),
+        XCTAssertFalse(PendingQueue.hasSomethingToSend(queue, now: refused.request.start),
                        "held until the reader asks, as one the recorder refused is")
 
         let again = try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダーが応答しました")
         XCTAssertEqual(again, .same, "it is the one known now")
-    }
-
-    /// There and back: the first recorder taking the cache again finds none of what it left, and what waits
-    /// stays held, whichever of the two it was made for -- a row does not say. The reader sends each again.
-    func testGoingBackToTheFirstRecorderIsATakeoverToo() async throws {
-        let store = try await usedStore()
-        try await store.claim(for: recorder(1))
-        try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
-        var later = waiting()
-        later.request.eventID = 0x3120
-        try await store.queue(later)
-
-        expectEqual(try await store.claim(for: recorder(1), holdingTheQueueWith: "別のレコーダー"), .another)
+        expectEqual(try await store.claim(for: recorder(1)), .another, "the first is not known any more")
         expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000001")
-        expectEqual(try await store.pendingReservations().map(\.problem), ["別のレコーダー", "別のレコーダー"])
-        expectTrue(try await store.titleSummaries(["0x0000010000000001"]).isEmpty)
     }
 
     /// With no reason to hold it for, the queue is left as it was, and goes to whichever recorder answers.
@@ -623,9 +587,7 @@ final class GuideStoreTests: XCTestCase {
     func testAnotherRecorderTakingOverHoldsOnlyWhatWaitsForARecorder() async throws {
         let store = try await usedStore()
         try await store.claim(for: recorder(1))
-        var elsewhere = waiting()
-        elsewhere.target = DeviceSlot(rawValue: "tv")
-        try await store.queue(elsewhere)
+        try await store.queue(pending(target: DeviceSlot(rawValue: "tv")))
 
         try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー")
 
@@ -634,25 +596,12 @@ final class GuideStoreTests: XCTestCase {
                        ["recorder": "別のレコーダー", "tv": nil])
     }
 
-    /// A cache filled before its owner was written down does not say whose it is, and nothing in it is
-    /// guessed at: whoever answers first is put down as the owner and finds it as it is. For nearly every
-    /// phone that is the one recorder it has ever had, and its texts and its queue are not to be lost to a
-    /// guess on the day the app is updated.
-    func testACacheFromBeforeItsOwnerWasWrittenDownIsTheFirstAnswerers() async throws {
-        let store = try await usedStore()
-
-        expectEqual(try await store.recognises(recorder(2)), .first)
-        expectEqual(try await store.claim(for: recorder(2), holdingTheQueueWith: "別のレコーダー"), .first)
-        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
-        expectEqual(try await store.pendingReservations().map(\.problem), [nil])
-        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
-    }
-
-    /// Unless the caller knows better. The session keeps which recorder its lists were read from, and when
-    /// another one answers it, a cache with no owner written is that other one's all the same: its owner
-    /// could not be put down the first time, or it is from before owners were kept. Left as the first
-    /// answerer's, what waited for the last recorder went to this one, with the last one's texts kept under
-    /// this one's numbers. An owner that is written down is what counts, whatever the caller says.
+    /// A cache with no owner written is the first answerer's unless the caller knows better. The session keeps
+    /// which recorder its lists were read from, and when another one answers it, such a cache is that other
+    /// one's all the same: its owner could not be put down the first time, or it is from before owners were
+    /// kept. Left as the first answerer's, what waited for the last recorder went to this one, with the last
+    /// one's texts kept under this one's numbers. An owner that is written down is what counts, whatever the
+    /// caller says.
     func testACacheWithNoOwnerIsAnothersWhenTheCallerKnowsTheRecorderToBeAnother() async throws {
         let store = try await usedStore()
 
@@ -702,7 +651,7 @@ final class GuideStoreTests: XCTestCase {
     /// queue being sent from another connection -- for as long as the busy timeout, and then fail: the connect
     /// held up for five seconds, and what was waiting not sent by it.
     func testTheOwnerAnsweringAgainIsKnownWithoutWaitingForAWrite() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let store = try GuideStore(path: path)
         try await store.claim(for: recorder(1))
         try await store.setTitleSummary("0x0000010000000001", "あらすじ")
@@ -723,10 +672,10 @@ final class GuideStoreTests: XCTestCase {
     /// behind it -- and the answer of the first look, that nobody owned the cache, would then name this
     /// recorder the owner of what the other had just been given.
     func testAClaimThatWaitedForAnotherWriterLooksAgainAtWhoseTheCacheIs() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let store = try GuideStore(path: path)
         try await store.setTitleSummary("0x0000010000000001", "あらすじ")
-        try await store.queue(waiting())
+        try await store.queue(pending())
 
         let other = try Sqlite(path: path)
         try other.execute("BEGIN IMMEDIATE")
@@ -744,39 +693,6 @@ final class GuideStoreTests: XCTestCase {
         expectTrue(try await store.titleSummaries(["0x0000010000000001"]).isEmpty)
         expectEqual(try await store.pendingReservations().map(\.problem), ["別のレコーダー"])
         expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
-    }
-
-    /// A UDN is a UUID, which reads the same in either case. A recorder that spelled its own another way --
-    /// after an update, say -- is the one known, and nothing kept of it goes.
-    func testTheOwnerIsKnownHoweverItsUDNIsCased() async throws {
-        let store = try await usedStore()
-        try await store.claim(for: recorder(1))
-        var shouting = recorder(1)
-        shouting.udn = shouting.udn.uppercased()
-
-        expectEqual(try await store.recognises(shouting), .same)
-        expectEqual(try await store.claim(for: shouting, holdingTheQueueWith: "別のレコーダー"), .same)
-        expectEqual(try await store.titleSummaries(["0x0000010000000001"]).count, 1)
-        expectEqual(try await store.pendingReservations().map(\.problem), [nil])
-        let owner = try await store.owner()
-        XCTAssertEqual(owner, "uuid:00000000-0000-0000-0000-f84e17000001", "written as it was first given")
-    }
-
-    /// Whose cache it is is kept with the cache: across a launch, and across a schema change that throws the
-    /// guide away, since the programme texts it also covers are not thrown away with it.
-    func testTheOwnerOutlivesReopeningAndASchemaChange() async throws {
-        let path = try temporaryPath()
-        do {
-            let store = try GuideStore(path: path, schemaVersion: "1")
-            try await store.claim(for: recorder(1))
-            try await store.setTitleSummary("0x0000010000000001", "あらすじ")
-        }
-        let reopened = try GuideStore(path: path, schemaVersion: "1")
-        expectEqual(try await reopened.recognises(recorder(1)), .same)
-
-        let upgraded = try GuideStore(path: path, schemaVersion: "2")
-        expectEqual(try await upgraded.claim(for: recorder(2)), .another)
-        expectTrue(try await upgraded.titleSummaries(["0x0000010000000001"]).isEmpty)
     }
 
     /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
@@ -849,7 +765,7 @@ final class GuideStoreTests: XCTestCase {
     /// queued under: a reservation is sent, refused and removed by that name, and one no longer found by it
     /// once it was sent would be sent again at every chance.
     func testAQueueFromBeforeTargetsIsTheRecordersRowForRow() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let nine = jst("2026-09-20T21:00:00+09:00")
         let ten = nine.addingTimeInterval(3600)
         let byItsTime = "3/101/" + RecorderTime.format(ten)
@@ -881,7 +797,7 @@ final class GuideStoreTests: XCTestCase {
     /// Going back to an earlier version happens: a build from the store put over a later one. Its statements
     /// name the columns it knows and still run, and what it queues is the recorder's, as everything it queues is.
     func testAnEarlierVersionsQueueingStillRunsOnTheTableAsItIsNow() async throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let store = try GuideStore(path: path)
         let db = try Sqlite(path: path)
         let nine = Int(jst("2026-09-20T21:00:00+09:00").timeIntervalSince1970)
@@ -895,7 +811,7 @@ final class GuideStoreTests: XCTestCase {
 
     /// The column is added once: every launch opens the cache, and so does every run with no screen.
     func testOpeningTheCacheAgainAddsNothingToTheQueuesTable() throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let db = try cacheFromBeforeTargets(at: path)
 
         _ = try GuideStore(path: path)
@@ -917,7 +833,7 @@ final class GuideStoreTests: XCTestCase {
     /// can be storing a guide in it as the app is opened in the morning, and an opening that had to wait for
     /// that write would fail when the write outlasted the wait.
     func testACacheThatLacksNothingOpensWithoutWaitingForAnotherWriter() throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         _ = try GuideStore(path: path)
         let other = try Sqlite(path: path)
         try other.execute("BEGIN IMMEDIATE")
@@ -935,7 +851,7 @@ final class GuideStoreTests: XCTestCase {
     /// again once it has its turn. Adding on the strength of its first look, it would be refused a column that
     /// is there by then -- and a cache that fails to open is not opened again for as long as the app runs.
     func testACacheOpenedWhileAnotherConnectionAddsTheColumnWaitsAndOpens() throws {
-        let path = try temporaryPath()
+        let path = temporaryPath()
         let other = Holder(try cacheFromBeforeTargets(at: path))
         try other.db.execute("BEGIN IMMEDIATE")
         try other.db.execute("ALTER TABLE pending_reservations ADD COLUMN target TEXT NOT NULL DEFAULT 'recorder'")

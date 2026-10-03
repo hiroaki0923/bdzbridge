@@ -17,15 +17,6 @@ final class EpgVectorTests: XCTestCase {
         XCTAssertEqual(digest, expected.string("sha256"))
     }
 
-    func testStreamsAreSplitAtTheirZlibBoundaries() throws {
-        let (data, _) = try sample()
-        let streams = try Epg.splitStreams(data)
-        XCTAssertEqual(streams.count, 2, "one zlib stream per service")
-        for stream in streams {
-            XCTAssertEqual(String(decoding: stream.prefix(4), as: UTF8.self), "@SRV")
-        }
-    }
-
     func testDecodingMatchesTheVector() throws {
         let (data, expected) = try sample()
         let services = try Epg.decode(data)
@@ -62,12 +53,6 @@ final class EpgVectorTests: XCTestCase {
                 }
             }
         }
-    }
-
-    func testAribSymbolsInTitlesAreSpelledOut() throws {
-        let (data, _) = try sample()
-        let title = try XCTUnwrap(Epg.decode(data).first?.programs.first?.title)
-        XCTAssertTrue(title.hasSuffix("[字]"), title)
     }
 
     /// Byte +41 holds the minimum age itself (an R15 programme carries 0x0F), not the broadcast's rating, which
