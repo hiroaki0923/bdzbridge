@@ -26,9 +26,14 @@ final class AppModel: LinkHost {
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
     let recorder: DeviceLink
-    /// The television's link, while one is saved and the demo is off (`makeTVLink`), and what it tells the app.
+    /// The television's link, while one is saved and the demo is off (`makeTVLink`), and what it tells the app:
+    /// kept by a host of its own, the television's reservations with it, so that what a television said goes
+    /// when its link does.
     var tv: DeviceLink?
     var tvHost: TVHost?
+    /// Bumped each time the television's link is let go of (`dropTVLink`), for the screens to let go of what
+    /// they hold of that television, as `timesForgotten` has them do for a recorder.
+    var tvTimesForgotten = 0
     /// The television's lines among `activities`: what the television does is no reason to hold the recorder's
     /// rules or buttons back (`isBusy`), nor the recorder's the television's.
     var televisionLines: Set<Activities.Token> = []
