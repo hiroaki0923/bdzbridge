@@ -6,25 +6,32 @@ import UserNotifications
 
 /// Everything the screens share: which recorder we talk to, the guide cache, and what is on screen now.
 ///
-/// There is no server in the middle. The app holds one `RecorderClient`, which serialises its own requests,
-/// and one `GuideStore` on disk, so the guide can be read while away from home.
+/// There is no server in the middle. The app holds one `RecorderClient` at a time, in its link to the
+/// recorder, which serialises its own requests, and one `GuideStore` on disk, so the guide can be read while
+/// away from home.
 ///
 /// This file holds the state, how the model is made and started, and the one funnel every action runs
-/// through. What it does is in extensions beside it, one file to a concern: `AppModelSession` (connecting,
-/// waking, giving up, asking again), `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`,
-/// `AppModelReservations` (with the queue), `AppModelRecorderRules`, `AppModelRecordings` and
-/// `AppModelBulkWork` (with the duplicates).
+/// through. What it does is in extensions beside it, one file to a concern: `AppModelSession` (the app's side
+/// of the connection: what the link tells it, what the link reaches, coming and going from the foreground),
+/// `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`, `AppModelReservations` (with the
+/// queue), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
 ///
 /// An extension in another file cannot reach what is private, so much of the state below is internal and
 /// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
 /// set it. The exception is `session`, which no file here can set a field of.
 @MainActor
 @Observable
-final class AppModel {
+final class AppModel: LinkHost {
+    /// The connection to the recorder: its address, its client, what is known of it and when it is asked again
+    /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
+    /// hear (`LinkHost`, in `AppModelSession`).
+    let recorder: DeviceLink
+
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
-    /// has moved it since (`findMovedRecorder`).
+    /// has moved it since (`RecorderDriver.findElsewhere`). Written down whenever it is set (`keepAddress`).
     var host: String {
-        didSet { defaults.set(host, forKey: DefaultsKey.recorderHost) }
+        get { recorder.host }
+        set { recorder.host = newValue }
     }
 
     /// Changing it lets go of the channel the list was narrowed to: a channel belongs to one broadcasting
@@ -58,11 +65,11 @@ final class AppModel {
     ///
     /// What happened is the model's to say, not a screen's, since some of it has more to it than the session
     /// keeps: `forgetMac()` here also takes the MAC out of the defaults the overnight run reads.
-    let session: SessionState
+    var session: SessionState { recorder.session }
 
     var info: RecorderDescription? { session.info }
     /// Empty, and `storage` nil, when the recorder would not say. Both are only shown, and another model of
-    /// the series need not give them: see `attach`.
+    /// the series need not give them: see `RecorderDriver.attach`.
     var firmware: String { session.firmware }
     var storage: (free: Int, total: Int)? { session.storage }
     var counts: [String: GuideCounts] = [:]
@@ -95,7 +102,7 @@ final class AppModel {
     /// answered no -- so that the screens can say so and offer the Settings app.
     var scanBlocked = false
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
-    /// is then waiting for the permission rather than for the recorder; see `watchForAccess`.
+    /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.
     var connectBlocked: Bool { session.connectBlocked }
     /// Either of the two: something the reader wants is waiting on the local network permission.
     var lanBlocked: Bool { scanBlocked || connectBlocked }
@@ -104,15 +111,16 @@ final class AppModel {
     var scanTask: Task<Void, Never>?
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0
-    /// Waits for the local network permission after a connect ran into it, and connects when it comes.
+    /// Waits for the local network permission after the link ran into it, and tells the link when it comes
+    /// (`DeviceLink.permissionArrived`).
     var accessWatch: Task<Void, Never>?
     /// Everything under way with the recorder, each with a line of its own, since work overlaps (`Activities`).
     var activities = Activities()
     /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
     var busy: String? { activities.current }
     /// Set while the app is only waiting for the recorder to come back from a magic packet, or looking for it
-    /// at another address after that (`findMovedRecorder`). Nothing is being written or read, so the screens
-    /// leave alive what they can: a reservation made meanwhile goes to the queue.
+    /// at another address after that (`RecorderDriver.findElsewhere`). Nothing is being written or read, so
+    /// the screens leave alive what they can: a reservation made meanwhile goes to the queue.
     var waking: Bool { session.waking }
     /// Set once the recorder has been given every chance and did not answer. Nothing is asked of it again
     /// until the network this device is on changes or the reader asks: the answer would be the same, and
@@ -134,7 +142,8 @@ final class AppModel {
     var notifications: UNAuthorizationStatus?
 
     var store: GuideStore?
-    var client: RecorderClient?
+    /// The recorder's client: the attempt's under way, or the last one's. Nil when the recorder has been let go of.
+    var client: RecorderClient? { recorder.client as? RecorderClient }
     /// Opening the cache and reading it, shared by every caller of `start()` and by `connect()`.
     private var opening: Task<Void, Never>?
     /// Set once the first connect has been set going, so that it is set going once, however many screens
@@ -165,8 +174,15 @@ final class AppModel {
         self.demo = demo
         let days = GuideStore.broadcastDays()
         self.days = days
-        host = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
-        session = SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac))
+        // The address as saved, or the demo's, and nothing written while the model is made: the unit-test host
+        // and a launch in the background make one too. The demo's is set here rather than in `start()`: the first
+        // screen decides whether to show the tutorial by looking at whether a recorder is set, before `start()`.
+        let saved = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
+        recorder = DeviceLink(
+            host: demo ? DemoData.host : saved,
+            session: SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
+            driver: RecorderDriver(holdingTheQueueWith: Self.heldForAnotherRecorder),
+            environment: Self.nowhere)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
         if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
@@ -179,16 +195,15 @@ final class AppModel {
         if let saved = defaults.string(forKey: DefaultsKey.recordingsSort).flatMap(TitleSort.init(rawValue:)) {
             titleSort = saved
         }
-        // Here rather than in `start()`: the first screen decides whether to show the tutorial by looking at
-        // whether a recorder is set, and it looks before `start()` has run.
-        if demo { host = DemoData.host }
         day = days.first ?? Date()
+        recorder.environment = linkEnvironment()
+        recorder.owner = self
     }
 
     var connected: Bool { session.connected }
 
-    /// Bumped each time a connect reaches the recorder (`attach`), which is before it goes on to read the
-    /// reservations and the guide. A count rather than a flag: see `WelcomeView`.
+    /// Bumped each time a connect reaches the recorder (`RecorderDriver.attach`), which is before it goes on to
+    /// read the reservations and the guide. A count rather than a flag: see `WelcomeView`.
     var timesAttached: Int { session.timesAttached }
 
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
@@ -215,7 +230,7 @@ final class AppModel {
     var offline: Bool { client == nil || unreachable }
 
     /// Whether this device is on a different network from the one the last attempt was made on.
-    var networkChanged: Bool { session.networkChanged(now: surroundings.networkSignature()) }
+    var networkChanged: Bool { recorder.networkChanged }
 
     /// Bumped when the reader asks to be taken back to what is on now. A count rather than a flag, so that
     /// asking twice works.
@@ -283,7 +298,7 @@ final class AppModel {
 
     /// The check under way, so that everything asked for while it runs waits for its answer rather than
     /// sending a probe -- and a magic packet -- of its own.
-    var wakeCheck: Task<Bool, Never>?
+    var wakeCheck: Task<Bool, Never>? { recorder.wakeCheck }
 
     /// How many guide downloads are under way. A count, so that one ending does not say the other has.
     var guideDownloads = 0
@@ -311,14 +326,14 @@ final class AppModel {
     var flushReport: String?
 
     /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect
-    /// made over the last one's lists (`settle(whoAnswered:)`), or at the check before an operation
-    /// (`makeSureItIsUp`). The strip says so until the reader closes it or leaves the app: the failure line
+    /// made over the last one's lists (`anotherDeviceDescribedItself`), or at the check before an operation
+    /// (`anotherAnsweredTheCheck`). The strip says so until the reader closes it or leaves the app: the failure line
     /// lasts only until the connect that follows, and an alert goes with its sheet when that closes with
     /// the lists.
     var anotherTookOver = false
 
     /// The lists the reader had read when another recorder answered a connect made while the app was
-    /// connected, for that connect to read again from the one that answered. See `settle(whoAnswered:)`.
+    /// connected, for that connect to read again from the one that answered. See `anotherDeviceDescribedItself`.
     var listsToReadAgain = (recordings: false, rules: false)
 
     var job: BulkJob?
@@ -336,8 +351,6 @@ final class AppModel {
     /// every time, which does not make two recordings the same broadcast. Read from the guide at each scan.
     var fixedBlurbs: Set<Duplicates.Blurb> = []
     var jobTask: Task<Void, Never>?
-
-    var settling: Task<Void, Never>?
 
     /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four
     /// in the morning is yesterday's. Kept rather than worked out each time they are read, and replaced by

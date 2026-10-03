@@ -265,7 +265,7 @@ enum BackgroundWork {
     /// Whether the recorder that has just answered is the one this phone's cache is of, or the first it has
     /// heard from (`GuideStore.recognises`). The saved address may be answered by another: one the reader has
     /// typed and not yet seen answer, or one the router has handed the address to. The screens take such a
-    /// recorder up (`AppModel.settle(whoAnswered:)`); with no screen nothing is taken up and nothing sent,
+    /// recorder up (`RecorderDriver.attach`); with no screen nothing is taken up and nothing sent,
     /// since the queue was made for the recorder known and the guide would go into a cache that is still its
     /// own. Nor when it cannot be told: an owner that cannot be read, a device that did not describe itself.
     private static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {

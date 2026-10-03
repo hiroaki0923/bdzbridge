@@ -39,6 +39,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
 | `LinkRules.swift` | Whether to give up, try once more or make sure of the device first; where it was last tried |
 | `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
+| `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission |
+| `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |

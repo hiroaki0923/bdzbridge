@@ -1,0 +1,393 @@
+import Foundation
+import Observation
+
+/// The client a link asks a device through: what the link itself reads of it, beside the probe.
+public protocol LinkClient: DeviceEndpoint {
+    /// The address it asks. Readable without waiting on the actor, for a caller deciding whether this is the
+    /// client for the address it wants.
+    nonisolated var host: String { get }
+    /// When the device last answered anything at all, or nil. How long it has been quiet says whether to make
+    /// sure of it before asking (`LinkRules.needsCheck`).
+    var lastAnswer: Date? { get }
+}
+
+extension RecorderClient: LinkClient {}
+
+/// What a link reaches beyond the device itself: the network the phone is on, and what it may put on the local
+/// network by itself. The app's are the real ones, except in the demo and in its tests, where nothing goes on
+/// the LAN; a test of the link hands it its own.
+@MainActor
+public struct LinkEnvironment {
+    /// How requests reach a device at an address.
+    public var transport: (_ host: String) -> any HTTPTransport
+    /// Which network the phone is on, as far as whether to try a device again goes (`LocalNetwork.signature`).
+    public var networkSignature: () -> String
+    /// Sends a magic packet to `mac` for the device at `host`. Nothing acknowledges it.
+    public var sendPacket: (_ mac: String, _ host: String) -> Void
+    /// Whether local network privacy is why the device at `host` said nothing. False when it is not to be asked.
+    public var lanIsBlocked: (_ host: String) async -> Bool
+    /// The addresses to look through for a device that has moved from `host`: none when it is not to be looked
+    /// for at all.
+    public var hostsNear: (_ host: String) -> [String]
+    /// Looks through `hosts` for the recorder whose UDN ends with `mac`.
+    public var findRecorder: (_ mac: String, _ hosts: [String]) async -> RecorderDescription?
+
+    public init(transport: @escaping (_ host: String) -> any HTTPTransport,
+                networkSignature: @escaping () -> String,
+                sendPacket: @escaping (_ mac: String, _ host: String) -> Void,
+                lanIsBlocked: @escaping (_ host: String) async -> Bool,
+                hostsNear: @escaping (_ host: String) -> [String],
+                findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?) {
+        self.transport = transport
+        self.networkSignature = networkSignature
+        self.sendPacket = sendPacket
+        self.lanIsBlocked = lanIsBlocked
+        self.hostsNear = hostsNear
+        self.findRecorder = findRecorder
+    }
+}
+
+/// What a link tells the app, and asks of it: the lines on the screen, what the phone keeps, and the lists the
+/// app holds of what the device said. Called on the main actor at fixed points of an attempt. What is not
+/// `async` happens in the same turn as what caused it, and some of it has to: the lists another device's
+/// description makes stale go before any screen gets a turn over them.
+@MainActor
+public protocol LinkHost: AnyObject, Sendable {
+    /// The one line that says what went wrong.
+    var problem: String? { get set }
+    func beginActivity(_ text: String) -> Activities.Token
+    func updateActivity(_ token: Activities.Token, to text: String)
+    func endActivity(_ token: Activities.Token)
+    /// Something is under way that a second client would only get in the way of.
+    var isBusy: Bool { get }
+    /// A bulk job holds the client it started with: no connect starts beside it.
+    var holdsOffConnect: Bool { get }
+    /// The invented device of the demo is in play.
+    var isDemo: Bool { get }
+    /// The phone's cache of what the device said, once opened.
+    var cache: GuideStore? { get }
+    /// Opens the cache before an attempt reaches the device -- what waits is sent from it, and who answers is
+    /// measured against it -- and lets go of what the last connect was to read again.
+    func cacheForAttempt() async
+    /// An address the device answered at, or was set to: written down for the runs with no screen.
+    func keepAddress(_ host: String)
+    /// The MAC the device reported, kept for waking it, with the address it was read at.
+    func keepMAC(_ text: String)
+    /// Where the MAC kept was read, or nil when nobody knows.
+    var macReadAt: String? { get }
+    /// The MAC kept was read from the device now at `host`.
+    func macWasReadAt(_ host: String)
+    func forgetMac()
+    /// Another device has described itself where the last one was: what the app holds of the last one goes, in
+    /// this turn. `wasConnected` says whether it was connected to the last one when this one answered.
+    func anotherDeviceDescribedItself(wasConnected: Bool)
+    /// The cache has been made over to another device: what the screens show of it is read again.
+    func cacheMadeOver() async
+    /// Another device answered and the cache could not be made over to it: the app is not connected over it.
+    func cacheCouldNotBeMadeOver()
+    /// Sends what waits for this device, and says what became of it.
+    func sendWhatWaits() async
+    /// A connect reached the device: the reads that follow one, inside the connect.
+    func reached() async
+    /// The check before an operation heard another device where this one was. What was asked is not sent.
+    func anotherAnsweredTheCheck()
+    /// Nothing could be asked: the app is not connected. Says why.
+    func sayNotConnected()
+    /// Local network privacy is in the way at `host`: wait for the permission, and say so.
+    func waitForPermission(at host: String)
+    func stopWaitingForPermission()
+}
+
+/// What a link asks of the kind of device it is about: how to make a client, wake one, find one that has moved,
+/// and read one as it answers. The recorder's is `RecorderDriver`.
+@MainActor
+public protocol LinkDriver: AnyObject, Sendable {
+    /// How long the first ask of an attempt, and the check before an operation, wait.
+    var probeTimeout: TimeInterval { get }
+    /// What is said when the check before an operation met silence and nothing could be done about it.
+    var noAnswerLine: String { get }
+    func makeClient(for link: DeviceLink) -> any LinkClient
+    /// Whether there is something to wake the device with. A failure on the first ask is kept off the screen
+    /// when there is, since the waking that follows is the answer to it.
+    func canWake(_ link: DeviceLink) -> Bool
+    /// Sends the packet that wakes the device, when there is one to send.
+    func sendPacket(_ link: DeviceLink)
+    /// Reads what the device says about itself and what goes with it, and sends what waits. True when the
+    /// attempt reached it. `what` is the line on screen, nil inside something that has said what it is doing.
+    func attach(_ link: DeviceLink, client: any LinkClient, what: String?, timeout: TimeInterval?,
+                quiet: Bool) async -> Bool
+    /// Wakes the device and attaches once it answers.
+    func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool
+    /// Looks for the device at another address and attaches there: nil when it answered there, `.silent` when
+    /// it was not found or not looked for.
+    func findElsewhere(_ link: DeviceLink) async -> DeviceFailure?
+    /// The check before an operation's ask: why it failed, if it did, and whether another device answered.
+    func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool)
+}
+
+/// The app's connection to one device: when it is asked, woken, made sure of and given up on, and when it is
+/// asked again -- on coming back to the app, when the network changes, when the local network permission comes.
+/// The decisions are `LinkRules`'s and the order of an attempt is `Reach`'s; what is particular to the kind of
+/// device is its driver's, and what is the app's -- the screens' lines and lists, what the phone keeps -- is
+/// told to its owner. The rules are set out in docs/porting.md (端末側の設計メモ). The app's tests hold them, and
+/// `DeviceLinkTests` those that need the local network to be seen at work.
+@MainActor
+@Observable
+public final class DeviceLink {
+    /// The device's address. Written down by the owner whenever it is set, for the runs with no screen.
+    public var host: String {
+        didSet { owner?.keepAddress(host) }
+    }
+    /// What is known of the device and of the link to it, for the screens to read.
+    public let session: SessionState
+    /// The client of the attempt under way or the last one. Nil when the device has been let go of.
+    public var client: (any LinkClient)?
+    /// The check before an operation that is out, so that everything asked for while it runs waits for its
+    /// answer rather than sending a probe -- and a magic packet -- of its own.
+    public private(set) var wakeCheck: Task<Bool, Never>?
+    @ObservationIgnored private var settling: Task<Void, Never>?
+    @ObservationIgnored public weak var owner: (any LinkHost)?
+    @ObservationIgnored public let driver: any LinkDriver
+    @ObservationIgnored public var environment: LinkEnvironment
+
+    /// Writes nothing: `host` is the address as saved, or the demo's.
+    public init(host: String, session: SessionState, driver: any LinkDriver, environment: LinkEnvironment) {
+        self.host = host
+        self.session = session
+        self.driver = driver
+        self.environment = environment
+    }
+
+    /// True while there is no point asking the device anything: nothing has been set up, or the last ask got
+    /// silence.
+    public var offline: Bool { client == nil || session.unreachable }
+
+    /// Whether the phone is on a network the last attempt was not made on.
+    public var networkChanged: Bool { session.networkChanged(now: environment.networkSignature()) }
+
+    // MARK: - connecting
+
+    /// Connects, waking the device first if that is what it needs. Not beside another connect or a bulk job --
+    /// two clients would be two conversations with a device that answers the second with 503 -- and a check
+    /// already waking this device is waited for rather than started again.
+    public func connect() async {
+        guard !host.isEmpty, !session.connecting, !(owner?.holdsOffConnect ?? false) else { return }
+        if let wakeCheck, let client, client.host == host {
+            _ = await wakeCheck.value
+            return
+        }
+        session.beginConnecting()
+        defer { session.endConnecting() }
+        // This attempt answers what a wait for the permission was waiting to find out, one way or the other.
+        owner?.stopWaitingForPermission()
+        await owner?.cacheForAttempt()
+        guard var reached = await reach() else { return }
+        // The network can change while a connect is under way -- the Wi-Fi joined on the way in through the door
+        // -- and the looks at the network keep out of a connect's way. So a connect that got nowhere tries once
+        // more when the network it started on is no longer the one under it.
+        if LinkRules.triesOnceMore(reached: reached, networkChanged: networkChanged) {
+            guard let again = await reach() else { return }
+            reached = again
+        }
+        // Only silence is given up on: a device that answered, if only to refuse, is there.
+        session.finishedTrying(reached: reached)
+        // Inside the connect: the screens count it as under way until what follows has been read.
+        if reached { await owner?.reached() }
+    }
+
+    /// One attempt at the device, in the order `Reach.run` keeps: a client of its own, the packet, the first
+    /// probe, the permission, the waking, and a look at another address. Whether it answered, or nil when local
+    /// network privacy is why it did not and the app is waiting for the permission instead.
+    private func reach() async -> Bool? {
+        let client = driver.makeClient(for: self)
+        self.client = client
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: {
+                self.driver.sendPacket(self)
+                self.session.tried(on: self.environment.networkSignature())
+            },
+            probe: {
+                await self.driver.attach(self, client: client, what: "接続中", timeout: self.driver.probeTimeout,
+                                         quiet: self.driver.canWake(self)) ? nil : self.whyNotAttached
+            },
+            blocked: { await self.environment.lanIsBlocked(self.host) },
+            wake: {
+                // The permission was not why, or was not asked about: either way nothing is waiting on it.
+                self.session.permissionCleared()
+                return await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached
+            },
+            elsewhere: { await self.driver.findElsewhere(self) }))
+        if outcome == .blocked {
+            waitForPermission()
+            return nil
+        }
+        session.permissionCleared()
+        return outcome == .answered
+    }
+
+    /// Why the attach that has just failed did, as `Reach` asks it: silence, or something that answered.
+    public var whyNotAttached: DeviceFailure {
+        session.unreachable ? .silent : .refused(reason: owner?.problem ?? "")
+    }
+
+    /// Silence because the system stopped the app asking, not because the device is asleep: the packet could not
+    /// leave either. The app waits for the permission instead, given up until it comes.
+    private func waitForPermission() {
+        session.waitingForPermission()
+        owner?.problem = nil
+        owner?.waitForPermission(at: host)
+    }
+
+    /// The wait for the permission at `host` has ended: allowed, or not. The one exception to leaving a device
+    /// alone until the network changes or the reader asks -- allowing it is the reader asking.
+    public func permissionArrived(_ allowed: Bool, at host: String) async {
+        session.permissionCleared()
+        if allowed, self.host == host { await connect() }
+    }
+
+    /// Leaves the app where a connect that got no answer leaves it: not connected, given up until the network
+    /// changes or the reader asks. Every request that meets silence comes here. Where the app tried is left as it
+    /// was; when the network did move meanwhile, the looks that followed its report are set going again.
+    public func lost() {
+        session.lost()
+        if session.link.sawAnotherNetwork { networkReported() }
+    }
+
+    /// Lets go of the device as far as memory goes: what it said of itself, which it was, and the client. A wait
+    /// for the permission at it ends too.
+    public func forgetTheDevice() {
+        session.forgotTheDevice()
+        client = nil
+        owner?.stopWaitingForPermission()
+    }
+
+    // MARK: - making sure before an operation
+
+    /// Makes sure the device is up before something the reader asked for is sent to it, and wakes it if it is
+    /// not. Whether it is there to ask. Asked first and briefly, with the client already in hand. `evenIfRecent`
+    /// asks whatever the time since the last answer, for when the network has changed since.
+    public func ensureUp(evenIfRecent: Bool = false) async -> Bool {
+        guard let client, !offline else {
+            owner?.sayNotConnected()
+            return false
+        }
+        // Already at it: a connect, or the waking of an earlier check -- whose attach reads lists of its own
+        // through here, and must not wait for itself.
+        if session.connecting || session.waking { return true }
+        if let wakeCheck { return await wakeCheck.value }
+        let check = Task { await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent) }
+        wakeCheck = check
+        let answered = await check.value
+        if wakeCheck == check { wakeCheck = nil }
+        return answered
+    }
+
+    private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> Bool {
+        if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
+            return true
+        }
+        // Where it was asked, not where the phone is once the silence is over: see `lost`.
+        let network = environment.networkSignature()
+        // Who is being made sure of: what the reader asked for must not go to another that answers in its place.
+        let known = session.device
+        var stranger = false
+        var answeredTheProbe = true
+        // The packet first and the probe after, as connecting does. Not looked for at another address from here.
+        let outcome = await Reach.run(Reach.Steps(
+            sendPacket: { self.driver.sendPacket(self) },
+            probe: {
+                let answer = await self.driver.check(self, client: client)
+                if answer.stranger { stranger = true }
+                if answer.failure == .silent {
+                    // Silence, which is what waking is for.
+                    answeredTheProbe = false
+                    self.session.wentSilent(on: network)
+                }
+                return answer.failure
+            },
+            blocked: { await self.environment.lanIsBlocked(self.host) },
+            wake: { await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached }))
+        switch outcome {
+        case .answered:
+            // Another device answers where the one in play was -- on the probe, or after a waking, whose attach
+            // has turned the app to it already.
+            if stranger || (known != nil && session.device != known) {
+                owner?.anotherAnsweredTheCheck()
+                return false
+            }
+            return true
+        case .refused:
+            // On the probe: something answered, so what is wrong is for the request itself to say. After the
+            // waking: it answered only to refuse, which the attach has said already.
+            return answeredTheProbe
+        case .blocked:
+            waitForPermission()
+            return false
+        case .silent:
+            lost()
+            // Waking says why it gave up; without a way to wake it there was no waking to say it.
+            if !driver.canWake(self) { owner?.problem = driver.noAnswerLine }
+            return false
+        }
+    }
+
+    // MARK: - asking again
+
+    /// The app is active again after `wasAway`: what that is worth is `LinkRules.onReturn`'s to say.
+    public func returned(wasAway: Bool, busy: Bool) async {
+        let hasAddress = !host.isEmpty, checking = wakeCheck != nil
+        // The last answer is on the client's actor: asked only where the rule will read it.
+        let asksItsAge = wasAway && hasAddress && !busy && !checking && session.connected
+        let lastAnswer = asksItsAge ? await client?.lastAnswer : nil
+        switch LinkRules.onReturn(wasAway: wasAway, hasAddress: hasAddress, busy: busy, checking: checking,
+                                  connected: session.connected, lastAnswer: lastAnswer, now: Date(),
+                                  gaveUp: session.gaveUp, networkChanged: networkChanged) {
+        case .nothing: return
+        case .lookAtTheNetwork: networkReported()
+        case .connect: await connect()
+        }
+    }
+
+    /// A report that the network changed, which is news of the network but not yet the network: the address
+    /// can arrive after it. So the network is looked at again for a while (`LinkRules.looksAfterAReport`),
+    /// until something has been done about it.
+    public func networkReported() {
+        // Now rather than in the first look: by then the Wi-Fi may be back, and that it went at all is lost.
+        noteTheNetwork()
+        settling?.cancel()
+        settling = Task { [weak self] in
+            for pause in LinkRules.looksAfterAReport {
+                try? await Task.sleep(for: .seconds(pause))
+                guard !Task.isCancelled, let self else { return }
+                if await self.networkChangedWhileOpen() { return }
+            }
+        }
+    }
+
+    private func noteTheNetwork() {
+        session.noted(network: environment.networkSignature())
+    }
+
+    /// One look at the network: another network makes another attempt worth making unasked, and makes the last
+    /// answer worth nothing while connected. Whether an attempt was made, or the device made sure of.
+    @discardableResult
+    public func networkChangedWhileOpen() async -> Bool {
+        // Noted first, busy or not.
+        noteTheNetwork()
+        switch LinkRules.onNetworkChange(hasAddress: !host.isEmpty, busy: owner?.isBusy ?? false,
+                                         networkChanged: networkChanged, connected: session.connected) {
+        case .nothing:
+            return false
+        case .connect:
+            // A connect returns without trying while another or a job is under way; whether it tried is what
+            // the count says.
+            let before = session.link.tries
+            await connect()
+            return session.link.tries != before
+        case .makeSure:
+            session.tried(on: environment.networkSignature())
+            _ = await ensureUp(evenIfRecent: true)
+            return true
+        }
+    }
+}
