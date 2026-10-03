@@ -34,18 +34,10 @@ public protocol GuideSource: DeviceEndpoint {
     func logos(_ broadcasting: String) async throws -> [StationLogo]?
 }
 
-/// What a device says when it has made a reservation.
-public enum ReservationReceipt: Sendable, Equatable {
-    /// The id the device gave the reservation.
-    case id(String)
-    /// The device made it and did not say what it called it: it is found in the device's list, by its
-    /// channel and its start.
-    case lookUpByChannelAndStart
-}
-
-/// A device reservations are made on.
+/// A device reservations are made on. Making one says nothing back worth keeping: what the device made is
+/// read from its list afterwards, which is also the only way a television says it.
 public protocol ReservationTarget: DeviceEndpoint {
-    func create(_ request: ReservationRequest) async throws -> ReservationReceipt
+    func create(_ request: ReservationRequest) async throws
 }
 
 extension RecorderClient: DeviceEndpoint {
@@ -57,10 +49,4 @@ extension RecorderClient: DeviceEndpoint {
 
 extension RecorderClient: GuideSource {}
 
-extension RecorderClient: ReservationTarget {
-    /// The protocol's way in, for the rules that take any device. Code that knows it has a recorder and wants
-    /// the id calls `createReservation`, which this is.
-    public func create(_ request: ReservationRequest) async throws -> ReservationReceipt {
-        .id(try await createReservation(request))
-    }
-}
+extension RecorderClient: ReservationTarget {}

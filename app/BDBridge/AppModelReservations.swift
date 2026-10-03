@@ -150,17 +150,13 @@ extension AppModel {
         }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// What would be sent to the recorder to record this programme.
-    func request(for program: GuideProgramRow, quality: String, repeating: String) -> ReservationRequest? {
-        ReservationRequest(program: program, quality: quality, repeating: repeating)
-    }
-
     /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
     /// it also proves the payload is one the recorder accepts, without recording anything.
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String) async -> [Reservation]? {
         await start()
         guard let client, !unreachable,
-              let request = request(for: program, quality: quality, repeating: repeating) else { return nil }
+              let request = ReservationRequest(program: program, quality: quality, repeating: repeating)
+        else { return nil }
         // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
         // not, so that the reservation which usually follows goes straight through.
         guard await wakeIfDozing() else { return nil }
@@ -170,9 +166,9 @@ extension AppModel {
             // As for a recording's details (`detail(of:)`): what a client the model no longer holds ran into
             // is not about the recorder in play, and is neither taken for its silence nor put on its screens.
             guard client === self.client else { return nil }
-            let recorderError = error as? RecorderError
-            if recorderError?.unreachable == true { lostTheRecorder() }
-            problem = recorderError?.explanation ?? String(describing: error)
+            let deviceError = error as? any DeviceError
+            if deviceError?.failure == .silent { lostTheRecorder() }
+            problem = deviceError?.explanation ?? String(describing: error)
             return nil
         }
     }
@@ -185,7 +181,9 @@ extension AppModel {
     /// same, and the queue would make it a second time.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
         await start()
-        guard let request = request(for: program, quality: quality, repeating: repeating) else { return false }
+        guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating) else {
+            return false
+        }
         // Known to be away: queue it now rather than spend a timeout finding out again.
         guard let client, !offline else {
             return await queue(request, serviceName: program.serviceName)
@@ -200,16 +198,16 @@ extension AppModel {
             return await queue(request, serviceName: program.serviceName)
         }
         do {
-            _ = try await client.createReservation(request)
+            try await client.create(request)
             problem = nil
             await loadReservations()
             return true
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             lostTheRecorder()
             problem = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
                 + "再接続してから予約一覧で確かめてください。"
             return false
-        } catch let error as RecorderError {
+        } catch let error as any DeviceError {
             problem = error.explanation
             return false
         } catch {
@@ -320,7 +318,7 @@ extension AppModel {
         // The read makes sure of the recorder too, and wakes it if it has gone to sleep.
         await loadReservations()
         guard !offline else { return false }   // the load has said why
-        guard let target = current(reservation) else {
+        guard let target = reservations.current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
         }
@@ -331,16 +329,16 @@ extension AppModel {
         defer { activities.end(activity) }
         do {
             try await client.updateReservation(id: target.id, request)
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             lostTheRecorder()
             problem = Self.mayHaveArrived
             return false
-        } catch let error as RecorderError where error.unknownReservation {
+        } catch let error as any DeviceError where error.failure == .unknownItem {
             await loadReservations()
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
         } catch {
-            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            problem = (error as? any DeviceError)?.explanation ?? String(describing: error)
             return false
         }
         problem = nil
@@ -368,7 +366,7 @@ extension AppModel {
         }
         await loadReservations()
         guard !offline else { return false }
-        guard let target = current(reservation) else {
+        guard let target = reservations.current(reservation) else {
             problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
             return false
         }
@@ -376,12 +374,12 @@ extension AppModel {
         let activity = activities.begin("予約を削除中")
         do {
             try await client.deleteReservation(id: target.id)
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             activities.end(activity)
             lostTheRecorder()
             problem = Self.mayHaveArrived
             return false
-        } catch let error as RecorderError where error.unknownReservation {
+        } catch let error as any DeviceError where error.failure == .unknownItem {
             // the list we just read was itself out of date, which is what happens when reading it failed
             activities.end(activity)
             await loadReservations()  // first, because a successful read clears `problem`
@@ -389,7 +387,7 @@ extension AppModel {
             return false
         } catch {
             activities.end(activity)
-            problem = (error as? RecorderError)?.explanation ?? String(describing: error)
+            problem = (error as? any DeviceError)?.explanation ?? String(describing: error)
             return false
         }
         activities.end(activity)
@@ -400,9 +398,6 @@ extension AppModel {
         reservations.removeAll { $0.id == target.id }
         return true
     }
-
-    /// The same reservation as the recorder holds it now, whatever it has renumbered it to.
-    private func current(_ wanted: Reservation) -> Reservation? { reservations.current(wanted) }
 
     func channelName(for reservation: Reservation) -> String {
         channelNames["\(reservation.broadcastingType)-\(reservation.serviceID)"]

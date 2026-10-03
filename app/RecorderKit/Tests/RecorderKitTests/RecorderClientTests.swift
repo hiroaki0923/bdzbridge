@@ -63,23 +63,22 @@ final class RecorderClientTests: XCTestCase {
             XCTAssertEqual(status, 500)
             XCTAssertEqual(code, "402")
             XCTAssertTrue(error.explanation.contains("402"))
-            XCTAssertFalse(error.needsPowerOn)
+            XCTAssertNotEqual(error.failure, .needsPower)
         }
     }
 
     /// 831 on a create is the recorder refusing to follow a programme on a channel it cannot receive, seen
     /// on a BDZ-FBT4100 with a pay channel the box is not subscribed to. It reads as a broken app unless it
-    /// is told apart, so it has its own flag and its own wording.
-    func testAnUnreceivableChannelIsRecognisedOnItsOwn() async throws {
+    /// says what it is, so it has its own wording, and the queue holds it back like any refusal.
+    func testAnUnreceivableChannelHasItsOwnWording() async throws {
         let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.fault("831")))
         do {
-            _ = try await client.createReservation(ReservationRequest(
+            try await client.create(ReservationRequest(
                 title: "x", start: Date(), durationSec: 1800, repeatCode: "1", broadcastingType: 4,
                 serviceID: 298, qualityCode: 240, eventID: 1))
             XCTFail("a fault should throw")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreceivableChannel)
-            XCTAssertFalse(error.unknownReservation)
+            XCTAssertEqual(error.failure, .refused(reason: error.explanation))
             XCTAssertTrue(error.explanation.contains("831"))
             XCTAssertTrue(error.explanation.contains("受信"))
         }
@@ -91,7 +90,7 @@ final class RecorderClientTests: XCTestCase {
             try await client.playControl(titleID: "0x1", operation: "play")
             XCTFail("a fault should throw")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.needsPowerOn)
+            XCTAssertEqual(error.failure, .needsPower)
         }
     }
 
@@ -165,7 +164,7 @@ final class RecorderClientTests: XCTestCase {
             try await client.play(titleID: "0x1", limit: 0.05, interval: .milliseconds(5)) { _ in }
             XCTFail("a recorder still in standby should throw")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.needsPowerOn)
+            XCTAssertEqual(error.failure, .needsPower)
         }
         let actions = await transport.requests.map(soapAction)
         XCTAssertEqual(actions.first, "X_PlayControlTitle")
@@ -220,8 +219,7 @@ final class RecorderClientTests: XCTestCase {
             XCTFail("busy all three times")
         } catch let error as RecorderError {
             XCTAssertEqual(error, .busy(action: "X_GetRecordScheduleList"))
-            XCTAssertFalse(error.unreachable, "the recorder answered")
-            XCTAssertFalse(error.refusal, "it said nothing about the request")
+            XCTAssertEqual(error.failure, .busy, "the recorder answered, and said nothing about the request")
         }
         expectEqual(await transport.requests.count, 1 + RecorderClient.busyRetries)
         let heard = await client.lastAnswer
@@ -418,7 +416,7 @@ final class RecorderClientTests: XCTestCase {
                 XCTFail("\(extra) read as \(capacity)")
             } catch let error as RecorderError {
                 XCTAssertEqual(error, .unexpectedAnswer(action: "X_HDLnkGetRecordDestinationInfo"), extra)
-                XCTAssertFalse(error.unreachable, "the recorder answered: \(extra)")
+                XCTAssertNotEqual(error.failure, .silent, "the recorder answered: \(extra)")
             }
         }
     }
@@ -447,7 +445,7 @@ final class RecorderClientTests: XCTestCase {
             _ = try await RecorderError.silenceOnly { try await silent.recordDestinationInfo() }
             XCTFail("silence was taken for an answer")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
     }
 
@@ -595,7 +593,7 @@ final class BulkWorkTests: XCTestCase {
             _ = try await client.deleteIfPresent(title())
             XCTFail("silence should be thrown, not turned into a skip")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
         let bodies = await transport.bodies
         XCTAssertEqual(bodies.count, 1)
@@ -616,7 +614,7 @@ final class BulkWorkTests: XCTestCase {
             _ = try await client.deleteIfPresent(title())
             XCTFail("silence should be thrown, not turned into a skip")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
         let sent = await transport.requests.count
         XCTAssertEqual(sent, 2, "asked once and deleted once, and nothing sent again")
@@ -656,7 +654,7 @@ final class BulkWorkTests: XCTestCase {
             _ = try await client.summary(of: "0x1")
             XCTFail("silence should be thrown, not turned into a failure to read")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
     }
 
@@ -668,7 +666,7 @@ final class BulkWorkTests: XCTestCase {
             _ = try await client.setProtected(title(protected: false), true)
             XCTFail("silence should be thrown, not turned into a skip")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
         expectEqual(await transport.requests.count, 1)
     }

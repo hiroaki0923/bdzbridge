@@ -74,7 +74,7 @@ extension AppModel {
         guard let client, !unreachable, await wakeIfDozing() else { return nil }
         do {
             return try await client.titleDetail(id: title.id)
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             // Nothing on the strip says this is out, so another recorder can be chosen meanwhile, and a connect
             // can make a new client. Silence met by a client the model no longer holds says nothing of the
             // recorder in play, and is not taken for its own.
@@ -148,7 +148,7 @@ extension AppModel {
                 } else {
                     try await client.playControl(titleID: title.id, operation: operation)
                 }
-            } catch let error as RecorderError where error.needsPowerOn {
+            } catch let error as any DeviceError where error.failure == .needsPower {
                 self.session.powerNeeded(true)
                 throw error
             }

@@ -47,13 +47,15 @@ public protocol DeviceError: Error, Sendable {
 }
 
 extension RecorderError: DeviceError {
-    /// The same reading as `unreachable`, `refusal` and `needsPowerOn`, which stay as they are for the code
-    /// that knows it is talking to a recorder; and what says `unknownReservation` is `unknownItem`.
+    /// Nothing answered when the request could not reach the recorder or the answer was not HTTP. A fault
+    /// with a UPnP code is the recorder turning the request down -- 402 for a request it will not take, 831 for
+    /// a channel it cannot receive -- except 880, which is standby rather than anything about the request, and
+    /// 804 and 820, which say the reservation or the recording has gone, a stale list rather than a refusal.
+    /// A fault with no code says nothing about the request.
     ///
-    /// A fault with a 503 on it is read as busy, because `refusal` leaves a 503 out whatever code came with it.
-    /// The client never hands one over (`RecorderClient.send` turns every 503 into `busy` first), so that case
-    /// only keeps the two readings in step, and is the one place where `unknownReservation`, which looks at the
-    /// code alone, would differ. 880 is standby whatever the status, as `needsPowerOn` has it.
+    /// A fault with a 503 on it is busy whatever code came with it. The client never hands one over
+    /// (`RecorderClient.send` turns every 503 into `busy` first), so that case is only here to keep the reading
+    /// whole.
     public var failure: DeviceFailure {
         switch self {
         case .transport, .notHTTP: .silent

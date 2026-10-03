@@ -287,21 +287,6 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(left.isEmpty)
     }
 
-    /// What counts as the recorder turning a request down for good.
-    func testWhatCountsAsARefusal() {
-        let action = "X_CreateRecordSchedule"
-        XCTAssertTrue(RecorderError.soap(action: action, status: 500, code: "831", body: "").refusal)
-        XCTAssertTrue(RecorderError.soap(action: action, status: 500, code: "402", body: "").refusal)
-        XCTAssertFalse(RecorderError.soap(action: action, status: 500, code: nil, body: "").refusal,
-                       "no code, no reason")
-        XCTAssertFalse(RecorderError.soap(action: action, status: 503, code: "501", body: "").refusal,
-                       "busy is busy, whatever else it says")
-        XCTAssertFalse(RecorderError.soap(action: action, status: 500, code: "880", body: "").refusal,
-                       "standby is about the recorder, not the request")
-        XCTAssertFalse(RecorderError.badResponse(status: 503).refusal)
-        XCTAssertFalse(RecorderError.transport("gone").refusal)
-    }
-
     /// The screens and the overnight run each flush with a client and a connection of their own, and can
     /// be at it together in one process. The second waits for the first and reads the queue after it, so a
     /// reservation is sent once, not once each.

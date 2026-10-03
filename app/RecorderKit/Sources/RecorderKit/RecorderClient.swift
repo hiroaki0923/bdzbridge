@@ -111,17 +111,11 @@ public actor RecorderClient {
         return try XsrsParse.items(inResult: result).compactMap(XsrsParse.reservation)
     }
 
-    /// Creates a reservation and returns its id.
-    @discardableResult
-    public func createReservation(_ request: ReservationRequest) async throws -> String {
-        try await createReservation(elements: XsrsElements.create(request))
-    }
-
-    @discardableResult
-    public func createReservation(elements: String) async throws -> String {
-        let root = try await call(Upnp.xsrsControlURL, Upnp.xsrsService, "X_CreateRecordSchedule",
-                                 [("Elements", elements)])
-        return root.firstDescendantText("RecordScheduleID") ?? ""
+    /// Creates a reservation. The recorder answers with the new reservation's id, which nothing needs: the
+    /// list read afterwards has it.
+    public func create(_ request: ReservationRequest) async throws {
+        _ = try await call(Upnp.xsrsControlURL, Upnp.xsrsService, "X_CreateRecordSchedule",
+                           [("Elements", XsrsElements.create(request))])
     }
 
     /// Changes quality or repeat in place; the payload is the create item with its id filled in.
@@ -246,7 +240,7 @@ public actor RecorderClient {
         do {
             try await playControl(titleID: titleID, operation: "play")
             return
-        } catch let error as RecorderError where error.needsPowerOn {}
+        } catch let error as RecorderError where error.failure == .needsPower {}
         try await powerOn()
         let started = Date()
         while Date().timeIntervalSince(started) < limit {

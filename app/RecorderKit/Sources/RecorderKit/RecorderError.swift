@@ -21,8 +21,8 @@ public enum RecorderError: Error, Equatable, Sendable {
     /// the official app or another phone, or from a second client in this app. `action` is the SOAP action, or
     /// the file asked for.
     case busy(action: String)
-    /// The saved address is not something a URL can be built on, so nothing was sent. Not `unreachable`:
-    /// the recorder was never asked, and waking it would not make the address any better.
+    /// The saved address is not something a URL can be built on, so nothing was sent. Not silence: the
+    /// recorder was never asked, and waking it would not make the address any better.
     case badAddress(host: String)
 
     /// What to put in front of the reader. Japanese, because this is the text the app shows; the code and
@@ -34,6 +34,9 @@ public enum RecorderError: Error, Equatable, Sendable {
             case "402": "レコーダーがこの要求を受け付けませんでした (402: \(action))"
             case "804": "この予約はレコーダーにありません (804: \(action))"
             case "820": "この録画はレコーダーにありません (820: \(action))"
+            // Seen on a BDZ-FBT4100 creating a reservation that follows a programme on a pay channel the box
+            // is not subscribed to; the same request without the programme's id is accepted. Recording it by
+            // time would only capture a scrambled stream, so there is nothing to offer instead.
             case "831": "このチャンネルは受信できないため、番組を指定した予約はできません。"
                         + "契約状況やアンテナの設定を確認してください (831: \(action))"
             case "880": "レコーダーがスタンバイ状態です。先に電源を入れてください (880: \(action))"
@@ -57,60 +60,6 @@ public enum RecorderError: Error, Equatable, Sendable {
         }
     }
 
-    /// The same thing with whatever the network layer said, for a log. `explanation` leaves it out: a
-    /// URLSession error printed in full is several hundred characters of domains and codes, and putting that
-    /// on screen tells the reader nothing and hides the sentence that does.
-    public var detail: String {
-        switch self {
-        case .transport(let detail): "\(explanation) (\(detail))"
-        case .soap(_, _, _, let body): "\(explanation) \(body.prefix(200))"
-        default: explanation
-        }
-    }
-
-    /// True when nothing answered at all, as opposed to a recorder that answered with an error. That is
-    /// the case worth acting on by itself: a BDZ-FBT4100 leaves the LAN when it has been idle a while, and
-    /// a magic packet is the only thing that reaches it there.
-    public var unreachable: Bool {
-        switch self {
-        case .transport, .notHTTP: true
-        default: false
-        }
-    }
-
-    /// True when the recorder turned the request down for a reason of its own: a SOAP fault carrying a UPnP
-    /// `errorCode`, such as 402 for a request it will not take or 831 for a channel it cannot receive. Asking
-    /// again gets the same answer, so a reservation in the queue is not sent again until the reader says so.
-    ///
-    /// Not a 503, which is the recorder busy with somebody else's request; not an answer with no code in it,
-    /// which says nothing about the request; and not 880, which is about standby rather than what was asked.
-    /// Those pass, and asking again later is right.
-    public var refusal: Bool {
-        guard case .soap(_, let status, let code?, _) = self else { return false }
-        return status != 503 && code != "880"
-    }
-
-    /// True when the recorder needs powering on before this will work.
-    public var needsPowerOn: Bool {
-        if case .soap(_, _, "880", _) = self { return true }
-        return false
-    }
-
-    /// True when the recorder says it has no such reservation. It is worth telling apart: the reservation
-    /// the app is holding has gone, which is a stale list rather than a failed delete.
-    public var unknownReservation: Bool {
-        if case .soap(_, _, "804", _) = self { return true }
-        return false
-    }
-
-    /// True when the recorder refuses to follow a programme because it cannot receive the channel. Verified
-    /// on a BDZ-FBT4100: creating a reservation with a `desiredMatchingID` answers 831 on a pay channel the
-    /// box is not subscribed to, while the same request without one is accepted. Recording it by time would
-    /// only capture a scrambled stream, so there is nothing useful to offer instead.
-    public var unreceivableChannel: Bool {
-        if case .soap(_, _, "831", _) = self { return true }
-        return false
-    }
 }
 
 public extension RecorderError {
@@ -126,7 +75,7 @@ public extension RecorderError {
                                _ read: () async throws -> T) async throws -> T? {
         do {
             return try await read()
-        } catch let error as RecorderError where error.unreachable {
+        } catch let error as any DeviceError where error.failure == .silent {
             throw error
         } catch {
             return nil

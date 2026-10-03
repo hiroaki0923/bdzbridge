@@ -88,7 +88,7 @@ final class GuideRefreshTests: XCTestCase {
             _ = try await GuideRefresh.run(client: client, store: store)
             XCTFail("silence is thrown")
         } catch let error as RecorderError {
-            XCTAssertTrue(error.unreachable)
+            XCTAssertEqual(error.failure, .silent)
         }
         let urls = await transport.requests.map(\.url.absoluteString)
         XCTAssertEqual(urls.last.map { $0.hasSuffix(Codes.epgFiles["bs"]!) }, true, "nothing asked after BS")
