@@ -20,6 +20,7 @@
 		426EBB116230210D4B6B1BBB /* AppModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDBFD7114EA90269BA42645D /* AppModelSetup.swift */; };
 		45F163AFB25C6A065FB29111 /* AppModelRecordings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE306E3A1B9409A422224064 /* AppModelRecordings.swift */; };
 		467EA934EB54A71683BFA00F /* KeychainTVCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4733264672C0A733226AA131 /* KeychainTVCredentials.swift */; };
+		47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */; };
 		48CC5BE81C5376EC2CD46B43 /* TVSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F789A1A76C5D308752261 /* TVSettings.swift */; };
 		494934848327D87696DFD86F /* RecorderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0B5AB2BB705A18FEF4855A1E /* RecorderKit */; };
 		4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */; };
@@ -118,6 +119,7 @@
 		C123FD5B0250D14222551D37 /* DefaultsKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultsKey.swift; sourceTree = "<group>"; };
 		C6328D6F84094C9B14A5C500 /* GuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideGridView.swift; sourceTree = "<group>"; };
 		CA7ECF4C1A153A99F6259F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunnelGateTests.swift; sourceTree = "<group>"; };
 		D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisclaimerView.swift; sourceTree = "<group>"; };
 		D86F6D78C94327F25C742A7A /* JobBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobBarView.swift; sourceTree = "<group>"; };
 		DCE17E7D5D88F5B7797F639F /* RecorderKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecorderKit; path = RecorderKit; sourceTree = SOURCE_ROOT; };
@@ -207,6 +209,7 @@
 				BE5AB54284C614E923F22A57 /* AppModelTests.swift */,
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
+				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
 				5C28691CB271964372E64ECD /* TVLinkTests.swift */,
@@ -428,6 +431,7 @@
 				2A5F2491A817C5DE1C5445D9 /* AppModelTests.swift in Sources */,
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
+				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
 				5CCDBEDD17EE4C991CC6FA4B /* TVLinkTests.swift in Sources */,
