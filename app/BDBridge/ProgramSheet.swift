@@ -67,7 +67,7 @@ struct ProgramSheet: View {
                 }
 
                 if let reservation {
-                    Section("この番組は予約済みです") {
+                    Section(heading("この番組は予約済みです")) {
                         LabeledContent("録画モード", value: reservation.qualityName ?? "-")
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
@@ -89,7 +89,7 @@ struct ProgramSheet: View {
                 }
                 // Not for a programme already waiting: a second reservation would only replace it in the queue.
                 if reservation == nil, waiting == nil, !past {
-                    Section("録画予約") {
+                    Section(heading("録画予約")) {
                         Picker("録画モード", selection: $quality) {
                             ForEach(Codes.qualityOrder, id: \.self) { code in
                                 Text(Codes.qualityLabel[code] ?? code).tag(code)
@@ -226,11 +226,20 @@ struct ProgramSheet: View {
 
     private var taskKey: String { "\(program.id)-\(quality)-\(repeating)-\(checks)" }
 
-    /// The television's reservation of this programme: that it is there, and the way to delete it. Nothing
-    /// changes one yet, so there is no way to its own sheet from here. What went wrong with the television
-    /// is said under the button that ran into it, and not at the sheet's foot, which is the recorder's.
+    /// The heading of a section that is about the recorder. With a television registered the sections are
+    /// named for the device each is about -- レコーダー here, テレビ over the television's -- and what is in a
+    /// section says the rest. With the recorder alone there is nothing to tell apart, and the heading says
+    /// what it said before there was a television.
+    private func heading(_ alone: String) -> String {
+        model.tv != nil ? DeviceSlot.recorder.label : alone
+    }
+
+    /// The television's reservation of this programme, under the television's name: that it is there, and
+    /// the way to delete it. Nothing changes one yet, so there is no way to its own sheet from here. What went
+    /// wrong with the television is said under the button that ran into it, and not at the sheet's foot,
+    /// which is the recorder's.
     private func televisionSection(_ reservation: Reservation) -> some View {
-        Section("テレビで予約済みです") {
+        Section(DeviceSlot.tv.label) {
             LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
             if reservation.recording { Text("録画中です").foregroundStyle(.red) }
             Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
