@@ -8,7 +8,7 @@ import Observation
 public final class TVFacts {
     /// The model, as `getInterfaceInformation` gives it.
     public internal(set) var model: String?
-    /// Set when the television answers but has no working registration for the app: a PIN is wanted.
+    /// Set when the television answers but takes no cookie of the app's: it is to be registered again.
     public internal(set) var needsPairing = false
     /// The USB disk it records to, as last read.
     public internal(set) var storage: TVStorage?
@@ -17,18 +17,19 @@ public final class TVFacts {
 }
 
 /// What is particular to a Sony BRAVIA in a link. It is asked whether it is on (`getPowerStatus`, which it
-/// answers in standby) and never woken: nothing reaches a television asleep without lighting it, and the app
-/// does not light it unasked. It is told from any other by the MAC it wakes on. An attach reads that, its model,
-/// and its USB disk -- the read that needs a registration, so the one that says whether there is one -- and
-/// renews the cookie when it is past half its life.
+/// answers in standby) and never woken: one that does not answer could only be sent a magic packet, which may
+/// light it, and the app does not light it unasked. It is told from any other by the MAC it wakes on. An attach
+/// reads that, its model, and its USB disk -- the read that needs a registration, so the one that says whether
+/// there is one -- and renews the cookie when it is past half its life.
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
     private let credentials: any TVCredentialStore
     /// What the television lists the app as, among the devices registered with it.
     private let nickname: String
-    /// Whether the app is in front, the only place a renewal is asked for: what a television that no longer
-    /// lists the app does with one is not known, and a screen lit by it should have the reader there to see why.
+    /// Whether the app is in front, the only place a renewal is asked for. A television that no longer lists
+    /// the app turns one down in standby and shows nothing (error 40005), but with its display on it puts a PIN
+    /// on the screen; and none has been tried on a television hours into standby. So the reader is to be there.
     private let inFront: @MainActor () -> Bool
 
     public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool) {

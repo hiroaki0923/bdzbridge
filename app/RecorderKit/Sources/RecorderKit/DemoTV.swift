@@ -12,7 +12,7 @@ public actor DemoTV: HTTPTransport {
     public static let model = "KJ-SAMPLE"
     public static let pin = "1234"
 
-    /// `standby` or `active`. It shows its PIN, and so can be registered, only when active.
+    /// `standby` or `active`. It shows its PIN, and so can be registered by one, only when active.
     public var power: String
     public private(set) var mac: String
     private var silent = false
@@ -61,18 +61,21 @@ public actor DemoTV: HTTPTransport {
         }
     }
 
-    /// Unregistered and without the PIN: 401, as the real one answers while it shows its PIN. With the PIN, or
-    /// registered already, a new cookie -- the ones given before stay good.
+    /// A client it lists gets a new cookie, in standby as well, and the ones given before stay good. One it does
+    /// not list is answered 401 while the display is on, as the real one answers while it shows its PIN, and is
+    /// registered by the request that carries the PIN. In standby nothing is shown: such a client is turned down
+    /// with error 40005 and no cookie, as the real one turns down a request with nothing on it -- and, it is
+    /// taken, one with a PIN, which has not been tried.
     private func register(_ object: [String: Any], _ request: HTTPRequest, _ id: Int) -> HTTPResponse {
         let clientID = ((object["params"] as? [Any])?.first as? [String: Any])?["clientid"] as? String ?? ""
-        if let authorization = request.headers["Authorization"] {
-            guard power == "active",
-                  authorization == "Basic " + Data(":\(Self.pin)".utf8).base64EncodedString() else {
+        if !registered.contains(clientID) {
+            guard power == "active" else {
+                return HTTPResponse(statusCode: 200, body: Data(#"{"error":[40005,"display off"],"id":\#(id)}"#.utf8))
+            }
+            guard request.headers["Authorization"] == "Basic " + Data(":\(Self.pin)".utf8).base64EncodedString() else {
                 return HTTPResponse(statusCode: 401)
             }
             registered.insert(clientID)
-        } else if !registered.contains(clientID) {
-            return HTTPResponse(statusCode: 401)
         }
         issued += 1
         let value = "invented-\(issued)"

@@ -181,6 +181,36 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertNil(taken.load(), "a registration taken away while the renewal was out came back")
     }
 
+    /// With its display off the television shows no PIN: a client it does not list is turned down with error
+    /// 40005, which is not the television asking for its PIN, and nothing is kept. A renewal turned down -- that
+    /// way, or with a 401 by a television that has let go of the app -- leaves the cookie in hand as it was.
+    func testARegistrationTurnedDownKeepsNothing() async throws {
+        let displayOff = failed(40005, "display off")
+        let (tv, store) = client(StubTransport(always: displayOff))
+        do {
+            _ = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+            XCTFail("a registration turned down passed for one that wants a PIN")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error.failure, .needsPower)
+        }
+        XCTAssertNil(store.load())
+
+        let kept = TVCredentials(clientID: "BDBridge:test", cookie: "kept")
+        let (off, held) = client(StubTransport(always: displayOff), kept)
+        do {
+            _ = try await off.renew(nickname: "BD Bridge")
+            XCTFail("a renewal turned down passed for one that went through")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error.failure, .needsPower)
+        }
+        XCTAssertEqual(held.load(), kept)
+
+        let (asked, same) = client(StubTransport(always: HTTPResponse(statusCode: 401)), kept)
+        let renewed = try await asked.renew(nickname: "BD Bridge")
+        XCTAssertFalse(renewed)
+        XCTAssertEqual(same.load(), kept)
+    }
+
     /// A read that needs the registration sends the cookie kept, and sends nothing without one.
     func testWhatNeedsTheRegistrationSendsTheCookie() async throws {
         let transport = StubTransport(always: ok(#"[[{"uri":"usb:recStorage","mounted":"mounted","wholeCapacityMB":1000,"freeCapacityMB":400}]]"#))
@@ -206,7 +236,7 @@ final class ScalarClientTests: XCTestCase {
     }
 
     /// A 403 is sent again once when another client has renewed the cookie in between, with the new one; a 403
-    /// with the cookie the store still holds is the registration gone.
+    /// with the cookie the store still holds is a cookie the television no longer takes.
     func testA403IsSentAgainOnceWithANewerCookie() async throws {
         let store = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "old"))
         let transport = StubTransport { request, index in

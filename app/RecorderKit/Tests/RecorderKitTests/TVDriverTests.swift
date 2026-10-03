@@ -65,7 +65,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertFalse(calls.contains { $0.hasPrefix("getStorageList") }, "asked without a registration")
     }
 
-    /// A cookie the television no longer takes is a registration gone: the same, after one ask.
+    /// A cookie the television no longer takes wants the registration again: the same, after one ask.
     func testARefusedCookieAsksForTheRegistrationAgain() async {
         let television = DemoTV()
         let (link, driver, _) = makeLink(television, MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "stale")))

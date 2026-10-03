@@ -123,8 +123,8 @@ public struct TVStorage: Sendable, Equatable {
 /// `POST /sony/<service>` with `{"method", "id", "params", "version"}`. Every answer comes back as HTTP 200, the
 /// method's errors included, except 401 from the registration and 403 for a request without a working cookie.
 ///
-/// One request at a time, as with the recorder: nothing says the television minds more, but nothing says it
-/// does not, and the app has no need of more. The cookie is read from the store for each request and sent by
+/// One request at a time, as with the recorder: the television has been seen to answer several at once, but
+/// the app has no need of more. The cookie is read from the store for each request and sent by
 /// hand; the transport keeps none of its own (`URLSessionTransport.withoutCookies`).
 public actor ScalarClient {
     public nonisolated let host: String
@@ -187,7 +187,9 @@ public actor ScalarClient {
 
     /// `actRegister`, with nothing on it but the PIN when there is one. Unregistered, the television answers
     /// 401 and puts a PIN on its screen -- not always: whether it does depends on what the television is doing
-    /// -- and the same request with the PIN registers. Registered, it answers with a new cookie without a
+    /// -- and the same request with the PIN registers. In standby it shows nothing and answers no 401: the
+    /// request is turned down with error 40005, which is thrown as any error of a method is, and no cookie
+    /// comes. Registered, it answers with a new cookie without a
     /// PIN, in standby as well, and the cookies given before stay good: which is why nothing else is sent, a
     /// cookie included -- a renewal carrying one ends it before its answer arrives, and a request already out
     /// with it would then be refused as if nothing had been registered.
@@ -269,7 +271,9 @@ public actor ScalarClient {
     }
 
     /// A request that needs the cookie. A 403 is sent again once when the store has a newer cookie than the
-    /// one it went with: another client renewed in between. A 403 after that is the registration gone.
+    /// one it went with: another client renewed in between. A 403 after that is a cookie the television no
+    /// longer takes -- the app taken off its list, as seen, or a cookie that ran out -- and the registration is
+    /// wanted again; a client still listed gets it without a PIN.
     private func authenticated(_ service: String, _ method: String, version: String, params: [Any] = [],
                                timeout: TimeInterval? = nil) async throws -> Any {
         var sentWith: String?

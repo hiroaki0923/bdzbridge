@@ -14,6 +14,9 @@ extension AppModel {
     /// What the television is listed as among the devices registered with it.
     static let tvNickname = "BD Bridge"
 
+    /// Said when a registration is turned down because the television's display is off.
+    static let tvScreenIsOff = "テレビの画面が消えているため、登録できませんでした。テレビの電源を入れて、放送を映してから、もう一度お試しください。"
+
     /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
     /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
     /// Connects nothing.
@@ -118,7 +121,8 @@ extension AppModel {
                 return .registered
             }
         } catch let error as any DeviceError {
-            return .failed(error.explanation)
+            // Its display went off after it was found on: it shows no PIN then, and turns the request down.
+            return .failed(error.failure == .needsPower ? Self.tvScreenIsOff : error.explanation)
         } catch {
             return .failed(String(describing: error))
         }

@@ -43,16 +43,45 @@ final class TVLinkTests: XCTestCase {
         XCTAssertEqual(registrations, ["actRegister cookie=no pin=no", "actRegister cookie=no pin=yes"])
     }
 
-    /// A television in standby shows no PIN, so it is found but not asked for one.
+    /// A television in standby shows no PIN, so it is found but not asked for one. Asked all the same -- its
+    /// display gone off after it was found on -- it turns the registration down, which is said in words the
+    /// reader can act on, and nothing is kept.
     func testATelevisionInStandbyIsNotAskedForItsPIN() async throws {
         let bench = try aBench()
         let television = DemoTV()
-        let model = bench.model(recorder: SilentRecorder(), television: television, credentials: MemoryTVCredentials(),
+        let credentials = MemoryTVCredentials()
+        let model = bench.model(recorder: SilentRecorder(), television: television, credentials: credentials,
                                 saved: false)
 
         expectEqual(await model.findTV(at: Bench.tvHost), .standby(model: DemoTV.model))
         let calls = await television.calls
         XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") })
+
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .failed(AppModel.tvScreenIsOff))
+        XCTAssertNil(credentials.load())
+        XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvHost))
+        XCTAssertNil(model.tv)
+    }
+
+    /// A cookie the television no longer takes need not mean the app is off its list: one that ran out leaves the
+    /// client listed, and registering again then takes no PIN.
+    func testAClientTheTelevisionStillListsRegistersAgainWithoutAPIN() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let television = DemoTV(power: "active")
+        await television.knows("BDBridge:test", cookie: "kept")
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "run out"))
+        let model = bench.model(recorder: DemoRecorder(), television: television, credentials: credentials)
+        await model.start()
+        try await until("the television was not said to need a registration") { model.tvDriver?.facts.needsPairing == true }
+
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .registered)
+
+        try await until("the television was not connected") { model.tv?.session.connected == true }
+        XCTAssertEqual(model.tvDriver?.facts.needsPairing, false)
+        XCTAssertEqual(credentials.load()?.clientID, "BDBridge:test")
+        let registrations = await television.calls.filter { $0.hasPrefix("actRegister") }
+        XCTAssertEqual(registrations, ["actRegister cookie=no pin=no"])
     }
 
     /// The television's silence holds up nothing of the recorder's, and the recorder's nothing of the
