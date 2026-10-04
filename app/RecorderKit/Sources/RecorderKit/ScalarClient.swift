@@ -456,9 +456,12 @@ public actor ScalarClient {
         }
         let id = nextID
         nextID += 1
+        // The keys in order, at every depth. A dictionary has no order of its own, so without this the bytes
+        // of one request differ from one launch to the next, and what was tried on a television would not be
+        // what is sent to it afterwards.
         let body = try JSONSerialization.data(
             withJSONObject: ["method": method, "id": id, "params": params, "version": version] as [String: Any],
-            options: [.withoutEscapingSlashes])
+            options: [.withoutEscapingSlashes, .sortedKeys])
         let request = HTTPRequest(url: url, method: "POST", headers: headers, body: body,
                                   timeout: timeout ?? Self.timeout)
         let transport = self.transport

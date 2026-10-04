@@ -808,4 +808,52 @@ final class ScalarClientTests: XCTestCase {
             expectEqual(await transport.requests.count, 1, "sent again after \(expected)")
         }
     }
+
+    /// The bytes of a request are the same every time it is written: the keys in order at every depth, so
+    /// that what a television was sent once is what it is sent ever after. Each request the client has, by
+    /// what goes on the wire.
+    func testTheKeysOfEveryBodyAreInOrder() async throws {
+        let answers = [
+            "getPowerStatus": #"[{"status":"active"}]"#,
+            "getStorageList": #"[[{"uri":"usb:recStorage","mounted":"mounted"}]]"#,
+            "getScheduleList": "[[]]", "getContentList": "[[]]", "getConflictScheduleList": "[[]]",
+            "addSchedule": #"[{"annotation":0}]"#, "deleteSchedule": "[]", "actRegister": "[]",
+        ]
+        let transport = StubTransport { request, _ in
+            let body = try JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any]
+            let result = answers[body?["method"] as? String ?? ""] ?? "[]"
+            return HTTPResponse(statusCode: 200, body: Data(#"{"result":\#(result),"id":1}"#.utf8),
+                                headers: ["Set-Cookie": "auth=kept; Path=/sony/; Max-Age=1209600"])
+        }
+        let (tv, _) = client(transport, Self.kept)
+        let asked = try body()
+
+        _ = try await tv.powerStatus()
+        _ = try await tv.storage()
+        _ = try await tv.schedules()
+        _ = try await tv.stations(of: 2)
+        _ = try await tv.wouldPushOut(asked)
+        try await tv.addSchedule(asked)
+        try await tv.deleteSchedule(TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                                                  startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800,
+                                                  title: "サンプル劇場"))
+        _ = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+
+        let reservation = #""repeatType":"1","startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","#
+        expectEqual(await transport.bodies, [
+            #"{"id":1,"method":"getPowerStatus","params":[],"version":"1.0"}"#,
+            #"{"id":2,"method":"getStorageList","params":[{"uri":"usb:recStorage"}],"version":"1.1"}"#,
+            #"{"id":3,"method":"getScheduleList","params":[{"cnt":130,"stIdx":0}],"version":"1.1"}"#,
+            #"{"id":4,"method":"getContentList","params":[{"cnt":50,"source":"tv:isdbt","stIdx":0}],"version":"1.0"}"#,
+            #"{"id":5,"method":"getConflictScheduleList","params":[{"durationSec":1800,"#
+                + reservation + #""uri":"\#(Self.uri)"}],"version":"1.0"}"#,
+            #"{"id":6,"method":"addSchedule","params":[{"durationSec":1800,"eventId":"12345","#
+                + reservation + #""type":"recording","uri":"\#(Self.uri)"}],"version":"1.1"}"#,
+            #"{"id":7,"method":"deleteSchedule","params":[[{"durationSec":1800,"id":"recording.31","#
+                + #""startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","type":"recording","#
+                + #""uri":"\#(Self.uri)"}]],"version":"1.1"}"#,
+            #"{"id":8,"method":"actRegister","params":[{"clientid":"BDBridge:test","level":"private","#
+                + #""nickname":"BD Bridge"},[{"function":"WOL","value":"no"}]],"version":"1.0"}"#,
+        ])
+    }
 }
