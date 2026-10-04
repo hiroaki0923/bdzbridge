@@ -653,12 +653,14 @@ extension ScalarClient {
     }
 
     /// Said when making a reservation left others marked that were not marked before, and that the television
-    /// had not named when it was asked. With a recording among them it says what the mark may cost, as
-    /// `madeAndMarked` says of the row made: a recording marked `fullyOverlapped` was seen to be the one
-    /// that loses. With reminders to watch alone it says only that they share their time: a reminder
-    /// records nothing, so no recording is lost with it.
+    /// had not named when it was asked: one sentence for rows of one kind, as `remark` hands them. Of
+    /// recordings it says what the mark may cost, as `madeAndMarked` says of the row made: a recording
+    /// marked `fullyOverlapped` was seen to be the one that loses. Of the others, reminders to watch, it
+    /// says only that they share their time: a reminder records nothing, so no recording is lost with it.
+    /// Handed both kinds it says only that much of them all, so that what is said of rows left marked
+    /// never says of a viewing reservation that it may not be recorded.
     static func leftMarked(_ title: String, _ rows: [TVScheduleRow]) -> String {
-        let cost = rows.contains { $0.type == "recording" } ? "重なり、録画されないことがあります" : "重なりました"
+        let cost = rows.allSatisfy { $0.type == "recording" } ? "重なり、録画されないことがあります" : "重なりました"
         return "「\(title)」を登録したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と\(cost)"
     }
 
@@ -671,6 +673,9 @@ extension ScalarClient {
     /// `named`, which the television named when it was asked and the reader consented to. A television was
     /// seen to mark a reminder to watch so, without having named it. A row that was marked already, and one
     /// that was not in the list before, are not this create's doing.
+    ///
+    /// The rows left marked are said in two sentences, the recordings in one and the others in another
+    /// (`leftMarked`): what the mark may cost a recording is not what it costs a reminder to watch.
     static func remark(on title: String, made: TVScheduleRow, before: [TVScheduleRow], after: [TVScheduleRow],
                        named: [TVScheduleRow]) -> String? {
         let unmarked = Set(before.filter { !$0.overlaps }.map(\.id))
@@ -678,7 +683,8 @@ extension ScalarClient {
         let marked = after.filter { $0.overlaps && unmarked.contains($0.id) && !consentedTo.contains($0.id) }
         var sentences: [String] = []
         if made.overlaps { sentences.append(madeAndMarked(title)) }
-        if !marked.isEmpty { sentences.append(leftMarked(title, marked)) }
+        let recordings = marked.filter { $0.type == "recording" }, others = marked.filter { $0.type != "recording" }
+        for rows in [recordings, others] where !rows.isEmpty { sentences.append(leftMarked(title, rows)) }
         return sentences.isEmpty ? nil : sentences.joined(separator: "。")
     }
 }

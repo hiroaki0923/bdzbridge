@@ -759,9 +759,11 @@ final class TVRoundTests: XCTestCase {
     /// What a create did beyond its own row is read from the list before it and the list after: that the row
     /// made is itself marked as overlapping, whatever the mark; and each row that was not marked before and
     /// is now, by its name -- a reminder as a viewing reservation -- but for the rows the television named
-    /// when it was asked, which the reader consented to. With a recording among those rows the sentence says
-    /// that it may not be recorded; with reminders alone, only that they overlap. A row marked already, one
-    /// that was not in the list before, and one whose mark has gone say nothing.
+    /// when it was asked, which the reader consented to. The recordings among those rows are said in one
+    /// sentence, as rows that may not be recorded, and the reminders in another after it, only as rows that
+    /// overlap, wherever each stands in the list: a viewing reservation left marked is never said to be
+    /// one that may not be recorded, nor by the sentence itself when it is handed both kinds. A row marked
+    /// already, one that was not in the list before, and one whose mark has gone say nothing.
     func testWhatACreateDidBeyondItsRowIsReadFromTheListBeforeAndAfter() {
         func listed(_ id: String, _ title: String, _ overlap: String?, at start: String = "2026-11-01T21:00:00+0900",
                     programme: String? = nil) -> TVScheduleRow {
@@ -772,6 +774,7 @@ final class TVRoundTests: XCTestCase {
         let clear = "notOverlapped", lost = "fullyOverlapped", part = "partlyOverlapped"
         func made(_ overlap: String?) -> TVScheduleRow { listed("recording.31", "サンプル番組\u{3000}50101", overlap) }
         func other(_ overlap: String?) -> TVScheduleRow { listed("recording.21", "サンプル紀行", overlap) }
+        func third(_ overlap: String?) -> TVScheduleRow { listed("recording.22", "サンプル討論", overlap) }
         func reminder(_ overlap: String?) -> TVScheduleRow {
             listed("reminder.9", "サンプル音楽館", overlap, at: "2026-11-01T20:59:59+0900")
         }
@@ -781,6 +784,7 @@ final class TVRoundTests: XCTestCase {
             "「サンプル劇場」を登録したため、\(names)がほかの予約と重なり、録画されないことがあります"
         }
         let recording = "「サンプル紀行」（サンプル放送2 11/1 21:00）"
+        let another = "「サンプル討論」（サンプル放送2 11/1 21:00）"
         let viewing = "視聴予約「サンプル音楽館」（サンプル放送2 11/1 21:00）"
 
         let cases: [(String, [TVScheduleRow], [TVScheduleRow], [TVScheduleRow], String?)] = [
@@ -802,16 +806,24 @@ final class TVRoundTests: XCTestCase {
             ("both marked, the reminder named", [other(clear), reminder(clear)],
              [made(clear), other(lost), reminder(part)], [reminder(clear)], mayLose(recording)),
             ("both marked, neither named", [other(clear), reminder(clear)],
-             [made(clear), other(lost), reminder(part)], [], mayLose(recording + "、" + viewing)),
+             [made(clear), other(lost), reminder(part)], [], mayLose(recording) + "。" + overlapped(viewing)),
             ("a reminder and then a recording marked", [reminder(clear), other(clear)],
-             [made(clear), reminder(part), other(part)], [], mayLose(viewing + "、" + recording)),
+             [made(clear), reminder(part), other(part)], [], mayLose(recording) + "。" + overlapped(viewing)),
+            ("two recordings marked, and a reminder between them", [other(clear), reminder(clear), third(clear)],
+             [made(clear), other(lost), reminder(part), third(lost)], [],
+             mayLose(recording + "、" + another) + "。" + overlapped(viewing)),
             ("the row made and another", [reminder(clear)], [made(lost), reminder(part)], [],
              marked + "。" + overlapped(viewing)),
+            ("the row made and one of each kind", [reminder(clear), other(clear)],
+             [made(lost), reminder(part), other(lost)], [],
+             marked + "。" + mayLose(recording) + "。" + overlapped(viewing)),
         ]
         for (name, before, after, named, expected) in cases {
             XCTAssertEqual(ScalarClient.remark(on: "サンプル劇場", made: after[0], before: before, after: after,
                                                named: named), expected, name)
         }
+        XCTAssertEqual(ScalarClient.leftMarked("サンプル劇場", [other(lost), reminder(part)]),
+                       overlapped(recording + "、" + viewing))
     }
 
     /// The same through a round. A recording beside a reminder to watch, which it overlaps in part, is made,
