@@ -330,6 +330,16 @@ extension DeviceSlot {
     var label: String { self == .tv ? "テレビ" : "レコーダー" }
 }
 
+extension PendingQueue.Outcome {
+    /// What became of the queue, as the app says it: on the strip, in the notification and in the Shortcuts
+    /// action's answer. A home with a recorder alone has one device a sentence can be about, and reads the
+    /// sentences it has always read (`summary`). With a television saved the reader has two, so each sentence
+    /// says which device the round was for.
+    func said(withATelevisionSaved televisionSaved: Bool) -> String? {
+        televisionSaved ? says(naming: slot.label) : summary
+    }
+}
+
 /// What to say when there is no recorder to talk to, in two situations that need different words: nothing has
 /// been set up yet, or a recorder is set up and not answering — asleep, or the phone is away from home. Sending
 /// someone to correct an address that is already right is worse than saying nothing, which is why looking for

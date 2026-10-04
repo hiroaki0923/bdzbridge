@@ -678,19 +678,26 @@ enum Said {
 
     // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
     // about the first by its title, and how many more went that way. Here, and not in the tests that look at
-    // them, so that a rewording is one edit.
-    static func sent(_ title: String, andOthers others: Int = 0) -> String {
-        "送信待ちだった\(naming(title, others))を登録しました"
+    // them, so that a rewording is one edit. `naming` is the device's word, for a home with a television saved
+    // beside the recorder, where each sentence says which device it is about (`says(naming:)`); with none the
+    // sentence is the one a home with a recorder alone reads.
+    static func sent(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "送信待ちだった\(naming(title, others))を\($0)に登録しました" }
+            ?? "送信待ちだった\(naming(title, others))を登録しました"
     }
-    static func expired(_ title: String, andOthers others: Int = 0) -> String {
-        "\(naming(title, others))は放送が終わっていたため、送らずに削除しました"
+    static func expired(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "\($0)宛の\(naming(title, others))は放送が終わっていたため、送らずに削除しました" }
+            ?? "\(naming(title, others))は放送が終わっていたため、送らずに削除しました"
     }
-    static func refused(_ title: String, andOthers others: Int = 0) -> String {
-        "\(naming(title, others))はレコーダーが受け付けませんでした。理由は予約タブにあります"
+    static func refused(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "\(naming(title, others))は\($0)に登録できませんでした。理由は予約タブにあります" }
+            ?? "\(naming(title, others))はレコーダーが受け付けませんでした。理由は予約タブにあります"
     }
-    static func deferred(_ title: String, andOthers others: Int = 0) -> String {
-        "\(naming(title, others))は送れなかったため、次の機会にもう一度送ります"
+    static func deferred(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "\(naming(title, others))は\($0)に送れなかったため、次の機会にもう一度送ります" }
+            ?? "\(naming(title, others))は送れなかったため、次の機会にもう一度送ります"
     }
+    // As a home with a recorder alone reads it. No test has a named device go silent yet, so no form names one.
     static let interrupted = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
     private static func naming(_ title: String, _ others: Int) -> String {
         others == 0 ? "「\(title)」" : "「\(title)」ほか \(others) 件"

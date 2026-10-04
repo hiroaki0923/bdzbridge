@@ -324,10 +324,12 @@ extension AppModel {
         // `willPresent`). A flush with nothing to say -- everything waiting had been refused before -- leaves
         // the last line where it was. What is held for another recorder is said each time, for as long as any
         // is, and first: counted from the rows, since the attach that held them need not have got this far.
+        // What became of the queue says which device it went to once a television is saved beside the
+        // recorder, and not before (`PendingQueue.Outcome.said`).
         let held = pending.filter { $0.problem == Self.heldForAnotherRecorder }.count
         let heldBack = held == 0 ? nil
             : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
-        let lines = [heldBack, outcome.summary].compactMap { $0 }
+        let lines = [heldBack, outcome.said(withATelevisionSaved: tv != nil)].compactMap { $0 }
         if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
         return outcome.sent.count
     }
