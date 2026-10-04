@@ -201,45 +201,42 @@ public final class TVDriver: LinkDriver {
         return await read.value
     }
 
-    /// The read itself, under a line of its own unless it is a step of something that has one. The television
-    /// is made sure of first -- inside a connect that answers at once -- and a read that goes through clears
-    /// the line of what went wrong, as any operation does. A reminder to watch is no reservation and is left
-    /// out (`TVScheduleRow.reservation`).
+    /// The read itself, as one operation through the link (`DeviceLink.run`): under a line of its own unless
+    /// it is a step of something that has one, the television made sure of first -- inside a connect that
+    /// answers at once -- and a read that goes through clears the line of what went wrong, as any operation
+    /// does. How it failed the link says; what that tells of the registration is kept here (`note`).
+    ///
+    /// It is sent on the link's client as the check leaves it, not on the one the check was asked with. They
+    /// are one client unless a connect began in between; then the read waits its turn on that connect's
+    /// client, behind the attach's own asks, rather than going out beside them on the last one. A reminder to
+    /// watch is no reservation and is left out (`TVScheduleRow.reservation`).
     private func readNow(_ link: DeviceLink, underALine: Bool) async -> [Reservation]? {
-        let owner = link.owner
-        let line = underALine ? owner?.beginActivity(Self.readingLine) : nil
-        defer { if let line { owner?.endActivity(line) } }
-        guard await link.ensureUp(), let client = link.client as? ScalarClient else { return nil }
-        do {
-            let rows = try await client.schedules()
-            owner?.problem = nil
-            return rows.compactMap { $0.reservation() }
-        } catch {
-            say(error, on: link)
+        let read = await link.run(line: underALine ? Self.readingLine : nil) { _, _ in
+            try await (link.client as? ScalarClient)?.schedules().compactMap { $0.reservation() }
+        }
+        switch read {
+        case .success(let list):
+            return list
+        case .failure(let failure):
+            note(failure)
             return nil
         }
     }
 
-    /// What a request sent after the attach failed as, where the screens read it. Silence leaves the link as
-    /// any silence does, given up until the network changes or the reader asks; it is said once, so that a
-    /// request which waited its turn behind the one that met it does not write over what that one said -- a
-    /// delete that may have arrived. A refusal for want of a registration is put down at once: the app was
-    /// taken off the television's list while the link stood, the next attach may be a long way off, and the
-    /// screens are to ask for the registration now; the next attach that goes through takes it back. Anything
-    /// else is the television's own to say.
+    /// What a request sent after the attach failed as, where the screens read it: told apart and said by the
+    /// link (`OperationFailure.init`, `DeviceLink.say`), and noted here. It is said as a read's is, in the
+    /// television's own words: silence met by what changes the television has a sentence of its own, which
+    /// the operation that sent it says itself (`cancel`).
     private func say(_ error: any Error, on link: DeviceLink) {
-        let deviceError = error as? any DeviceError
-        switch deviceError?.failure {
-        case .silent:
-            guard link.session.connected else { return }
-            link.lost()
-            link.owner?.problem = noAnswerLine
-        case .needsPairing:
-            facts.needsPairing = true
-            link.owner?.problem = deviceError?.explanation
-        default:
-            link.owner?.problem = deviceError?.explanation ?? String(describing: error)
-        }
+        note(link.say(OperationFailure(error, sending: nil)))
+    }
+
+    /// What the driver keeps of a failure the link has said. A refusal for want of a registration is put down
+    /// at once: the app was taken off the television's list while the link stood, the next attach may be a
+    /// long way off, and the screens are to ask for the registration now; the next attach that goes through
+    /// takes it back.
+    private func note(_ failure: OperationFailure) {
+        if case .refused(.needsPairing, _) = failure { facts.needsPairing = true }
     }
 
     /// Takes a reservation off the television. Whether it was deleted, and the freshest list read on the way
