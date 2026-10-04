@@ -546,21 +546,69 @@ final class TVRoundTests: XCTestCase {
         }
     }
 
+    /// A list that cannot be read after a create answered as taken ends the round at that row, the first
+    /// such row as well: the round no longer has the list it stands on, and what the next reservation did
+    /// beyond its own row would be read from a list from before this create. The row is told as one passed
+    /// over, nothing is written on it, and nothing is asked about the reservation after it. The next round
+    /// finds the row in the television's list and sends no create for it. After a create answered as held
+    /// already nothing was made, and the list the round holds still stands: there the row is passed over,
+    /// and the round goes on to the next.
+    func testAListThatCannotBeReadAfterACreateThatWasTakenEndsTheRound() async throws {
+        let whole = [Self.kind, Self.question, Self.create, Self.list]
+        let answers = [("that cannot be read", Self.unreadable), ("with an error", Self.refused(Self.unknown))]
+        for (name, answer) in answers {
+            let bench = await bench(faults: ["\(Self.list) 1": .answered(answer)])
+            let store = try temporaryStore()
+            for waiting in [row("サンプル劇場", 50101, on: 0), row("サンプル紀行", 50102, on: 1, at: 7200)] {
+                try await store.queue(waiting)
+            }
+            let now = Self.start - 86_400
+
+            let met = await PendingQueue.flush(client: bench.tv, store: store, now: now)
+
+            XCTAssertEqual(met.stopped, .saysNothing, name)
+            XCTAssertEqual(met.deferred.map(\.request.title), ["サンプル劇場"], name)
+            XCTAssertEqual([met.sent, met.alreadyThere, met.refused, met.held].map(\.count), [0, 0, 0, 0], name)
+            expectEqual(await bench.line.sent, [Self.disk, Self.list] + whole, name)
+            expectEqual(try await store.pendingReservations().map(\.problem), [nil, nil], name)
+            expectEqual(await bench.television.schedules.map(\.eventId), [50101], name)
+
+            await bench.line.forget()
+            let next = await PendingQueue.flush(client: bench.tv, store: store, now: now)
+
+            XCTAssertEqual(next.alreadyThere.map(\.request.title), ["サンプル劇場"], name)
+            XCTAssertEqual(next.sent.map(\.request.title), ["サンプル紀行"], name)
+            expectEqual(await bench.line.sent, [Self.disk, Self.list] + whole, name)
+            expectEqual(await bench.television.schedules.map(\.eventId), [50101, 50102], name)
+        }
+
+        let heldAlready = await bench(faults: ["\(Self.list) 1": .answered(Self.unreadable)])
+        var round = try await open(heldAlready).round
+        await heldAlready.television.atTheNextCreate(.answered(code: 41222))
+        expectEqual(await send(row("サンプル劇場", 50101, on: 0), in: &round, on: heldAlready),
+                    Came(.passedOver, asked: whole))
+        expectEqual(await send(row("サンプル紀行", 50102, on: 1, at: 7200), in: &round, on: heldAlready),
+                    Came(.made(saying: nil), asked: [Self.question, Self.create, Self.list]))
+    }
+
     /// An answer that says nothing about the row -- a code nothing here knows, at the create or at the
-    /// question, and a list after the create that cannot be read -- passes the row over, with nothing to
-    /// write on it, and the round goes on. A second such row running stops the round. A row made, found
-    /// there or held in between starts the count again; a row passed over for stations that could not be
-    /// read neither counts nor starts it again.
+    /// question, and a list that cannot be read after a create answered as held already -- passes the row
+    /// over, with nothing to write on it, and the round goes on. A second such row running stops the round.
+    /// A row made, found there or held in between starts the count again; a row passed over for stations
+    /// that could not be read neither counts nor starts it again.
     func testASecondRowRunningThatSaysNothingStopsTheRound() async throws {
-        enum Kind { case unknownAtTheCreate, unknownAtTheQuestion, listUnreadable, made, foundThere, held, kindUnread }
+        enum Kind {
+            case unknownAtTheCreate, unknownAtTheQuestion, heldAlreadyAndListUnreadable, made, foundThere, held
+            case kindUnread
+        }
         let stopped = RowSent.stopped(.saysNothing, passedOver: true)
         let notListed = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
         let rounds: [(String, [Kind], [RowSent])] = [
             ("two running", [.unknownAtTheCreate, .unknownAtTheCreate], [.passedOver, stopped]),
             ("at the question, then at the create", [.unknownAtTheQuestion, .unknownAtTheCreate],
              [.passedOver, stopped]),
-            ("at the list after the create, then at the create", [.listUnreadable, .unknownAtTheCreate],
-             [.passedOver, stopped]),
+            ("at the list after a create answered as held already, then at the create",
+             [.heldAlreadyAndListUnreadable, .unknownAtTheCreate], [.passedOver, stopped]),
             ("one made in between", [.unknownAtTheCreate, .made, .unknownAtTheCreate, .made],
              [.passedOver, .made(saying: nil), .passedOver, .made(saying: nil)]),
             ("one found there in between", [.unknownAtTheCreate, .foundThere, .unknownAtTheCreate],
@@ -576,13 +624,18 @@ final class TVRoundTests: XCTestCase {
             // The stations on BS cannot be read; the terrestrial ones, asked for first or not at all, can.
             var faults = ["\(Self.kind) \(kinds.first == .kindUnread ? 0 : 1)": Line.Fault.answered(Self.unreadable)]
             for (index, kind) in kinds.enumerated() {
-                // The list is read once to open the round, and once after each create before this row's.
-                let creates = kinds.prefix(index).filter { $0 == .made || $0 == .foundThere || $0 == .listUnreadable }
+                // The list is read once to open the round, and once after each create before this row's that
+                // was answered as taken or as held already.
+                let creates = kinds.prefix(index).filter {
+                    $0 == .made || $0 == .foundThere || $0 == .heldAlreadyAndListUnreadable
+                }
                 if kind == .unknownAtTheQuestion {
                     let questions = kinds.prefix(index).filter { $0 != .held && $0 != .kindUnread }.count
                     faults["\(Self.question) \(questions)"] = .answered(Self.refused(Self.unknown))
                 }
-                if kind == .listUnreadable { faults["\(Self.list) \(creates.count + 1)"] = .answered(Self.unreadable) }
+                if kind == .heldAlreadyAndListUnreadable {
+                    faults["\(Self.list) \(creates.count + 1)"] = .answered(Self.unreadable)
+                }
             }
             let bench = await bench(faults: faults)
             var round = try await open(bench).round
@@ -592,12 +645,13 @@ final class TVRoundTests: XCTestCase {
                 var waiting = row("サンプル番組\(index)", 50101 + index, on: 0, at: offset)
                 switch kind {
                 case .unknownAtTheCreate: await bench.television.atTheNextCreate(.answered(code: Self.unknown))
+                case .heldAlreadyAndListUnreadable: await bench.television.atTheNextCreate(.answered(code: 41222))
                 case .foundThere:
                     let there = owned("recording.9\(index)", on: 0, "サンプル紀行", at: offset, programme: 50101 + index)
                     await bench.television.put(await bench.television.schedules + [there])
                 case .held: waiting = row("サンプル番組\(index)", 50101 + index, at: offset, service: 1599)
                 case .kindUnread: waiting = row("サンプル番組\(index)", 50101 + index, on: 4, at: offset)
-                case .unknownAtTheQuestion, .listUnreadable, .made: break
+                case .unknownAtTheQuestion, .made: break
                 }
                 came.append(await send(waiting, in: &round, on: bench).sent)
             }

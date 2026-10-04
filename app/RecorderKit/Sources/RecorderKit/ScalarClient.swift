@@ -711,15 +711,23 @@ extension ScalarClient: QueueTarget {
     ///     A code that turns the reservation down (`refusals`): held with its reason. Silence at the create
     ///     stops the round, and nothing is sent after it, the list included: the reservation may have been
     ///     made, and the next round's list says.
-    ///  5. An answer to the question, to the create or to the list after it that says nothing about the
-    ///     reservation -- a code not known here, one that cannot be read -- passes the row over with nothing
-    ///     written on it, and a second such row running stops the round. A row made, found or held starts
-    ///     the count again. A row passed over for a list of stations that could not be read is not counted
-    ///     and does not start it again: nothing was asked about it.
+    ///  5. An answer to the question or to the create that says nothing about the reservation -- a code not
+    ///     known here, one that cannot be read -- passes the row over with nothing written on it, and a
+    ///     second such row running stops the round. So does such an answer to the list after a create
+    ///     answered as held already: nothing was made, and the list the round holds still stands. A row
+    ///     made, found or held starts the count again. A row passed over for a list of stations that could
+    ///     not be read is not counted and does not start it again: nothing was asked about it.
+    ///  6. Such an answer to the list after a create answered as taken ends the round there, whatever the
+    ///     count: the round no longer has the list it stands on. The row is told as one passed over, with
+    ///     nothing written on it, and the next round's list says whether it was made.
     ///
     /// At any step, silence stops the round, and so does a cookie the television does not take. Silence
     /// after the create was answered as taken is told as silence at the create is: the reservation is on the
     /// television as far as its answer goes, and has not been seen in its list.
+    ///
+    /// Left as it is: a reservation whose create met silence, or whose list could not be read, is found by
+    /// the next round's opening and told as there already, and what making it did beyond its own row
+    /// (`remark`) is then never said.
     public func send(_ waiting: PendingReservation, consented: Bool,
                      in round: TVRound) async -> (sent: RowSent, round: TVRound) {
         var round = round
@@ -777,6 +785,13 @@ extension ScalarClient: QueueTarget {
         do {
             round.listed = try await schedules()
         } catch {
+            // The create was taken and the list cannot be read: the round has no list to stand on any
+            // more. What the next reservation did beyond its own row would be worked out from a list from
+            // before this create, and said of the wrong one. After a create answered as held already
+            // nothing was made, and the list the round holds still stands.
+            if !saidThere, Self.stop(for: error, afterSending: true) == nil {
+                return (.stopped(.saysNothing, passedOver: true), round)
+            }
             return Self.unanswered(error, afterSending: !saidThere, round)
         }
         guard let made = round.listed.holding(request) else {

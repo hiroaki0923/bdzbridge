@@ -63,7 +63,9 @@ public enum RowSent: Sendable, Equatable {
 /// them. The recorder's way of sending comes to the first alone.
 public enum SendingStop: Sendable, Equatable {
     /// Nothing answered. `afterSending` when it was the request that makes the reservation that met it: that
-    /// row may have been made all the same, and is not sent again in this round.
+    /// row may have been made all the same, and is not sent again in this round. A device that reads its
+    /// list after a create says the same of silence at that read, when the create was answered as taken:
+    /// by that answer the row was made, and it has not been seen.
     case silent(afterSending: Bool)
     /// The device answers and wants the app registered with it again.
     case needsPairing
