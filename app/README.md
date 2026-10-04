@@ -205,6 +205,31 @@ The test bundle does not link RecorderKit itself. It uses the copy linked into t
 put two of every RecorderKit type in the process, and the model would not take a `RecorderError` thrown by a
 test's recorder for its own.
 
+## Checks against a real television
+
+What the app relies on of a real television is tried from RecorderKit, by the client and the transport the
+app sends with and not by another tool (`LiveTVTests`, every test skipped unless `TV_HOST` names a
+television). What is at an address, the registration and the two reads behind it are there, and so are the
+checks with which the three requests that reserve on a television -- its stations, the question of what a
+reservation would stop from recording, the create -- meet a real one for the first time: nine of them, run
+one at a time in a sitting with the television's owner, in the order written at the head of that file with
+what to look at for each. Nothing in the app sends those three requests yet.
+
+A check that writes to somebody's television keeps to rules that are written once, in `TVSitting`. It makes
+nothing unless it was told it may (`TV_WRITE=1`) and the television says it is on. It reads the list before
+and after each create, takes the recordings whose ids are new for its own, and deletes exactly those: never
+by programme, time or title. It writes what it is about to make in a ledger, a file kept out of the
+repository, before the create is sent, and strikes it out once the list shows nothing of it. After silence
+on a create it sends nothing again. It reserves only a programme twenty hours or more ahead with nothing
+listed within three hours either side, chosen from a file of picks written from the recorder's guide
+beforehand. And it says counts, statuses and codes: never a title, a station's name or an id.
+
+Every check is rehearsed first, in the same order and by the same code, against the package's invented
+television (`TVSittingTests`, an ordinary test that needs nothing set). The household's reservations are
+put just outside the slots the checks use and on the very programmes they reserve, and the line to the
+television can be cut at one request. The rehearsal fails if a check leaves a row, deletes one it did not
+make, sends a create a second time, makes something without leave, or names a programme, a station or a row.
+
 ## On a real iPhone
 
 **Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer
