@@ -916,9 +916,9 @@ final class TVSittingTests: XCTestCase {
     /// What it says of a flush after which the list held one recording more that the flush did not make.
     private static func notTheFlushes(_ answer: String, own: Int) -> String {
         "recordings new in the list that the first flush did not make: 1. They are on another channel than it"
-            + " was sent for, or it took no create and made nothing: they are not the check's and are left"
-            + " alone; the first flush (\(answer)) made rows of its own: \(own), and its entry is left in the"
-            + " ledger"
+            + " was sent for or of another programme, or it took no create and made nothing: they are not the"
+            + " check's and are left alone; the first flush (\(answer)) made rows of its own: \(own), and its"
+            + " entry is left in the ledger"
     }
 
     /// The check for a television left in standby, on the invented one in standby with the household's rows
@@ -1129,6 +1129,27 @@ final class TVSittingTests: XCTestCase {
         expectEqual(await world.television.schedules, Self.owners + [theirs], "the household's recording was deleted")
         expectEqual(await world.line.sent, Self.standbyOpening + ["getStorageList", "getScheduleList"]
                     + Self.standbyEnding)
+        XCTAssertEqual(try entries(world), ["1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 1)
+        expectNamesNothing((stopped?.what ?? "") + world.said.text)
+    }
+
+    /// After a flush whose create was taken, the check's own row is the new recording on the pick's station
+    /// that is of the pick's programme, and no other. A recording of another programme that somebody sets on
+    /// that station while the flush is out is theirs: it is left where it is, the check's own row is taken
+    /// off, and the entry stays open.
+    func testARecordingOfAnotherProgrammeNewAfterAFlushIsNotTheChecks() async throws {
+        let theirs = Self.owned("recording.46", on: 1, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
+        let world = await world(power: "standby", faults: ["addSchedule 0": .afterTheHouseholdSets(theirs)])
+
+        let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, Self.notTheFlushes(Self.round(sent: 1), own: 1) + "; and "
+                       + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1))
+        expectEqual(await world.television.schedules, Self.owners + [theirs], "the household's recording was deleted")
+        expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"] + Self.takenOff
+                    + Self.standbyEnding)
+        expectEqual(await count("deleteSchedule", in: world), 1)
         XCTAssertEqual(try entries(world), ["1502 50110 1"])
         XCTAssertEqual(try TVLedger.read(world.ledger).open, 1)
         expectNamesNothing((stopped?.what ?? "") + world.said.text)
