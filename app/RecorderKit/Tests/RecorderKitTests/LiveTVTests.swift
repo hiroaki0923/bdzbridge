@@ -42,9 +42,12 @@ import XCTest
 /// repository, or outside it. A test given any other path fails before anything is sent or written. The
 /// picks and the ledger say which stations the house receives, and the jar is a key to its television.
 ///
-/// **The evening before**, the programmes the checks choose from are picked from the recorder's guide into a
+/// **Before the sitting**, the programmes the checks choose from are picked from the recorder's guide into a
 /// file: what a reservation is made of, with no title and no station's name. This sends the television
-/// nothing, and the checks send the recorder nothing:
+/// nothing, and the checks send the recorder nothing. With the television on it can be done a minute before
+/// the first check. Only a sitting that watches a television in standby has it done before the television is
+/// left to go to standby: the recorder is not to be asked anything while that is watched, since what waking
+/// a recorder does to a television it is wired to was never measured.
 ///
 ///     RECORDER_HOST=… TV_PICKS=<repository>/notes/<a file> \
 ///         swift test --filter LiveTVTests/testWritingThePicks
