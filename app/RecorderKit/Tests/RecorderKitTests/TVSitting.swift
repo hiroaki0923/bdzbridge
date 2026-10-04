@@ -126,6 +126,10 @@ struct TVLedger: Codable, Equatable {
     /// The television's list as it counted before the first create of the sitting, the household's viewing
     /// reservation for the sitting in it: what the list is to count as again when everything is taken off.
     var before: Counts?
+    /// When the first entry was written down, which is what says whose ledger this is. A sitting is one
+    /// evening: a file begun more than a day ago is an earlier sitting's, named again by mistake, and its
+    /// count is of another day's list.
+    var begun: Date?
 
     var open: Int { entries.filter { !$0.struck }.count }
 }
@@ -178,11 +182,14 @@ enum TVFile {
 ///   that are on the channel the create was sent for. Exactly those rows are deleted, each as it was last
 ///   read, and the list is read again to see them gone. Nothing is ever deleted by its programme, its time
 ///   or its title. A recording that is new and on another channel is somebody else's, set while the create
-///   was out: it is left alone, and the check ends with its entry left open.
+///   was out: it is left alone, and the check ends with its entry left open. So is any that is new after a
+///   create the television answered as a reservation already there, which makes nothing.
 /// - **The ledger** is written before a create is sent. An entry is struck out when every delete sent for it
-///   was answered without an error and the list shows its rows gone, or when its create was answered with an
-///   error and the list shows nothing new. A check that fails on the way takes off what it made before it
-///   ends, and says what it could not.
+///   was answered without an error and the list shows its rows gone and no recording it did not have before
+///   the check, or when its create was answered with an error and the list shows nothing new. A check that
+///   fails on the way takes off what it made before it ends, and says what it could not.
+/// - **A ledger is one sitting's.** It says when its first entry was written, and beside one begun more than
+///   a day ago nothing is made. An entry is struck out only while it is in the file as the check wrote it.
 /// - **After silence on a create nothing is sent again.** The list is read, once; a row of the check's own
 ///   found there is deleted, and the check ends. With nothing found the entry stays open: a television may
 ///   carry a create out after the list was read, and somebody has to look.
@@ -214,6 +221,8 @@ actor TVSitting {
     /// waits its reservation is there, and a check that is cut off leaves it there: the wait is kept to what
     /// somebody sits through.
     static let longestLook: TimeInterval = 120
+    /// How long after its first entry was written a ledger is still the sitting's.
+    static let longestSitting: TimeInterval = 24 * 3600
     /// The kinds of broadcast a television lists stations of, in the order they are asked for.
     static let kinds = ["td", "bs", "cs", "bs4k", "cs4k"]
     private static let terrestrial = Codes.broadcasting["td"] ?? 2
@@ -248,6 +257,9 @@ actor TVSitting {
     private var last: [TVScheduleRow]?
     /// The entries of the check under way that stay open whatever becomes of their rows.
     private var keptOpen: Set<Int> = []
+    /// The entries the check under way has written down, each as it wrote it: what an entry is known by
+    /// again when it is struck out.
+    private var noted: [Int: TVLedger.Entry] = [:]
     /// How many creates the check under way has sent.
     private var sent = 0
 
@@ -295,6 +307,28 @@ actor TVSitting {
     /// or for no number, and never more than `longestLook`.
     static func looking(_ seconds: TimeInterval) -> TimeInterval {
         seconds.isNaN ? 0 : min(max(seconds, 0), longestLook)
+    }
+
+    /// Where what a sitting says is kept as well as said: beside the ledger, under the ledger's own path with
+    /// `.said` on it, so that wherever the ledger may be kept this may be too.
+    static func saidFile(beside ledger: URL) -> URL { ledger.appendingPathExtension("said") }
+
+    /// The terminal of a sitting at a real television. Each line is put out as it is said and not when the
+    /// test ends: under `swift test` the output is a pipe, and what waits in a buffer is lost with a run that
+    /// is cut off, while the reservation it was saying it had made is still on the television. And each line
+    /// is added to the end of the file beside the ledger, which is opened, written and closed for that one
+    /// line: whatever runs the command may show its output only when the command has ended, and what a check
+    /// says while it waits is said for the time it is waiting. A file that cannot be written costs the check
+    /// nothing: the line is still put out.
+    static func printer(beside ledger: URL) -> @Sendable (String) -> Void {
+        let path = saidFile(beside: ledger).path
+        return { line in
+            print(line)
+            fflush(stdout)
+            guard let file = fopen(path, "a") else { return }
+            fputs(line + "\n", file)
+            fclose(file)
+        }
     }
 
     /// The working tree this file is in: the nearest directory above it that has a `.git`, or the package's
@@ -575,9 +609,11 @@ actor TVSitting {
     /// recording an entry may have left behind -- a struck one as well: what a television answered with an
     /// error it may have made all the same -- and the list counts as it did before the first create. And
     /// fails, with nothing sent, on a ledger that holds nothing of a sitting: a file that is not the one the
-    /// checks wrote in says of whatever is on the television that nothing was ever made.
+    /// checks wrote in says of whatever is on the television that nothing was ever made. Nor is a ledger
+    /// begun more than a day ago this sitting's. When nothing is wrong it says so, in one line that nothing
+    /// else says: a run that was skipped looked at nothing, and reads as no failure all the same.
     func whatIsLeft() async throws {
-        let ledger = try ledger()
+        let ledger = try ledgerOfTheSitting()
         guard let before = ledger.before else {
             throw Stopped(what: "the ledger holds nothing of a sitting: no create was ever written down in it."
                           + " It is one file for the whole sitting, the one every check was given")
@@ -593,6 +629,7 @@ actor TVSitting {
         if !left.isEmpty { wrong.append("recordings listed that may be the sitting's: \(left.count)") }
         if before != counts { wrong.append("the list does not count as it did") }
         guard wrong.isEmpty else { throw Stopped(what: wrong.joined(separator: "; ")) }
+        say("nothing of the sitting is left")
     }
 
     // MARK: - what every check that makes something is made of
@@ -601,7 +638,7 @@ actor TVSitting {
     /// ends. A check that fails on the way does not leave what it had made by then, and what could not be
     /// taken off is said with what failed. Afterwards the list is to read as it did before the check began.
     private func making(_ check: () async throws -> Void) async throws {
-        (mine, found, last, keptOpen, sent) = ([], nil, nil, [], 0)
+        (mine, found, last, keptOpen, noted, sent) = ([], nil, nil, [], [:], 0)
         try await mayMake()
         var failure: (any Error)?
         do { try await check() } catch { failure = error }
@@ -623,10 +660,10 @@ actor TVSitting {
     /// The guard, in the order that sends least: with no leave to write nothing is sent at all, and the
     /// ledger is not so much as read. An entry left open is not a check that merely did not run: something
     /// of the sitting may be on the television, so it is thrown as what stops the sitting, and the test
-    /// fails.
+    /// fails. So it does beside a ledger that is another sitting's.
     private func mayMake() async throws {
         guard mayWrite else { throw Refused(why: "writing to the television was not asked for") }
-        let open = try ledger().open
+        let open = try ledgerOfTheSitting().open
         guard open == 0 else {
             throw Stopped(what: "entries of the ledger not struck out: \(open). Something of the sitting may be"
                           + " on the television: see on its own list that nothing of them is there, and strike"
@@ -731,6 +768,11 @@ actor TVSitting {
     /// touched, the entry is left open so that somebody looks, and the check ends, its own row taken off as
     /// it does.
     ///
+    /// A create answered as a reservation already there was measured to make nothing, so no row is the
+    /// check's own after it. A recording that is new then is somebody else's as well, on the channel or off
+    /// it: most likely theirs for the very programme, set a moment before, which is what the television was
+    /// answering about.
+    ///
     /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
     /// create was taken and shows nothing in the list is left open, and the check ends: something may be
     /// there that the list did not show. After silence the check ends as well: nothing is sent again, what
@@ -754,16 +796,17 @@ actor TVSitting {
                           + " what it made is not known, and its entry is left in the ledger")
         }
         let new = after.filter { $0.type == "recording" && !before.contains($0.id) }
-        let rows = new.filter { row in
+        let madeNothing = (failure as? ScalarError)?.failure == .alreadyThere
+        let rows = madeNothing ? [] : new.filter { row in
             TVScheduleRow.channel(of: row.uri).map { $0 == (pick.broadcastingType, pick.serviceID) } == true
         }
         mine += rows.map { ($0, entry) }
         guard rows.count == new.count else {
             keptOpen.insert(entry)
-            throw Stopped(what: "recordings new in the list that are not on the channel a create was sent for:"
-                          + " \(new.count - rows.count). They are not the check's and are left alone; the"
-                          + " create (\(answer)) made rows of its own: \(rows.count), and its entry is left in"
-                          + " the ledger")
+            throw Stopped(what: "recordings new in the list that the create did not make: \(new.count - rows.count)."
+                          + " They are on another channel than it was sent for, or it was answered as already"
+                          + " there and made nothing: they are not the check's and are left alone; the create"
+                          + " (\(answer)) made rows of its own: \(rows.count), and its entry is left in the ledger")
         }
         let silent = (failure as? ScalarError)?.failure == .silent
         if rows.isEmpty {
@@ -785,7 +828,10 @@ actor TVSitting {
     /// sent once, and then the list, read once, to see them gone. An entry is struck out only when every
     /// delete sent for it was answered without an error and none of its rows is listed any more: a delete
     /// the television refused is of a row it no longer has under that number, which may be there under
-    /// another. Anything else stays in the ledger and is thrown; nothing is tried a second time.
+    /// another. And nothing at all is struck out while the list holds a recording it did not have when the
+    /// check began: a television may list again, under a new number, what it has just answered a delete of,
+    /// and that cannot be told from a recording somebody set meanwhile. It is left alone, and somebody
+    /// looks. Anything else stays in the ledger and is thrown; nothing is tried a second time.
     private func takeOff() async throws {
         let taking = mine
         mine = []
@@ -807,12 +853,19 @@ actor TVSitting {
                           + " and their entries are left in the ledger")
         }
         let left = taking.filter { held in after.contains { $0.id == held.row.id } }
+        let before = Set((found ?? []).map(\.id))
+        let new = after.filter { $0.type == "recording" && !before.contains($0.id) }
         let open = Set(unanswered + left.map(\.entry)).union(keptOpen)
-        for entry in Set(taking.map(\.entry)) where !open.contains(entry) { try strike(entry) }
-        guard left.isEmpty, unanswered.isEmpty else {
+        if new.isEmpty {
+            for entry in Set(taking.map(\.entry)) where !open.contains(entry) { try strike(entry) }
+        }
+        guard left.isEmpty, unanswered.isEmpty, new.isEmpty else {
             throw Stopped(what: "deletes that were not answered as taken: \(unanswered.count); rows the check made"
-                          + " that are still listed after their delete: \(left.count). Their entries are left"
-                          + " in the ledger")
+                          + " that are still listed after their delete: \(left.count); recordings listed that"
+                          + " were not there before the check: \(new.count). "
+                          + (new.isEmpty ? "Their entries are left in the ledger"
+                              : "Nothing is struck out while one of those is listed: the entries of everything"
+                              + " taken off are left in the ledger"))
         }
     }
 
@@ -1033,6 +1086,17 @@ actor TVSitting {
         }
     }
 
+    /// What answers at an address, by its kind alone. A television's model is not said: which one a
+    /// household has is no more a check's to print than what it records.
+    static func said(ofWhatAnswers presence: TVPresence) -> String {
+        switch presence {
+        case .nothing: "nothing"
+        case .notATelevision: "something that is not a television"
+        case .standby: "a television, in standby"
+        case .on: "a television, on"
+        }
+    }
+
     /// What kept a recorder's guide from being read, by its kind alone: no answer, something that is not a
     /// recorder, an address nothing can be sent to, or an answer that could not be read. Never the error as
     /// it came, whose text has the address in it.
@@ -1056,27 +1120,58 @@ actor TVSitting {
         do { return try TVLedger.read(ledgerFile) } catch { throw Stopped(what: "the ledger cannot be read") }
     }
 
-    private func change<T>(_ change: (inout TVLedger) -> T) throws -> T {
+    /// The ledger, when it is this sitting's. One begun more than a day ago is not: it is thrown as what
+    /// stops the sitting, with nothing sent. Taken up again, its count would be of another day's list and
+    /// its entries of what another sitting made.
+    private func ledgerOfTheSitting() throws -> TVLedger {
+        let ledger = try ledger()
+        if let begun = ledger.begun, now().timeIntervalSince(begun) > Self.longestSitting {
+            throw Stopped(what: "the ledger was begun more than a day ago, and has entries not struck out:"
+                          + " \(ledger.open). It is another sitting's: a sitting writes in a file of its own,"
+                          + " one that is not there before its first check")
+        }
+        return ledger
+    }
+
+    /// Reads the ledger, changes it and writes it back. A change that throws writes nothing.
+    private func change<T>(_ change: (inout TVLedger) throws -> T) throws -> T {
         var ledger = try ledger()
-        let result = change(&ledger)
+        let result = try change(&ledger)
         do { try ledger.write(to: ledgerFile) } catch { throw Stopped(what: "the ledger cannot be written") }
         return result
     }
 
     /// Writes down what is about to be made, before it is sent: a ledger that cannot be written ends the
-    /// check with nothing sent. The first entry of a sitting has the list's counts written beside it.
+    /// check with nothing sent. The first entry of a sitting has the list's counts written beside it, and
+    /// the time.
     private func note(_ pick: TVPick, repeating repeatType: String) throws -> Int {
-        let counts = last.map { TVLedger.Counts($0) }
-        return try change { ledger in
+        let counts = last.map { TVLedger.Counts($0) }, at = now()
+        let entry = TVLedger.Entry(broadcastingType: pick.broadcastingType, serviceID: pick.serviceID,
+                                   eventID: pick.eventID, start: pick.start, durationSec: pick.durationSec,
+                                   repeatType: repeatType)
+        let place = try change { ledger in
             if ledger.before == nil { ledger.before = counts }
-            ledger.entries.append(TVLedger.Entry(broadcastingType: pick.broadcastingType, serviceID: pick.serviceID,
-                                                 eventID: pick.eventID, start: pick.start,
-                                                 durationSec: pick.durationSec, repeatType: repeatType))
+            if ledger.begun == nil { ledger.begun = at }
+            ledger.entries.append(entry)
             return ledger.entries.count - 1
         }
+        noted[place] = entry
+        return place
     }
 
+    /// Strikes out an entry the check under way wrote down, while it is in the file as it was written: at
+    /// its place, and not yet struck out. The file is read and written with no lock, and an entry is known
+    /// by its place in it. So a file taken away or written over meanwhile -- by hand, or by a second command
+    /// run at the same moment -- is not the ledger this check wrote in: going by the place alone would
+    /// strike out an entry that is somebody else's, and would stop the process where the place is gone, in
+    /// the middle of a check, with what it had not yet taken off left on the television.
     private func strike(_ entry: Int) throws {
-        try change { $0.entries[entry].struck = true }
+        try change { ledger in
+            guard ledger.entries.indices.contains(entry), ledger.entries[entry] == noted[entry] else {
+                throw Stopped(what: "the ledger is not the one this check wrote in: an entry it wrote down is not"
+                              + " there as it was written, and nothing is struck out")
+            }
+            ledger.entries[entry].struck = true
+        }
     }
 }
