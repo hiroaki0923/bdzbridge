@@ -153,6 +153,28 @@ public struct TVScheduleRow: Sendable, Equatable {
     }
 }
 
+extension Array where Element == TVScheduleRow {
+    /// The recording the television holds for what `request` asks, when this list of its rows has one: a row
+    /// to record, on the request's channel (`TVScheduleRow.channel(of:)`), for the request's programme id as
+    /// a create writes one. What says that a reservation need not be sent, or that one sent was made.
+    ///
+    /// Nothing else is held against the request. Not the title: a television lists a reservation under a
+    /// title of its own and not under the one it was sent. Not the start: a reservation that follows its
+    /// programme is that programme's wherever its start has moved to. And not the name in the uri, which is
+    /// the television's own for the station.
+    ///
+    /// A reminder to watch the programme is no match: it records nothing. A request with no programme id
+    /// matches nothing, whatever stands at its time: its channel alone does not say which row is its own.
+    func holding(_ request: ReservationRequest) -> TVScheduleRow? {
+        guard let programme = request.eventID.map({ String($0) }) else { return nil }
+        return first { row in
+            guard row.type == "recording", row.eventId == programme,
+                  let channel = TVScheduleRow.channel(of: row.uri) else { return false }
+            return channel.broadcastingType == request.broadcastingType && channel.serviceID == request.serviceID
+        }
+    }
+}
+
 /// What has become of a television's reservation the app holds, in the list just read from the television.
 enum TVTarget: Equatable, Sendable {
     /// It is there as it was held. The row is the one just read, which is the one to send.

@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import RecorderKit
 
-/// A television's row read into the terms the screens show a reservation in, and a reservation the app holds
-/// found again in the list just read from the television. The rows are in the television's shapes with invented
-/// values.
+/// A television's row read into the terms the screens show a reservation in, a reservation the app holds
+/// found again in the list just read from the television, and what the list holds for a request that waits to
+/// be sent. The rows are in the television's shapes with invented values.
 final class TVScheduleTests: XCTestCase {
     private let startText = "2026-11-01T21:00:00+0900"
     private let start = Date(timeIntervalSince1970: 1_793_534_400)
@@ -207,6 +207,49 @@ final class TVScheduleTests: XCTestCase {
         XCTAssertEqual(listed.tvTarget(of: held), .found(listed[0]))
         XCTAssertEqual(list(row(start: "2026-11-01T21:15:00+0900", eventId: nil)).tvTarget(of: held), .changed)
         XCTAssertEqual(list(row(uri: uri("isdbt", 1032), eventId: nil)).tvTarget(of: held), .changed)
+    }
+
+    // MARK: - what the television holds for a request
+
+    /// A request is found in the television's list by its channel and its programme id, and by nothing else.
+    /// The row is the request's under whatever title the television lists it, wherever its start has moved
+    /// to, whatever its repeat and whatever the television calls the station. A reminder to watch the
+    /// programme is no match, nor a row on another service or another kind of broadcast, nor one whose uri
+    /// names no channel; and a row at the request's own start under its own title is no match either when it
+    /// is another programme's, or was made by its times. A request with no programme id matches nothing.
+    func testARequestIsFoundInTheListByItsChannelAndItsProgramme() {
+        let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: 2, serviceID: 1024, qualityCode: 100, eventID: 12345)
+        let cases: [(String, TVScheduleRow, Bool)] = [
+            ("as it was sent", row(), true),
+            ("under a title of the television's own", row(title: "サンプル番組\u{3000}12345\u{1F211}"), true),
+            ("with no title", row(title: nil), true),
+            ("its start moved", row(start: "2026-11-01T21:15:00+0900"), true),
+            ("on another day", row(start: "2026-11-08T21:00:00+0900"), true),
+            ("with another repeat", row(repeatType: "w7"), true),
+            ("the station under another name", row(uri: uri("isdbt", 1024, "サンプル\u{3000}テレビ")), true),
+            ("marked as losing to others", row(overlapStatus: "fullyOverlapped"), true),
+            ("a reminder to watch the programme", row(id: "reminder.23", type: "reminder", quality: nil), false),
+            ("on another service", row(uri: uri("isdbt", 1032)), false),
+            ("on another kind of broadcast", row(uri: uri("isdbbs", 1024)), false),
+            ("a uri that names no channel", row(uri: "tv:isdbt"), false),
+            ("another programme, at its start and under its title", row(eventId: "12346"), false),
+            ("made by its times, at its start and under its title", row(eventId: nil), false),
+            ("a programme id that is not written as one is sent", row(eventId: "012345"), false),
+        ]
+        for (name, listed, found) in cases {
+            XCTAssertEqual([listed].holding(request), found ? listed : nil, name)
+        }
+
+        // Among others it is the row itself that is handed back, and the first of two.
+        let listed = [row(id: "reminder.23", type: "reminder", quality: nil), row(id: "recording.30", eventId: "12346"),
+                      row(id: "recording.32", start: "2026-11-01T21:15:00+0900"), row(id: "recording.33")]
+        XCTAssertEqual(listed.holding(request), listed[2])
+        XCTAssertNil([TVScheduleRow]().holding(request))
+
+        var timed = request
+        timed.eventID = nil
+        XCTAssertNil([row(eventId: nil), row()].holding(timed), "a request with no programme id was found")
     }
 
     // MARK: - telling the devices' rows apart
