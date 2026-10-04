@@ -216,19 +216,25 @@ one at a time in a sitting with the television's owner, in the order written at 
 what to look at for each. Nothing in the app sends those three requests yet.
 
 A check that writes to somebody's television keeps to rules that are written once, in `TVSitting`. It makes
-nothing unless it was told it may (`TV_WRITE=1`) and the television says it is on. It reads the list before
-and after each create, takes the recordings whose ids are new for its own, and deletes exactly those: never
-by programme, time or title. It writes what it is about to make in a ledger, a file kept out of the
-repository, before the create is sent, and strikes it out once the list shows nothing of it. After silence
-on a create it sends nothing again. It reserves only a programme twenty hours or more ahead with nothing
-listed within three hours either side, chosen from a file of picks written from the recorder's guide
-beforehand. And it says counts, statuses and codes: never a title, a station's name or an id.
+nothing unless it was given leave by name (`TV_WRITE` set to the name of the one test that is run) and the
+television says it is on. Before every create it asks the television what the reservation would stop from
+recording, and it sends no create that would cost the household a reservation. It reads the list before and
+after each create, takes for its own the recordings whose ids are new and that are on the channel it sent
+the create for, and deletes exactly those: never by programme, time or title. It writes what it is about to
+make in a ledger, a file kept out of the repository, before the create is sent, and strikes it out once its
+delete was answered and the list shows nothing of it; an entry left open fails every check after it, until
+somebody has looked at the television. After silence on a create it sends nothing again. It reserves only a
+programme twenty hours or more ahead with nothing listed within three hours either side, chosen from a file
+of picks written from the recorder's guide beforehand. The viewing reservation two of the checks are about
+is the one the owner names by its start (`TV_REMINDER`), never one a check picks for itself. And it says
+counts, statuses and codes: never a title, a station's name or an id.
 
 Every check is rehearsed first, in the same order and by the same code, against the package's invented
 television (`TVSittingTests`, an ordinary test that needs nothing set). The household's reservations are
 put just outside the slots the checks use and on the very programmes they reserve, and the line to the
 television can be cut at one request. The rehearsal fails if a check leaves a row, deletes one it did not
-make, sends a create a second time, makes something without leave, or names a programme, a station or a row.
+make, sends a create a second time or without the question before it, makes something without leave, or
+names a programme, a station or a row.
 
 ## On a real iPhone
 
