@@ -447,7 +447,7 @@ final class QueueTargetTests: XCTestCase {
         let goesOn: [FakeTarget.Asked] = [.open([first, second]), .send(first, after: 0), .send(second, after: 1)]
         let ends: [FakeTarget.Asked] = [.open([first, second]), .send(first, after: 0)]
         let answers: [(answer: RowSent, asked: [FakeTarget.Asked], comes: Came)] = [
-            (.made, goesOn, Came(sent: [first, second])),
+            (.made(saying: nil), goesOn, Came(sent: [first, second])),
             (.alreadyThere, goesOn, Came(sent: [second], alreadyThere: [first])),
             (.refused(reason: refusal), goesOn,
              Came(sent: [second], refused: [first], reasons: [refusal], left: [first], written: [refusal])),
@@ -466,6 +466,36 @@ final class QueueTargetTests: XCTestCase {
             expectEqual(await device.asked, asked, "\(answer)")
             expectEqual(try await came(outcome, store), comes, "\(answer)")
         }
+    }
+
+    /// What a device says of a row it made is kept beside the rows that were sent: each sentence as the device
+    /// handed it back, in the order the rows were made. A row made with nothing said adds none, and neither
+    /// does a row that came to anything else. A recorder says nothing of what it makes.
+    func testWhatADeviceSaysOfARowItMadeIsKeptInTheOrderMade() async throws {
+        let marked = "「朝の番組」はほかの予約と重なっています"
+        let cost = "「夜の番組」を登録したため、ほかの予約が重なりました"
+        let titles = ["朝の番組", "昼の番組", "断られる番組", "夜の番組"]
+        let store = try await store(with: titles.enumerated().map { index, title in
+            row(title, index + 1, startingIn: Double(index + 1))
+        })
+        let device = FakeTarget(store, answering: [
+            "朝の番組": .made(saying: marked), "断られる番組": .refused(reason: refusal),
+            "夜の番組": .made(saying: cost),
+        ])
+
+        let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+        expectEqual(try await came(outcome, store),
+                    Came(sent: ["朝の番組", "昼の番組", "夜の番組"], remarks: [marked, cost], refused: ["断られる番組"],
+                         reasons: [refusal], left: ["断られる番組"], written: [refusal]))
+
+        let recorders = try await self.store(with: [row("レコーダーに送る番組", 5, startingIn: 1, target: .recorder)])
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let made = await PendingQueue.flush(client: RecorderClient(host: "192.0.2.1", transport: transport),
+                                            store: recorders, now: now)
+        expectEqual(try await came(made, recorders), Came(sent: ["レコーダーに送る番組"]),
+                    "a recorder said something of the row it made")
     }
 
     /// Whatever stops a round, it is said why, nothing is sent after it, and the rows not yet sent stay as
@@ -564,7 +594,8 @@ final class QueueTargetTests: XCTestCase {
     /// What a flush came to and what it left in the queue, by title.
     private func came(_ outcome: PendingQueue.Outcome, _ store: GuideStore) async throws -> Came {
         let left = try await store.pendingReservations()
-        return Came(sent: outcome.sent.map(\.request.title), alreadyThere: outcome.alreadyThere.map(\.request.title),
+        return Came(sent: outcome.sent.map(\.request.title), remarks: outcome.remarks,
+                    alreadyThere: outcome.alreadyThere.map(\.request.title),
                     expired: outcome.expired.map(\.request.title), refused: outcome.refused.map(\.request.title),
                     reasons: outcome.refused.map(\.problem), deferred: outcome.deferred.map(\.request.title),
                     held: outcome.held.map(\.request.title), stopped: outcome.stopped,
@@ -624,6 +655,33 @@ final class QueueSentenceTests: XCTestCase {
         }
     }
 
+    /// What the device said of the rows it made comes straight after the sentence for what was sent and before
+    /// every other, each as the device worded it and in the order made, joined as the rest are. So it is with
+    /// no device named and with one: the device's word is not put into a sentence that is the device's own.
+    func testWhatTheDeviceSaidOfTheRowsItMadeComesAfterTheSentenceForWhatWasSent() {
+        let marked = "「朝の番組」はほかの予約と重なっていて、録画されないことがあります"
+        let cost = "「夜の番組」を登録したため、視聴予約「サンプル音楽館」（11/1 21:00）がほかの予約と重なりました"
+        let outcome = PendingQueue.Outcome(slot: .tv, sent: one + three, remarks: [marked, cost],
+                                           expired: [pending("終わった番組", eventID: 5)],
+                                           alreadyThere: [pending("すでにある番組", eventID: 8)],
+                                           stopped: .silent(afterSending: true))
+
+        XCTAssertEqual(outcome.summary, [
+            "送信待ちだった「朝の番組」ほか 3 件を登録しました", marked, cost,
+            "「すでにある番組」はすでに予約されていました",
+            "「終わった番組」は放送が終わっていたため、送らずに削除しました",
+            "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
+        ].joined(separator: "。"))
+        XCTAssertEqual(outcome.says(naming: "テレビ"), [
+            "送信待ちだった「朝の番組」ほか 3 件をテレビに登録しました", marked, cost,
+            "「すでにある番組」はテレビにすでに予約がありました",
+            "テレビ宛の「終わった番組」は放送が終わっていたため、送らずに削除しました",
+            "途中でテレビの応答がなくなったため、残りは次につながったときに送ります",
+        ].joined(separator: "。"))
+        XCTAssertEqual(PendingQueue.Outcome(slot: .tv, sent: one, remarks: [marked]).says(naming: "テレビ"),
+                       "送信待ちだった「朝の番組」をテレビに登録しました。" + marked)
+    }
+
     /// The sentences come in one order whatever the rows' own -- sent, found there already, over, refused
     /// now, passed over, and the silence last -- and are joined with a full stop. The word is whatever is
     /// handed in: a recorder's round is named as a television's is.
@@ -653,10 +711,12 @@ final class QueueSentenceTests: XCTestCase {
     }
 }
 
-/// What a flush came to, by title: the list of the outcome each row is in, the reasons on the ones refused,
-/// why the round stopped, and what is left in the queue -- every device's -- with what is written on each.
+/// What a flush came to, by title: the list of the outcome each row is in, what the device said of the ones
+/// it made, the reasons on the ones refused, why the round stopped, and what is left in the queue -- every
+/// device's -- with what is written on each.
 private struct Came: Equatable {
     var sent: [String] = []
+    var remarks: [String] = []
     var alreadyThere: [String] = []
     var expired: [String] = []
     var refused: [String] = []
@@ -716,6 +776,6 @@ private actor FakeTarget: QueueTarget {
     func send(_ waiting: PendingReservation, consented: Bool,
               in round: Round) async -> (sent: RowSent, round: Round) {
         asked.append(.send(waiting.request.title, consented: consented, after: round.sent))
-        return (answers[waiting.request.title] ?? .made, Round(sent: round.sent + 1))
+        return (answers[waiting.request.title] ?? .made(saying: nil), Round(sent: round.sent + 1))
     }
 }

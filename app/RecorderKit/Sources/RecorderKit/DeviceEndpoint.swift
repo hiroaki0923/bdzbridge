@@ -40,8 +40,11 @@ public protocol GuideSource: DeviceEndpoint {
 /// What one waiting reservation came to, sent to a device in the device's own way. The queue reads only this:
 /// what to do with the row, and whether to go on.
 public enum RowSent: Sendable, Equatable {
-    /// The device holds it now, by its own account. The row leaves the queue.
-    case made
+    /// The device holds it now, by its own account. The row leaves the queue. `saying` is what making it did
+    /// beyond the row itself, as a sentence of the device's own for the reader -- a reservation it left
+    /// marked as sharing its time, the new one marked so itself -- and nil for a device that has nothing to
+    /// add: the queue says it after the sentence for what was sent, and reads nothing in it.
+    case made(saying: String?)
     /// The device held it already. The row leaves the queue, and is not said to have been sent.
     case alreadyThere
     /// Not to go as it stands, and asking again would get the same: the reason is written on the row, which
@@ -128,12 +131,13 @@ public extension ReservationTarget {
     /// about the reservation -- a 503, an answer with no code -- passes it over; an answer that the device holds
     /// it already (`DeviceFailure.alreadyThere`) is among those, as it always was: no recorder's answer says
     /// it. `consented` is not read: the device is asked nothing before the create that the reader could have
-    /// answered.
+    /// answered. And a reservation made is said with nothing beside it: all such a device says of one is
+    /// that it was taken.
     func send(_ waiting: PendingReservation, consented: Bool,
               in round: NoRound) async -> (sent: RowSent, round: NoRound) {
         do {
             try await create(waiting.request)
-            return (.made, round)
+            return (.made(saying: nil), round)
         } catch let error as any DeviceError where error.failure == .silent {
             return (.stopped(.silent(afterSending: true), passedOver: false), round)
         } catch let error as any DeviceError where error.failure.turnsTheRequestDown {

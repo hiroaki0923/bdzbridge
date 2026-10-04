@@ -13,6 +13,10 @@ public enum PendingQueue {
         public var slot: DeviceSlot
         /// Sent to the device, and gone from the queue.
         public var sent: [PendingReservation] = []
+        /// What making those did beyond the rows themselves: the sentences the device handed back with the
+        /// rows it made (`RowSent.made`), in the order they were made. None from a device that has nothing
+        /// to add, which the recorder is.
+        public var remarks: [String] = []
         /// Dropped because the programme had already finished.
         public var expired: [PendingReservation] = []
         /// Refused by the device this time, each keeping the reason. Still in the queue, and not sent again
@@ -127,9 +131,10 @@ public enum PendingQueue {
             let (came, next) = await client.send(pending, consented: consented, in: opened)
             round = next
             switch came {
-            case .made:
+            case .made(let remark):
                 try? await store.removePending(pending.id)
                 outcome.sent.append(pending)
+                if let remark { outcome.remarks.append(remark) }
             case .alreadyThere:
                 try? await store.removePending(pending.id)
                 outcome.alreadyThere.append(pending)
@@ -160,6 +165,10 @@ public extension PendingQueue.Outcome {
     /// found there already, over, refused now, passed over, joined with 。; about the first row by its title,
     /// and how many more went that way. nil when there is nothing to say.
     ///
+    /// What the device said of the rows it made (`remarks`) comes straight after the sentence for what was
+    /// sent, each as the device worded it, in the order made: it is about those rows, and each names its
+    /// own. With none, nothing is added and every sentence reads as it did before a device could say one.
+    ///
     /// `device` is the word for the device the round was for, where the home has two and a sentence has to
     /// say which. With none, the sentences are the ones a home with a recorder alone has always read.
     func says(naming device: String?) -> String? {
@@ -168,6 +177,7 @@ public extension PendingQueue.Outcome {
             lines.append(device.map { "送信待ちだった\(Self.titled(sent))を\($0)に登録しました" }
                 ?? "送信待ちだった\(Self.titled(sent))を登録しました")
         }
+        lines += remarks
         if !alreadyThere.isEmpty {
             lines.append(device.map { "\(Self.titled(alreadyThere))は\($0)にすでに予約がありました" }
                 ?? "\(Self.titled(alreadyThere))はすでに予約されていました")
