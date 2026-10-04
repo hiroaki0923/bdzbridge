@@ -206,12 +206,13 @@ public final class TVDriver: LinkDriver {
     /// answers at once -- and a read that goes through clears the line of what went wrong, as any operation
     /// does. How it failed the link says; what that tells of the registration is kept here (`note`).
     ///
-    /// It is sent on the link's client as the check leaves it, not on the one the check was asked with. They
-    /// are one client unless a connect began in between; then the read waits its turn on that connect's
-    /// client, behind the attach's own asks, rather than going out beside them on the last one. A reminder to
-    /// watch is no reservation and is left out (`TVScheduleRow.reservation`).
+    /// It is sent on the link's client, read once the check has answered, as it was before the read went
+    /// through the link, and not on the one `run` hands over, which was in hand as the check was asked. No
+    /// way was found for the two to differ at one address -- a connect asked for while a check is out waits
+    /// for it and makes no client -- and the read is left as it was all the same. A reminder to watch is no
+    /// reservation and is left out (`TVScheduleRow.reservation`).
     private func readNow(_ link: DeviceLink, underALine: Bool) async -> [Reservation]? {
-        let read = await link.run(line: underALine ? Self.readingLine : nil) { _, _ in
+        let read = await link.run(line: underALine ? Self.readingLine : nil) { _ in
             try await (link.client as? ScalarClient)?.schedules().compactMap { $0.reservation() }
         }
         switch read {

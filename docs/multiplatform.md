@@ -46,13 +46,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-43 ファイル、7,347 行（空行とコメントを含み、`Package.swift` を除く）。テストは 8,084 行。
+43 ファイル、7,336 行（空行とコメントを含み、`Package.swift` を除く）。テストは 8,084 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,847 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 2,908 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 2,897 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -60,10 +60,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,885 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,886 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,336 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+何を取るか）で、AppModel（9 ファイルで 2,337 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
 BackgroundWork、Notify、SendWaitingIntent を合わせて約 820 行です。RecorderKit だけを共有する案では、どれを
 選んでもこれは Android で書き直します。
 
@@ -242,7 +242,8 @@ AppModel の中の関数ではなく振る舞いで書き直してあります�
 
 さらに、1 つの操作を作る部品をリンクに載せました（`LinkOperation.swift`）。機器を確かめる、進行中の行を出す、
 送る、失敗を伝える、という同じ手順が、レコーダーではアプリの操作の入口（`AppModel.run`）に、テレビでは
-`TVDriver` に、2 回書かれていたためです。いまは `DeviceLink` に 1 回だけあります。操作の前の確認は、送れない
+`TVDriver` に、2 回書かれていたためです。いまは、レコーダーの入口とテレビの予約一覧の読み込みが、`DeviceLink` の
+同じ 1 つを通ります。操作の前の確認は、送れない
 ときに理由を返します（`check`）。失敗は種類と文をまとめた値になり（`OperationFailure`）、それを画面に伝え、
 無応答ならリンクを未接続・諦めた状態にするのが `say`、要求が 1 つの操作の順番が `run` です。機器によって
 違うのは 2 つだけで、読み込みの無応答を受けるかどうかはドライバーが答え（`takesSilenceOnARead`）、書き込みの

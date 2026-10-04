@@ -399,10 +399,10 @@ final class AppModel: LinkHost {
                      _ work: (Activities.Token) async throws -> Void) async -> Bool {
         // The line is put up here rather than by the link, whose token is nil where it has no host: the work
         // always has a line to say how far it has got on. Nor is the link's client taken: each action asks
-        // the one its caller had in hand, which is the one the check makes sure of.
+        // the one its caller had in hand, which is the one the check is asked with.
         let activity = activities.begin(what)
         defer { activities.end(activity) }
-        let ran = await recorder.run(sending: sending ? Self.mayHaveArrived : nil) { _, _ in
+        let ran = await recorder.run(sending: sending ? Self.mayHaveArrived : nil) { _ in
             try await work(activity)
         }
         if case .success = ran { return true }

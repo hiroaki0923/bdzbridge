@@ -162,11 +162,6 @@ public enum LinkCheck: Sendable {
     fileprivate init(_ why: NotUp?, asking client: any LinkClient) {
         self = why.map(Self.notUp) ?? .up(client)
     }
-
-    /// Why not, or nil when the device is up.
-    public var whyNot: NotUp? {
-        if case .notUp(let why) = self { why } else { nil }
-    }
 }
 
 /// The app's connection to one device: when it is asked, woken, made sure of and given up on, and when it is

@@ -237,21 +237,19 @@ final class LinkPartsTests: XCTestCase {
         var (world, recorder, link) = try await connected()
         let client = try XCTUnwrap(link.client)
         world.problem = Self.left
-        let went = await link.run(line: "reading") { asked, line in
+        let went = await link.run(line: "reading") { asked in
             XCTAssertTrue(asked === client)
             world.put("under \(world.line ?? "no line"), \(world.problem ?? "nothing wrong")")
-            if let line { world.updateActivity(line, to: "half way") }
-            world.put("under \(world.line ?? "no line")")
             return 7
         }
         XCTAssertEqual(went, .success(7))
-        XCTAssertEqual(world.events, ["under reading, \(Self.left)", "under half way"])
+        XCTAssertEqual(world.events, ["under reading, \(Self.left)"])
         XCTAssertNil(world.line)
         XCTAssertNil(world.problem)
 
         let busy = RecorderError.busy(action: "X_DeleteTitle")
-        var failed = await link.run(sending: Self.mayHaveArrived) { _, line -> Int in
-            XCTAssertNil(line, "a line of its own, though none was asked for")
+        var failed = await link.run(sending: Self.mayHaveArrived) { _ -> Int in
+            XCTAssertNil(world.line, "a line of its own, though none was asked for")
             throw busy
         }
         XCTAssertEqual(failed, .failure(.refused(.busy, sentence: busy.explanation)))
@@ -259,7 +257,7 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertTrue(link.session.connected)
         XCTAssertFalse(link.session.gaveUp)
 
-        failed = await link.run { _, _ -> Int in throw NotADevices() }
+        failed = await link.run { _ -> Int in throw NotADevices() }
         XCTAssertEqual(failed, .failure(.refused(nil, sentence: "NotADevices()")))
         XCTAssertEqual(world.problem, "NotADevices()")
         XCTAssertTrue(link.session.connected)
@@ -267,7 +265,7 @@ final class LinkPartsTests: XCTestCase {
         for silence in [RecorderError.transport("The request timed out."), .notHTTP] {
             await link.connect()
             XCTAssertTrue(link.session.connected)
-            failed = await link.run { _, _ -> Int in throw silence }
+            failed = await link.run { _ -> Int in throw silence }
             XCTAssertEqual(failed, .failure(.silentOnARead(sentence: silence.explanation)))
             XCTAssertEqual(world.problem, silence.explanation)
             XCTAssertTrue(link.session.unreachable, "\(silence)")
@@ -276,13 +274,13 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertNotEqual(RecorderError.notHTTP.explanation, link.driver.noAnswerLine, "the two sentences are one")
 
         await link.connect()
-        failed = await link.run(sending: Self.mayHaveArrived) { _, _ -> Int in throw RecorderError.notHTTP }
+        failed = await link.run(sending: Self.mayHaveArrived) { _ -> Int in throw RecorderError.notHTTP }
         XCTAssertEqual(failed, .failure(.silentAfterSending(sentence: Self.mayHaveArrived)))
         XCTAssertEqual(world.problem, Self.mayHaveArrived)
         XCTAssertTrue(link.session.gaveUp)
 
         var ran = false
-        failed = await link.run(line: "reading") { _, _ -> Int in
+        failed = await link.run(line: "reading") { _ -> Int in
             ran = true
             return 0
         }
@@ -290,9 +288,6 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertFalse(ran, "the work was run after a check that said no")
         XCTAssertEqual(world.problem, LinkWorld.notConnected)
         XCTAssertNil(world.line)
-        XCTAssertEqual([OperationFailure.notSent(.notConnected), .refused(.busy, sentence: "busy"),
-                        .silentAfterSending(sentence: "sent"), .silentOnARead(sentence: "read")].map(\.sentence),
-                       [nil, "busy", "sent", "read"])
 
         world = LinkWorld()
         recorder = try place(in: world)
@@ -301,14 +296,14 @@ final class LinkPartsTests: XCTestCase {
         await link.connect()
         XCTAssertFalse(link.session.connected)
         XCTAssertFalse(link.session.unreachable)
-        failed = await link.run { _, _ -> Int in throw RecorderError.notHTTP }
+        failed = await link.run { _ -> Int in throw RecorderError.notHTTP }
         XCTAssertEqual(failed, .failure(.silentOnARead(sentence: RecorderError.notHTTP.explanation)))
         XCTAssertTrue(link.session.gaveUp, "a recorder's silence was not taken for want of a description")
         XCTAssertEqual(world.problem, RecorderError.notHTTP.explanation)
 
         let noAnswer = ScalarError.transport("The request timed out.")
         (world, link) = await attachedToATelevision()
-        failed = await link.run { _, _ -> Int in throw noAnswer }
+        failed = await link.run { _ -> Int in throw noAnswer }
         XCTAssertEqual(failed, .failure(.silentOnARead(sentence: noAnswer.explanation)))
         XCTAssertEqual(world.problem, noAnswer.explanation)
         XCTAssertTrue(link.session.gaveUp)
@@ -316,13 +311,13 @@ final class LinkPartsTests: XCTestCase {
         (world, link) = await attachedToATelevision()
         link.session.strangerAnswered()
         world.problem = Self.left
-        failed = await link.run { _, _ -> Int in throw noAnswer }
+        failed = await link.run { _ -> Int in throw noAnswer }
         XCTAssertEqual(failed, .failure(.silentOnARead(sentence: noAnswer.explanation)))
         XCTAssertFalse(link.session.unreachable)
         XCTAssertFalse(link.session.gaveUp)
         XCTAssertEqual(world.problem, Self.left)
 
-        failed = await link.run(sending: Self.mayHaveArrived) { _, _ -> Int in throw noAnswer }
+        failed = await link.run(sending: Self.mayHaveArrived) { _ -> Int in throw noAnswer }
         XCTAssertEqual(failed, .failure(.silentAfterSending(sentence: Self.mayHaveArrived)))
         XCTAssertTrue(link.session.gaveUp, "silence on what was sent was left to the rule for a read")
         XCTAssertEqual(world.problem, Self.mayHaveArrived)
@@ -374,6 +369,11 @@ private extension LinkCheck {
     /// The client to ask, or nil when the device is not up.
     var client: (any LinkClient)? {
         if case .up(let client) = self { client } else { nil }
+    }
+
+    /// Why not, or nil when the device is up.
+    var whyNot: NotUp? {
+        if case .notUp(let why) = self { why } else { nil }
     }
 }
 

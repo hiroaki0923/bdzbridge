@@ -73,9 +73,10 @@ extension AppModel {
         }
     }
 
-    /// Leaves the app where a connect that got no answer leaves it (`DeviceLink.lost`). Every request that
-    /// meets silence comes here. Nothing is sent again from here, nor by the callers once the recorder is
-    /// back: a write that met silence may have arrived all the same.
+    /// Leaves the app where a connect that got no answer leaves it (`DeviceLink.lost`). A request the model
+    /// sends by hand comes here when it meets silence; one through the funnel is lost by the link as it says
+    /// the failure (`DeviceLink.say`), which comes to the same. Nothing is sent again from here, nor by the
+    /// callers once the recorder is back: a write that met silence may have arrived all the same.
     func lostTheRecorder() {
         recorder.lost()
     }
