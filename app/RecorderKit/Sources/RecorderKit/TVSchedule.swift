@@ -18,9 +18,11 @@ public struct TVScheduleRow: Sendable, Equatable {
     public var durationSec: Int
     public var title: String?
     public var channelName: String?
-    /// Read on rows: `1` for once, `title` for every programme of the name, `d`, and a weekly one as `w4` on a
-    /// Thursday's programme and `w7` on a Sunday's. The television says it takes `w15` and `w16` as well,
-    /// which no row has carried.
+    /// Read on rows: `1` for once, and every repeat a create was sent with, each read back as it was sent
+    /// -- `title` for every programme of the name, `d`, `w15`, `w16`, and a weekly code on its programme's
+    /// own weekday: `w1` on a Monday's programme, `w4` on a Thursday's and `w7` on a Sunday's. What a row
+    /// is held to fall short of (`fallsShort`) stands on that: a repeat that was made is listed as the
+    /// repeat that was asked for.
     public var repeatType: String?
     /// `notOverlapped`; `fullyOverlapped` for the recording that loses to others at its time, also when they
     /// share only a part of it; and `partlyOverlapped`, seen on a reminder to watch once recordings stood at
