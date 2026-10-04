@@ -148,3 +148,55 @@ public enum PendingQueue {
         return outcome
     }
 }
+
+public extension PendingQueue.Outcome {
+    /// What became of the queue, where the home has one device: the sentences as they have always read. The
+    /// body of the overnight notification, and the line the app shows when it sent the queue itself. nil when
+    /// there is nothing to say.
+    var summary: String? { says(naming: nil) }
+
+    /// What became of the queue, in a few short sentences: one for each way a row went, in the order sent,
+    /// found there already, over, refused now, passed over, joined with 。; about the first row by its title,
+    /// and how many more went that way. nil when there is nothing to say.
+    ///
+    /// `device` is the word for the device the round was for, where the home has two and a sentence has to
+    /// say which. With none, the sentences are the ones a home with a recorder alone has always read.
+    func says(naming device: String?) -> String? {
+        var lines: [String] = []
+        if !sent.isEmpty {
+            lines.append(device.map { "送信待ちだった\(Self.naming(sent))を\($0)に登録しました" }
+                ?? "送信待ちだった\(Self.naming(sent))を登録しました")
+        }
+        if !alreadyThere.isEmpty {
+            lines.append(device.map { "\(Self.naming(alreadyThere))は\($0)にすでに予約がありました" }
+                ?? "\(Self.naming(alreadyThere))はすでに予約されていました")
+        }
+        if !expired.isEmpty {
+            lines.append(device.map { "\($0)宛の\(Self.naming(expired))は放送が終わっていたため、送らずに削除しました" }
+                ?? "\(Self.naming(expired))は放送が終わっていたため、送らずに削除しました")
+        }
+        if !refused.isEmpty {
+            lines.append(device.map { "\(Self.naming(refused))は\($0)に登録できませんでした。理由は予約タブにあります" }
+                ?? "\(Self.naming(refused))はレコーダーが受け付けませんでした。理由は予約タブにあります")
+        }
+        if !deferred.isEmpty {
+            lines.append(device.map { "\(Self.naming(deferred))は\($0)に送れなかったため、次の機会にもう一度送ります" }
+                ?? "\(Self.naming(deferred))は送れなかったため、次の機会にもう一度送ります")
+        }
+        // Only as the end of something else: an interruption before anything went is the app going offline,
+        // which the strip already says. No other stop is said here: each is something about the device, and
+        // is said where the device's state is.
+        if interrupted, !lines.isEmpty {
+            lines.append(device.map { "途中で\($0)の応答がなくなったため、残りは次につながったときに送ります" }
+                ?? "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "。")
+    }
+
+    /// The first by its title, and how many more. "ほか" counts the others, not all of them.
+    private static func naming(_ reservations: [PendingReservation]) -> String {
+        guard let first = reservations.first else { return "" }
+        return reservations.count == 1 ? "「\(first.request.title)」"
+            : "「\(first.request.title)」ほか \(reservations.count - 1) 件"
+    }
+}

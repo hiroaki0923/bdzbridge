@@ -111,36 +111,3 @@ enum Notify {
                    body: String(format: "残り %.0f GB です。古い録画を整理するか、録画モードを見直してください。", freeGB))
     }
 }
-
-extension PendingQueue.Outcome {
-    /// What became of the queue, in a few short sentences: the body of the overnight notification, and the
-    /// line the app shows when it sent the queue itself. nil when there is nothing to say.
-    var summary: String? {
-        var lines: [String] = []
-        if !sent.isEmpty {
-            lines.append("送信待ちだった\(Self.naming(sent))を登録しました")
-        }
-        if !expired.isEmpty {
-            lines.append("\(Self.naming(expired))は放送が終わっていたため、送らずに削除しました")
-        }
-        if !refused.isEmpty {
-            lines.append("\(Self.naming(refused))はレコーダーが受け付けませんでした。理由は予約タブにあります")
-        }
-        if !deferred.isEmpty {
-            lines.append("\(Self.naming(deferred))は送れなかったため、次の機会にもう一度送ります")
-        }
-        // Only as the end of something else: an interruption before anything went is the app going offline,
-        // which the strip already says.
-        if interrupted, !lines.isEmpty {
-            lines.append("途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります")
-        }
-        return lines.isEmpty ? nil : lines.joined(separator: "。")
-    }
-
-    /// The first by name, and how many more. "ほか" counts the others, not all of them.
-    private static func naming(_ reservations: [PendingReservation]) -> String {
-        guard let first = reservations.first else { return "" }
-        return reservations.count == 1 ? "「\(first.request.title)」"
-            : "「\(first.request.title)」ほか \(reservations.count - 1) 件"
-    }
-}

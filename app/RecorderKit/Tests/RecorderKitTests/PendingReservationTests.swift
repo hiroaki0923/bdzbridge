@@ -561,6 +561,87 @@ final class QueueTargetTests: XCTestCase {
     }
 }
 
+/// What became of the queue, in words: the sentences a home with one device has always read, and the same
+/// with the device named, for a home with two.
+final class QueueSentenceTests: XCTestCase {
+    private let one = [pending("朝の番組", eventID: 1)]
+    private let three = [pending("昼の番組", eventID: 2), pending("夕方の番組", eventID: 3),
+                         pending("夜の番組", eventID: 4)]
+
+    /// Each way a row can go has its sentence, about the first row by its title and the others by their
+    /// number. With no device named it is the sentence as it has always read, and `summary` is that form;
+    /// named, the device's word is in every one of them. The device going silent is said only after another
+    /// sentence, and no other stop is said at all. What was held before, and nothing at all, say nothing.
+    func testEachSentenceWithNoDeviceNamedAndWithOne() {
+        let silent = SendingStop.silent(afterSending: true)
+        let sentences: [(name: String, outcome: PendingQueue.Outcome, unnamed: String?, named: String?)] = [
+            ("sent", PendingQueue.Outcome(slot: .tv, sent: one),
+             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+            ("three sent", PendingQueue.Outcome(slot: .tv, sent: three),
+             "送信待ちだった「昼の番組」ほか 2 件を登録しました",
+             "送信待ちだった「昼の番組」ほか 2 件をテレビに登録しました"),
+            ("found there already", PendingQueue.Outcome(slot: .tv, alreadyThere: one),
+             "「朝の番組」はすでに予約されていました", "「朝の番組」はテレビにすでに予約がありました"),
+            ("over", PendingQueue.Outcome(slot: .tv, expired: one),
+             "「朝の番組」は放送が終わっていたため、送らずに削除しました",
+             "テレビ宛の「朝の番組」は放送が終わっていたため、送らずに削除しました"),
+            ("refused now", PendingQueue.Outcome(slot: .tv, refused: one),
+             "「朝の番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
+             "「朝の番組」はテレビに登録できませんでした。理由は予約タブにあります"),
+            ("passed over", PendingQueue.Outcome(slot: .tv, deferred: one),
+             "「朝の番組」は送れなかったため、次の機会にもう一度送ります",
+             "「朝の番組」はテレビに送れなかったため、次の機会にもう一度送ります"),
+            ("sent, then silence", PendingQueue.Outcome(slot: .tv, sent: one, stopped: silent),
+             "送信待ちだった「朝の番組」を登録しました。"
+                + "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
+             "送信待ちだった「朝の番組」をテレビに登録しました。"
+                + "途中でテレビの応答がなくなったため、残りは次につながったときに送ります"),
+            ("silence alone", PendingQueue.Outcome(slot: .tv, stopped: silent), nil, nil),
+            ("sent, then the registration wanted", PendingQueue.Outcome(slot: .tv, sent: one, stopped: .needsPairing),
+             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+            ("sent, then nothing said of two rows", PendingQueue.Outcome(slot: .tv, sent: one, stopped: .saysNothing),
+             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+            ("nowhere to record to",
+             PendingQueue.Outcome(slot: .tv, stopped: .cannotRecord(reason: "録画先がありません")), nil, nil),
+            ("only what was held before", PendingQueue.Outcome(slot: .tv, held: one), nil, nil),
+            ("nothing", PendingQueue.Outcome(slot: .tv), nil, nil),
+        ]
+        for sentence in sentences {
+            XCTAssertEqual(sentence.outcome.says(naming: nil), sentence.unnamed, sentence.name)
+            XCTAssertEqual(sentence.outcome.summary, sentence.unnamed, sentence.name)
+            XCTAssertEqual(sentence.outcome.says(naming: "テレビ"), sentence.named, sentence.name)
+        }
+    }
+
+    /// The sentences come in one order whatever the rows' own -- sent, found there already, over, refused
+    /// now, passed over, and the silence last -- and are joined with a full stop. The word is whatever is
+    /// handed in: a recorder's round is named as a television's is.
+    func testTheSentencesComeInOneOrderJoinedWithAFullStop() {
+        let outcome = PendingQueue.Outcome(slot: .recorder, sent: one, expired: [pending("終わった番組", eventID: 5)],
+                                           refused: [pending("断られた番組", eventID: 6)],
+                                           deferred: [pending("見送った番組", eventID: 7)], held: three,
+                                           alreadyThere: [pending("すでにある番組", eventID: 8)],
+                                           stopped: .silent(afterSending: false))
+
+        XCTAssertEqual(outcome.summary, [
+            "送信待ちだった「朝の番組」を登録しました",
+            "「すでにある番組」はすでに予約されていました",
+            "「終わった番組」は放送が終わっていたため、送らずに削除しました",
+            "「断られた番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
+            "「見送った番組」は送れなかったため、次の機会にもう一度送ります",
+            "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
+        ].joined(separator: "。"))
+        XCTAssertEqual(outcome.says(naming: "レコーダー"), [
+            "送信待ちだった「朝の番組」をレコーダーに登録しました",
+            "「すでにある番組」はレコーダーにすでに予約がありました",
+            "レコーダー宛の「終わった番組」は放送が終わっていたため、送らずに削除しました",
+            "「断られた番組」はレコーダーに登録できませんでした。理由は予約タブにあります",
+            "「見送った番組」はレコーダーに送れなかったため、次の機会にもう一度送ります",
+            "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
+        ].joined(separator: "。"))
+    }
+}
+
 /// What a flush came to, by title: the list of the outcome each row is in, the reasons on the ones refused,
 /// why the round stopped, and what is left in the queue -- every device's -- with what is written on each.
 private struct Came: Equatable {
