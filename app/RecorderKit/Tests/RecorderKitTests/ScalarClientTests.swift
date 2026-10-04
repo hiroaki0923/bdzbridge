@@ -3,8 +3,9 @@ import XCTest
 @testable import RecorderKit
 
 /// A television's control API as the client speaks it: the envelope, the answers in their two depths, the
-/// errors, the registration with its cookie, and its reservations read and deleted. The answers are written
-/// here in the television's shapes with invented values: nothing in them comes from a real one.
+/// errors, the registration with its cookie, its reservations read and deleted, its stations, and a
+/// reservation asked about and made. The answers are written here in the television's shapes with invented
+/// values: nothing in them comes from a real one.
 final class ScalarClientTests: XCTestCase {
     private func ok(_ result: String, id: Int = 1) -> HTTPResponse {
         HTTPResponse(statusCode: 200, body: Data(#"{"result":\#(result),"id":\#(id)}"#.utf8))
@@ -593,5 +594,218 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertTrue(credentials.renewalDue(now: received.addingTimeInterval(8 * 86_400)))
         XCTAssertTrue(TVCredentials(clientID: "x", cookie: "c").renewalDue(now: received))
         XCTAssertFalse(TVCredentials(clientID: "x").renewalDue(now: received), "renewed with no cookie to renew")
+    }
+
+    // MARK: - stations, and making a reservation
+
+    /// A station's row as a television lists one: seven fields.
+    private static func stationRow(_ index: Int) -> [String: Any] {
+        let triplet = "65534.65533.\(1500 + index)"
+        return ["uri": "tv:isdbbs?trip=\(triplet)&srvName=サンプル局\(index)", "title": "サンプル局\(index)", "index": index,
+                "dispNum": "999", "tripletStr": triplet, "programMediaType": "tv", "directRemoteNum": -1]
+    }
+
+    /// A television with `count` stations of one kind: each request is answered with the page it asks for,
+    /// by its `stIdx` and its `cnt`, and with an empty page past the end.
+    private static func television(stations count: Int) -> StubTransport {
+        StubTransport { request, _ in
+            let body = try JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any]
+            let asked = (body?["params"] as? [[String: Any]])?.first ?? [:]
+            let rows = (0..<count).dropFirst(asked["stIdx"] as? Int ?? 0).prefix(asked["cnt"] as? Int ?? 0)
+                .map(stationRow)
+            return HTTPResponse(statusCode: 200,
+                                body: try JSONSerialization.data(withJSONObject: ["result": [rows], "id": 1]))
+        }
+    }
+
+    private static let start = Date(timeIntervalSince1970: 1_793_534_400)
+
+    /// A reservation as it is sent: a programme on the station of `uri`, once unless said.
+    private func body(repeating: String = "1", title: String = "サンプル劇場") throws -> TVReservationBody {
+        let request = ReservationRequest(title: title, start: Self.start, durationSec: 1800, repeatCode: repeating,
+                                         broadcastingType: 2, serviceID: 1024, qualityCode: 100, eventID: 12345)
+        return try XCTUnwrap(TVReservationBody(request, on: TVStation(broadcastingType: 2, serviceID: 1024,
+                                                                      uri: Self.uri)))
+    }
+
+    /// The stations of one kind of broadcast are asked for fifty at a time, from `/sony/avContent` and with
+    /// the cookie. A page of fifty is followed by the one after it; a shorter one ends the list and is not
+    /// read on from; and so does an empty one, after a last page of exactly fifty. Each kind is asked for
+    /// under the television's name for it, and a kind it has no name for is not asked for: it has no stations.
+    func testTheStationsAreReadFiftyAtATime() async throws {
+        let cases: [(Int, [Int])] = [(0, [0]), (3, [0]), (49, [0]), (50, [0, 50]), (61, [0, 50]), (100, [0, 50, 100])]
+        for (count, pages) in cases {
+            let transport = Self.television(stations: count)
+            let (tv, _) = client(transport, Self.kept)
+
+            let stations = try await tv.stations(of: 3)
+
+            XCTAssertEqual(stations.map(\.serviceID), (0..<count).map { 1500 + $0 }, "\(count) stations")
+            XCTAssertEqual(stations.map(\.uri), (0..<count).map { Self.stationRow($0)["uri"] as? String })
+            XCTAssertTrue(stations.allSatisfy { $0.broadcastingType == 3 }, "\(count) stations")
+            let sent = await transport.requests
+            XCTAssertEqual(sent.map { $0.url.path }, pages.map { _ in "/sony/avContent" }, "\(count) stations")
+            XCTAssertTrue(sent.allSatisfy { $0.headers["Cookie"] == "auth=kept" }, "\(count) stations")
+            for (request, from) in zip(sent, pages) {
+                let body = try json(request)
+                XCTAssertEqual(body["method"] as? String, "getContentList")
+                XCTAssertEqual(body["version"] as? String, "1.0")
+                XCTAssertEqual(body["params"] as? NSArray,
+                               [["source": "tv:isdbbs", "stIdx": from, "cnt": 50]] as NSArray, "\(count) stations")
+            }
+        }
+
+        let none = StubTransport(always: ok("[[]]"))
+        let (tv, _) = client(none, Self.kept)
+        let sources = [(2, "tv:isdbt"), (3, "tv:isdbbs"), (4, "tv:isdbcs"), (23, "tv:isdbs3bs"), (24, "tv:isdbs3cs")]
+        for type in sources.map(\.0) + [0, 1, 5, 25] {
+            expectEqual(try await tv.stations(of: type), [], "type \(type)")
+        }
+        let asked = try await none.requests.map { (try json($0)["params"] as? [[String: Any]])?.first?["source"] }
+        XCTAssertEqual(asked.map { $0 as? String }, sources.map(\.1))
+    }
+
+    /// A list that cannot be read whole is not read at all. A failure on any page is thrown -- on the first,
+    /// and on the one after a full page, where it is not taken for the end of the list: what a television
+    /// answers a page past the end with has not been seen -- and nothing is asked after it. Nor is a list
+    /// whose every page is full read on for ever.
+    func testAStationListThatCannotBeReadWholeIsNotRead() async throws {
+        let full = try JSONSerialization.data(withJSONObject: ["result": [(0..<50).map(Self.stationRow)], "id": 1])
+        // Each with what it is thrown as; no answer at all, and no error to hold it against, for silence.
+        let failures: [(String, HTTPResponse?, ScalarError?)] = [
+            ("the method's own error", failed(3, "Illegal Argument"),
+             .rpc(method: "getContentList", version: "1.0", code: 3, message: "Illegal Argument")),
+            ("a cookie not taken", HTTPResponse(statusCode: 403), .http(status: 403, method: "getContentList")),
+            ("an answer that is no list", ok("[]"), .unreadable(method: "getContentList")),
+            ("silence", nil, nil),
+        ]
+        for (name, answer, expected) in failures {
+            for before in [0, 1] {
+                let transport = StubTransport { _, index in
+                    if index < before { return HTTPResponse(statusCode: 200, body: full) }
+                    guard let answer else { throw RecorderError.transport("The request timed out.") }
+                    return answer
+                }
+                let (tv, _) = client(transport, Self.kept)
+                do {
+                    let read = try await tv.stations(of: 3)
+                    XCTFail("\(name) after \(before) full pages was read as a list of \(read.count)")
+                } catch let error as ScalarError {
+                    XCTAssertEqual(error.failure, expected?.failure ?? .silent, "\(name) after \(before) full pages")
+                    if let expected { XCTAssertEqual(error, expected, "\(name) after \(before) full pages") }
+                }
+                expectEqual(await transport.requests.count, before + 1, "asked on after \(name)")
+            }
+        }
+
+        let endless = StubTransport(always: HTTPResponse(statusCode: 200, body: full))
+        let (tv, _) = client(endless, Self.kept)
+        do {
+            let read = try await tv.stations(of: 3)
+            XCTFail("a list that did not end was read as one of \(read.count)")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error, .unreadable(method: "getContentList"))
+        }
+        let asked = try await endless.requests.map { (try json($0)["params"] as? [[String: Any]])?.first?["stIdx"] }
+        XCTAssertEqual(asked.map { $0 as? Int }, (0..<20).map { $0 * 50 }, "twenty pages, and no more")
+    }
+
+    /// The question of what a reservation would stop from recording is five fields and no others, in the
+    /// version that takes them. An empty list is nothing lost. The rows named are handed back as they came,
+    /// each of them: a reminder as well as a recording, for the caller to say what it means.
+    func testTheClashQuestionIsFiveFieldsAndEveryRowNamedComesBack() async throws {
+        let named = #"""
+        [[{"id":"recording.31","type":"recording","uri":"\#(Self.uri)","title":"サンプル天気",
+           "startDateTime":"2026-11-01T20:45:00+0900","durationSec":1800,"repeatType":"w7"},
+          {"id":"reminder.22","type":"reminder","uri":"\#(Self.uri)","title":"サンプル音楽館",
+           "startDateTime":"2026-11-01T20:59:59+0900","durationSec":3600,"repeatType":"1"}]]
+        """#
+        let transport = StubTransport { _, index in
+            HTTPResponse(statusCode: 200, body: Data(#"{"result":\#(index == 0 ? "[[]]" : named),"id":1}"#.utf8))
+        }
+        let (tv, _) = client(transport, Self.kept)
+        let asked = try body()
+
+        expectEqual(try await tv.wouldPushOut(asked), [])
+        expectEqual(try await tv.wouldPushOut(asked), [
+            TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                          startDateTime: "2026-11-01T20:45:00+0900", durationSec: 1800, title: "サンプル天気",
+                          repeatType: "w7"),
+            TVScheduleRow(id: "reminder.22", type: "reminder", uri: Self.uri,
+                          startDateTime: "2026-11-01T20:59:59+0900", durationSec: 3600, title: "サンプル音楽館",
+                          repeatType: "1"),
+        ])
+
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, ["/sony/recording", "/sony/recording"])
+        XCTAssertEqual(sent[0].headers["Cookie"], "auth=kept")
+        let question = try json(sent[0])
+        XCTAssertEqual(question["method"] as? String, "getConflictScheduleList")
+        XCTAssertEqual(question["version"] as? String, "1.0")
+        XCTAssertEqual(question["params"] as? NSArray, [[
+            "uri": Self.uri, "title": "サンプル劇場", "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 1800,
+            "repeatType": "1",
+        ]] as NSArray)
+    }
+
+    /// An answer to the question that cannot be read is not taken for "nothing would be lost": one that is no
+    /// list of rows, and one with a row among them that is no row, which left out would pass for a reservation
+    /// that costs nobody anything.
+    func testAClashAnswerThatCannotBeReadIsNotTakenForNone() async throws {
+        let row = #"{"id":"recording.31","type":"recording","uri":"\#(Self.uri)","title":"サンプル天気","#
+            + #""startDateTime":"2026-11-01T20:45:00+0900","durationSec":1800,"repeatType":"1"}"#
+        let shapes = ["[]", #"[{"annotation":0}]"#, #"{"rows":[]}"#, "[[7]]", #"[[\#(row),{"id":"recording.32"}]]"#,
+                      #"[[{"id":"reminder.22","type":"reminder","uri":"x","startDateTime":"あした","durationSec":60}]]"#]
+        let asked = try body()
+        for shape in shapes {
+            let (tv, _) = client(StubTransport(always: ok(shape)), Self.kept)
+            do {
+                let named = try await tv.wouldPushOut(asked)
+                XCTFail("\(shape) was read as \(named.count) rows")
+            } catch let error as ScalarError {
+                XCTAssertEqual(error, .unreadable(method: "getConflictScheduleList"), shape)
+            }
+        }
+        let (tv, _) = client(StubTransport(always: ok("[[\(row)]]")), Self.kept)
+        expectEqual(try await tv.wouldPushOut(asked).map(\.id), ["recording.31"], "and a row that reads is read")
+    }
+
+    /// A create is seven fields and no others, in the version that follows a programme by its id: the start
+    /// with its offset as the television writes one, the length a number, the programme id text, and no mode.
+    /// The repeat by the programme's name goes as `title`. The television's answer to the same programme a
+    /// second time is read as that; and nothing is sent a second time, for silence or for a cookie not taken.
+    func testACreateIsSevenFieldsInTheTelevisionsSpellings() async throws {
+        let transport = StubTransport(always: ok(#"[{"annotation":0}]"#))
+        let (tv, _) = client(transport, Self.kept)
+
+        try await tv.addSchedule(try body())
+        try await tv.addSchedule(try body(repeating: "S001"))
+
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, ["/sony/recording", "/sony/recording"])
+        XCTAssertEqual(sent[0].headers["Cookie"], "auth=kept")
+        let create = try json(sent[0])
+        XCTAssertEqual(create["method"] as? String, "addSchedule")
+        XCTAssertEqual(create["version"] as? String, "1.1")
+        var expected: [String: Any] = [
+            "type": "recording", "uri": Self.uri, "title": "サンプル劇場", "startDateTime": "2026-11-01T21:00:00+0900",
+            "durationSec": 1800, "repeatType": "1", "eventId": "12345",
+        ]
+        XCTAssertEqual(create["params"] as? NSArray, [expected] as NSArray)
+        expected["repeatType"] = "title"
+        XCTAssertEqual(try json(sent[1])["params"] as? NSArray, [expected] as NSArray)
+
+        let again = StubTransport(always: failed(41222, "Overlapped with Other Schedules"))
+        let silent = StubTransport { _, _ in throw RecorderError.transport("The request timed out.") }
+        let refusing = StubTransport(always: HTTPResponse(statusCode: 403))
+        let cases: [(StubTransport, DeviceFailure)] = [
+            (again, .alreadyThere), (silent, .silent), (refusing, .needsPairing),
+        ]
+        for (transport, expected) in cases {
+            let (tv, _) = client(transport, Self.kept)
+            let asked = try body()
+            expectEqual(await failure { try await tv.addSchedule(asked) }, expected)
+            expectEqual(await transport.requests.count, 1, "sent again after \(expected)")
+        }
     }
 }
