@@ -168,6 +168,14 @@ enum BackgroundWork {
                              mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system)
     }
 
+    /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
+    /// ask: read from what the screens saved, as the recorder's address is. It decides words only -- with one
+    /// saved, what became of the queue says which device it went to (`PendingQueue.Outcome.said`) -- and
+    /// nothing is asked of a television from here.
+    static var televisionSaved: Bool {
+        !(UserDefaults.standard.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
+    }
+
     /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.
     /// Handed in, so that the run can be tried without the notifications and the settings of whatever it is
     /// tried on (`refresh`).

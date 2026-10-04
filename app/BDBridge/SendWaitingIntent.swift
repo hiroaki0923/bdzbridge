@@ -14,12 +14,18 @@ struct SendWaitingIntent: AppIntent {
         """)
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: IntentDialog(stringLiteral: Self.saying(await BackgroundWork.sendWaiting())))
+        let sending = await BackgroundWork.sendWaiting()
+        let said = Self.saying(sending, televisionSaved: BackgroundWork.televisionSaved)
+        return .result(dialog: IntentDialog(stringLiteral: said))
     }
 
     /// What the action says when it is run by hand. An automation that runs by itself shows nothing of it,
     /// which is why what was sent is also a notification, as it is from the overnight run.
-    static func saying(_ sending: BackgroundWork.Sending) -> String {
+    ///
+    /// `televisionSaved`: the reader has a television beside the recorder, and what became of the queue then
+    /// says which device it went to (`PendingQueue.Outcome.said`). Handed in, since nothing here has a model
+    /// to ask; left out, it is a home with a recorder alone, whose sentences are as they have always been.
+    static func saying(_ sending: BackgroundWork.Sending, televisionSaved: Bool = false) -> String {
         switch sending {
         case .demo:
             "サンプルデータの表示中は送りません。"
@@ -32,7 +38,7 @@ struct SendWaitingIntent: AppIntent {
         case .anotherRecorder:
             Notify.anotherRecorderAnswered
         case .sent(let outcome):
-            outcome.summary
+            outcome.said(withATelevisionSaved: televisionSaved)
                 ?? (outcome.interrupted
                     ? "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。"
                     : "送信待ちの予約はありません。")

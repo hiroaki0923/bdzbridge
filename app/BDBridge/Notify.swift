@@ -70,9 +70,11 @@ enum Notify {
 
     /// What became of the reservations that were waiting. Nothing is said when nothing happened, and a
     /// reservation refused on an earlier night is not news again: it is no longer sent (`PendingQueue.flush`).
+    /// With a television saved it says which device the reservations went to (`PendingQueue.Outcome.said`).
     static func queueFlushed(_ outcome: PendingQueue.Outcome) async {
-        guard !outcome.isEmpty, let summary = outcome.summary else { return }
-        await post(id: "queue-flushed", title: "送信待ちの予約", body: summary)
+        guard !outcome.isEmpty,
+              let said = outcome.said(withATelevisionSaved: BackgroundWork.televisionSaved) else { return }
+        await post(id: "queue-flushed", title: "送信待ちの予約", body: said)
     }
 
     /// The queue was not sent, because another recorder than the one it was made for answered and with no
