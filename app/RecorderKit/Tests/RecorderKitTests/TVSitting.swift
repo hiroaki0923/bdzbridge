@@ -249,7 +249,10 @@ actor TVLine: HTTPTransport {
 ///   read, and the list is read again to see them gone. Nothing is ever deleted by its programme, its time
 ///   or its title. A recording that is new and on another channel is somebody else's, set while the create
 ///   was out: it is left alone, and the check ends with its entry left open. So is any that is new after a
-///   create the television answered as a reservation already there, which makes nothing.
+///   create the television answered as a reservation already there, which makes nothing. And a row the
+///   check made is its own only for as long as the list has its channel and its programme under its id:
+///   an id that has gone to another reservation is sent no delete, and the check ends with its entry left
+///   open.
 /// - **The ledger** is written before a create is sent. An entry is struck out when every delete sent for it
 ///   was answered without an error and the list shows its rows gone and no recording it did not have before
 ///   the check, or when its create was answered with an error and the list shows nothing new. A check that
@@ -914,12 +917,35 @@ actor TVSitting {
 
     /// The television's list, read once, and kept as the last read: of the list, and of each row the check
     /// has made, which is deleted as it was last read.
+    ///
+    /// A row the check holds is read again from the row the list has under its id only while that row is
+    /// still it (`TVScheduleRow.isStill`): on its channel and of its programme, which is what the app's own
+    /// delete holds a television's row to. An id may have gone to another reservation since, and a delete
+    /// sent for what stands under it now would take that one off. Such a row is the check's no longer: it
+    /// is held no more, so that no delete is sent for it, its entry is left open, and the check ends here,
+    /// once the list is kept. Not seen on a real television, whose ids only grew.
     @discardableResult
     private func list() async throws -> [TVScheduleRow] {
         let rows = try await ask("getScheduleList") { try await client.schedules() }
-        mine = mine.map { held in (rows.first { $0.id == held.row.id } ?? held.row, held.entry) }
+        var still: [(row: TVScheduleRow, entry: Int)] = []
+        var others = 0
+        for held in mine {
+            let listed = rows.first { $0.id == held.row.id }
+            if let listed, !held.row.isStill(listed) {
+                keptOpen.insert(held.entry)
+                others += 1
+            } else {
+                still.append((listed ?? held.row, held.entry))
+            }
+        }
+        mine = still
         if found == nil { found = rows }
         last = rows
+        guard others == 0 else {
+            throw Stopped(what: "rows the check made whose id the list now has for another channel or programme:"
+                          + " \(others). They are not the check's any more: no delete is sent for them, and their"
+                          + " entries are left in the ledger")
+        }
         return rows
     }
 
@@ -1048,6 +1074,10 @@ actor TVSitting {
     /// no create made nothing either, so no row is the check's own after one. A recording that is new then
     /// is somebody else's as well, on the channel or off it, and of the very programme as it may be: theirs
     /// for it, set a moment before, is what a television that answers "already there" is answering about.
+    ///
+    /// Where the list read here shows an id of the check's own rows gone to another reservation (`list`),
+    /// nothing that is new in it is taken for the check's own either, and the entry is left open: a new id
+    /// says that a row was made since the list before only while a television's ids do nothing but grow.
     ///
     /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
     /// create was taken, or may have been, and shows nothing in the list is left open, and the check ends:

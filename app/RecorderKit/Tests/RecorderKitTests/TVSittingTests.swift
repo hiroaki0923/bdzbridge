@@ -105,15 +105,17 @@ final class TVSittingTests: XCTestCase {
     /// counted from nought, is carried out and its answer lost, never arrives, is answered with something
     /// else and not carried out, is carried out and answered with something else, arrives just after the
     /// household has set something with the remote or taken something off with it, arrives just after the
-    /// television has put its newest recording under another number, is carried out and what it took off
-    /// then listed again under a new number, or arrives just after the ledger was taken away or written over
-    /// with another. It keeps the method of everything sent, which is what says a request went once, and
-    /// what the ledger held as each create arrived.
+    /// television has put its newest recording under another number or has put something else under an id it
+    /// had given, is carried out and what it took off then listed again under a new number, or arrives just
+    /// after the ledger was taken away or written over with another. It keeps the method of everything sent,
+    /// which is what says a request went once, and what the ledger held as each create arrived.
     private actor Line: HTTPTransport {
         enum Fault: Sendable {
             case answerLost, neverArrives, answered(String), carriedOutAndAnswered(String)
             case afterTheHouseholdSets(DemoTV.Schedule), afterTheHouseholdTakesOff(String)
             case afterTheNewestIsRenumbered, carriedOutAndListedAgain, afterTheLedgerBecomes(TVLedger?)
+            /// The row the television holds under this schedule's id is this schedule from here on.
+            case afterWhatIsUnderItsIDBecomes(DemoTV.Schedule)
         }
 
         private let television: DemoTV
@@ -168,6 +170,9 @@ final class TVSittingTests: XCTestCase {
                 return answer
             case .afterTheHouseholdTakesOff(let id):
                 await television.put(await television.schedules.filter { $0.id != id })
+                return try await television.send(request)
+            case .afterWhatIsUnderItsIDBecomes(let other):
+                await television.put(await television.schedules.map { $0.id == other.id ? other : $0 })
                 return try await television.send(request)
             case .afterTheLedgerBecomes(let other):
                 if let other { try other.write(to: ledger) } else { try FileManager.default.removeItem(at: ledger) }
@@ -1191,6 +1196,78 @@ final class TVSittingTests: XCTestCase {
             XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
             expectNamesNothing((stopped?.what ?? "") + world.said.text)
         }
+    }
+
+    /// A row the check holds is read again from the row the list has under its id only while that row is
+    /// still it: on its channel and of its programme. Where the television has put another reservation
+    /// under the id between two reads -- another programme on the same station, or the same programme id on
+    /// another station -- that reservation is not the check's: no delete is sent for it, it is still there
+    /// afterwards, and the check ends saying so by a count, its entry left open. Nothing that is new in
+    /// that list is taken for the check's own either, and the entry of what was just sent stays open with
+    /// it. The next check then makes nothing.
+    ///
+    /// With the television on and two rows held, the one whose id has gone to another reservation is sent
+    /// no delete and the other, still the check's own, is taken off; what the create just sent made stays,
+    /// and nothing is struck out.
+    ///
+    /// And a row that is still the check's own and reads otherwise than it did -- its programme moved by
+    /// five minutes -- is read again, and its delete is sent as it was last read.
+    func testARowTheCheckHoldsIsReadAgainOnlyFromARowThatIsStillIt() async throws {
+        let gone = "rows the check made whose id the list now has for another channel or programme: 1. They are not"
+            + " the check's any more: no delete is sent for them, and their entries are left in the ledger"
+        let unknown = ": what it made is not known, and its entry is left in the ledger"
+        let others = [
+            ("another programme on its station",
+             Self.owned("recording.46", on: 1, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)),
+            ("its programme's id on another station",
+             Self.owned("recording.46", on: 3, "サンプル夜話", Self.at(5, 20), programme: 50110)),
+        ]
+        // The list the check reads after its second flush is the sixth it is sent in all.
+        for (name, other) in others {
+            let world = await world(power: "standby",
+                                    faults: ["getScheduleList 5": .afterWhatIsUnderItsIDBecomes(other)])
+
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+            XCTAssertEqual(stopped?.what, gone + " after the second flush (\(Self.round(there: 1)))" + unknown
+                           + "; and " + Self.oneRowMore, name)
+            expectEqual(await world.television.schedules, Self.owners + [other], "\(name): it was deleted")
+            expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"]
+                        + Self.roundOpening + ["getScheduleList"] + Self.standbyEnding, name)
+            expectEqual(await count("deleteSchedule", in: world), 0, "\(name): a delete was sent")
+            XCTAssertEqual(try entries(world), ["1502 50110 1", "1502 50110 1"], name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 2, name)
+            XCTAssertEqual(world.said.lines.last, Self.stillInStandby, name)
+            expectNamesNothing((stopped?.what ?? "") + world.said.text)
+
+            await world.line.forget()
+            let next = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+            XCTAssertEqual(next?.what.hasPrefix("entries of the ledger not struck out: 2."), true, name)
+            expectEqual(await world.line.sent, [], name)
+        }
+
+        // The list after the third create of three, the first two held: the first's id has gone.
+        let other = others[0].1
+        let three = await world(faults: ["getScheduleList 3": .afterWhatIsUnderItsIDBecomes(other)])
+        let stopped = await thrown { try await three.sitting.threeAtOnce() } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, gone + " after a create (taken, annotation 0)" + unknown + "; and "
+                       + Self.afterTheDeletes(unanswered: 0, left: 0, new: 2))
+        expectEqual(await three.line.sent, Self.opening + Self.made + Self.made + Self.made + Self.takenOff)
+        let left = await three.television.schedules
+        expectEqual(Array(left.dropLast()), Self.owners + [other], "it was deleted, or the second was not")
+        XCTAssertEqual(left.last.map { "\($0.id) \($0.serviceID) \($0.eventId ?? 0)" }, "recording.48 1504 50111")
+        XCTAssertEqual(try entries(three), ["1501 50109 1", "1502 50110 1", "1504 50111 1"])
+        XCTAssertEqual(try TVLedger.read(three.ledger).open, 3)
+        expectNamesNothing((stopped?.what ?? "") + three.said.text)
+
+        let moved = Self.owned("recording.46", on: 1, DemoTV.title(ofProgramme: 50110), Self.at(5, 20, 5),
+                               programme: 50110)
+        let followed = await world(power: "standby",
+                                   faults: ["getScheduleList 5": .afterWhatIsUnderItsIDBecomes(moved)])
+        try await followed.sitting.aWaitingRowInStandby()
+        expectEqual(await count("deleteSchedule", in: followed), 1)
+        expectEqual(await followed.television.schedules, Self.owners)
+        XCTAssertEqual(try TVLedger.read(followed.ledger).open, 0)
     }
 
     /// The second flush is to send no create, and the check fails where it sent one, though the queue says
