@@ -213,7 +213,11 @@ television). What is at an address, the registration and the two reads behind it
 checks with which the three requests that reserve on a television -- its stations, the question of what a
 reservation would stop from recording, the create -- meet a real one for the first time: nine of them, run
 one at a time in a sitting with the television's owner, in the order written at the head of that file with
-what to look at for each. Nothing in the app sends those three requests yet.
+what to look at for each. One more is for a television left in standby overnight. It sends one waiting
+reservation the way the app is to send what waits for a television -- through the queue's own flush and the
+round the package has for it (`ScalarClient` as a `QueueTarget`, tried in `TVRoundTests`) -- then flushes the
+same reservation a second time, which is to find it on the television and send no create, and takes it off.
+Nothing in the app hands the queue a television yet, so nothing in the app sends those three requests.
 
 A check that writes to somebody's television keeps to rules that are written once, in `TVSitting`. It makes
 nothing unless it was given leave by name (`TV_WRITE` set to the name of the one test that is run) and the
@@ -229,12 +233,19 @@ of picks written from the recorder's guide beforehand. The viewing reservation t
 is the one the owner names by its start (`TV_REMINDER`), never one a check picks for itself. And it says
 counts, statuses and codes: never a title, a station's name or an id.
 
+The check for a television in standby makes nothing unless the television says it is in standby, and keeps
+the rest. Its create is the round's to send, so the ledger is written before each flush and the list read
+before and after it, and which rows are its own and when an entry is struck out go by the one rule the other
+checks go by. The question before the create is the round's, which sends none when the television names any
+row. Of what the queue said it says the counts and why the round stopped: a reason the round wrote on a row
+has the titles of the household's reservations in it, and is said by its kind.
+
 Every check is rehearsed first, in the same order and by the same code, against the package's invented
-television (`TVSittingTests`, an ordinary test that needs nothing set). The household's reservations are
-put just outside the slots the checks use and on the very programmes they reserve, and the line to the
-television can be cut at one request. The rehearsal fails if a check leaves a row, deletes one it did not
-make, sends a create a second time or without the question before it, makes something without leave, or
-names a programme, a station or a row.
+television (`TVSittingTests`, an ordinary test that needs nothing set), which answers what a real one was
+measured to answer the same requests. The household's reservations are put just outside the slots the checks
+use and on the very programmes they reserve, and the line to the television can be cut at one request. The
+rehearsal fails if a check leaves a row, deletes one it did not make, sends a create a second time or without
+the question before it, makes something without leave, or names a programme, a station or a row.
 
 ## On a real iPhone
 

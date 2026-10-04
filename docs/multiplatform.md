@@ -36,7 +36,8 @@ Android 版はないか、という問い合わせを受けての調査です。
   `TVDriver` の手順で（1 行の読みと、消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文もそこにある。
   アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。テレビに予約を入れるための 3 つの要求
   （局の一覧、録れなくなる予約の問い合わせ、作成）も `ScalarClient` にあり、送る中身のテレビ側の綴りは
-  `TVReservation` にある。アプリからはまだ呼ばない。
+  `TVReservation` にある。送信待ちの 1 件をテレビに送る手順（`QueueTarget` としての `ScalarClient`）も
+  そこにある。アプリはまだ送信待ちにテレビを渡さない。
 
 ## 比べた案
 
@@ -50,13 +51,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-44 ファイル、7,966 行（空行とコメントを含み、`Package.swift` を除く）。テストは 11,989 行。
+44 ファイル、8,540 行（空行とコメントを含み、`Package.swift` を除く）。テストは 13,843 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,977 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
+| 入出力を持たないロジック | 3,005 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 3,397 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 3,943 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -263,10 +264,17 @@ AppModel の中の関数ではなく振る舞いで書き直してあります�
 書き、それ以外は見送る）は、`PendingQueue` から `ReservationTarget` の既定の実装へ移しました。写しは
 作っていません。どの機器宛の行を受け取るかは機器の型が言うので（`QueueTarget.slot`）、別の機器宛の行を
 渡す書き方はできません。結果の文も、アプリ（`Notify.swift`）から `PendingQueue.Outcome` の横へ移し、機器の
-呼び名を受け取れるようにしました。テレビに送る実装はまだありません。レコーダーだけの家では、送るものも文も
+呼び名を受け取れるようにしました。この時点では、テレビに送る実装はありません。レコーダーだけの家では、送るものも文も
 一字も変わらず、アプリのテスト（122 件）と RecorderKit の既存のテストは本体を変えずに通ります。テレビを
 登録してある家で変わるのは、文がどの機器に送ったかを言うことだけです（「送信待ちだった「…」をレコーダーに
 登録しました」。言うかどうかはアプリが決めます）。
+
+テレビの送り方は、そのあと `ScalarClient` に書きました（規則は `porting.md` の「端末側の設計メモ」）。回の初めに
+ディスクと一覧を読み、行ごとに、局の一覧、録れなくなる予約の問い合わせ、作成、一覧の順に送ります。送信待ちの側で
+変えたのは 1 つだけで、機器が「作った」に文を添えられるようにしました（`RowSent.made(saying:)` と、結果の
+`remarks`）。テレビは、作った予約がほかの予約に何をしたかを、作成の答えではなく一覧でしか言わないためです。
+レコーダーは何も添えないので、文は一字も変わりません。アプリはまだ送信待ちにテレビを渡しておらず、アプリの
+テスト（124 件）は本体を変えずに通ります。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と
