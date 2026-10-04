@@ -8,7 +8,11 @@
   `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). The connection to the recorder -- when
   it is asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's
   `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
-  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). A television, once added in the
+  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What an operation is made of,
+  whichever device it is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why
+  a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
+  kind of failure says and leaves behind. The one funnel the recorder's actions run through (`AppModel.run`)
+  stands on it, and so does a television's read of its reservations. A television, once added in the
   settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
   `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading and deleting them are the driver's
@@ -123,7 +127,9 @@ the queue of waiting reservations and in what words -- so that the same can be s
 test's body unchanged. That includes behaviour nobody would choose, and a test says so where it holds some.
 They ask only what a screen asks and read only what a screen reads, and the sentences they compare with are
 written out once, in `Bench` (`Said`): one of them is stored on the rows of the phone's queue and counted by
-being equal to it, so a letter changed there is a row no longer counted.
+being equal to it, so a letter changed there is a row no longer counted. The funnel's own body has moved
+already, onto the link (`DeviceLink.run`), with these as they were: what its parts are is tried in
+RecorderKit (`LinkPartsTests`), and that the app still does the same with them is what the gates show.
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
