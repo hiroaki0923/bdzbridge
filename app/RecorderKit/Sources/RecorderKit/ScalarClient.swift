@@ -750,8 +750,9 @@ extension ScalarClient: QueueTarget {
     ///     second such row running stops the round. So does such an answer to the list after a create
     ///     answered as held already: nothing was made, and the list the round holds still stands.
     ///  6. Such an answer to the list after a create answered as taken ends the round there, whatever the
-    ///     count: the round no longer has the list it stands on. The row is told as one passed over, with
-    ///     nothing written on it, and the next round's list says whether it was made.
+    ///     count: the round no longer has the list it stands on. The row is left unsaid, as after silence
+    ///     at that read, with nothing written on it: by the television's answer it was made, so it is not
+    ///     told as one that could not be sent, and the next round's list says.
     ///  7. The count of the rows that say nothing is started again by a reservation the television answered
     ///     about, at the question, the create or the list after it: one held for what it would stop,
     ///     turned down by a code, held for not being listed, held for what is listed falling short of
@@ -827,10 +828,12 @@ extension ScalarClient: QueueTarget {
         } catch {
             // The create was taken and the list cannot be read: the round has no list to stand on any
             // more. What the next reservation did beyond its own row would be worked out from a list from
-            // before this create, and said of the wrong one. After a create answered as held already
-            // nothing was made, and the list the round holds still stands.
+            // before this create, and said of the wrong one. The row is left unsaid, as silence at this
+            // read leaves it: a row passed over is told as one that could not be sent, and this one was
+            // taken. After a create answered as held already nothing was made, and the list the round
+            // holds still stands.
             if !saidThere, Self.stop(for: error, afterSending: true) == nil {
-                return (.stopped(.saysNothing, passedOver: true), round)
+                return (.stopped(.saysNothing, passedOver: false), round)
             }
             return Self.unanswered(error, afterSending: !saidThere, round)
         }

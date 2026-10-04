@@ -1033,9 +1033,9 @@ final class TVSittingTests: XCTestCase {
     /// is the check's own then, theirs is not deleted, and the entry stays open. And a row the round holds
     /// because the television names a reservation of the household's makes nothing, its entry struck out,
     /// with the reason said by its kind and not as it was written, which has the household's title in it.
-    /// Where the round could not read its list after the create and stopped, the row told as passed over,
-    /// the row the check's own list shows is the check's and is taken off, and the check fails: the round
-    /// did not say it made one. After an entry left open the next check makes nothing.
+    /// Where the round could not read its list after the create and stopped, the row left unsaid, the row
+    /// the check's own list shows is the check's and is taken off, and the check fails: the round did not
+    /// say it made one. After an entry left open the next check makes nothing.
     ///
     /// Each ends with the television asked what it says it is, but for the two whose create met no answer:
     /// after silence nothing is sent but the list and the delete of the check's own row.
@@ -1071,7 +1071,7 @@ final class TVSittingTests: XCTestCase {
              "the first flush did not make one row", ["getConflictScheduleList", "getScheduleList"]
                 + Self.standbyEnding, [], 0),
             ("the list after the create not read by the round", ["getScheduleList 2": .answered(unreadable)],
-             answered, Self.round(passedOver: 1, stop: "stopped: answers that say nothing"),
+             answered, Self.round(stop: "stopped: answers that say nothing"),
              "the first flush did not make one row", made + Self.takenOff + Self.standbyEnding, [], 0),
         ]
         for (name, faults, sent, said, what, afterTheStations, left, open) in cases {

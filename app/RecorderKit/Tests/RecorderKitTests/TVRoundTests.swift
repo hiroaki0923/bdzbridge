@@ -569,11 +569,12 @@ final class TVRoundTests: XCTestCase {
 
     /// A list that cannot be read after a create answered as taken ends the round at that row, the first
     /// such row as well: the round no longer has the list it stands on, and what the next reservation did
-    /// beyond its own row would be read from a list from before this create. The row is told as one passed
-    /// over, nothing is written on it, and nothing is asked about the reservation after it. The next round
-    /// finds the row in the television's list and sends no create for it. After a create answered as held
-    /// already nothing was made, and the list the round holds still stands: there the row is passed over,
-    /// and the round goes on to the next.
+    /// beyond its own row would be read from a list from before this create. The row is left unsaid, as
+    /// after silence at that read: the television answered that it took the create, so the queue has
+    /// nothing to say of a reservation that could not be sent. Nothing is written on the row, and nothing
+    /// is asked about the reservation after it. The next round finds the row in the television's list and
+    /// sends no create for it. After a create answered as held already nothing was made, and the list the
+    /// round holds still stands: there the row is passed over, and the round goes on to the next.
     func testAListThatCannotBeReadAfterACreateThatWasTakenEndsTheRound() async throws {
         let whole = [Self.kind, Self.question, Self.create, Self.list]
         let answers = [("that cannot be read", Self.unreadable), ("with an error", Self.refused(Self.unknown))]
@@ -588,8 +589,9 @@ final class TVRoundTests: XCTestCase {
             let met = await PendingQueue.flush(client: bench.tv, store: store, now: now)
 
             XCTAssertEqual(met.stopped, .saysNothing, name)
-            XCTAssertEqual(met.deferred.map(\.request.title), ["サンプル劇場"], name)
-            XCTAssertEqual([met.sent, met.alreadyThere, met.refused, met.held].map(\.count), [0, 0, 0, 0], name)
+            XCTAssertEqual([met.sent, met.alreadyThere, met.refused, met.deferred, met.held].map(\.count),
+                           [0, 0, 0, 0, 0], name)
+            XCTAssertNil(met.says(naming: "テレビ"), name)
             expectEqual(await bench.line.sent, [Self.disk, Self.list] + whole, name)
             expectEqual(try await store.pendingReservations().map(\.problem), [nil, nil], name)
             expectEqual(await bench.television.schedules.map(\.eventId), [50101], name)
