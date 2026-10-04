@@ -109,6 +109,9 @@ public protocol LinkDriver: AnyObject, Sendable {
     var probeTimeout: TimeInterval { get }
     /// What is said when the check before an operation met silence and nothing could be done about it.
     var noAnswerLine: String { get }
+    /// Whether a read that has just met silence loses the device and says so (`DeviceLink.say`). Silence on
+    /// something that changes the device always does, whatever this answers.
+    func takesSilenceOnARead(_ link: DeviceLink) -> Bool
     func makeClient(for link: DeviceLink) -> any LinkClient
     /// Whether there is something to wake the device with. A failure on the first ask is kept off the screen
     /// when there is, since the waking that follows is the answer to it.

@@ -57,6 +57,10 @@ public final class TVDriver: LinkDriver {
 
     public var noAnswerLine: String { ScalarError.transport("no answer").explanation }
 
+    /// Only while the session is still connected: silence is said once, so that a read which waited its turn
+    /// behind the request that met it does not write over what that one said -- a delete that may have arrived.
+    public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { link.session.connected }
+
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         ScalarClient(host: link.host, transport: link.environment.transport(link.host), credentials: credentials)
     }

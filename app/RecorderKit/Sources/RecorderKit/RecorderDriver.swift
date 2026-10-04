@@ -33,6 +33,10 @@ public final class RecorderDriver: LinkDriver {
 
     public var noAnswerLine: String { RecorderError.transport("no answer").explanation }
 
+    /// Every one, whatever the session says: a recorder that answered without saying which it is is not
+    /// connected, is read all the same, and its silence is to lose it and be said like any other.
+    public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { true }
+
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         RecorderClient(host: link.host, transport: link.environment.transport(link.host),
                        busyRetryDelay: busyRetryDelay)
