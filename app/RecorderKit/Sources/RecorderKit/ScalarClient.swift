@@ -596,13 +596,22 @@ extension ScalarClient {
         "\(wouldStop): \(named.map(name(of:)).joined(separator: "、"))。\(sendAgainToMakeIt)"
     }
 
-    /// How a row of the television's list is said in a sentence: its title as the television has it, and the
-    /// day and the time it starts, which tell one reservation of a programme from the next day's. A reminder
-    /// to watch says that it is one, in the television's own word for it: it is no recording, and the app
-    /// lists none.
+    /// How a row of the television's list is said in a sentence: its title as the television has it, and in
+    /// brackets its station and the day and the time it starts. The start tells one reservation of a
+    /// programme from the next day's, and the station tells it from the same title at the same minute on
+    /// another station, as a simulcast is: the sentence is what a consent is held against, and what tells
+    /// the reader which reservation is meant.
+    ///
+    /// The station is what the row's uri calls it (`TVScheduleRow.stationName`) and not its `channelName`:
+    /// a row the question names has no `channelName`, and one rule serves both. A row with no station in
+    /// its uri is said by its start alone, one whose start cannot be read by its station alone, and one
+    /// with neither by its title. A reminder to watch says that it is one, in the television's own word
+    /// for it: it is no recording, and the app lists none.
     static func name(of row: TVScheduleRow) -> String {
-        let start = RecorderTime.parse(row.startDateTime).map { "（\(said($0))）" } ?? ""
-        return (row.type == "reminder" ? "視聴予約" : "") + "「\(row.title ?? "")」" + start
+        let station = TVScheduleRow.stationName(of: row.uri)
+        let start = RecorderTime.parse(row.startDateTime).map { said($0) }
+        let which = [station, start].compactMap { $0 }.joined(separator: " ")
+        return (row.type == "reminder" ? "視聴予約" : "") + "「\(row.title ?? "")」" + (which.isEmpty ? "" : "（\(which)）")
     }
 
     /// A start as a sentence says it: the month, the day and the time of day in Japan, to the nearest minute

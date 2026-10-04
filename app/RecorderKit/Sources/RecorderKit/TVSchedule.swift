@@ -98,6 +98,17 @@ public struct TVScheduleRow: Sendable, Equatable {
         return (type, serviceID)
     }
 
+    /// What the television calls the station a uri names: the text after the first `&srvName=`, to the end
+    /// of the uri, as the television has it. Cut as a string, as the channel is, and for the same reason: the
+    /// name is unescaped and may hold anything, an `&` or another `srvName=` included, and nothing in it is
+    /// taken for its end. Nil for a uri with no name, and for one whose name is empty. It is for saying
+    /// which station is meant, and nothing is found by it: a channel is its numbers.
+    static func stationName(of uri: String) -> String? {
+        guard let marker = uri.range(of: "&srvName=", options: .literal) else { return nil }
+        let name = uri[marker.upperBound...]
+        return name.isEmpty ? nil : String(name)
+    }
+
     /// The service id in `<onid>.<tsid>.<sid>`, as a uri writes a channel and as a station's own row does: the
     /// last of three numbers. Each of the three is digits and nothing else -- `Int` by itself would take a
     /// sign -- and the service id is one its sixteen bits can hold. Nil for anything else.

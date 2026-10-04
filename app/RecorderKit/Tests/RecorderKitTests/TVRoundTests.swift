@@ -401,17 +401,20 @@ final class TVRoundTests: XCTestCase {
     /// A reservation that the television says would stop another from recording is held with the reason that
     /// names it, and no create is sent. With the reader's consent the television is asked all the same, and
     /// the create goes only when the reason on the row is the very reason the fresh answer makes: a row with
-    /// no reason, with a reason that names another reservation, with the same title on another day, or held
-    /// for something else, is held with the new reason and nothing is sent. Made with consent, the reservation
-    /// named loses its recording, and nothing more is said of it: the reader was told.
+    /// no reason, with a reason that names another reservation, the same title on another day, or the same
+    /// title at the same minute on another station, or held for something else, is held with the new reason
+    /// and nothing is sent. Made with consent, the reservation named loses its recording, and nothing more is
+    /// said of it: the reader was told.
     func testNothingIsMadeThatWouldStopAnotherUnlessTheReaderConsentedToExactlyThat() async throws {
         let household = [owned("recording.21", on: 1, "サンプル紀行"), owned("recording.22", on: 2, "サンプル討論")]
-        let reason = "この予約を入れると、次の予約は録画されません: 「サンプル紀行」（11/1 21:00）。"
+        let reason = "この予約を入れると、次の予約は録画されません: 「サンプル紀行」（サンプル放送2 11/1 21:00）。"
             + "「もう一度送る」を選ぶと、それでも予約します。"
-        // What the reader would have consented to had the television named the other of the two, or a
-        // reservation of the same title a day later.
+        // What the reader would have consented to had the television named the other of the two, a
+        // reservation of the same title a day later, or one of the same title at the same minute on another
+        // station, as a programme sent out on two stations at once is.
         let other = ScalarClient.wouldStop(naming: [household[1].row])
         let nextDay = ScalarClient.wouldStop(naming: [owned("recording.21", on: 1, "サンプル紀行", at: 86_400).row])
+        let elsewhere = ScalarClient.wouldStop(naming: [owned("recording.24", on: 2, "サンプル紀行").row])
         let asking = [Self.kind, Self.question]
         let untouched = ["recording.21 notOverlapped", "recording.22 notOverlapped"]
         let cases: [(name: String, consented: Bool, written: String?, comes: Came, holds: [String])] = [
@@ -419,6 +422,8 @@ final class TVRoundTests: XCTestCase {
             ("consent, and nothing on the row", true, nil, Came(.refused(reason: reason), asked: asking), untouched),
             ("consent to another reservation", true, other, Came(.refused(reason: reason), asked: asking), untouched),
             ("consent to the same title on another day", true, nextDay,
+             Came(.refused(reason: reason), asked: asking), untouched),
+            ("consent to the same title at the same minute on another station", true, elsewhere,
              Came(.refused(reason: reason), asked: asking), untouched),
             ("consent on a row held for its station", true, "テレビのチャンネル一覧にこの局が見つかりませんでした。",
              Came(.refused(reason: reason), asked: asking), untouched),
@@ -452,7 +457,7 @@ final class TVRoundTests: XCTestCase {
         let reminder = owned("reminder.9", on: 3, "サンプル音楽館", at: -1, programme: 50109)
         let naming = try JSONSerialization.data(withJSONObject: ["result": [[reminder.named]], "id": 1])
         let named = ["\(Self.question) 0": Line.Fault.answered(HTTPResponse(statusCode: 200, body: naming))]
-        let reason = "この予約を入れると、次の予約は録画されません: 視聴予約「サンプル音楽館」（11/1 21:00）。"
+        let reason = "この予約を入れると、次の予約は録画されません: 視聴予約「サンプル音楽館」（サンプル放送4 11/1 21:00）。"
             + "「もう一度送る」を選ぶと、それでも予約します。"
         let asking = [Self.kind, Self.question]
 
@@ -742,7 +747,8 @@ final class TVRoundTests: XCTestCase {
         }
         let marked = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
         func cost(_ names: String) -> String { "「サンプル劇場」を登録したため、\(names)がほかの予約と重なりました" }
-        let recording = "「サンプル紀行」（11/1 21:00）", viewing = "視聴予約「サンプル音楽館」（11/1 21:00）"
+        let recording = "「サンプル紀行」（サンプル放送2 11/1 21:00）"
+        let viewing = "視聴予約「サンプル音楽館」（サンプル放送2 11/1 21:00）"
 
         let cases: [(String, [TVScheduleRow], [TVScheduleRow], [TVScheduleRow], String?)] = [
             ("nothing marked", [other(clear), reminder(clear)], [made(clear), other(clear), reminder(clear)], [], nil),
@@ -777,7 +783,8 @@ final class TVRoundTests: XCTestCase {
     /// And the queue says either after its sentence for what was sent.
     func testARowMadeSaysWhatTheListShowsItDid() async throws {
         let reminder = owned("reminder.9", on: 3, "サンプル音楽館", at: -1, programme: 50109)
-        let cost = "「サンプル劇場」を登録したため、視聴予約「サンプル音楽館」（11/1 21:00）がほかの予約と重なりました"
+        let cost = "「サンプル劇場」を登録したため、視聴予約「サンプル音楽館」（サンプル放送4 11/1 21:00）"
+            + "がほかの予約と重なりました"
         let whole = [Self.kind, Self.question, Self.create, Self.list]
         let waiting = row("サンプル劇場", 50101, on: 0, for: 3240)
 
@@ -809,10 +816,11 @@ final class TVRoundTests: XCTestCase {
     // MARK: - the sentences
 
     /// The sentences that are kept in the phone's database, letter for letter, and how a row of the
-    /// television's list is named in them: its title as the television has it and the day and time it starts
-    /// in Japan, to the nearest minute, written the same whatever the phone's settings; a reminder as a
-    /// viewing reservation; several in the order given. A row whose start cannot be read is named by its
-    /// title alone.
+    /// television's list is named in them: its title as the television has it, and in brackets the station
+    /// as its uri calls it, whatever is in that name, and the day and time it starts in Japan, to the nearest
+    /// minute, written the same whatever the phone's settings; a reminder as a viewing reservation; several
+    /// in the order given. A row whose uri names no station is named by its title and its start, one whose
+    /// start cannot be read by its title and its station, and one with neither by its title alone.
     func testTheReasonsAndTheNamesInThemAreWrittenAsTheyAreKept() {
         XCTAssertEqual(ScalarClient.stationNotListed, "テレビのチャンネル一覧にこの局が見つかりませんでした。")
         XCTAssertEqual(ScalarClient.wouldStop, "この予約を入れると、次の予約は録画されません")
@@ -825,27 +833,42 @@ final class TVRoundTests: XCTestCase {
         XCTAssertEqual(ScalarClient.refusals.keys.sorted(), [7])
         XCTAssertEqual(ScalarClient.slot, .tv)
 
-        func listed(_ type: String, _ title: String?, _ start: String) -> TVScheduleRow {
-            TVScheduleRow(id: "\(type).31", type: type, uri: Self.stations[0].uri, startDateTime: start,
+        // On the first station unless a uri is given: one that ends at its three numbers, one whose name is
+        // empty, and one whose name holds what a uri is cut at.
+        let numbers = "tv:isdbt?trip=65534.65533.1501"
+        func listed(_ type: String, _ title: String?, _ start: String, uri: String? = nil) -> TVScheduleRow {
+            TVScheduleRow(id: "\(type).31", type: type, uri: uri ?? Self.stations[0].uri, startDateTime: start,
                           durationSec: 1800, title: title)
         }
         let names: [(TVScheduleRow, String)] = [
-            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+0900"), "「サンプル劇場」（11/1 21:00）"),
+            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+0900"), "「サンプル劇場」（サンプル放送1 11/1 21:00）"),
             (listed("recording", "サンプル番組\u{3000}7\u{1F211}", "2026-11-02T07:05:00+0900"),
-             "「サンプル番組\u{3000}7\u{1F211}」（11/2 07:05）"),
-            (listed("recording", "サンプル深夜便", "2026-11-02T01:30:00+0900"), "「サンプル深夜便」（11/2 01:30）"),
-            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+09:00"), "「サンプル劇場」（11/1 21:00）"),
-            (listed("reminder", "サンプル音楽館", "2026-11-01T20:59:59+0900"), "視聴予約「サンプル音楽館」（11/1 21:00）"),
-            (listed("reminder", "サンプル音楽館", "2026-12-31T23:59:59+0900"), "視聴予約「サンプル音楽館」（1/1 00:00）"),
-            (listed("recording", nil, "2026-11-01T21:00:00+0900"), "「」（11/1 21:00）"),
-            (listed("recording", "サンプル劇場", "あした"), "「サンプル劇場」"),
+             "「サンプル番組\u{3000}7\u{1F211}」（サンプル放送1 11/2 07:05）"),
+            (listed("recording", "サンプル深夜便", "2026-11-02T01:30:00+0900"),
+             "「サンプル深夜便」（サンプル放送1 11/2 01:30）"),
+            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+09:00"), "「サンプル劇場」（サンプル放送1 11/1 21:00）"),
+            (listed("reminder", "サンプル音楽館", "2026-11-01T20:59:59+0900"),
+             "視聴予約「サンプル音楽館」（サンプル放送1 11/1 21:00）"),
+            (listed("reminder", "サンプル音楽館", "2026-12-31T23:59:59+0900"),
+             "視聴予約「サンプル音楽館」（サンプル放送1 1/1 00:00）"),
+            (listed("recording", nil, "2026-11-01T21:00:00+0900"), "「」（サンプル放送1 11/1 21:00）"),
+            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+0900",
+                    uri: numbers + "&srvName=サンプル\u{3000}放送 & 2?trip=1.2.3&srvName=4"),
+             "「サンプル劇場」（サンプル\u{3000}放送 & 2?trip=1.2.3&srvName=4 11/1 21:00）"),
+            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+0900", uri: numbers),
+             "「サンプル劇場」（11/1 21:00）"),
+            (listed("recording", "サンプル劇場", "2026-11-01T21:00:00+0900", uri: numbers + "&srvName="),
+             "「サンプル劇場」（11/1 21:00）"),
+            (listed("recording", "サンプル劇場", "あした"), "「サンプル劇場」（サンプル放送1）"),
+            (listed("reminder", "サンプル音楽館", "あした"), "視聴予約「サンプル音楽館」（サンプル放送1）"),
+            (listed("recording", "サンプル劇場", "あした", uri: numbers), "「サンプル劇場」"),
         ]
         for (row, name) in names {
             XCTAssertEqual(ScalarClient.name(of: row), name)
         }
         XCTAssertEqual(ScalarClient.wouldStop(naming: [names[4].0, names[0].0]),
-                       "この予約を入れると、次の予約は録画されません: 視聴予約「サンプル音楽館」（11/1 21:00）、"
-                        + "「サンプル劇場」（11/1 21:00）。「もう一度送る」を選ぶと、それでも予約します。")
+                       "この予約を入れると、次の予約は録画されません: 視聴予約「サンプル音楽館」（サンプル放送1 11/1 21:00）、"
+                        + "「サンプル劇場」（サンプル放送1 11/1 21:00）。「もう一度送る」を選ぶと、それでも予約します。")
     }
 }
 

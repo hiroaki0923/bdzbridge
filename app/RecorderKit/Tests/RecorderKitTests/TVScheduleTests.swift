@@ -121,6 +121,26 @@ final class TVScheduleTests: XCTestCase {
         }
     }
 
+    /// What the television calls the station is everything after the first `&srvName=`, to the end of the
+    /// uri and as it stands there: with its spaces, with an `&` and with what looks like the uri over again.
+    /// A uri that ends at its numbers has no name, nor has one whose name is empty or is not written after
+    /// an `&`. The name is cut out whatever the rest of the uri reads as.
+    func testTheStationsNameIsCutOutOfTheUri() {
+        let names: [(String, String?)] = [
+            (uri(), "サンプルテレビ"),
+            (uri("isdbbs", 2048, "サンプル\u{3000}BS 4K"), "サンプル\u{3000}BS 4K"),
+            (uri("isdbt", 1024, "サンプル&テレビ=2?trip=1.2.3&srvName=4"), "サンプル&テレビ=2?trip=1.2.3&srvName=4"),
+            (uri("isdbx", 1024, "サンプルラジオ"), "サンプルラジオ"),
+            (uri(trip: "65534.1024"), "サンプルテレビ"),
+            (uri("isdbt", 1024, ""), nil),
+            ("tv:isdbt?trip=65534.65533.1024", nil), ("tv:isdbt?trip=65534.65533.1024&", nil),
+            ("tv:isdbt?srvName=サンプルテレビ", nil), ("", nil),
+        ]
+        for (uri, name) in names {
+            XCTAssertEqual(TVScheduleRow.stationName(of: uri), name, uri)
+        }
+    }
+
     /// A uri that is not in the form names no channel, neither half of one: another scheme or none, fewer
     /// numbers than three or more, a number that is not digits alone -- signed, empty, letters -- and a service
     /// id past sixteen bits. The row is still a reservation, to be shown and deleted by what it is.
