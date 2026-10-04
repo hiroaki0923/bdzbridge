@@ -166,7 +166,11 @@ import XCTest
 ///
 /// **The evening before, before the television is left to go to standby**, the picks are written
 /// (`testWritingThePicks`, above) and the tests are built. The recorder is asked nothing after that until
-/// the check has ended. Then the television is switched off with its remote, its USB disk connected, and
+/// the check has ended, and not by these commands alone: **for the night, whatever else asks the recorder or
+/// the television is stopped as well** -- a server that refreshes its guide from the recorder, the app on
+/// every phone, closed and with its background refresh off. What waking a recorder does to a television it
+/// is wired to was never measured, and a television that something else asked during the night is not one
+/// that was left alone. Then the television is switched off with its remote, its USB disk connected, and
 /// nobody touches it or its remote again until the check has ended.
 ///
 /// **In the morning**, with nobody having touched the television, three commands in this order. From the
