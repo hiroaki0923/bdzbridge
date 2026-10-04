@@ -913,6 +913,14 @@ final class TVSittingTests: XCTestCase {
         "the first flush sent: getStorageList answered, getScheduleList answered, getContentList answered, \(after)"
     }
 
+    /// What it says of a flush after which the list held one recording more that the flush did not make.
+    private static func notTheFlushes(_ answer: String, own: Int) -> String {
+        "recordings new in the list that the first flush did not make: 1. They are on another channel than it"
+            + " was sent for, or it took no create and made nothing: they are not the check's and are left"
+            + " alone; the first flush (\(answer)) made rows of its own: \(own), and its entry is left in the"
+            + " ledger"
+    }
+
     /// The check for a television left in standby, on the invented one in standby with the household's rows
     /// in place. One waiting row goes through the queue's own flush: the round's six requests, the question
     /// in front of the create. The same row flushed again is found on the television, with the disk and the
@@ -1039,12 +1047,6 @@ final class TVSittingTests: XCTestCase {
         let afterSilence = Self.round(stop: "stopped by silence, at a create or after it")
         let unanswered = "getConflictScheduleList answered, addSchedule no answer"
         let answered = "getConflictScheduleList answered, addSchedule answered, getScheduleList answered"
-        func notTheRounds(_ answer: String, own: Int) -> String {
-            "recordings new in the list that the first flush did not make: 1. They are on another channel than it"
-                + " was sent for, or it was answered as already there and made nothing: they are not the check's"
-                + " and are left alone; the first flush (\(answer)) made rows of its own: \(own), and its entry is"
-                + " left in the ledger"
-        }
         let made = Self.made + ["getScheduleList"]
         let cases: [(String, [String: Line.Fault], String, String, String, [String], [DemoTV.Schedule], Int)] = [
             ("carried out and not answered", ["addSchedule 0": .answerLost], unanswered, afterSilence, silence + "1",
@@ -1057,12 +1059,12 @@ final class TVSittingTests: XCTestCase {
              "the first flush (\(Self.round(held: 1, "answered as taken, and not in the list"))) shows nothing new"
                 + " in the list: its entry is left in the ledger", made + Self.standbyEnding, [], 1),
             ("a recording set on another station meanwhile", ["addSchedule 0": .afterTheHouseholdSets(elsewhere)],
-             answered, Self.round(sent: 1), notTheRounds(Self.round(sent: 1), own: 1) + "; and "
+             answered, Self.round(sent: 1), Self.notTheFlushes(Self.round(sent: 1), own: 1) + "; and "
                 + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1),
              made + Self.takenOff + Self.standbyEnding, [elsewhere], 1),
             ("the very programme reserved a moment before", ["addSchedule 0": .afterTheHouseholdSets(theirs)],
              "getConflictScheduleList answered, addSchedule error 41222, getScheduleList answered",
-             Self.round(there: 1), notTheRounds(Self.round(there: 1), own: 0) + "; and " + Self.oneRowMore,
+             Self.round(there: 1), Self.notTheFlushes(Self.round(there: 1), own: 0) + "; and " + Self.oneRowMore,
              made + Self.standbyEnding, [theirs], 1),
             ("a reservation of the household's named", ["getConflictScheduleList 0": try naming(Self.owners[1])],
              "getConflictScheduleList answered", Self.round(held: 1, "it would stop another from recording"),
@@ -1108,6 +1110,28 @@ final class TVSittingTests: XCTestCase {
         XCTAssertTrue(twice.said.lines.contains("the second flush sent: getStorageList answered"))
         expectEqual(await twice.television.schedules, Self.owners)
         XCTAssertEqual(try TVLedger.read(twice.ledger).open, 0)
+    }
+
+    /// Where a flush took no create, nothing that is new in the list afterwards is the check's own. Here the
+    /// round stops at the disk, and somebody has reserved the very programme from another device after the
+    /// check read its list: a recording that is new, on the pick's own station and of the pick's own
+    /// programme. It is left where it is, nothing is deleted, and the entry stays open.
+    func testNothingNewAfterAFlushThatTookNoCreateIsTheChecksOwn() async throws {
+        let unmounted = #"{"result":[[{"uri":"usb:recStorage","mounted":"unmounted"}]],"id":1}"#
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
+        let world = await world(power: "standby", faults: ["getContentList 0": .afterTheHouseholdSets(theirs),
+                                                           "getStorageList 1": .answered(unmounted)])
+        let atTheDisk = Self.round(stop: "stopped: no disk to record to")
+
+        let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, Self.notTheFlushes(atTheDisk, own: 0) + "; and " + Self.oneRowMore)
+        expectEqual(await world.television.schedules, Self.owners + [theirs], "the household's recording was deleted")
+        expectEqual(await world.line.sent, Self.standbyOpening + ["getStorageList", "getScheduleList"]
+                    + Self.standbyEnding)
+        XCTAssertEqual(try entries(world), ["1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 1)
+        expectNamesNothing((stopped?.what ?? "") + world.said.text)
     }
 
     /// The second flush is to send no create, and the check fails where it sent one, though the queue says
