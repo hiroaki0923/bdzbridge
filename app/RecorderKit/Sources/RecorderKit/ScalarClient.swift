@@ -714,12 +714,16 @@ extension ScalarClient: QueueTarget {
     ///  5. An answer to the question or to the create that says nothing about the reservation -- a code not
     ///     known here, one that cannot be read -- passes the row over with nothing written on it, and a
     ///     second such row running stops the round. So does such an answer to the list after a create
-    ///     answered as held already: nothing was made, and the list the round holds still stands. A row
-    ///     made, found or held starts the count again. A row passed over for a list of stations that could
-    ///     not be read is not counted and does not start it again: nothing was asked about it.
+    ///     answered as held already: nothing was made, and the list the round holds still stands.
     ///  6. Such an answer to the list after a create answered as taken ends the round there, whatever the
     ///     count: the round no longer has the list it stands on. The row is told as one passed over, with
     ///     nothing written on it, and the next round's list says whether it was made.
+    ///  7. The count of the rows that say nothing is started again by a reservation the television answered
+    ///     about, at the question, the create or the list after it: one held for what it would stop,
+    ///     turned down by a code, held for not being listed, made, or found there. A reservation that
+    ///     nothing was asked about neither counts nor starts the count again: one held in 1, one whose
+    ///     station is not in the list, and one passed over for a list of stations that could not be read.
+    ///     A row held without a question says nothing of whether the television answers one.
     ///
     /// At any step, silence stops the round, and so does a cookie the television does not take. Silence
     /// after the create was answered as taken is told as silence at the create is: the reservation is on the
@@ -732,9 +736,9 @@ extension ScalarClient: QueueTarget {
                      in round: TVRound) async -> (sent: RowSent, round: TVRound) {
         var round = round
         let request = waiting.request
-        guard request.eventID != nil else { return Self.settled(.refused(reason: Self.needsAProgramme), round) }
+        guard request.eventID != nil else { return (.refused(reason: Self.needsAProgramme), round) }
         guard TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
-            return Self.settled(.refused(reason: Self.repeatNotTaken), round)
+            return (.refused(reason: Self.repeatNotTaken), round)
         }
         // Found by the round's list as it stands now, which a create earlier in the round may have read
         // again: the opening left such a row in the queue, and so does this.
@@ -754,10 +758,11 @@ extension ScalarClient: QueueTarget {
             return (.stopped(stop, passedOver: false), round)
         }
         // The body is nil for a station that is not the reservation's own channel, and for nothing else by
-        // now: so with no body there is no station of its own to send it on.
+        // now: so with no body there is no station of its own to send it on. Nothing was asked about the
+        // reservation itself, whether the list was read for it or for one before it.
         guard let station = stations.first(where: { $0.serviceID == request.serviceID }),
               let body = TVReservationBody(request, on: station) else {
-            return Self.settled(.refused(reason: Self.stationNotListed), round)
+            return (.refused(reason: Self.stationNotListed), round)
         }
 
         let named: [TVScheduleRow]
@@ -863,8 +868,10 @@ extension ScalarClient: QueueTarget {
         return refusals[code]
     }
 
-    /// A reservation that is settled -- made, found there, or held with a reason -- which starts the count of
-    /// the rows that say nothing again.
+    /// A reservation the television answered about, at the question, the create or the list after it -- made,
+    /// found there, or held with a reason that answer gave -- which starts the count of the rows that say
+    /// nothing again: the television has said something that reads. Not for a reservation held with nothing
+    /// asked about it, which shows nothing of the television either way.
     private static func settled(_ sent: RowSent, _ round: TVRound) -> (sent: RowSent, round: TVRound) {
         var round = round
         round.saidNothing = 0

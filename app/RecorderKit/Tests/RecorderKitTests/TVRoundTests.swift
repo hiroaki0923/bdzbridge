@@ -594,15 +594,26 @@ final class TVRoundTests: XCTestCase {
     /// An answer that says nothing about the row -- a code nothing here knows, at the create or at the
     /// question, and a list that cannot be read after a create answered as held already -- passes the row
     /// over, with nothing to write on it, and the round goes on. A second such row running stops the round.
-    /// A row made, found there or held in between starts the count again; a row passed over for stations
-    /// that could not be read neither counts nor starts it again.
+    ///
+    /// A row the television answered about in between starts the count again: one made, found there, held
+    /// for what it would stop, turned down by a code, or held because its create was answered as taken and
+    /// the list does not have it. A row that nothing was asked about neither counts nor starts it again:
+    /// one whose station is not in the list, one with no programme id, one whose repeat is not sent, one
+    /// whose programme the television has reserved once, and one passed over for stations that could not be
+    /// read. After a row answered with nothing, such a row, and another answered with nothing, the round
+    /// stops.
     func testASecondRowRunningThatSaysNothingStopsTheRound() async throws {
         enum Kind {
-            case unknownAtTheCreate, unknownAtTheQuestion, heldAlreadyAndListUnreadable, made, foundThere, held
-            case kindUnread
+            case unknownAtTheCreate, unknownAtTheQuestion, heldAlreadyAndListUnreadable
+            case made, foundThere, wouldStopAnother, turnedDown, takenAndNotListed
+            case stationNotListed, noProgramme, repeatNotSent, reservedOnce, kindUnread
         }
+        // The kinds of row that the question is not asked about, and those whose create is followed by the list.
+        let notAskedAbout: Set<Kind> = [.stationNotListed, .noProgramme, .repeatNotSent, .reservedOnce, .kindUnread]
+        let listed: Set<Kind> = [.made, .foundThere, .heldAlreadyAndListUnreadable, .takenAndNotListed]
         let stopped = RowSent.stopped(.saysNothing, passedOver: true)
-        let notListed = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        func held(_ reason: String) -> RowSent { .refused(reason: reason) }
+        let clash = ScalarClient.wouldStop(naming: [owned("recording.71", on: 1, "サンプル紀行", at: 7200).row])
         let rounds: [(String, [Kind], [RowSent])] = [
             ("two running", [.unknownAtTheCreate, .unknownAtTheCreate], [.passedOver, stopped]),
             ("at the question, then at the create", [.unknownAtTheQuestion, .unknownAtTheCreate],
@@ -613,8 +624,22 @@ final class TVRoundTests: XCTestCase {
              [.passedOver, .made(saying: nil), .passedOver, .made(saying: nil)]),
             ("one found there in between", [.unknownAtTheCreate, .foundThere, .unknownAtTheCreate],
              [.passedOver, .alreadyThere, .passedOver]),
-            ("one held in between", [.unknownAtTheCreate, .held, .unknownAtTheCreate],
-             [.passedOver, .refused(reason: notListed), .passedOver]),
+            ("one held for what it would stop in between",
+             [.unknownAtTheCreate, .wouldStopAnother, .unknownAtTheCreate], [.passedOver, held(clash), .passedOver]),
+            ("one turned down by a code in between", [.unknownAtTheCreate, .turnedDown, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.refusals[7] ?? ""), .passedOver]),
+            ("one taken and not listed in between", [.unknownAtTheCreate, .takenAndNotListed, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.acceptedNotListed), .passedOver]),
+            ("one whose station is not in the list in between",
+             [.unknownAtTheCreate, .stationNotListed, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.stationNotListed), stopped]),
+            ("one with no programme id in between", [.unknownAtTheCreate, .noProgramme, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.needsAProgramme), stopped]),
+            ("one whose repeat is not sent in between", [.unknownAtTheCreate, .repeatNotSent, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.repeatNotTaken), stopped]),
+            ("one whose programme is reserved once in between",
+             [.unknownAtTheCreate, .reservedOnce, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.reservedOnceOnly), stopped]),
             ("one of a kind that could not be read in between",
              [.unknownAtTheCreate, .kindUnread, .unknownAtTheCreate], [.passedOver, .passedOver, stopped]),
             ("two of a kind that could not be read, then one", [.kindUnread, .kindUnread, .unknownAtTheCreate],
@@ -623,35 +648,52 @@ final class TVRoundTests: XCTestCase {
         for (name, kinds, expected) in rounds {
             // The stations on BS cannot be read; the terrestrial ones, asked for first or not at all, can.
             var faults = ["\(Self.kind) \(kinds.first == .kindUnread ? 0 : 1)": Line.Fault.answered(Self.unreadable)]
+            // What the household holds before the round opens: the programme of a row reserved once, and
+            // two recordings at the time of a row that would stop one of them.
+            var household: [DemoTV.Schedule] = []
             for (index, kind) in kinds.enumerated() {
+                let offset = TimeInterval(index * 7200)
                 // The list is read once to open the round, and once after each create before this row's that
                 // was answered as taken or as held already.
-                let creates = kinds.prefix(index).filter {
-                    $0 == .made || $0 == .foundThere || $0 == .heldAlreadyAndListUnreadable
-                }
+                let lists = kinds.prefix(index).filter(listed.contains).count + 1
                 if kind == .unknownAtTheQuestion {
-                    let questions = kinds.prefix(index).filter { $0 != .held && $0 != .kindUnread }.count
+                    let questions = kinds.prefix(index).filter { !notAskedAbout.contains($0) }.count
                     faults["\(Self.question) \(questions)"] = .answered(Self.refused(Self.unknown))
                 }
                 if kind == .heldAlreadyAndListUnreadable {
-                    faults["\(Self.list) \(creates.count + 1)"] = .answered(Self.unreadable)
+                    faults["\(Self.list) \(lists)"] = .answered(Self.unreadable)
+                }
+                if kind == .reservedOnce {
+                    household.append(owned("recording.6\(index)", on: 0, "サンプル番組\u{3000}\(index)", at: offset,
+                                           programme: 50101 + index))
+                }
+                if kind == .wouldStopAnother {
+                    household += [owned("recording.7\(index)", on: 1, "サンプル紀行", at: offset),
+                                  owned("recording.8\(index)", on: 2, "サンプル討論", at: offset)]
                 }
             }
-            let bench = await bench(faults: faults)
+            let bench = await bench(holding: household, faults: faults)
             var round = try await open(bench).round
             var came: [RowSent] = []
             for (index, kind) in kinds.enumerated() {
                 let offset = TimeInterval(index * 7200)
-                var waiting = row("サンプル番組\(index)", 50101 + index, on: 0, at: offset)
+                let title = "サンプル番組\(index)", programme = 50101 + index
+                var waiting = row(title, programme, on: 0, at: offset)
                 switch kind {
                 case .unknownAtTheCreate: await bench.television.atTheNextCreate(.answered(code: Self.unknown))
                 case .heldAlreadyAndListUnreadable: await bench.television.atTheNextCreate(.answered(code: 41222))
+                case .turnedDown: await bench.television.atTheNextCreate(.answered(code: 7))
+                case .takenAndNotListed: await bench.television.atTheNextCreate(.answeredAndNotKept)
                 case .foundThere:
-                    let there = owned("recording.9\(index)", on: 0, "サンプル紀行", at: offset, programme: 50101 + index)
+                    let there = owned("recording.9\(index)", on: 0, "サンプル紀行", at: offset, programme: programme)
                     await bench.television.put(await bench.television.schedules + [there])
-                case .held: waiting = row("サンプル番組\(index)", 50101 + index, at: offset, service: 1599)
-                case .kindUnread: waiting = row("サンプル番組\(index)", 50101 + index, on: 4, at: offset)
-                case .unknownAtTheQuestion, .made: break
+                case .stationNotListed: waiting = row(title, programme, at: offset, service: 1599)
+                case .noProgramme: waiting = row(title, nil, at: offset)
+                // Monday to Friday is not sent for a programme of a Sunday, nor for one before four on Monday.
+                case .repeatNotSent: waiting = row(title, programme, at: offset, repeating: "w15")
+                case .reservedOnce: waiting = row(title, programme, at: offset, repeating: "d")
+                case .kindUnread: waiting = row(title, programme, on: 4, at: offset)
+                case .unknownAtTheQuestion, .made, .wouldStopAnother: break
                 }
                 came.append(await send(waiting, in: &round, on: bench).sent)
             }
