@@ -213,28 +213,56 @@ television). What is at an address, the registration and the two reads behind it
 checks with which the three requests that reserve on a television -- its stations, the question of what a
 reservation would stop from recording, the create -- meet a real one for the first time: nine of them, run
 one at a time in a sitting with the television's owner, in the order written at the head of that file with
-what to look at for each. Nothing in the app sends those three requests yet.
+what to look at for each. One more is for a television left in standby overnight. It sends one waiting
+reservation the way the app is to send what waits for a television -- through the queue's own flush and the
+round the package has for it (`ScalarClient` as a `QueueTarget`, tried in `TVRoundTests`) -- then flushes the
+same reservation a second time, which is to find it on the television and send no create, and takes it off.
+Nothing in the app hands the queue a television yet, so nothing in the app sends those three requests.
 
 A check that writes to somebody's television keeps to rules that are written once, in `TVSitting`. It makes
 nothing unless it was given leave by name (`TV_WRITE` set to the name of the one test that is run) and the
 television says it is on. Before every create it asks the television what the reservation would stop from
 recording, and it sends no create that would cost the household a reservation. It reads the list before and
 after each create, takes for its own the recordings whose ids are new and that are on the channel it sent
-the create for, and deletes exactly those: never by programme, time or title. It writes what it is about to
+the create for, and deletes exactly those: never by programme, time or title. A row it made stays its own
+only while the list has its channel and its programme under its id: an id that has gone to another
+reservation is sent no delete, and the check ends with its entry left open. It writes what it is about to
 make in a ledger, a file kept out of the repository, before the create is sent, and strikes it out once its
 delete was answered and the list shows nothing of it; an entry left open fails every check after it, until
-somebody has looked at the television. After silence on a create it sends nothing again. It reserves only a
+somebody has looked at the television. After silence on a create it sends nothing again: it reads the list
+once, deletes a row of its own found there, and reads the list once more to see it gone. It reserves only a
 programme twenty hours or more ahead with nothing listed within three hours either side, chosen from a file
 of picks written from the recorder's guide beforehand. The viewing reservation two of the checks are about
 is the one the owner names by its start (`TV_REMINDER`), never one a check picks for itself. And it says
 counts, statuses and codes: never a title, a station's name or an id.
 
+The check for a television in standby makes nothing unless the television says it is in standby, and keeps
+the rest. Its create is the round's to send, so the ledger is written before each flush and the list read
+before and after it. Which rows are its own goes by a narrower rule than the other checks': the new
+recordings on the channel that are of the programme it queued, and none at all after a flush that sent no
+create or took none, so that whatever else somebody set meanwhile is left alone and the entry left open.
+Whether a flush sent a create it reads from the line described below and not from the queue's word: a row
+the round passed over reads the same there whether a create went for it or its question was answered with
+an error code and none followed. The question before the create is the round's, which sends none when the
+television names any row. It reserves no programme that starts between midnight and five in the morning,
+when a station may be off the air: what a television answers a create for those hours has not been seen,
+and the night is not for finding that out.
+
+Of each flush it says what was sent, a request at a time: its client is built on a line (`TVLine`) that
+keeps the method of each request and the kind of its answer -- answered, an error's code, an HTTP status,
+no answer -- and nothing else of either. A second flush that sent a create fails the check, which the
+queue's own word cannot show: a row found on the television reads the same there whether a create went for
+it or not. Of what the queue said it says the counts and why the round stopped: a reason the round wrote on
+a row has the titles of the household's reservations in it, and is said by its kind. As it ends it asks
+once more what the television says it is and says that, which fails nothing; after a request that met no
+answer it does not ask.
+
 Every check is rehearsed first, in the same order and by the same code, against the package's invented
-television (`TVSittingTests`, an ordinary test that needs nothing set). The household's reservations are
-put just outside the slots the checks use and on the very programmes they reserve, and the line to the
-television can be cut at one request. The rehearsal fails if a check leaves a row, deletes one it did not
-make, sends a create a second time or without the question before it, makes something without leave, or
-names a programme, a station or a row.
+television (`TVSittingTests`, an ordinary test that needs nothing set), which answers what a real one was
+measured to answer the same requests. The household's reservations are put just outside the slots the checks
+use and on the very programmes they reserve, and the line to the television can be cut at one request. The
+rehearsal fails if a check leaves a row, deletes one it did not make, sends a create a second time or without
+the question before it, makes something without leave, or names a programme, a station or a row.
 
 ## On a real iPhone
 

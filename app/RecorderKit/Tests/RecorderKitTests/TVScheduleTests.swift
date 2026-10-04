@@ -2,8 +2,9 @@ import Foundation
 import XCTest
 @testable import RecorderKit
 
-/// A television's row read into the terms the screens show a reservation in, and a reservation the app holds
-/// found again in the list just read from the television. The rows are in the television's shapes with invented
+/// A television's row read into the terms the screens show a reservation in, a reservation the app holds
+/// found again in the list just read from the television, and what the list holds for a request that waits to
+/// be sent, with whether that is all the request asks. The rows are in the television's shapes with invented
 /// values.
 final class TVScheduleTests: XCTestCase {
     private let startText = "2026-11-01T21:00:00+0900"
@@ -120,6 +121,26 @@ final class TVScheduleTests: XCTestCase {
         }
     }
 
+    /// What the television calls the station is everything after the first `&srvName=`, to the end of the
+    /// uri and as it stands there: with its spaces, with an `&` and with what looks like the uri over again.
+    /// A uri that ends at its numbers has no name, nor has one whose name is empty or is not written after
+    /// an `&`. The name is cut out whatever the rest of the uri reads as.
+    func testTheStationsNameIsCutOutOfTheUri() {
+        let names: [(String, String?)] = [
+            (uri(), "サンプルテレビ"),
+            (uri("isdbbs", 2048, "サンプル\u{3000}BS 4K"), "サンプル\u{3000}BS 4K"),
+            (uri("isdbt", 1024, "サンプル&テレビ=2?trip=1.2.3&srvName=4"), "サンプル&テレビ=2?trip=1.2.3&srvName=4"),
+            (uri("isdbx", 1024, "サンプルラジオ"), "サンプルラジオ"),
+            (uri(trip: "65534.1024"), "サンプルテレビ"),
+            (uri("isdbt", 1024, ""), nil),
+            ("tv:isdbt?trip=65534.65533.1024", nil), ("tv:isdbt?trip=65534.65533.1024&", nil),
+            ("tv:isdbt?srvName=サンプルテレビ", nil), ("", nil),
+        ]
+        for (uri, name) in names {
+            XCTAssertEqual(TVScheduleRow.stationName(of: uri), name, uri)
+        }
+    }
+
     /// A uri that is not in the form names no channel, neither half of one: another scheme or none, fewer
     /// numbers than three or more, a number that is not digits alone -- signed, empty, letters -- and a service
     /// id past sixteen bits. The row is still a reservation, to be shown and deleted by what it is.
@@ -207,6 +228,92 @@ final class TVScheduleTests: XCTestCase {
         XCTAssertEqual(listed.tvTarget(of: held), .found(listed[0]))
         XCTAssertEqual(list(row(start: "2026-11-01T21:15:00+0900", eventId: nil)).tvTarget(of: held), .changed)
         XCTAssertEqual(list(row(uri: uri("isdbt", 1032), eventId: nil)).tvTarget(of: held), .changed)
+    }
+
+    // MARK: - what the television holds for a request
+
+    /// A request is found in the television's list by its channel and its programme id, and by nothing else.
+    /// The row is the request's under whatever title the television lists it, wherever its start has moved
+    /// to, whatever its repeat and whatever the television calls the station. A reminder to watch the
+    /// programme is no match, nor a row on another service or another kind of broadcast, nor one whose uri
+    /// names no channel; and a row at the request's own start under its own title is no match either when it
+    /// is another programme's, or was made by its times. A request with no programme id matches nothing.
+    func testARequestIsFoundInTheListByItsChannelAndItsProgramme() {
+        let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: 2, serviceID: 1024, qualityCode: 100, eventID: 12345)
+        let cases: [(String, TVScheduleRow, Bool)] = [
+            ("as it was sent", row(), true),
+            ("under a title of the television's own", row(title: "サンプル番組\u{3000}12345\u{1F211}"), true),
+            ("with no title", row(title: nil), true),
+            ("its start moved", row(start: "2026-11-01T21:15:00+0900"), true),
+            ("on another day", row(start: "2026-11-08T21:00:00+0900"), true),
+            ("with another repeat", row(repeatType: "w7"), true),
+            ("the station under another name", row(uri: uri("isdbt", 1024, "サンプル\u{3000}テレビ")), true),
+            ("marked as losing to others", row(overlapStatus: "fullyOverlapped"), true),
+            ("a reminder to watch the programme", row(id: "reminder.23", type: "reminder", quality: nil), false),
+            ("on another service", row(uri: uri("isdbt", 1032)), false),
+            ("on another kind of broadcast", row(uri: uri("isdbbs", 1024)), false),
+            ("a uri that names no channel", row(uri: "tv:isdbt"), false),
+            ("another programme, at its start and under its title", row(eventId: "12346"), false),
+            ("made by its times, at its start and under its title", row(eventId: nil), false),
+            ("a programme id that is not written as one is sent", row(eventId: "012345"), false),
+        ]
+        for (name, listed, found) in cases {
+            XCTAssertEqual([listed].holding(request), found ? listed : nil, name)
+        }
+
+        // Among others it is the row itself that is handed back, and the first of two.
+        let listed = [row(id: "reminder.23", type: "reminder", quality: nil), row(id: "recording.30", eventId: "12346"),
+                      row(id: "recording.32", start: "2026-11-01T21:15:00+0900"), row(id: "recording.33")]
+        XCTAssertEqual(listed.holding(request), listed[2])
+        XCTAssertNil([TVScheduleRow]().holding(request))
+
+        var timed = request
+        timed.eventID = nil
+        XCTAssertNil([row(eventId: nil), row()].holding(timed), "a request with no programme id was found")
+    }
+
+    /// A row the television holds for a request is less than the request asks for when the request asks
+    /// for a repeat and the row records the programme once -- its repeat `1`, or none said -- or repeats on
+    /// some of that repeat's days and not all: under every day, any weekly code, Monday to Friday and
+    /// Monday to Saturday; under Monday to Saturday, Monday to Friday and a weekly code up to Saturday's;
+    /// under Monday to Friday, a weekly code up to Friday's. Nothing else falls short: once asked, whatever
+    /// is held; the same repeat held, or one that takes in each of its days and more; two repeats with no
+    /// day in common; a repeat by the programme's name on either side, against anything but once; and a
+    /// repeat held under a code that is none of these.
+    ///
+    /// What is asked is the request's own code, whenever its programme starts: on a Sunday evening, when a
+    /// television is not sent Monday to Friday, Monday to Saturday or another day's weekly code; on a
+    /// Monday evening, when it is sent them; and before four on a Monday morning, when it is sent no repeat
+    /// with a weekday in it.
+    func testWhatIsHeldFallsShortOfARepeatThatTakesInDaysItDoesNot() {
+        let days = (1...7).map { "w\($0)" }
+        let weekly: [String?] = days, once: [String?] = [nil, "1"]
+        // What falls short of each repeat asked for, written out and not worked out as the row works it
+        // out: the repeats held, as a television lists them.
+        var short: [String: [String?]] = [
+            "1": [],
+            "S001": once,
+            "d": once + weekly + ["w15", "w16"],
+            "w16": once + weekly.prefix(6) + ["w15"],
+            "w15": once + weekly.prefix(5),
+            "なし": once,
+        ]
+        for code in days { short[code] = once }
+        let held = once + weekly + ["d", "w15", "w16", "title", "w0", "w8", "w17", "なし"]
+        let starts = [("a Sunday evening", start), ("a Monday evening", start + 86_400),
+                      ("a Monday before four", start + 18_000)]
+        for (when, start) in starts {
+            for (asked, falling) in short {
+                let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800,
+                                                 repeatCode: asked, broadcastingType: 2, serviceID: 1024,
+                                                 qualityCode: 100, eventID: 12345)
+                for held in held {
+                    XCTAssertEqual(row(repeatType: held).fallsShort(of: request), falling.contains(held),
+                                   "\(asked) asked, \(held ?? "nothing said") held, on \(when)")
+                }
+            }
+        }
     }
 
     // MARK: - telling the devices' rows apart

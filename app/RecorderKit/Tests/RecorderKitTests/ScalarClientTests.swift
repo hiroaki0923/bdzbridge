@@ -961,7 +961,7 @@ final class ScalarClientTests: XCTestCase {
     }
 
     /// The invented television makes a recording for a create, listed under a number above any it has held,
-    /// in DR, its title in the television's own form; the same programme a second time is answered as a real
+    /// in DR, under a title of the television's own; the same programme a second time is answered as a real
     /// one answers it, whatever the repeat, and a reminder for it does not stand in the way, not even one
     /// at the programme's own start; a number is not given twice, whatever was deleted; the question before
     /// a create is answered with nothing; and a cookie it does not know is refused for both, with nothing made.
@@ -978,7 +978,8 @@ final class ScalarClientTests: XCTestCase {
 
         expectEqual(try await tv.wouldPushOut(asked), [])
         try await tv.addSchedule(asked)
-        let made = DemoTV.Schedule(id: "recording.44", title: "サンプル劇場\u{3000}前編", start: Self.start, eventId: 12345)
+        let made = DemoTV.Schedule(id: "recording.44", title: DemoTV.title(ofProgramme: 12345), start: Self.start,
+                                   eventId: 12345)
         expectEqual(await television.schedules, [other, reminder, made])
         expectEqual(try await tv.schedules().first, made.row)
 
@@ -1002,28 +1003,31 @@ final class ScalarClientTests: XCTestCase {
         expectEqual(await television.schedules.count, 3)
     }
 
-    /// The invented television lists a title as a real one was seen to list the one it was sent: a half-width
-    /// space made full-width, and each of the four marks a guide writes in brackets turned into its enclosed
-    /// character, with or without a space in the title. A title with neither is listed as sent. So a row
-    /// with a mark in its title is never found again by the title it was made with, and is deleted as read.
-    func testTheInventedTelevisionListsATitleAsARealOneWasSeenTo() async throws {
+    /// The invented television lists a reservation that follows a programme under a title of its own for the
+    /// programme, as a real one was seen to, and never under the one it was sent: whatever that was -- one
+    /// with a guide's marks in brackets, one with a space, a plain one, none at all. So no row is found again
+    /// by the title it was made with; and each is deleted as it was read, the ideographic space and the
+    /// enclosed character of its title as they came.
+    func testTheInventedTelevisionListsAReservationUnderATitleOfItsOwn() async throws {
         let television = DemoTV()
         await television.knows("BDBridge:test", cookie: "kept")
         await television.receives([DemoTV.Station()])
         let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials(Self.kept))
-        let titles = [
-            ("サンプル劇場[字]", "サンプル劇場\u{1F211}"),
-            ("[二][S]サンプル映画 [再]", "\u{1F214}\u{1F142}サンプル映画\u{3000}\u{1F21E}"),
-            ("サンプル劇場 前編", "サンプル劇場\u{3000}前編"), ("サンプル紀行", "サンプル紀行"),
-        ]
-        for (index, (sent, listed)) in titles.enumerated() {
+        let titles = ["サンプル劇場[字]", "[二][S]サンプル映画 [再]", "サンプル劇場 前編", "サンプル紀行", ""]
+        for (index, sent) in titles.enumerated() {
             var asked = try body(title: sent)
             asked.eventId = String(12345 + index)
             try await tv.addSchedule(asked)
-            let made = try await tv.schedules().first
-            XCTAssertEqual(made?.title.map { Array($0.unicodeScalars) }, Array(listed.unicodeScalars), sent)
-            XCTAssertEqual(DemoTV.listedTitle(sent), listed, sent)
+            let listed = try await tv.schedules()
+            let own = DemoTV.title(ofProgramme: 12345 + index)
+            XCTAssertEqual(listed.first?.title.map { Array($0.unicodeScalars) }, Array(own.unicodeScalars), sent)
+            XCTAssertNotEqual(own, sent)
+            XCTAssertFalse(listed.contains { $0.title == sent }, "a row is found by the title it was sent: \(sent)")
         }
+        XCTAssertEqual(Set((0..<5).map { DemoTV.title(ofProgramme: 12345 + $0) }).count, 5, "one title for all")
+        XCTAssertTrue(DemoTV.title(ofProgramme: 12345).unicodeScalars.contains { $0 == "\u{3000}" })
+        XCTAssertTrue(DemoTV.title(ofProgramme: 12345).unicodeScalars.contains { $0.value > 0xFFFF })
+
         for row in try await tv.schedules() { try await tv.deleteSchedule(row) }
         expectEqual(await television.schedules, [])
     }

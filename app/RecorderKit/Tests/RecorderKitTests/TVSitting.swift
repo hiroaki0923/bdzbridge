@@ -85,6 +85,18 @@ extension TVPicks {
 
     static func read(_ file: URL) throws -> TVPicks { try TVFile.read(TVPicks.self, from: file) }
     func write(to file: URL) throws { try TVFile.write(self, to: file) }
+
+    /// The picks a check of the sitting chooses from, read from the file `variable` names. A file that
+    /// cannot be read is thrown by that name and never as it came: the error for a file that is not there
+    /// carries its whole path, the home directory in it, and a test that throws one has it printed.
+    static func read(_ file: URL, namedBy variable: String) throws -> TVPicks {
+        do {
+            return try read(file)
+        } catch {
+            throw TVSitting.Stopped(what: "\(variable) cannot be read: it is to name the file testWritingThePicks"
+                                    + " wrote")
+        }
+    }
 }
 
 /// What a sitting has made on the television, kept in a file outside the repository so that it outlives a
@@ -168,6 +180,71 @@ enum TVFile {
     }
 }
 
+/// The line a sitting's client sends on: another transport, which is handed each request as it came and
+/// hands back what it got, and keeps what went over it -- for each request the name of its method and the
+/// kind of its answer, in the order sent. It is what lets a check say what the app's own round sent, which
+/// the queue does not: of a round the queue says what became of each row, and a row found on the television
+/// reads the same there whether a create went for it or none.
+///
+/// A method's name and the kind of an answer, and nothing else: never a body, an address, a header or a
+/// cookie, of a request or of an answer. What is kept here is said by a check, and what a check says is
+/// never a title, a station's name, an id of the television's, an address or a cookie -- and a request and
+/// its answer carry all of those. So a name is kept only when it is letters of the alphabet, as every method
+/// the client asks for is, and an answer is said as one of four kinds, two of them with a number: `answered`,
+/// `error <code>`, `HTTP <status>`, `no answer`. Nothing a television or a household wrote comes through.
+actor TVLine: HTTPTransport {
+    /// One request that went over the line.
+    struct Sent: Sendable, Equatable {
+        var method: String
+        var answer: String
+
+        var said: String { "\(method) \(answer)" }
+    }
+
+    /// What is kept of a request that was not answered: whatever the transport underneath threw, since
+    /// nothing came back to tell a kind by. The client takes no more for silence than that.
+    static let noAnswer = "no answer"
+
+    private let transport: any HTTPTransport
+    private(set) var sent: [Sent] = []
+
+    init(_ transport: any HTTPTransport) {
+        self.transport = transport
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let method = Self.method(of: request)
+        do {
+            let response = try await transport.send(request)
+            sent.append(Sent(method: method, answer: Self.kind(of: response)))
+            return response
+        } catch {
+            sent.append(Sent(method: method, answer: Self.noAnswer))
+            throw error
+        }
+    }
+
+    /// The method a request asks for, when its body names one in letters of the alphabet alone. Any other
+    /// text there is not a method of the client's, and is not kept.
+    static func method(of request: HTTPRequest) -> String {
+        let object = request.body.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let letters = CharacterSet(charactersIn: "A"..."Z").union(CharacterSet(charactersIn: "a"..."z"))
+        guard let method = object?["method"] as? String, !method.isEmpty,
+              method.unicodeScalars.allSatisfy(letters.contains) else { return "a request that names no method" }
+        return method
+    }
+
+    /// An answer by its kind, as the client tells one: a status other than 200 by its number, the method's
+    /// own error by its code, and anything else as answered. Whether the client could read what an answer
+    /// held is not told here: that is in what a check says of the request.
+    static func kind(of response: HTTPResponse) -> String {
+        guard response.statusCode == 200 else { return "HTTP \(response.statusCode)" }
+        let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
+        if let code = (object?["error"] as? [Any])?.first as? Int { return "error \(code)" }
+        return "answered"
+    }
+}
+
 /// The checks with which the requests that make a reservation on a television meet a real one, the owner
 /// watching: each a function here, run against the real television by `LiveTVTests` and, before that, against
 /// the invented one by `TVSittingTests`, in the same order and by the same code.
@@ -175,15 +252,19 @@ enum TVFile {
 /// A mistake in a check leaves a reservation on somebody's television, or deletes one of theirs. So:
 ///
 /// - **Nothing is made unless the sitting may write**, and the television says it is `active`: the sitting
-///   is held with it on. Nor while the ledger holds an entry not struck out: something of an earlier check
-///   may still be on the television, and a check that finds one fails and says so.
+///   is held with it on. One check is for a television left in standby, and makes nothing unless it says
+///   `standby`. Nor is anything made while the ledger holds an entry not struck out: something of an earlier
+///   check may still be on the television, and a check that finds one fails and says so.
 /// - **What a check deletes is only what it made.** The list is read before each create, and the check's own
 ///   are the recordings in the list read after it whose ids are new -- a television's ids only grow -- and
 ///   that are on the channel the create was sent for. Exactly those rows are deleted, each as it was last
 ///   read, and the list is read again to see them gone. Nothing is ever deleted by its programme, its time
 ///   or its title. A recording that is new and on another channel is somebody else's, set while the create
 ///   was out: it is left alone, and the check ends with its entry left open. So is any that is new after a
-///   create the television answered as a reservation already there, which makes nothing.
+///   create the television answered as a reservation already there, which makes nothing. And a row the
+///   check made is its own only for as long as the list has its channel and its programme under its id:
+///   an id that has gone to another reservation is sent no delete, and the check ends with its entry left
+///   open.
 /// - **The ledger** is written before a create is sent. An entry is struck out when every delete sent for it
 ///   was answered without an error and the list shows its rows gone and no recording it did not have before
 ///   the check, or when its create was answered with an error and the list shows nothing new. A check that
@@ -191,27 +272,39 @@ enum TVFile {
 /// - **A ledger is one sitting's.** It says when its first entry was written, and beside one begun more than
 ///   a day ago nothing is made. An entry is struck out only while it is in the file as the check wrote it.
 /// - **After silence on a create nothing is sent again.** The list is read, once; a row of the check's own
-///   found there is deleted, and the check ends. With nothing found the entry stays open: a television may
-///   carry a create out after the list was read, and somebody has to look.
+///   found there is deleted, and the list read once more to see it gone; and the check ends. With nothing
+///   found the entry stays open: a television may carry a create out after the list was read, and somebody
+///   has to look.
 /// - **A slot is empty before anything is put in it** (`isFree`): twenty hours or more ahead, and nothing of
 ///   the television's list within three hours either side.
 /// - **Before every create the television is asked what the reservation would stop from recording**, by the
 ///   sitting's own client, and the create is not sent when the answer cannot be read or names a row that is
 ///   not the check's own. Two rows may be named: one the check itself has made and not yet taken off, and,
 ///   in the one check that is about it, the viewing reservation the owner set for the sitting.
+/// - **A create the app's own round sends is held to the same, and to more.** The check for a television in
+///   standby sends its create through the queue's flush and not from here. The ledger is written before
+///   each flush, and the list is read before it and after it. The check's own rows are the new recordings
+///   on the channel that are of the programme it queued, and none at all after a flush that sent no create
+///   or took none: whatever else is new is somebody else's and is left alone, the entry left open. Whether
+///   a flush sent a create is read from the line, and not from what the queue says of the round. The
+///   question before the create is the round's: it sends none when the television names any row at all, or
+///   when its answer cannot be read. After silence nothing is sent again, by the round or from here. What
+///   each flush sent is said, a request at a time, and a second flush of the same reservation that sent a
+///   create fails the check. As it ends the check asks once more what the television says it is, unless a
+///   request of its own or of the round's met no answer.
 /// - **Which viewing reservation is the sitting's is said by the owner**, by its start, and never guessed:
 ///   not the newest in the list, and not one found by its title.
 /// - **Each request is sent once.** Nothing here asks again.
-/// - **What is said** is counts, statuses, error codes, field names, weekdays, times of day and the repeat
-///   read back: never a title, a station's name, an id of the television's, an address or a cookie. That
-///   holds for what a check throws as well, so an error is said by its kind (`said`) and never as it came.
+/// - **What is said** is counts, statuses, error codes, field names, weekdays, times of day, the repeat read
+///   back and the names of the methods sent: never a title, a station's name, an id of the television's,
+///   an address or a cookie. That holds for what a check throws as well, so an error is said by its kind
+///   (`said`) and never as it came.
 actor TVSitting {
     /// The title every reservation of a sitting is made under: the picks carry none, and no programme's is
-    /// sent. It is not what a row left behind is known by: that is the ledger. A television was seen to list
-    /// a reservation under another title than the one it was sent -- a half-width space made full-width, the
-    /// marks a guide writes in brackets made single characters -- and a reservation that follows a programme
-    /// has never been sent under a title that is not the programme's: it may be listed under the programme's
-    /// own. Which it is, `held` says of each row, as a yes or a no.
+    /// sent. It is not what a row left behind is known by: that is the ledger, and a television sent this
+    /// title with a programme's id listed the reservation under a title of its own for the programme. Before
+    /// that had been tried, a television was seen only to make a title's half-width spaces full-width. Which
+    /// of the two it is, `held` says of each row, as a yes or a no.
     static let title = "BD Bridge 確認"
     /// How far ahead a programme has to be before a reservation of it is made.
     static let ahead: TimeInterval = 20 * 3600
@@ -240,6 +333,8 @@ actor TVSitting {
     }
 
     private let client: ScalarClient
+    /// The line `client` sends on, which keeps what went over it.
+    private let line: TVLine
     private let picks: TVPicks
     private let ledgerFile: URL
     private let mayWrite: Bool
@@ -263,14 +358,16 @@ actor TVSitting {
     /// How many creates the check under way has sent.
     private var sent = 0
 
-    /// `reminder` is the start of the viewing reservation the owner set for the sitting, for the checks that
-    /// are about it. `look` is how long a reservation with a repeat is left on the television for the owner
-    /// to read how its own list words it, never longer than `longestLook`. `now` and `say` are the clock and
-    /// the terminal, which a rehearsal replaces.
-    init(client: ScalarClient, picks: TVPicks, ledger: URL, mayWrite: Bool, reminder: Date? = nil,
+    /// `line` is the transport `client` was built on: whoever makes the client makes it on a line and hands
+    /// both in. `reminder` is the start of the viewing reservation the owner set for the sitting, for the
+    /// checks that are about it. `look` is how long a reservation with a repeat is left on the television
+    /// for the owner to read how its own list words it, never longer than `longestLook`. `now` and `say` are
+    /// the clock and the terminal, which a rehearsal replaces.
+    init(client: ScalarClient, line: TVLine, picks: TVPicks, ledger: URL, mayWrite: Bool, reminder: Date? = nil,
          look: TimeInterval = 0, now: @escaping @Sendable () -> Date = { Date() },
          say: @escaping @Sendable (String) -> Void) {
         self.client = client
+        self.line = line
         self.picks = picks
         ledgerFile = ledger
         self.mayWrite = mayWrite
@@ -644,6 +741,113 @@ actor TVSitting {
         }
     }
 
+    /// One waiting reservation, sent as the app sends what waits for a television, to a television left in
+    /// standby. It is queued in a store of the check's own, kept in memory so that nothing of it is on a
+    /// disk at any time, and sent by the queue's own flush with the sitting's client: the round the app
+    /// ships -- the disk, the list, the stations, the question, the create, the list. Then the same
+    /// reservation is queued and flushed a second time, which is to find it on the television and send no
+    /// create; and the row is taken off. Whether a write goes through hours into standby, and what the
+    /// panel, the lamp and the disk do meanwhile, is what it is run to see.
+    ///
+    /// It makes nothing unless the television says `standby`, and is not begun on one whose disk is not
+    /// there. The programme is the first among the picks with an empty slot that does not start in the small
+    /// hours (`startsInTheSmallHours`) and of which the television holds no recording, by the rule the round
+    /// finds one by (`holding`): a recording of it the round would take for the reservation at its opening
+    /// and send nothing, and that recording would be the household's.
+    ///
+    /// What the queue says of a flush does not say what the round sent: it says a row was found there
+    /// already both for one the round's opening found in the list and for one whose create was answered as
+    /// held already and then found in the list, and it says a row was passed over both for a create whose
+    /// answer could not be read and for a question that came to no create at all. So what each flush sent
+    /// is read from the line and said, and a flush that sent no create made nothing (`flush`). The second
+    /// flush is to have sent none: a row the list has after a create, by the one rule there is for finding
+    /// it, the list had at the opening. Where it sent one all the same, the check fails, once everything is
+    /// taken off.
+    ///
+    /// Once the television has said it is in standby and the check has begun, it ends, however it ends, by
+    /// asking once more what the television says it is (`sayWhatTheTelevisionSaysItIs`).
+    func aWaitingRowInStandby() async throws {
+        let from = await line.sent.count
+        var began = false
+        var failure: (any Error)?
+        do {
+            try await making(in: "standby") {
+                // The guard has just asked the television what it says it is. A line that kept nothing of
+                // that is not the one the client sends on: what a flush sent could not be said, and a second
+                // flush that sent a create would pass for one that sent none.
+                guard await line.sent.count > from else {
+                    throw Refused(why: "the sitting was handed a line that its client does not send on")
+                }
+                began = true
+                let disk = try await ask("getStorageList") { try await client.storage() }
+                say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
+                guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
+                let listed = try await list()
+                say("the list: \(TVLedger.Counts(listed).said)")
+                let (pick, station) = try choose(on: try await stations(of: Self.terrestrial), in: listed) {
+                    !Self.startsInTheSmallHours($0.start) && listed.holding(Self.request($0)) == nil
+                }
+                let body = try body(pick, on: station)
+                let waiting = PendingReservation(request: Self.request(pick), serviceName: "", queuedAt: now(),
+                                                 target: .tv)
+                guard let store = try? GuideStore(path: ":memory:") else {
+                    throw Refused(why: "the check's own queue could not be made")
+                }
+
+                let first = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
+                                            "the first flush")
+                for row in first.rows { say("the row read back: \(Self.held(row, against: body))") }
+                guard first.outcome.sent.count == 1, first.rows.count == 1 else {
+                    throw Stopped(what: "the first flush did not make one row")
+                }
+                let second = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
+                                             "the second flush")
+                try await takeOff()
+                guard !second.sent.contains(where: { $0.method == "addSchedule" }) else {
+                    throw Stopped(what: "the second flush sent a create: the row was to be found on the"
+                                  + " television at the round's opening, with nothing sent for it")
+                }
+                guard second.outcome.alreadyThere.count == 1 else {
+                    throw Stopped(what: "the same row a second time was not found on the television")
+                }
+            }
+        } catch {
+            failure = error
+        }
+        if began { await sayWhatTheTelevisionSaysItIs(since: from) }
+        if let failure { throw failure }
+    }
+
+    /// Whether a programme starts in the small hours in Japan: from midnight until five in the morning. The
+    /// check for a television in standby reserves none that does. It is run in the morning, and twenty hours
+    /// ahead of a morning falls there. A station may be off the air then, a guide lists that as a programme
+    /// like any other, and what a television answers a create for one has not been seen: a create turned
+    /// down for it would say nothing of standby, and the one night the check has is not for finding it out.
+    static func startsInTheSmallHours(_ start: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        return calendar.component(.hour, from: start) < 5
+    }
+
+    /// What the television says it is, asked once more as the check for one in standby ends, and said. The
+    /// check asked at its beginning, and afterwards the eye cannot tell: `active` is not a lit panel, and a
+    /// television that a write brought on with its panel dark would pass for one that stayed in standby. It
+    /// fails nothing, whatever is said: it is part of what the night measured. A read that fails is said by
+    /// its kind and not thrown.
+    ///
+    /// Not asked when anything sent since `from` met no answer, the check's own or the round's: after
+    /// silence nothing is sent but what the rules allow, and this is not among it.
+    private func sayWhatTheTelevisionSaysItIs(since from: Int) async {
+        let sent = await line.sent.dropFirst(from)
+        guard !sent.contains(where: { $0.answer == TVLine.noAnswer }) else { return }
+        do {
+            let power = try await client.powerStatus()
+            say("the television says it is: \(power)")
+        } catch {
+            say("what the television says it is was not read: \(Self.said(error))")
+        }
+    }
+
     /// The count afterwards. Fails unless the ledger has every entry struck out, the list holds no
     /// recording an entry may have left behind -- a struck one as well: what a television answered with an
     /// error it may have made all the same -- and the list counts as it did before the first create. And
@@ -676,9 +880,11 @@ actor TVSitting {
     /// A check that makes something: behind the guard, and with what it made taken off again however it
     /// ends. A check that fails on the way does not leave what it had made by then, and what could not be
     /// taken off is said with what failed. Afterwards the list is to read as it did before the check began.
-    private func making(_ check: () async throws -> Void) async throws {
+    /// `power` is what the television has to say it is for the check to run: on, unless the check is the one
+    /// for a television in standby.
+    private func making(in power: String = "active", _ check: () async throws -> Void) async throws {
         (mine, found, last, keptOpen, noted, sent) = ([], nil, nil, [], [:], 0)
-        try await mayMake()
+        try await mayMake(in: power)
         var failure: (any Error)?
         do { try await check() } catch { failure = error }
         var wrong: String?
@@ -699,8 +905,9 @@ actor TVSitting {
     /// The guard, in the order that sends least: with no leave to write nothing is sent at all, and the
     /// ledger is not so much as read. An entry left open is not a check that merely did not run: something
     /// of the sitting may be on the television, so it is thrown as what stops the sitting, and the test
-    /// fails. So it does beside a ledger that is another sitting's.
-    private func mayMake() async throws {
+    /// fails. So it does beside a ledger that is another sitting's. Last, the television is asked what it
+    /// says it is, and the check does not run unless that is `wanted`.
+    private func mayMake(in wanted: String) async throws {
         guard mayWrite else { throw Refused(why: "writing to the television was not asked for") }
         let open = try ledgerOfTheSitting().open
         guard open == 0 else {
@@ -709,8 +916,9 @@ actor TVSitting {
                           + " them out, before anything more is made")
         }
         let power = try await ask("getPowerStatus") { try await client.powerStatus() }
-        guard power == "active" else {
-            throw Refused(why: "the television says it is \(power), and this is a check for one that is on")
+        guard power == wanted else {
+            throw Refused(why: "the television says it is \(power), and this is a check for one that is "
+                          + (wanted == "active" ? "on" : "in standby"))
         }
     }
 
@@ -722,12 +930,35 @@ actor TVSitting {
 
     /// The television's list, read once, and kept as the last read: of the list, and of each row the check
     /// has made, which is deleted as it was last read.
+    ///
+    /// A row the check holds is read again from the row the list has under its id only while that row is
+    /// still it (`TVScheduleRow.isStill`): on its channel and of its programme, which is what the app's own
+    /// delete holds a television's row to. An id may have gone to another reservation since, and a delete
+    /// sent for what stands under it now would take that one off. Such a row is the check's no longer: it
+    /// is held no more, so that no delete is sent for it, its entry is left open, and the check ends here,
+    /// once the list is kept. Not seen on a real television, whose ids only grew.
     @discardableResult
     private func list() async throws -> [TVScheduleRow] {
         let rows = try await ask("getScheduleList") { try await client.schedules() }
-        mine = mine.map { held in (rows.first { $0.id == held.row.id } ?? held.row, held.entry) }
+        var still: [(row: TVScheduleRow, entry: Int)] = []
+        var others = 0
+        for held in mine {
+            let listed = rows.first { $0.id == held.row.id }
+            if let listed, !held.row.isStill(listed) {
+                keptOpen.insert(held.entry)
+                others += 1
+            } else {
+                still.append((listed ?? held.row, held.entry))
+            }
+        }
+        mine = still
         if found == nil { found = rows }
         last = rows
+        guard others == 0 else {
+            throw Stopped(what: "rows the check made whose id the list now has for another channel or programme:"
+                          + " \(others). They are not the check's any more: no delete is sent for them, and their"
+                          + " entries are left in the ledger")
+        }
         return rows
     }
 
@@ -799,24 +1030,8 @@ actor TVSitting {
     }
 
     /// One create, sent once, by `sender` or by the sitting's own client, with the leave the question before
-    /// it gave: the ledger first, then the request, then the list, whatever the answer and after none.
-    ///
-    /// The check's own from here on are the recordings whose ids the list read before the create did not
-    /// have and that are on the channel the create was sent for. A recording that is new and on another
-    /// channel was set by somebody else meanwhile, with the remote or from another device: it is not
-    /// touched, the entry is left open so that somebody looks, and the check ends, its own row taken off as
-    /// it does.
-    ///
-    /// A create answered as a reservation already there was measured to make nothing, so no row is the
-    /// check's own after it. A recording that is new then is somebody else's as well, on the channel or off
-    /// it: most likely theirs for the very programme, set a moment before, which is what the television was
-    /// answering about.
-    ///
-    /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
-    /// create was taken and shows nothing in the list is left open, and the check ends: something may be
-    /// there that the list did not show. After silence the check ends as well: nothing is sent again, what
-    /// the list showed of the create is taken off as the check ends, and where it showed nothing the entry
-    /// is left open, since a television may carry out afterwards a create it never answered.
+    /// it gave: the ledger first, then the request, then the list, whatever the answer and after none
+    /// (`made`).
     private func create(_ leave: Leave, of pick: TVPick, by sender: ScalarClient? = nil) async throws -> Created {
         var listed = last
         if listed == nil { listed = try await list() }
@@ -826,41 +1041,146 @@ actor TVSitting {
         var annotation: Int?
         sent += 1
         do { annotation = try await (sender ?? client).addSchedule(leave.body) } catch { failure = error }
-        let answer = failure.map(Self.said(_:)) ?? Self.taken(annotation)
+        let kind = (failure as? ScalarError)?.failure
+        let sending = Sending(a: "a create", the: "the create",
+                              answer: failure.map(Self.said(_:)) ?? Self.taken(annotation),
+                              madeNothing: kind == .alreadyThere, mayBeTaken: failure == nil, silent: kind == .silent,
+                              programme: nil, notItsOwn: "They are on another channel than it was sent for, or it"
+                                  + " was answered as already there and made nothing")
+        let rows = try await made(by: sending, noted: entry, of: pick, before: before)
+        return Created(failure: failure, annotation: annotation, rows: rows)
+    }
+
+    /// Something sent that may have made a reservation, as far as its answer goes: a create, or a round of
+    /// the queue's, which may have sent one. What the list read after it is held against (`made`).
+    private struct Sending {
+        /// What it is called where it is said, with `a` and with `the`: a create, the create.
+        var a: String
+        var the: String
+        /// What it was answered, as that is said.
+        var answer: String
+        /// Whether nothing was made for it, as far as is known: a create answered as a reservation already
+        /// there, or a round that sent no create or took none.
+        var madeNothing: Bool
+        /// Whether a create may have been taken, as far as its answer says.
+        var mayBeTaken: Bool
+        /// Whether a create met no answer.
+        var silent: Bool
+        /// The id of the programme a row it made is listed with, where that is known: of a round, which
+        /// finds its own row by it, and whose reservation is made once. Nil for a create sent from here,
+        /// which may carry a repeat: the ids a television lists a repeat's rows with were never looked at.
+        var programme: String?
+        /// What a recording that is new in the list and is not its own may be, as that is said.
+        var notItsOwn: String
+    }
+
+    /// The list after something was sent that may have made a reservation, read once whatever was answered
+    /// and after no answer, and the rows of it that are the check's own from here on.
+    ///
+    /// Those are the recordings whose ids the list read before did not have (`before`) and that are on the
+    /// channel the reservation was sent for -- and, where what was sent says which programme a row of its
+    /// own is listed with (`programme`), that carry that programme's id. Any other recording that is new
+    /// was set by somebody else meanwhile, with the remote or from another device: it is not touched, the
+    /// entry is left open so that somebody looks, and the check ends, its own row taken off as it does.
+    ///
+    /// A create answered as a reservation already there was measured to make nothing, and a round that took
+    /// no create made nothing either, so no row is the check's own after one. A recording that is new then
+    /// is somebody else's as well, on the channel or off it, and of the very programme as it may be: theirs
+    /// for it, set a moment before, is what a television that answers "already there" is answering about.
+    ///
+    /// Where the list read here shows an id of the check's own rows gone to another reservation (`list`),
+    /// nothing that is new in it is taken for the check's own either, and the entry is left open: a new id
+    /// says that a row was made since the list before only while a television's ids do nothing but grow.
+    ///
+    /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
+    /// create was taken, or may have been, and shows nothing in the list is left open, and the check ends:
+    /// something may be there that the list did not show. After silence the check ends as well: nothing is
+    /// sent again, what the list showed of the create is taken off as the check ends, and where it showed
+    /// nothing the entry is left open, since a television may carry out afterwards a create it never
+    /// answered.
+    private func made(by sending: Sending, noted entry: Int, of pick: TVPick,
+                      before: Set<String>) async throws -> [TVScheduleRow] {
         let after: [TVScheduleRow]
         do {
             after = try await list()
         } catch {
-            throw Stopped(what: "\(Self.told(error)) after a create (\(answer)):"
+            throw Stopped(what: "\(Self.told(error)) after \(sending.a) (\(sending.answer)):"
                           + " what it made is not known, and its entry is left in the ledger")
         }
         let new = after.filter { $0.type == "recording" && !before.contains($0.id) }
-        let madeNothing = (failure as? ScalarError)?.failure == .alreadyThere
-        let rows = madeNothing ? [] : new.filter { row in
+        let rows = sending.madeNothing ? [] : new.filter { row in
             TVScheduleRow.channel(of: row.uri).map { $0 == (pick.broadcastingType, pick.serviceID) } == true
+                && (sending.programme == nil || row.eventId == sending.programme)
         }
         mine += rows.map { ($0, entry) }
         guard rows.count == new.count else {
             keptOpen.insert(entry)
-            throw Stopped(what: "recordings new in the list that the create did not make: \(new.count - rows.count)."
-                          + " They are on another channel than it was sent for, or it was answered as already"
-                          + " there and made nothing: they are not the check's and are left alone; the create"
-                          + " (\(answer)) made rows of its own: \(rows.count), and its entry is left in the ledger")
+            throw Stopped(what: "recordings new in the list that \(sending.the) did not make:"
+                          + " \(new.count - rows.count). \(sending.notItsOwn): they are not the check's and are"
+                          + " left alone; \(sending.the) (\(sending.answer)) made rows of its own: \(rows.count),"
+                          + " and its entry is left in the ledger")
         }
-        let silent = (failure as? ScalarError)?.failure == .silent
-        if rows.isEmpty {
-            guard failure != nil else {
-                throw Stopped(what: "a create (\(answer)) shows nothing new in the list: its entry is left in the"
-                              + " ledger")
+        if rows.isEmpty, !sending.silent {
+            guard !sending.mayBeTaken else {
+                throw Stopped(what: "\(sending.a) (\(sending.answer)) shows nothing new in the list: its entry is"
+                              + " left in the ledger")
             }
-            if !silent { try strike(entry) }
+            try strike(entry)
         }
-        if silent {
-            throw Stopped(what: "a create met no answer, and nothing is sent again; rows it made: \(rows.count)"
+        if sending.silent {
+            throw Stopped(what: "\(sending.a) met no answer, and nothing is sent again; rows it made: \(rows.count)"
                           + (rows.isEmpty ? ". The television may yet carry it out: its entry is left in the"
                               + " ledger" : ""))
         }
-        return Created(failure: failure, annotation: annotation, rows: rows)
+        return rows
+    }
+
+    /// What a flush of the check's own queue came to: what the queue said of the round, what went over the
+    /// line for it, and the rows the list shows it made.
+    private struct Flushed {
+        var outcome: PendingQueue.Outcome
+        var sent: [TVLine.Sent]
+        var rows: [TVScheduleRow]
+    }
+
+    /// One waiting reservation, queued in `store` and sent by the queue's own flush with the sitting's
+    /// client, once: the round the app ships. The create is the round's to send and not `create`'s, so what
+    /// is kept around a create is kept around the flush, which may send one: the ledger first, then the
+    /// flush, then the list, whatever the queue says of the round (`made`). What the flush sent is said
+    /// first, as the line kept it: each request by its method and the kind of its answer, in order.
+    ///
+    /// Nothing was made, whatever is new in the list, by a flush that sent no create or took none. That it
+    /// sent none the line says: no `addSchedule` went over it. What the queue says cannot say as much: a row
+    /// the round passed over reads the same there whether its create was answered with something that
+    /// cannot be read or its question was answered with an error code and no create followed, which is the
+    /// likeliest thing a television in standby does. That a create it sent was not taken is what the queue
+    /// says shows (`tookNoCreate`): one answered as held already, which was measured to make nothing, or
+    /// turned down with a code. A recording that is new then is somebody else's, on the pick's own station
+    /// and of the pick's own programme as well. Otherwise a create may have been taken, and a row of the
+    /// check's own carries the pick's programme: the round finds its row by that id, and a television
+    /// listed a reservation made once with the id it was sent. Silence that a create may have met is the
+    /// round's stop for it. The question before the create is the round's own.
+    private func flush(_ waiting: PendingReservation, of pick: TVPick, repeating repeatType: String,
+                       through store: GuideStore, _ name: String) async throws -> Flushed {
+        var listed = last
+        if listed == nil { listed = try await list() }
+        let before = Set((listed ?? []).map(\.id))
+        do { try await store.queue(waiting) } catch { throw Stopped(what: "the check's own queue cannot be written") }
+        let entry = try note(pick, repeating: repeatType)
+        let from = await line.sent.count
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now())
+        let sent = Array(await line.sent.dropFirst(from))
+        say("\(name) sent: \(sent.isEmpty ? "nothing" : sent.map(\.said).joined(separator: ", "))")
+        let answer = Self.said(ofARound: outcome)
+        say("\(name): \(answer)")
+        let noCreate = Self.tookNoCreate(outcome) || !sent.contains { $0.method == "addSchedule" }
+        let sending = Sending(a: name, the: name, answer: answer, madeNothing: noCreate, mayBeTaken: !noCreate,
+                              silent: outcome.stopped == .silent(afterSending: true),
+                              programme: String(pick.eventID), notItsOwn: "They are on another channel than it was"
+                                  + " sent for or of another programme, or it took no create and made nothing")
+        let rows = try await made(by: sending, noted: entry, of: pick, before: before)
+        say("\(name): rows made: \(rows.count)")
+        return Flushed(outcome: outcome, sent: sent, rows: rows)
     }
 
     /// Takes off what the check has made and not yet seen gone: each row as it was last read, each delete
@@ -945,13 +1265,16 @@ actor TVSitting {
 
     // MARK: - what is chosen, and what is said
 
+    /// A reservation of `pick` as the app asks for one, under the sitting's title.
+    private static func request(_ pick: TVPick, repeating code: String = "1") -> ReservationRequest {
+        ReservationRequest(title: title, start: pick.start, durationSec: pick.durationSec, repeatCode: code,
+                           broadcastingType: pick.broadcastingType, serviceID: pick.serviceID,
+                           qualityCode: Codes.quality["DR"] ?? 100, eventID: pick.eventID)
+    }
+
     /// A reservation of `pick` on `station` as the app writes one, under the sitting's title.
     private func body(_ pick: TVPick, on station: TVStation, repeating code: String = "1") throws -> TVReservationBody {
-        let request = ReservationRequest(title: Self.title, start: pick.start, durationSec: pick.durationSec,
-                                         repeatCode: code, broadcastingType: pick.broadcastingType,
-                                         serviceID: pick.serviceID, qualityCode: Codes.quality["DR"] ?? 100,
-                                         eventID: pick.eventID)
-        guard let body = TVReservationBody(request, on: station) else {
+        guard let body = TVReservationBody(Self.request(pick, repeating: code), on: station) else {
             throw Refused(why: "the repeat \(code) is not one a television is sent for the programme chosen")
         }
         return body
@@ -1064,9 +1387,9 @@ actor TVSitting {
 
     /// The fields of a row that was made, each held against what was sent: by their names, never their
     /// values. The uri byte for byte, the start as text. And whether the title read back is the one that was
-    /// sent with its half-width spaces made full-width, which is all a television was seen to do to a title
-    /// like the sitting's. A no is a television that lists a reservation under a title of its own, the
-    /// programme's most likely: the title itself is never said.
+    /// sent with its half-width spaces made full-width. A no is a television that lists a reservation under
+    /// a title of its own for the programme, which is what a real one answered the sitting's creates with:
+    /// the title itself is never said.
     static func held(_ row: TVScheduleRow, against body: TVReservationBody) -> String {
         let fields: [(String, Bool)] = [
             ("uri", row.uri.utf8.elementsEqual(body.uri.utf8)),
@@ -1122,6 +1445,71 @@ actor TVSitting {
         case .notATelevision: "not a television"
         case .notRegistered: "nothing registered to send it with"
         case nil: "an error that is not the television's"
+        }
+    }
+
+    /// What the queue said of a round of sending, by its counts and its stop. Never a reason as the round
+    /// wrote it on a row, nor what the device said of the rows it made: those are sentences for the app's
+    /// reader, and name the household's reservations by their titles. A reason is said by its kind.
+    static func said(ofARound outcome: PendingQueue.Outcome) -> String {
+        let reasons = outcome.refused.map { kind(ofAReason: $0.problem).said }.joined(separator: "; ")
+        let stop: String
+        switch outcome.stopped {
+        case nil: stop = "not stopped"
+        case .silent(let afterSending)?:
+            stop = "stopped by silence, " + (afterSending ? "at a create or after it" : "before a create")
+        case .needsPairing?: stop = "stopped: the registration is wanted again"
+        case .cannotRecord?: stop = "stopped: no disk to record to"
+        case .saysNothing?: stop = "stopped: answers that say nothing"
+        }
+        return "sent \(outcome.sent.count), found there already \(outcome.alreadyThere.count), held with a reason"
+            + " \(outcome.refused.count)" + (reasons.isEmpty ? "" : " (\(reasons))")
+            + ", passed over \(outcome.deferred.count), dropped as over \(outcome.expired.count), held from before"
+            + " \(outcome.held.count), said of what was made \(outcome.remarks.count); \(stop)"
+    }
+
+    /// A reason the round wrote on a row, by its kind, and whether a row held for it is one no create was
+    /// taken for. The one reason that says a create was taken is the one for a create answered as taken
+    /// whose reservation the list does not have. A repeat held because the television has its programme
+    /// reserved once, or with a repeat that takes in fewer days, had no create taken: either none was sent,
+    /// or it was answered as held already, which was measured to make nothing. A reason not known here says
+    /// neither.
+    private static func kind(ofAReason reason: String?) -> (said: String, noCreateTaken: Bool) {
+        guard let reason else { return ("no reason", false) }
+        if reason.hasPrefix(ScalarClient.wouldStop) { return ("it would stop another from recording", true) }
+        if let code = ScalarClient.refusals.first(where: { $0.value == reason })?.key {
+            return ("turned down with error \(code)", true)
+        }
+        switch reason {
+        case ScalarClient.stationNotListed: return ("its station is not in the television's list", true)
+        case ScalarClient.saidThereNotListed: return ("answered as there already, and not in the list", true)
+        case ScalarClient.acceptedNotListed: return ("answered as taken, and not in the list", false)
+        case ScalarClient.needsAProgramme, ScalarClient.repeatNotTaken: return ("not one a television is sent", true)
+        case ScalarClient.reservedOnceOnly:
+            return ("a repeat of a programme the television has reserved once", true)
+        case ScalarClient.reservedOnFewerDays:
+            return ("a repeat of a programme the television has reserved on fewer days", true)
+        default: return ("a reason of another kind", false)
+        }
+    }
+
+    /// Whether what the queue said of a round shows that no create of it was taken: the reservation found on
+    /// the television already, or held with a reason that says so; or the round stopped where none had gone
+    /// out, for the disk or for silence before one. Anything else does not say, and is not taken for a no:
+    /// a round passes a row over for a create whose answer it could not read, as it does for a question it
+    /// could not, and which of the two it was only the line says (`flush`); and a stop for the registration,
+    /// or for answers that say nothing, does not say where it came. A round stops as saying nothing, its row
+    /// passed over or not, at its opening and at a question as well as where the list after a create it had
+    /// taken could not be read: so that stop is never a no.
+    static func tookNoCreate(_ outcome: PendingQueue.Outcome) -> Bool {
+        guard outcome.sent.isEmpty, outcome.deferred.isEmpty else { return false }
+        guard outcome.refused.isEmpty else {
+            return outcome.refused.allSatisfy { kind(ofAReason: $0.problem).noCreateTaken }
+        }
+        if !outcome.alreadyThere.isEmpty { return true }
+        switch outcome.stopped {
+        case .cannotRecord?, .silent(afterSending: false)?: return true
+        default: return false
         }
     }
 

@@ -85,7 +85,8 @@ import XCTest
 /// - `TV_WRITE` is leave to make something, and is **the name of the test being run**, as in
 ///   `TV_WRITE=testTheSameProgrammeTwice`. Set to anything else, the test is skipped with nothing sent;
 ///   without it, or while the television says `standby`, a check that makes something is skipped with
-///   nothing made.
+///   nothing made. The one check for a television left in standby, further down, is skipped unless it says
+///   just that.
 /// - **Every command that carries `TV_WRITE` is given ten minutes** by whatever runs it, and is not
 ///   interrupted. Cut off between a create and its delete, any of them leaves a reservation on the
 ///   television and its entry open in the ledger.
@@ -142,9 +143,86 @@ import XCTest
 /// A check that stops on the way says what it left in the ledger, and one that is cut off leaves its entry
 /// open without saying so. The next check then **fails**, and makes nothing, until the owner has seen on the
 /// television's own list that nothing of the sitting is there, deleting it with the remote if it is, and
-/// has set `struck` to `true` on that entry of the ledger by hand. What a check made is listed there as
-/// BD Bridge 確認 or under its programme's own name, on the station and at the start its entry gives (the
-/// start in UTC).
+/// has set `struck` to `true` on that entry of the ledger by hand. What a check made is listed there under
+/// its programme's own name, and not as the BD Bridge 確認 it was sent under: a television gives a
+/// reservation a title of its own. It is on the station and at the start its entry gives (the start in UTC).
+///
+/// ## The sitting at a television in standby
+///
+/// One check is for a television that was switched off and left alone for hours, a night best:
+/// `testAWaitingRowSentInStandby`. It sends one waiting reservation as the app sends what waits for a
+/// television with nobody at it: queued in a store of the check's own and sent by the queue's own flush,
+/// through the round the app ships. Then it queues and flushes the same reservation a second time, which is
+/// to find it on the television and send no create, and takes the row off. It is skipped, with nothing made,
+/// unless the television says `standby`. Everything said above of a command holds for it: its variables on
+/// the command line, one test to a command, never two at once, its files where git does not track them, the
+/// tests built first.
+///
+/// The programme it reserves is the first among the picks with an empty slot, twenty hours or more ahead,
+/// that does not start between midnight and five in the morning in Japan. Run in the morning, twenty hours
+/// ahead falls in those hours. A station may be off the air then, the guide lists that as a programme like
+/// any other, and what a television answers a create for one has not been seen: the night is not for
+/// finding that out.
+///
+/// **The evening before, before the television is left to go to standby**, the picks are written
+/// (`testWritingThePicks`, above), the tests are built, and the registration is in the jar:
+/// `testReadingWhatNeedsTheRegistration` passes with it while the television is still on. Two of the
+/// morning's three commands send with that registration, and registering takes a television that is on and
+/// showing a broadcast: a jar found wanting in the morning has cost the night. The recorder is asked nothing
+/// after its guide was read for the picks until the check has ended, and not by these commands alone:
+/// **for the night, whatever else asks the recorder or the television is stopped as well** -- a server that
+/// refreshes its guide from the recorder, the app on every phone, closed and with its background refresh
+/// off. What waking a recorder does to a television it is wired to was never measured, and a television
+/// that something else asked during the night is not one that was left alone. Then the television is
+/// switched off with its remote, its USB disk connected, and nobody touches it or its remote again until
+/// the check has ended.
+///
+/// **In the morning**, with nobody having touched the television, three commands in this order. From the
+/// first to the end of the third the owner is at the television and looks at its panel, which is to stay
+/// dark; at its lamp; and at the disk, by its own lamp or its sound.
+///
+/// 1. `testWhatIsAtTheAddress`, with `TV_HOST` alone. It is to say a television, in standby. With nothing at
+///    the address the sitting ends there: there is nothing to send a reservation to.
+/// 2. `testReadingWhatNeedsTheRegistration`, with `TV_HOST` and `TV_JAR`. The disk is to read as mounted.
+/// 3. The check itself:
+///
+///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testAWaitingRowSentInStandby \
+///            swift test --filter LiveTVTests/testAWaitingRowSentInStandby
+///
+///    `TV_LEDGER` names a file that is not there yet: this sitting's own, and not the one of a sitting held
+///    with the television on. Like every command that carries `TV_WRITE`, it is given ten minutes by
+///    whatever runs it and is not interrupted, though it is over in seconds: cut off between its create and
+///    its delete, it leaves a reservation on the television and its entry open in the ledger.
+///
+///    Of each flush it says three things. What the flush sent, a request at a time, by its method and the
+///    kind of its answer (`answered`, `error` and a code, `HTTP` and a status, `no answer`): the disk, the
+///    list, the stations, the question, the create and the list for the first, and the disk and the list
+///    alone for the second. What the queue said of it, by its counts and its stop: `sent 1` for the first,
+///    `found there already 1` for the second. And how many rows the list showed it had made: one, and
+///    none. A second flush with an `addSchedule` among what it sent fails the check, whatever the queue said
+///    of it.
+///
+///    Its last line is what the television says it is, asked once more as the check ends: `the television
+///    says it is: standby`. Whatever is said there fails nothing, and is written down with what was seen of
+///    the panel: `active` is not a lit panel. It is not asked after a request that met no answer.
+///
+/// **Then the television is switched on** with its remote, and the count afterwards is run with the same
+/// ledger. Its command for this sitting, which has no viewing reservation to name:
+///
+///     TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testWhatIsLeftAfterwards \
+///         swift test --filter LiveTVTests/testWhatIsLeftAfterwards
+///
+/// It has passed only when it says `nothing of the sitting is left`: run with `TV_WRITE` still naming the
+/// check, it is skipped, and a skip looked at nothing. The owner looks at the television's own list:
+/// nothing on it is the sitting's. Where the check failed or was cut off, the television is switched on and
+/// its list looked at before anything else is run, as after any check that fails.
+///
+/// **When the last sitting is over**, the owner takes the clients that were registered for the checks off
+/// the television's list of registered devices -- the one `testRegistering` made, under its nickname, and
+/// any registered for a measurement besides -- and the jar is deleted. Before it is,
+/// `testReadingWhatNeedsTheRegistration` is run once more, and is to fail with HTTP 403: the television no
+/// longer takes the cookie. A registered client is a key to the television from anywhere on the LAN, and is
+/// not left there longer than the checks need it.
 final class LiveTVTests: XCTestCase {
     func testWhatIsAtTheAddress() async throws {
         let client = try liveClient(MemoryTVCredentials())
@@ -293,6 +371,12 @@ final class LiveTVTests: XCTestCase {
         try await sitting { try await $0.theStationsNamed() }
     }
 
+    /// The one check for a television left in standby (`TVSitting.aWaitingRowInStandby`): on one that says
+    /// it is on, it is skipped with nothing made.
+    func testAWaitingRowSentInStandby() async throws {
+        try await sitting { try await $0.aWaitingRowInStandby() }
+    }
+
     func testWhatIsLeftAfterwards() async throws {
         try await sitting { try await $0.whatIsLeft() }
     }
@@ -303,11 +387,12 @@ final class LiveTVTests: XCTestCase {
     /// `#function` gives here; and when it is the name of another, this one is skipped with nothing sent, so
     /// that a command runs the one check it names whatever its filter lets through.
     ///
-    /// A check that refuses to run -- no leave, the television in standby, no slot that is empty, no viewing
-    /// reservation named -- is skipped with its reason: it made nothing. Whatever else a check throws fails
-    /// the test, an entry left open in the ledger included: something of the sitting may be on the
-    /// television. What a check says is put out line by line as it is said, and kept in a file beside the
-    /// ledger for whatever runs the command and cannot see it meanwhile (`TVSitting.printer`).
+    /// A check that refuses to run -- no leave, the television in standby for a check that wants it on or
+    /// on for the one that wants it in standby, no slot that is empty, no viewing reservation named -- is
+    /// skipped with its reason: it made nothing. Whatever else a check throws fails the test, an entry left
+    /// open in the ledger included: something of the sitting may be on the television. What a check says is
+    /// put out line by line as it is said, and kept in a file beside the ledger for whatever runs the
+    /// command and cannot see it meanwhile (`TVSitting.printer`).
     private func sitting(_ test: String = #function, _ check: (TVSitting) async throws -> Void) async throws {
         let leave = Self.environment("TV_WRITE")
         let mayWrite = TVSitting.mayWrite(leave, running: test)
@@ -315,7 +400,7 @@ final class LiveTVTests: XCTestCase {
             throw XCTSkip("TV_WRITE is not the name of this test: a command of the sitting runs the one it names.")
         }
         let jar = try liveJar()
-        let client = try liveClient(jar)
+        let (client, line) = try live(jar)
         guard jar.load()?.cookie != nil else { throw XCTSkip("Nothing is registered in the jar yet.") }
         guard let ledger = try Self.file("TV_LEDGER") else {
             throw XCTSkip("Set TV_LEDGER to a file for the sitting's ledger, outside what the repository tracks.")
@@ -327,8 +412,8 @@ final class LiveTVTests: XCTestCase {
             try XCTUnwrap(TVSitting.reminderStart(text),
                           "TV_REMINDER is the start of the viewing reservation in Japan's time, as 2026-11-04 21:00")
         }
-        let sitting = TVSitting(client: client, picks: try TVPicks.read(picks), ledger: ledger, mayWrite: mayWrite,
-                                reminder: reminder,
+        let sitting = TVSitting(client: client, line: line, picks: try TVPicks.read(picks, namedBy: "TV_PICKS"),
+                                ledger: ledger, mayWrite: mayWrite, reminder: reminder,
                                 look: Self.environment("TV_LOOK").flatMap { TimeInterval($0) } ?? 30,
                                 say: TVSitting.printer(beside: ledger))
         do {
@@ -355,10 +440,19 @@ final class LiveTVTests: XCTestCase {
     }
 
     private func liveClient(_ credentials: any TVCredentialStore) throws -> ScalarClient {
+        try live(credentials).client
+    }
+
+    /// The client every test here sends with, and the line it is built on: the transport the app sends
+    /// with, under a line that keeps the method of each request and the kind of its answer (`TVLine`). A
+    /// check of the sitting is handed both, and the one for a television in standby says from the line what
+    /// the round sent. The line changes nothing of what is sent or of what comes back.
+    private func live(_ credentials: any TVCredentialStore) throws -> (client: ScalarClient, line: TVLine) {
         guard let host = ProcessInfo.processInfo.environment["TV_HOST"], !host.isEmpty else {
             throw XCTSkip("Set TV_HOST to a television's address to run this.")
         }
-        return ScalarClient(host: host, transport: URLSessionTransport.withoutCookies(), credentials: credentials)
+        let line = TVLine(URLSessionTransport.withoutCookies())
+        return (ScalarClient(host: host, transport: line, credentials: credentials), line)
     }
 
     private func liveJar() throws -> FileTVCredentials {

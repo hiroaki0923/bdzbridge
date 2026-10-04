@@ -7,7 +7,9 @@ import XCTest
 /// the rows the household had, as they were and no others; a ledger with nothing left open; each request sent
 /// once; and nothing said that names a programme, a station or a row. Then what a check does when something
 /// goes wrong on the way, which no sitting can be made to show, and what the sitting is given before it
-/// begins: its leave to write, its viewing reservation, where its files may be kept.
+/// begins: its leave to write, its viewing reservation, where its files may be kept. The check for a
+/// television left in standby is rehearsed by itself, on an invented television that is in standby: it is no
+/// part of a sitting held with the television on, and does not run there.
 ///
 /// The household's rows are put beside the slots the checks use and on the programmes they reserve, so that a
 /// check that took a slot too near one, or deleted by its programme, would be caught here and not on
@@ -103,15 +105,17 @@ final class TVSittingTests: XCTestCase {
     /// counted from nought, is carried out and its answer lost, never arrives, is answered with something
     /// else and not carried out, is carried out and answered with something else, arrives just after the
     /// household has set something with the remote or taken something off with it, arrives just after the
-    /// television has put its newest recording under another number, is carried out and what it took off
-    /// then listed again under a new number, or arrives just after the ledger was taken away or written over
-    /// with another. It keeps the method of everything sent, which is what says a request went once, and
-    /// what the ledger held as each create arrived.
+    /// television has put its newest recording under another number or has put something else under an id it
+    /// had given, is carried out and what it took off then listed again under a new number, or arrives just
+    /// after the ledger was taken away or written over with another. It keeps the method of everything sent,
+    /// which is what says a request went once, and what the ledger held as each create arrived.
     private actor Line: HTTPTransport {
         enum Fault: Sendable {
             case answerLost, neverArrives, answered(String), carriedOutAndAnswered(String)
             case afterTheHouseholdSets(DemoTV.Schedule), afterTheHouseholdTakesOff(String)
             case afterTheNewestIsRenumbered, carriedOutAndListedAgain, afterTheLedgerBecomes(TVLedger?)
+            /// The row the television holds under this schedule's id is this schedule from here on.
+            case afterWhatIsUnderItsIDBecomes(DemoTV.Schedule)
         }
 
         private let television: DemoTV
@@ -167,6 +171,9 @@ final class TVSittingTests: XCTestCase {
             case .afterTheHouseholdTakesOff(let id):
                 await television.put(await television.schedules.filter { $0.id != id })
                 return try await television.send(request)
+            case .afterWhatIsUnderItsIDBecomes(let other):
+                await television.put(await television.schedules.map { $0.id == other.id ? other : $0 })
+                return try await television.send(request)
             case .afterTheLedgerBecomes(let other):
                 if let other { try other.write(to: ledger) } else { try FileManager.default.removeItem(at: ledger) }
                 return try await television.send(request)
@@ -186,6 +193,8 @@ final class TVSittingTests: XCTestCase {
     private struct World {
         var television: DemoTV
         var line: Line
+        /// The line the sitting's client sends on, with `line` underneath it.
+        var kept: TVLine
         var sitting: TVSitting
         var client: ScalarClient
         var stranger: ScalarClient
@@ -215,15 +224,18 @@ final class TVSittingTests: XCTestCase {
             for file in [ledger, TVSitting.saidFile(beside: ledger)] { try? FileManager.default.removeItem(at: file) }
         }
         let line = Line(television, faults: faults, ledger: ledger)
-        func client(_ cookie: String) -> ScalarClient {
-            ScalarClient(host: Stub.host, transport: line,
+        // As the live tests build one: the sitting's client on a line that keeps what goes over it, and the
+        // sitting handed both.
+        let kept = TVLine(line)
+        func client(_ cookie: String, on transport: any HTTPTransport) -> ScalarClient {
+            ScalarClient(host: Stub.host, transport: transport,
                          credentials: MemoryTVCredentials(TVCredentials(clientID: Self.clientID, cookie: cookie)))
         }
-        let own = client(Self.cookie)
-        let sitting = TVSitting(client: own, picks: Self.picks, ledger: ledger, mayWrite: mayWrite,
+        let own = client(Self.cookie, on: kept)
+        let sitting = TVSitting(client: own, line: kept, picks: Self.picks, ledger: ledger, mayWrite: mayWrite,
                                 reminder: reminder, now: { now }, say: { said.add($0) })
-        return World(television: television, line: line, sitting: sitting, client: own,
-                     stranger: client(Self.neverGiven), said: said, ledger: ledger)
+        return World(television: television, line: line, kept: kept, sitting: sitting, client: own,
+                     stranger: client(Self.neverGiven, on: line), said: said, ledger: ledger)
     }
 
     /// The checks that make something, by name, each as it is run.
@@ -253,7 +265,9 @@ final class TVSittingTests: XCTestCase {
         var kept = Self.owners.flatMap { [$0.title, $0.station, $0.uri] } + Self.stations.flatMap { [$0.name, $0.uri] }
         kept += [TVSitting.title, TVSitting.title.replacingOccurrences(of: " ", with: "\u{3000}"), Self.cookie,
                  Self.neverGiven, Self.clientID, Stub.host, DemoTV.mac, "1505"]
-        kept += Self.picks.programmes.flatMap { [String($0.serviceID), String($0.eventID)] }
+        kept += Self.picks.programmes.flatMap {
+            [String($0.serviceID), String($0.eventID), DemoTV.title(ofProgramme: $0.eventID)]
+        }
         for word in Set(kept) where text.contains(word) {
             XCTFail("\(word) was said", file: file, line: line)
         }
@@ -321,7 +335,7 @@ final class TVSittingTests: XCTestCase {
                 + takenOff,
             "a recording where a viewing reservation is": opening + made + takenOff,
             "the same programme twice": opening + made + made + takenOff,
-            "the repeats": opening + Array(repeating: made + takenOff, count: 6).flatMap { $0 },
+            "the repeats": opening + Array(repeating: made + takenOff, count: 5).flatMap { $0 } + made,
             "three at once": opening + three + three,
             "a cookie not taken": opening + made,
             "the stations named": opening + made + takenOff + ["getContentList"],
@@ -360,7 +374,7 @@ final class TVSittingTests: XCTestCase {
             "channels among the picks with no station on the television: 1 of 6",
             "rows in a page past the end of td: 0",
             "rows the question names: 0", "the create: taken, annotation 0; rows made: 1",
-            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: yes",
+            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: no",
             "the viewing reservation: Wednesday 20:59:59; its uri is the station's own: yes",
             "rows the question names: 0; the viewing reservation among them: no",
             "rows of the programme before: 1 recording, 1 reminder",
@@ -369,12 +383,16 @@ final class TVSittingTests: XCTestCase {
             "the second: error 41222, read as already there: yes; rows made: 0",
             "the programme: Wednesday 05:00:00", "round 2, title: rows the question names: 0",
             "round 2, title sent: taken, annotation 0; rows made: 1",
-            "round 6, w4 sent: taken, annotation 0; rows made: 1",
-            "  read back: repeatType w4, start Wednesday 05:00:00",
+            "  read back: repeatType w16, start Wednesday 05:00:00",
+            "round 6, w4 sent: error 7; rows made: 0",
             "the third later, the second: rows the question names: 0",
-            "the third later, rows the question for the third names: 0",
-            "the third earlier, with them in place: the first notOverlapped, the second notOverlapped,"
-                + " the third notOverlapped, the viewing reservation notOverlapped",
+            "the third later, rows the question for the third names: 1 (the first)",
+            "the third later: every row named is the check's own, so the third is made",
+            "the third later, with them in place: the first fullyOverlapped, the second notOverlapped,"
+                + " the third notOverlapped",
+            "the third earlier, rows the question for the third names: 1 (the first)",
+            "the third earlier, with them in place: the first fullyOverlapped, the second notOverlapped,"
+                + " the third notOverlapped, the viewing reservation partlyOverlapped",
             "the create with a cookie the television never gave: HTTP 403; rows made: 0",
             "station 1 of 2 (cs): rows the question names: 0",
             "station 1 of 2 (cs): taken, annotation 0; rows made: 1",
@@ -657,11 +675,12 @@ final class TVSittingTests: XCTestCase {
         }
     }
 
-    /// After silence on a create nothing is sent again: the list is read, once, and a row of the check's
-    /// own found there is deleted. Whether the create arrived or not, the check ends and the television is
-    /// as it was. Where the list showed the row, its entry is struck out with its delete; where it showed
-    /// nothing, the entry stays open, since a television may carry out afterwards a create it never
-    /// answered, and the next check makes nothing. In the rounds of the repeats the round after is not begun.
+    /// After silence on a create nothing is sent again: the list is read, once, a row of the check's own
+    /// found there is deleted, and the list is read once more to see it gone. Whether the create arrived or
+    /// not, the check ends and the television is as it was. Where the list showed the row, its entry is
+    /// struck out with its delete; where it showed nothing, the entry stays open, since a television may
+    /// carry out afterwards a create it never answered, and the next check makes nothing. In the rounds of
+    /// the repeats the round after is not begun.
     func testAfterSilenceOnACreateNothingIsSentAgain() async throws {
         let head = ["getPowerStatus", "getStorageList", "getScheduleList", "getContentList", "getConflictScheduleList"]
         let silence = "a create met no answer, and nothing is sent again; rows it made: "
@@ -798,7 +817,7 @@ final class TVSittingTests: XCTestCase {
     /// taken off: the television is as it was found and the ledger has nothing open.
     func testTheThirdIsMadeWhenTheQuestionNamesTheChecksOwnFirst() async throws {
         let first = DemoTV.Schedule(id: "recording.46", serviceID: 1501, station: Self.stations[0].name,
-                                    title: DemoTV.listedTitle(TVSitting.title), start: Self.at(5, 20), eventId: 50109)
+                                    title: DemoTV.title(ofProgramme: 50109), start: Self.at(5, 20), eventId: 50109)
         let world = await world(faults: ["getConflictScheduleList 2": try naming(first)])
 
         try await world.sitting.threeAtOnce()
@@ -814,9 +833,9 @@ final class TVSittingTests: XCTestCase {
             "the third later, rows the question for the third names: 1 (the first)",
             "the third later: every row named is the check's own, so the third is made",
             "the third later, the third: taken, annotation 0; rows made: 1",
-            "the third later, with them in place: the first notOverlapped, the second notOverlapped,"
+            "the third later, with them in place: the first fullyOverlapped, the second notOverlapped,"
                 + " the third notOverlapped",
-            "the third earlier, rows the question for the third names: 0",
+            "the third earlier, rows the question for the third names: 1 (the first)",
         ] {
             XCTAssertTrue(world.said.text.components(separatedBy: "\n").contains(line), "not said: \(line)")
         }
@@ -871,6 +890,614 @@ final class TVSittingTests: XCTestCase {
             expectEqual(await world.television.schedules, Self.owners)
             XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path))
             expectNamesNothing(world.said.text)
+        }
+    }
+
+    // MARK: - the check for a television in standby
+
+    /// What the standby check sends before anything is queued, what a round opens on, and all that is sent
+    /// before the round's question.
+    private static let standbyOpening = ["getPowerStatus", "getStorageList", "getScheduleList", "getContentList"]
+    private static let roundOpening = ["getStorageList", "getScheduleList"]
+    private static let toTheQuestion = standbyOpening + roundOpening + ["getContentList"]
+    /// What it sends as it ends, once it has begun and where no request met silence.
+    private static let standbyEnding = ["getPowerStatus"]
+    /// And what it then says, of a television that has stayed as it was.
+    private static let stillInStandby = "the television says it is: standby"
+
+    /// What the queue says of a round, as the check says it: its counts, and its stop.
+    private static func round(sent: Int = 0, there: Int = 0, held: Int = 0, _ reason: String? = nil,
+                              passedOver: Int = 0, remarks: Int = 0, stop: String = "not stopped") -> String {
+        "sent \(sent), found there already \(there), held with a reason \(held)" + (reason.map { " (\($0))" } ?? "")
+            + ", passed over \(passedOver), dropped as over 0, held from before 0, said of what was made \(remarks);"
+            + " \(stop)"
+    }
+
+    /// What the check says the first flush sent, when the round got as far as its question: the disk, the
+    /// list and the stations, each answered, and then `after`.
+    private static func firstFlushSent(_ after: String) -> String {
+        "the first flush sent: getStorageList answered, getScheduleList answered, getContentList answered, \(after)"
+    }
+
+    /// What it says of a flush after which the list held one recording more that the flush did not make.
+    private static func notTheFlushes(_ answer: String, own: Int) -> String {
+        "recordings new in the list that the first flush did not make: 1. They are on another channel than it"
+            + " was sent for or of another programme, or it took no create and made nothing: they are not the"
+            + " check's and are left alone; the first flush (\(answer)) made rows of its own: \(own), and its"
+            + " entry is left in the ledger"
+    }
+
+    /// The check for a television left in standby, on the invented one in standby with the household's rows
+    /// in place. One waiting row goes through the queue's own flush: the round's six requests, the question
+    /// in front of the create. The same row flushed again is found on the television, with the disk and the
+    /// list asked and nothing else. One create went in all, its entry in the ledger before it. What each
+    /// flush sent is said, a request at a time, and at the end what the television says it is.
+    ///
+    /// The programme is not the first with an empty slot: the household holds a recording of that one, which
+    /// the round would have taken for the row. Nor is it the next, which starts at three in the morning:
+    /// the check reserves nothing of the small hours. It is the first after those with an empty slot of
+    /// which the household holds no recording.
+    ///
+    /// Afterwards the household's rows are as they were, the ledger has nothing open, nothing that was said
+    /// names anything, and the count afterwards passes.
+    func testAWaitingRowGoesThroughTheRoundInStandbyAndIsFoundThereTheSecondTime() async throws {
+        let world = await world(power: "standby")
+
+        try await world.sitting.aWaitingRowInStandby()
+
+        expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"]
+                    + Self.roundOpening + ["getScheduleList"] + Self.takenOff + Self.standbyEnding)
+        expectEqual(await count("addSchedule", in: world), 1, "the same row was sent a second time")
+        expectEqual(await world.line.ledgerAtEachCreate, ["1 entries, the last open"])
+        expectEqual(await world.television.schedules, Self.owners)
+        XCTAssertEqual(try entries(world), ["1502 50110 1", "1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectEqual(world.said.lines, [
+            "the disk: mounted", "the list: rows 11, recordings 9, losing to another 0",
+            "the first flush sent: getStorageList answered, getScheduleList answered, getContentList answered,"
+                + " getConflictScheduleList answered, addSchedule answered, getScheduleList answered",
+            "the first flush: \(Self.round(sent: 1))", "the first flush: rows made: 1",
+            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: no",
+            "the second flush sent: getStorageList answered, getScheduleList answered",
+            "the second flush: \(Self.round(there: 1))", "the second flush: rows made: 0",
+            "the television's list reads as it did before the check",
+            "the television says it is: standby",
+        ])
+        expectNamesNothing(world.said.text)
+
+        await world.television.turn("active")
+        await world.line.forget()
+        try await world.sitting.whatIsLeft()
+        expectEqual(await world.line.sent, ["getScheduleList"])
+        XCTAssertEqual(world.said.lines.last, "nothing of the sitting is left")
+    }
+
+    /// The standby check makes nothing without leave, with nothing sent at all; nor on a television that
+    /// says it is on, where the one request is the one that asks; nor beside an entry left open, which fails
+    /// with nothing sent. None of those is a check that began, and none asks anything at its end. Nor does
+    /// it make anything on a television whose disk is not there: nothing is written down, and beyond the
+    /// disk the one thing asked is what the television says it is, as the check ends. Where the disk goes
+    /// between the check's look at it and the round's, it is the round that stops, before its list: nothing
+    /// is asked about and nothing made, and the entry written for the flush is struck out, the list showing
+    /// nothing new.
+    func testTheStandbyCheckMakesNothingWithoutLeaveOrOnATelevisionThatIsOnOrHasNoDisk() async throws {
+        let check: @Sendable (World) async throws -> Void = { try await $0.sitting.aWaitingRowInStandby() }
+        let diskless = await world(power: "standby")
+        await diskless.television.unmount()
+        let refusals: [(World, String, [String], [String])] = [
+            (await world(mayWrite: false, power: "standby"), "writing to the television was not asked for", [], []),
+            (await world(), "the television says it is active, and this is a check for one that is in standby",
+             ["getPowerStatus"], []),
+            (diskless, "the television has no disk to record to", ["getPowerStatus", "getStorageList"]
+                + Self.standbyEnding, ["the disk: not mounted", Self.stillInStandby]),
+        ]
+        for (world, why, sent, said) in refusals {
+            let refused = await thrown { try await check(world) } as? TVSitting.Refused
+            XCTAssertEqual(refused?.why, why)
+            expectEqual(await world.line.sent, sent, why)
+            XCTAssertEqual(world.said.lines, said, why)
+            expectEqual(await world.television.schedules, Self.owners, why)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path), why)
+        }
+
+        let behind = await world(power: "standby")
+        var open = TVLedger()
+        open.entries = [TVLedger.Entry(broadcastingType: 2, serviceID: 1501, eventID: 50103, start: Self.at(4, 3),
+                                       durationSec: 1800, repeatType: "1")]
+        try open.write(to: behind.ledger)
+        let stopped = await thrown { try await check(behind) } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what.hasPrefix("entries of the ledger not struck out: 1."), true)
+        expectEqual(await behind.line.sent, [], "something was sent beside an entry left open")
+        XCTAssertEqual(behind.said.lines, [])
+
+        let unmounted = #"{"result":[[{"uri":"usb:recStorage","mounted":"unmounted"}]],"id":1}"#
+        let gone = await world(power: "standby", faults: ["getStorageList 1": .answered(unmounted)])
+        let ended = await thrown { try await check(gone) } as? TVSitting.Stopped
+        XCTAssertEqual(ended?.what, "the first flush did not make one row")
+        expectEqual(await gone.line.sent, Self.standbyOpening + ["getStorageList", "getScheduleList"]
+                    + Self.standbyEnding)
+        expectEqual(gone.said.lines.suffix(4), [
+            "the first flush sent: getStorageList answered",
+            "the first flush: " + Self.round(stop: "stopped: no disk to record to"), "the first flush: rows made: 0",
+            Self.stillInStandby,
+        ])
+        expectEqual(await gone.television.schedules, Self.owners)
+        XCTAssertEqual(try entries(gone), ["1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(gone.ledger).open, 0)
+    }
+
+    /// A round that goes wrong leaves what a create that failed leaves, by the same rules, and what the
+    /// round sent is said whichever way it went.
+    ///
+    /// A create carried out and not answered stops the round: nothing is sent again, by the round or by the
+    /// check; the list is read once, the row found there is taken off, and its entry struck out with its
+    /// delete. One that never arrived leaves nothing in the list and its entry open, since a television may
+    /// carry out afterwards what it never answered. So does one answered as taken that the list does not
+    /// have. A recording somebody sets on another station while the round is out is not the check's: it is
+    /// left where it is, the check's own row is taken off, and the entry stays open. Where somebody reserved
+    /// the very programme a moment before, the round finds theirs and says the row was there already: no row
+    /// is the check's own then, theirs is not deleted, and the entry stays open. And a row the round holds
+    /// because the television names a reservation of the household's makes nothing, its entry struck out,
+    /// with the reason said by its kind and not as it was written, which has the household's title in it.
+    /// Where the round could not read its list after the create and stopped, the row left unsaid, the row
+    /// the check's own list shows is the check's and is taken off, and the check fails: the round did not
+    /// say it made one. After an entry left open the next check makes nothing.
+    ///
+    /// Each ends with the television asked what it says it is, but for the two whose create met no answer:
+    /// after silence nothing is sent but the list, the delete of the check's own row and the list once more.
+    func testARoundThatGoesWrongLeavesWhatACreateThatFailedLeaves() async throws {
+        let elsewhere = Self.owned("recording.46", on: 3, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
+        let taken = #"{"result":[{"annotation":0}],"id":1}"#, unreadable = #"{"result":[],"id":1}"#
+        let silence = "the first flush met no answer, and nothing is sent again; rows it made: "
+        let afterSilence = Self.round(stop: "stopped by silence, at a create or after it")
+        let unanswered = "getConflictScheduleList answered, addSchedule no answer"
+        let answered = "getConflictScheduleList answered, addSchedule answered, getScheduleList answered"
+        let made = Self.made + ["getScheduleList"]
+        let cases: [(String, [String: Line.Fault], String, String, String, [String], [DemoTV.Schedule], Int)] = [
+            ("carried out and not answered", ["addSchedule 0": .answerLost], unanswered, afterSilence, silence + "1",
+             ["getConflictScheduleList", "addSchedule", "getScheduleList"] + Self.takenOff, [], 0),
+            ("never arrived", ["addSchedule 0": .neverArrives], unanswered, afterSilence,
+             silence + "0. The television may yet carry it out: its entry is left in the ledger",
+             ["getConflictScheduleList", "addSchedule", "getScheduleList"], [], 1),
+            ("answered as taken and not listed", ["addSchedule 0": .answered(taken)], answered,
+             Self.round(held: 1, "answered as taken, and not in the list"),
+             "the first flush (\(Self.round(held: 1, "answered as taken, and not in the list"))) shows nothing new"
+                + " in the list: its entry is left in the ledger", made + Self.standbyEnding, [], 1),
+            ("a recording set on another station meanwhile", ["addSchedule 0": .afterTheHouseholdSets(elsewhere)],
+             answered, Self.round(sent: 1), Self.notTheFlushes(Self.round(sent: 1), own: 1) + "; and "
+                + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1),
+             made + Self.takenOff + Self.standbyEnding, [elsewhere], 1),
+            ("the very programme reserved a moment before", ["addSchedule 0": .afterTheHouseholdSets(theirs)],
+             "getConflictScheduleList answered, addSchedule error 41222, getScheduleList answered",
+             Self.round(there: 1), Self.notTheFlushes(Self.round(there: 1), own: 0) + "; and " + Self.oneRowMore,
+             made + Self.standbyEnding, [theirs], 1),
+            ("a reservation of the household's named", ["getConflictScheduleList 0": try naming(Self.owners[1])],
+             "getConflictScheduleList answered", Self.round(held: 1, "it would stop another from recording"),
+             "the first flush did not make one row", ["getConflictScheduleList", "getScheduleList"]
+                + Self.standbyEnding, [], 0),
+            ("the list after the create not read by the round", ["getScheduleList 2": .answered(unreadable)],
+             answered, Self.round(stop: "stopped: answers that say nothing"),
+             "the first flush did not make one row", made + Self.takenOff + Self.standbyEnding, [], 0),
+        ]
+        for (name, faults, sent, said, what, afterTheStations, left, open) in cases {
+            let world = await world(power: "standby", faults: faults)
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() }
+            XCTAssertEqual((stopped as? TVSitting.Stopped)?.what, what, name)
+            XCTAssertTrue(world.said.lines.contains(Self.firstFlushSent(sent)), "\(name): \(world.said.text)")
+            XCTAssertTrue(world.said.lines.contains("the first flush: \(said)"), "\(name): \(world.said.text)")
+            expectEqual(await world.line.sent, Self.toTheQuestion + afterTheStations, name)
+            // What the television says it is, said last where it was asked, and not said after silence.
+            XCTAssertEqual(world.said.lines.filter { $0.hasPrefix("the television says it is") },
+                           said == afterSilence ? [] : [Self.stillInStandby], name)
+            XCTAssertEqual(world.said.lines.last == Self.stillInStandby, said != afterSilence, name)
+            expectEqual(await world.television.schedules, Self.owners + left, name)
+            XCTAssertEqual(try entries(world), ["1502 50110 1"], name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
+            expectNamesNothing(what + world.said.text)
+
+            guard open == 1 else { continue }
+            await world.line.forget()
+            let next = await thrown { try await world.sitting.aWaitingRowInStandby() }
+            XCTAssertEqual((next as? TVSitting.Stopped)?.what.hasPrefix("entries of the ledger not struck out: 1."),
+                           true, name)
+            expectEqual(await world.line.sent, [], name)
+        }
+
+        // A second flush that does not find the row fails the check, and the first flush's row is taken off
+        // all the same: here the disk is gone by the second round, which stops on it.
+        let unmounted = #"{"result":[[{"uri":"usb:recStorage","mounted":"unmounted"}]],"id":1}"#
+        let twice = await world(power: "standby", faults: ["getStorageList 2": .answered(unmounted)])
+        let second = await thrown { try await twice.sitting.aWaitingRowInStandby() }
+        XCTAssertEqual((second as? TVSitting.Stopped)?.what, "the same row a second time was not found on the"
+                       + " television")
+        expectEqual(await twice.line.sent, Self.toTheQuestion + made + ["getStorageList", "getScheduleList"]
+                    + Self.takenOff + Self.standbyEnding)
+        XCTAssertTrue(twice.said.lines.contains("the second flush sent: getStorageList answered"))
+        expectEqual(await twice.television.schedules, Self.owners)
+        XCTAssertEqual(try TVLedger.read(twice.ledger).open, 0)
+    }
+
+    /// Where a flush took no create, nothing that is new in the list afterwards is the check's own. Here the
+    /// round stops at the disk, and somebody has reserved the very programme from another device after the
+    /// check read its list: a recording that is new, on the pick's own station and of the pick's own
+    /// programme. It is left where it is, nothing is deleted, and the entry stays open.
+    func testNothingNewAfterAFlushThatTookNoCreateIsTheChecksOwn() async throws {
+        let unmounted = #"{"result":[[{"uri":"usb:recStorage","mounted":"unmounted"}]],"id":1}"#
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
+        let world = await world(power: "standby", faults: ["getContentList 0": .afterTheHouseholdSets(theirs),
+                                                           "getStorageList 1": .answered(unmounted)])
+        let atTheDisk = Self.round(stop: "stopped: no disk to record to")
+
+        let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, Self.notTheFlushes(atTheDisk, own: 0) + "; and " + Self.oneRowMore)
+        expectEqual(await world.television.schedules, Self.owners + [theirs], "the household's recording was deleted")
+        expectEqual(await world.line.sent, Self.standbyOpening + ["getStorageList", "getScheduleList"]
+                    + Self.standbyEnding)
+        XCTAssertEqual(try entries(world), ["1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 1)
+        expectNamesNothing((stopped?.what ?? "") + world.said.text)
+    }
+
+    /// After a flush whose create was taken, the check's own row is the new recording on the pick's station
+    /// that is of the pick's programme, and no other. A recording of another programme that somebody sets on
+    /// that station while the flush is out is theirs: it is left where it is, the check's own row is taken
+    /// off, and the entry stays open.
+    func testARecordingOfAnotherProgrammeNewAfterAFlushIsNotTheChecks() async throws {
+        let theirs = Self.owned("recording.46", on: 1, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
+        let world = await world(power: "standby", faults: ["addSchedule 0": .afterTheHouseholdSets(theirs)])
+
+        let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, Self.notTheFlushes(Self.round(sent: 1), own: 1) + "; and "
+                       + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1))
+        expectEqual(await world.television.schedules, Self.owners + [theirs], "the household's recording was deleted")
+        expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"] + Self.takenOff
+                    + Self.standbyEnding)
+        expectEqual(await count("deleteSchedule", in: world), 1)
+        XCTAssertEqual(try entries(world), ["1502 50110 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 1)
+        expectNamesNothing((stopped?.what ?? "") + world.said.text)
+    }
+
+    /// A flush that sent no create made nothing, whatever the queue says of its round: whether it sent one
+    /// is read from the line. Here the round's question is answered with an error code, as a television in
+    /// standby may answer it. The round passes the row over, which is what it says as well of a create whose
+    /// answer it could not read, and no create goes out. With nothing new in the list the entry is struck
+    /// out, and the check fails for not having made its row. And where somebody has reserved the very
+    /// programme from another device while the flush was out, that recording -- new, on the pick's own
+    /// station and of the pick's own programme -- is theirs: it is left where it is, no delete is sent, and
+    /// the entry stays open.
+    func testAFlushThatSentNoCreateMadeNothingWhateverTheQueueSaysOfIt() async throws {
+        let hasToBeOn = #"{"error":[40005,"display off"],"id":1}"#
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
+        let passedOver = Self.round(passedOver: 1)
+        let cases: [(String, [String: Line.Fault], String, [DemoTV.Schedule], Int)] = [
+            ("nothing new in the list", ["getConflictScheduleList 0": .answered(hasToBeOn)],
+             "the first flush did not make one row", [], 0),
+            ("the very programme reserved from another device meanwhile",
+             ["getContentList 1": .afterTheHouseholdSets(theirs), "getConflictScheduleList 0": .answered(hasToBeOn)],
+             Self.notTheFlushes(passedOver, own: 0) + "; and " + Self.oneRowMore, [theirs], 1),
+        ]
+        for (name, faults, what, left, open) in cases {
+            let world = await world(power: "standby", faults: faults)
+
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+            XCTAssertEqual(stopped?.what, what, name)
+            XCTAssertTrue(world.said.lines.contains(Self.firstFlushSent("getConflictScheduleList error 40005")),
+                          "\(name): \(world.said.text)")
+            XCTAssertTrue(world.said.lines.contains("the first flush: \(passedOver)"), "\(name): \(world.said.text)")
+            expectEqual(await world.line.sent, Self.toTheQuestion + ["getConflictScheduleList", "getScheduleList"]
+                        + Self.standbyEnding, name)
+            expectEqual(await count("deleteSchedule", in: world), 0, "\(name): a delete was sent")
+            expectEqual(await world.television.schedules, Self.owners + left, name)
+            XCTAssertEqual(try entries(world), ["1502 50110 1"], name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
+            expectNamesNothing((stopped?.what ?? "") + world.said.text)
+        }
+    }
+
+    /// A row the check holds is read again from the row the list has under its id only while that row is
+    /// still it: on its channel and of its programme. Where the television has put another reservation
+    /// under the id between two reads -- another programme on the same station, or the same programme id on
+    /// another station -- that reservation is not the check's: no delete is sent for it, it is still there
+    /// afterwards, and the check ends saying so by a count, its entry left open. Nothing that is new in
+    /// that list is taken for the check's own either, and the entry of what was just sent stays open with
+    /// it. The next check then makes nothing.
+    ///
+    /// With the television on and two rows held, the one whose id has gone to another reservation is sent
+    /// no delete and the other, still the check's own, is taken off; what the create just sent made stays,
+    /// and nothing is struck out.
+    ///
+    /// And a row that is still the check's own and reads otherwise than it did -- its programme moved by
+    /// five minutes -- is read again, and its delete is sent as it was last read.
+    func testARowTheCheckHoldsIsReadAgainOnlyFromARowThatIsStillIt() async throws {
+        let gone = "rows the check made whose id the list now has for another channel or programme: 1. They are not"
+            + " the check's any more: no delete is sent for them, and their entries are left in the ledger"
+        let unknown = ": what it made is not known, and its entry is left in the ledger"
+        let others = [
+            ("another programme on its station",
+             Self.owned("recording.46", on: 1, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)),
+            ("its programme's id on another station",
+             Self.owned("recording.46", on: 3, "サンプル夜話", Self.at(5, 20), programme: 50110)),
+        ]
+        // The list the check reads after its second flush is the sixth it is sent in all.
+        for (name, other) in others {
+            let world = await world(power: "standby",
+                                    faults: ["getScheduleList 5": .afterWhatIsUnderItsIDBecomes(other)])
+
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+            XCTAssertEqual(stopped?.what, gone + " after the second flush (\(Self.round(there: 1)))" + unknown
+                           + "; and " + Self.oneRowMore, name)
+            expectEqual(await world.television.schedules, Self.owners + [other], "\(name): it was deleted")
+            expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"]
+                        + Self.roundOpening + ["getScheduleList"] + Self.standbyEnding, name)
+            expectEqual(await count("deleteSchedule", in: world), 0, "\(name): a delete was sent")
+            XCTAssertEqual(try entries(world), ["1502 50110 1", "1502 50110 1"], name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 2, name)
+            XCTAssertEqual(world.said.lines.last, Self.stillInStandby, name)
+            expectNamesNothing((stopped?.what ?? "") + world.said.text)
+
+            await world.line.forget()
+            let next = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+            XCTAssertEqual(next?.what.hasPrefix("entries of the ledger not struck out: 2."), true, name)
+            expectEqual(await world.line.sent, [], name)
+        }
+
+        // The list after the third create of three, the first two held: the first's id has gone.
+        let other = others[0].1
+        let three = await world(faults: ["getScheduleList 3": .afterWhatIsUnderItsIDBecomes(other)])
+        let stopped = await thrown { try await three.sitting.threeAtOnce() } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, gone + " after a create (taken, annotation 0)" + unknown + "; and "
+                       + Self.afterTheDeletes(unanswered: 0, left: 0, new: 2))
+        expectEqual(await three.line.sent, Self.opening + Self.made + Self.made + Self.made + Self.takenOff)
+        let left = await three.television.schedules
+        expectEqual(Array(left.dropLast()), Self.owners + [other], "it was deleted, or the second was not")
+        XCTAssertEqual(left.last.map { "\($0.id) \($0.serviceID) \($0.eventId ?? 0)" }, "recording.48 1504 50111")
+        XCTAssertEqual(try entries(three), ["1501 50109 1", "1502 50110 1", "1504 50111 1"])
+        XCTAssertEqual(try TVLedger.read(three.ledger).open, 3)
+        expectNamesNothing((stopped?.what ?? "") + three.said.text)
+
+        let moved = Self.owned("recording.46", on: 1, DemoTV.title(ofProgramme: 50110), Self.at(5, 20, 5),
+                               programme: 50110)
+        let followed = await world(power: "standby",
+                                   faults: ["getScheduleList 5": .afterWhatIsUnderItsIDBecomes(moved)])
+        try await followed.sitting.aWaitingRowInStandby()
+        expectEqual(await count("deleteSchedule", in: followed), 1)
+        expectEqual(await followed.television.schedules, Self.owners)
+        XCTAssertEqual(try TVLedger.read(followed.ledger).open, 0)
+    }
+
+    /// The second flush is to send no create, and the check fails where it sent one, though the queue says
+    /// of the row just what it says when none was sent. Here the round's opening does not find the row, its
+    /// list answered empty that once: the round asks about the reservation and sends a create, which the
+    /// television answers as held already, finds the row in its list after that, and tells it as found
+    /// there. The check says what the flush sent, takes its row off, and stops for the create.
+    func testASecondFlushThatSendsACreateFailsTheCheckThoughItsRowIsToldAsFoundThere() async throws {
+        let empty = #"{"result":[[]],"id":1}"#
+        let world = await world(power: "standby", faults: ["getScheduleList 4": .answered(empty)])
+
+        let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, "the second flush sent a create: the row was to be found on the television at"
+                       + " the round's opening, with nothing sent for it")
+        expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"]
+                    + Self.roundOpening + ["getContentList"] + Self.made + ["getScheduleList"] + Self.takenOff
+                    + Self.standbyEnding)
+        expectEqual(world.said.lines.suffix(4), [
+            "the second flush sent: getStorageList answered, getScheduleList answered, getContentList answered,"
+                + " getConflictScheduleList answered, addSchedule error 41222, getScheduleList answered",
+            "the second flush: \(Self.round(there: 1))", "the second flush: rows made: 0", Self.stillInStandby,
+        ])
+        expectEqual(await count("addSchedule", in: world), 2)
+        expectEqual(await world.television.schedules, Self.owners)
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectNamesNothing((stopped?.what ?? "") + world.said.text)
+    }
+
+    /// As it ends the standby check asks once more what the television says it is, and says it. Whatever
+    /// that is fails nothing: a television that says it has come on is said so and the check passes. Nor
+    /// does a read that fails, which is said by its kind and not thrown. And after a request that met no
+    /// answer nothing is asked: here the answer to the check's own delete is lost, the list is read once
+    /// after it as after any delete, and that is the last thing sent.
+    func testTheStandbyCheckEndsBySayingWhatTheTelevisionSaysItIsUnlessARequestMetNoAnswer() async throws {
+        let active = #"{"result":[{"status":"active"}],"id":1}"#
+        let refusal = #"{"error":[\#(DemoTV.inventedError),"refused"],"id":1}"#
+        let cases: [(Line.Fault, String)] = [
+            (.answered(active), "the television says it is: active"),
+            (.answered(refusal), "what the television says it is was not read: error \(DemoTV.inventedError)"),
+            (.neverArrives, "what the television says it is was not read: no answer"),
+        ]
+        for (fault, line) in cases {
+            let world = await world(power: "standby", faults: ["getPowerStatus 1": fault])
+            try await world.sitting.aWaitingRowInStandby()
+            XCTAssertEqual(world.said.lines.last, line)
+            XCTAssertEqual(world.said.lines.dropLast().last, "the television's list reads as it did before the check")
+            expectEqual(await count("getPowerStatus", in: world), 2, line)
+            expectEqual(await world.television.schedules, Self.owners, line)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 0, line)
+        }
+
+        let silent = await world(power: "standby", faults: ["deleteSchedule 0": .answerLost])
+        let stopped = await thrown { try await silent.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, Self.afterTheDeletes(unanswered: 1, left: 0, new: 0))
+        expectEqual(Array(await silent.line.sent.suffix(2)), Self.takenOff)
+        expectEqual(await count("getPowerStatus", in: silent), 1, "the television was asked after silence")
+        XCTAssertEqual(silent.said.lines.last, "  a delete: no answer")
+        XCTAssertEqual(try TVLedger.read(silent.ledger).open, 1)
+    }
+
+    /// What a flush sent is read from the line the sitting was handed, so the standby check does not run on
+    /// a line its client does not send on: every flush would be said to have sent nothing, and a second
+    /// flush that sent a create would pass for one that sent none. It is refused once the television has
+    /// been asked what it says it is and the line has kept nothing of that, before anything else is sent.
+    func testTheStandbyCheckDoesNotRunOnALineItsClientDoesNotSendOn() async throws {
+        let world = await world(power: "standby")
+        let said = world.said, now = Self.now
+        let apart = TVSitting(client: world.client, line: TVLine(world.line), picks: Self.picks, ledger: world.ledger,
+                              mayWrite: true, now: { now }, say: { said.add($0) })
+
+        let refused = await thrown { try await apart.aWaitingRowInStandby() } as? TVSitting.Refused
+
+        XCTAssertEqual(refused?.why, "the sitting was handed a line that its client does not send on")
+        expectEqual(await world.line.sent, ["getPowerStatus"])
+        XCTAssertEqual(world.said.lines, [])
+        expectEqual(await world.television.schedules, Self.owners)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path))
+    }
+
+    /// A programme that starts in the small hours in Japan, from midnight until five, is none the standby
+    /// check reserves: to the second at either end, whatever the day, and by Japan's clock whatever zone
+    /// the machine that runs the check is in.
+    func testAProgrammeThatStartsInTheSmallHoursIsNoneTheStandbyCheckReserves() throws {
+        let cases: [(Date, Bool)] = [
+            (Self.at(3, 23, 59, 59), false), (Self.at(4, 0), true), (Self.at(4, 3), true),
+            (Self.at(4, 4, 59, 59), true), (Self.at(4, 5), false), (Self.at(4, 12), false), (Self.at(7, 2, 30), true),
+        ]
+        let own = NSTimeZone.default
+        defer { NSTimeZone.default = own }
+        for zone in ["Asia/Tokyo", "UTC", "Pacific/Honolulu"] {
+            NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: zone))
+            for (start, expected) in cases {
+                XCTAssertEqual(TVSitting.startsInTheSmallHours(start), expected, "\(TVSitting.when(start)) in \(zone)")
+            }
+        }
+    }
+
+    /// The line a sitting's client sends on hands each request on as it came and the answer back as it
+    /// came, and keeps of each the name of its method and the kind of its answer, in the order sent: an
+    /// answer, the method's own error by its code, a status that is not 200 by its number, and no answer
+    /// for a request the transport underneath threw for. Nothing else of a request or of an answer is kept:
+    /// not a title or a station's name in a body, the address, or the cookie. And what a body gives as its
+    /// method is kept only when it is letters of the alphabet: a title there, an id, an address or no body
+    /// at all are a request that names no method.
+    func testTheLineKeepsOfEachRequestItsMethodAndTheKindOfItsAnswerAndNothingElse() async throws {
+        func ok(_ body: String) -> HTTPResponse { HTTPResponse(statusCode: 200, body: Data(body.utf8)) }
+        let title = Self.owners[1].title, station = Self.stations[0].name
+        let lost = RecorderError.transport("Could not connect to http://\(Stub.host)/sony/recording")
+        let cases: [(method: String?, answer: HTTPResponse?, kept: String)] = [
+            ("getScheduleList", ok(#"{"result":[[{"id":"recording.46","title":"\#(title)"}]],"id":1}"#),
+             "getScheduleList answered"),
+            ("addSchedule", ok(#"{"error":[40005,"\#(station)"],"id":2}"#), "addSchedule error 40005"),
+            ("getStorageList", HTTPResponse(statusCode: 403, body: Data(title.utf8)), "getStorageList HTTP 403"),
+            ("deleteSchedule", nil, "deleteSchedule no answer"),
+            ("getContentList", ok(station), "getContentList answered"),
+            ("getPowerStatus", ok(#"{"error":["\#(title)"],"id":6}"#), "getPowerStatus answered"),
+            (title, ok(#"{"result":[],"id":7}"#), "a request that names no method answered"),
+            ("recording.46", nil, "a request that names no method no answer"),
+            (Stub.host, HTTPResponse(statusCode: 500), "a request that names no method HTTP 500"),
+            ("", ok(#"{"result":[],"id":10}"#), "a request that names no method answered"),
+            (nil, ok(#"{"result":[],"id":11}"#), "a request that names no method answered"),
+        ]
+        let answers = cases.map(\.answer)
+        let stub = StubTransport { _, index in
+            guard let answer = answers[index] else { throw lost }
+            return answer
+        }
+        let line = TVLine(stub)
+        let url = try XCTUnwrap(URL(string: "http://\(Stub.host)/sony/recording"))
+        let headers = ["Content-Type": "application/json", "Cookie": "auth=\(Self.cookie)"]
+
+        for (index, sent) in cases.enumerated() {
+            let asked: [String: Any] = ["method": sent.method ?? "", "id": index + 1, "version": "1.0",
+                                        "params": [["title": title, "uri": Self.stations[0].uri]]]
+            let body = sent.method == nil ? nil : try JSONSerialization.data(withJSONObject: asked)
+            let request = HTTPRequest(url: url, method: "POST", headers: headers, body: body, timeout: 7)
+            do {
+                let answer = try await line.send(request)
+                XCTAssertEqual(answer.statusCode, sent.answer?.statusCode, sent.kept)
+                XCTAssertEqual(answer.body, sent.answer?.body, sent.kept)
+            } catch {
+                XCTAssertNil(sent.answer, sent.kept)
+                XCTAssertEqual(error as? RecorderError, lost, sent.kept)
+            }
+            let handedOn = await stub.requests.last
+            XCTAssertEqual(handedOn?.url, url, sent.kept)
+            XCTAssertEqual(handedOn?.headers, headers, sent.kept)
+            XCTAssertEqual(handedOn?.body, body, sent.kept)
+            XCTAssertEqual(handedOn?.timeout, 7, sent.kept)
+        }
+
+        let kept = await line.sent
+        XCTAssertEqual(kept.map(\.said), cases.map(\.kept))
+        XCTAssertEqual(kept.filter { $0.answer == TVLine.noAnswer }.count, 2)
+        expectEqual(await stub.requests.count, cases.count, "a request was sent more or less than once")
+        expectNamesNothing(kept.map(\.said).joined(separator: "\n"))
+    }
+
+    /// What the queue said of a round is said by its counts and its stop, and a reason on a row by its
+    /// kind: never as it was written, which names the household's reservations by their titles, nor what the
+    /// device said of the rows it made, which names them too. And it says that no create was taken only
+    /// where it shows so: a row found there already, or held with a reason that comes before a create or
+    /// with an error from one; a round stopped for the disk, or by silence before a create. A row sent, one
+    /// passed over, one held because its create was answered as taken, one held for a reason not known
+    /// here, and any other stop do not say so.
+    func testWhatTheQueueSaidOfARoundIsSaidByItsCountsAndSaysWhetherACreateWasTaken() {
+        let row = PendingReservation(request: ReservationRequest(title: "サンプル劇場", start: Self.at(4, 21),
+                                                                 durationSec: 1800, repeatCode: "1",
+                                                                 broadcastingType: 2, serviceID: 1501,
+                                                                 qualityCode: 100, eventID: 50106),
+                                     serviceName: "サンプル第一", queuedAt: Self.now, target: .tv)
+        func outcome(_ change: (inout PendingQueue.Outcome) -> Void) -> PendingQueue.Outcome {
+            var outcome = PendingQueue.Outcome(slot: .tv)
+            change(&outcome)
+            return outcome
+        }
+        func held(_ reason: String?) -> PendingQueue.Outcome {
+            var held = row
+            held.problem = reason
+            return outcome { $0.refused = [held] }
+        }
+        let cases: [(PendingQueue.Outcome, String, Bool)] = [
+            (outcome { $0.sent = [row] }, Self.round(sent: 1), false),
+            (outcome {
+                $0.sent = [row]
+                $0.remarks = [ScalarClient.leftMarked("サンプル劇場", [Self.owners[1].row])]
+            }, Self.round(sent: 1, remarks: 1), false),
+            (outcome { $0.alreadyThere = [row] }, Self.round(there: 1), true),
+            (held(ScalarClient.wouldStop(naming: [Self.owners[1].row])),
+             Self.round(held: 1, "it would stop another from recording"), true),
+            (held(ScalarClient.stationNotListed), Self.round(held: 1, "its station is not in the television's list"),
+             true),
+            (held(ScalarClient.refusals[7]), Self.round(held: 1, "turned down with error 7"), true),
+            (held(ScalarClient.saidThereNotListed),
+             Self.round(held: 1, "answered as there already, and not in the list"), true),
+            (held(ScalarClient.needsAProgramme), Self.round(held: 1, "not one a television is sent"), true),
+            (held(ScalarClient.repeatNotTaken), Self.round(held: 1, "not one a television is sent"), true),
+            (held(ScalarClient.reservedOnceOnly),
+             Self.round(held: 1, "a repeat of a programme the television has reserved once"), true),
+            (held(ScalarClient.reservedOnFewerDays),
+             Self.round(held: 1, "a repeat of a programme the television has reserved on fewer days"), true),
+            (held(ScalarClient.acceptedNotListed), Self.round(held: 1, "answered as taken, and not in the list"),
+             false),
+            (held("「サンプル劇場」は予約できません。"), Self.round(held: 1, "a reason of another kind"), false),
+            (held(nil), Self.round(held: 1, "no reason"), false),
+            (outcome { $0.deferred = [row] }, Self.round(passedOver: 1), false),
+            (outcome { $0.stopped = .cannotRecord(reason: ScalarClient.diskNotFound) },
+             Self.round(stop: "stopped: no disk to record to"), true),
+            (outcome { $0.stopped = .silent(afterSending: false) },
+             Self.round(stop: "stopped by silence, before a create"), true),
+            (outcome { $0.stopped = .silent(afterSending: true) },
+             Self.round(stop: "stopped by silence, at a create or after it"), false),
+            (outcome { $0.stopped = .needsPairing }, Self.round(stop: "stopped: the registration is wanted again"),
+             false),
+            (outcome { $0.stopped = .saysNothing }, Self.round(stop: "stopped: answers that say nothing"), false),
+            (outcome {
+                $0.deferred = [row]
+                $0.stopped = .saysNothing
+            }, Self.round(passedOver: 1, stop: "stopped: answers that say nothing"), false),
+            (outcome {
+                $0.deferred = [row]
+                $0.stopped = .silent(afterSending: false)
+            }, Self.round(passedOver: 1, stop: "stopped by silence, before a create"), false),
+        ]
+        for (outcome, said, tookNoCreate) in cases {
+            XCTAssertEqual(TVSitting.said(ofARound: outcome), said)
+            XCTAssertEqual(TVSitting.tookNoCreate(outcome), tookNoCreate, said)
+            expectNamesNothing(TVSitting.said(ofARound: outcome))
         }
     }
 
@@ -1108,6 +1735,30 @@ final class TVSittingTests: XCTestCase {
         }
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("サンプル"))
     }
+
+    /// A picks file that cannot be read is said by the variable that names it and by nothing of the file:
+    /// one that is not there, whose error as it comes has the whole path in it, and one that holds no picks.
+    /// One that can be read is read as it was written.
+    func testAPicksFileThatCannotBeReadIsSaidWithoutItsPath() throws {
+        let directory = FileManager.default.temporaryDirectory
+        let files = (0..<3).map { _ in directory.appendingPathComponent("RecorderKitTests-\(UUID().uuidString).json") }
+        addTeardownBlock { for file in files { try? FileManager.default.removeItem(at: file) } }
+        try Data("サンプル".utf8).write(to: files[1])
+
+        for file in files.prefix(2) {
+            XCTAssertThrowsError(try TVPicks.read(file, namedBy: "TV_PICKS")) { error in
+                XCTAssertEqual((error as? TVSitting.Stopped)?.what,
+                               "TV_PICKS cannot be read: it is to name the file testWritingThePicks wrote")
+                // What a test that throws it has printed.
+                let printed = "\(error) \(error.localizedDescription)"
+                XCTAssertFalse(printed.contains(file.lastPathComponent) || printed.contains(directory.path))
+            }
+        }
+
+        try Self.picks.write(to: files[2])
+        XCTAssertEqual(try TVPicks.read(files[2], namedBy: "TV_PICKS"), Self.picks)
+    }
+
     /// The picks are read from a recorder, and what goes wrong on the way is said by its kind and nothing
     /// else: no answer, something that is no recorder, an address nothing can be sent to, an answer that
     /// could not be read. An error as it comes has the recorder's address in it, and a test prints what it
@@ -1207,8 +1858,8 @@ final class TVSittingTests: XCTestCase {
         // A sitting as a command begins one: with a printer of its own, here reading the file back as well.
         func command() -> TVSitting {
             let printer = TVSitting.printer(beside: world.ledger)
-            return TVSitting(client: world.client, picks: Self.picks, ledger: world.ledger, mayWrite: true,
-                             now: { now }) { line in
+            return TVSitting(client: world.client, line: world.kept, picks: Self.picks, ledger: world.ledger,
+                             mayWrite: true, now: { now }) { line in
                 said.add(line)
                 printer(line)
                 kept.add((try? String(contentsOf: file, encoding: .utf8)) ?? "no file")
@@ -1243,11 +1894,12 @@ final class TVSittingTests: XCTestCase {
             (-5, 0), (0, 0), (30, 30), (120, 120), (120.5, 120), (100_000_000_000, 120), (.infinity, 120),
             (-.infinity, 0), (.nan, 0),
         ]
-        let client = ScalarClient(host: Stub.host, transport: DemoTV(), credentials: MemoryTVCredentials())
+        let line = TVLine(DemoTV())
+        let client = ScalarClient(host: Stub.host, transport: line, credentials: MemoryTVCredentials())
         for (asked, expected) in cases {
             XCTAssertEqual(TVSitting.looking(asked), expected, "\(asked)")
-            let sitting = TVSitting(client: client, picks: TVPicks(), ledger: URL(fileURLWithPath: "/dev/null"),
-                                    mayWrite: false, look: asked) { _ in }
+            let sitting = TVSitting(client: client, line: line, picks: TVPicks(),
+                                    ledger: URL(fileURLWithPath: "/dev/null"), mayWrite: false, look: asked) { _ in }
             XCTAssertEqual(sitting.look, expected, "\(asked)")
         }
     }
