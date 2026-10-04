@@ -268,13 +268,14 @@ actor TVLine: HTTPTransport {
 /// - **A create the app's own round sends is held to the same, and to more.** The check for a television in
 ///   standby sends its create through the queue's flush and not from here. The ledger is written before
 ///   each flush, and the list is read before it and after it. The check's own rows are the new recordings
-///   on the channel that are of the programme it queued, and none at all after a flush that took no create:
-///   whatever else is new is somebody else's and is left alone, the entry left open. The question before
-///   the create is the round's: it sends none when the television names any row at all, or when its answer
-///   cannot be read. After silence nothing is sent again, by the round or from here. What each flush sent
-///   is said, a request at a time, and a second flush of the same reservation that sent a create fails the
-///   check. As it ends the check asks once more what the television says it is, unless a request of its
-///   own or of the round's met no answer.
+///   on the channel that are of the programme it queued, and none at all after a flush that sent no create
+///   or took none: whatever else is new is somebody else's and is left alone, the entry left open. Whether
+///   a flush sent a create is read from the line, and not from what the queue says of the round. The
+///   question before the create is the round's: it sends none when the television names any row at all, or
+///   when its answer cannot be read. After silence nothing is sent again, by the round or from here. What
+///   each flush sent is said, a request at a time, and a second flush of the same reservation that sent a
+///   create fails the check. As it ends the check asks once more what the television says it is, unless a
+///   request of its own or of the round's met no answer.
 /// - **Which viewing reservation is the sitting's is said by the owner**, by its start, and never guessed:
 ///   not the newest in the list, and not one found by its title.
 /// - **Each request is sent once.** Nothing here asks again.
@@ -740,10 +741,12 @@ actor TVSitting {
     ///
     /// What the queue says of a flush does not say what the round sent: it says a row was found there
     /// already both for one the round's opening found in the list and for one whose create was answered as
-    /// held already and then found in the list. So what each flush sent is read from the line and said. The
-    /// second flush is to have sent no create: a row the list has after a create, by the one rule there is
-    /// for finding it, the list had at the opening. Where it sent one all the same, the check fails, once
-    /// everything is taken off.
+    /// held already and then found in the list, and it says a row was passed over both for a create whose
+    /// answer could not be read and for a question that came to no create at all. So what each flush sent
+    /// is read from the line and said, and a flush that sent no create made nothing (`flush`). The second
+    /// flush is to have sent none: a row the list has after a create, by the one rule there is for finding
+    /// it, the list had at the opening. Where it sent one all the same, the check fails, once everything is
+    /// taken off.
     ///
     /// Once the television has said it is in standby and the check has begun, it ends, however it ends, by
     /// asking once more what the television says it is (`sayWhatTheTelevisionSaysItIs`).
@@ -1017,8 +1020,8 @@ actor TVSitting {
         var the: String
         /// What it was answered, as that is said.
         var answer: String
-        /// Whether its answer says that nothing was made for it: a reservation already there, or a round
-        /// that took no create.
+        /// Whether nothing was made for it, as far as is known: a create answered as a reservation already
+        /// there, or a round that sent no create or took none.
         var madeNothing: Bool
         /// Whether a create may have been taken, as far as its answer says.
         var mayBeTaken: Bool
@@ -1103,13 +1106,17 @@ actor TVSitting {
     /// flush, then the list, whatever the queue says of the round (`made`). What the flush sent is said
     /// first, as the line kept it: each request by its method and the kind of its answer, in order.
     ///
-    /// Nothing was made, whatever is new in the list, when what the queue says shows that no create was
-    /// taken (`tookNoCreate`): the reservation found on the television already, held before a create, the
-    /// round stopped before one. A recording that is new then is somebody else's, on the pick's own station
-    /// as well. Otherwise a create may have been taken, and a row of the check's own carries the pick's
-    /// programme: the round finds its row by that id, and a television listed a reservation made once with
-    /// the id it was sent. Silence that a create may have met is the round's stop for it. The question
-    /// before the create is the round's own.
+    /// Nothing was made, whatever is new in the list, by a flush that sent no create or took none. That it
+    /// sent none the line says: no `addSchedule` went over it. What the queue says cannot say as much: a row
+    /// the round passed over reads the same there whether its create was answered with something that
+    /// cannot be read or its question was answered with an error code and no create followed, which is the
+    /// likeliest thing a television in standby does. That a create it sent was not taken is what the queue
+    /// says shows (`tookNoCreate`): one answered as held already, which was measured to make nothing, or
+    /// turned down with a code. A recording that is new then is somebody else's, on the pick's own station
+    /// and of the pick's own programme as well. Otherwise a create may have been taken, and a row of the
+    /// check's own carries the pick's programme: the round finds its row by that id, and a television
+    /// listed a reservation made once with the id it was sent. Silence that a create may have met is the
+    /// round's stop for it. The question before the create is the round's own.
     private func flush(_ waiting: PendingReservation, of pick: TVPick, repeating repeatType: String,
                        through store: GuideStore, _ name: String) async throws -> Flushed {
         var listed = last
@@ -1123,7 +1130,7 @@ actor TVSitting {
         say("\(name) sent: \(sent.isEmpty ? "nothing" : sent.map(\.said).joined(separator: ", "))")
         let answer = Self.said(ofARound: outcome)
         say("\(name): \(answer)")
-        let noCreate = Self.tookNoCreate(outcome)
+        let noCreate = Self.tookNoCreate(outcome) || !sent.contains { $0.method == "addSchedule" }
         let sending = Sending(a: name, the: name, answer: answer, madeNothing: noCreate, mayBeTaken: !noCreate,
                               silent: outcome.stopped == .silent(afterSending: true),
                               programme: String(pick.eventID), notItsOwn: "They are on another channel than it was"
@@ -1447,9 +1454,10 @@ actor TVSitting {
     /// the television already, or held with a reason that says so; or the round stopped where none had gone
     /// out, for the disk or for silence before one. Anything else does not say, and is not taken for a no:
     /// a round passes a row over for a create whose answer it could not read, as it does for a question it
-    /// could not; and a stop for the registration, or for answers that say nothing, does not say where it
-    /// came. A round stops as saying nothing, its row passed over or not, at its opening and at a question
-    /// as well as where the list after a create it had taken could not be read: so that stop is never a no.
+    /// could not, and which of the two it was only the line says (`flush`); and a stop for the registration,
+    /// or for answers that say nothing, does not say where it came. A round stops as saying nothing, its row
+    /// passed over or not, at its opening and at a question as well as where the list after a create it had
+    /// taken could not be read: so that stop is never a no.
     static func tookNoCreate(_ outcome: PendingQueue.Outcome) -> Bool {
         guard outcome.sent.isEmpty, outcome.deferred.isEmpty else { return false }
         guard outcome.refused.isEmpty else {

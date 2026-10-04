@@ -1155,6 +1155,44 @@ final class TVSittingTests: XCTestCase {
         expectNamesNothing((stopped?.what ?? "") + world.said.text)
     }
 
+    /// A flush that sent no create made nothing, whatever the queue says of its round: whether it sent one
+    /// is read from the line. Here the round's question is answered with an error code, as a television in
+    /// standby may answer it. The round passes the row over, which is what it says as well of a create whose
+    /// answer it could not read, and no create goes out. With nothing new in the list the entry is struck
+    /// out, and the check fails for not having made its row. And where somebody has reserved the very
+    /// programme from another device while the flush was out, that recording -- new, on the pick's own
+    /// station and of the pick's own programme -- is theirs: it is left where it is, no delete is sent, and
+    /// the entry stays open.
+    func testAFlushThatSentNoCreateMadeNothingWhateverTheQueueSaysOfIt() async throws {
+        let hasToBeOn = #"{"error":[40005,"display off"],"id":1}"#
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
+        let passedOver = Self.round(passedOver: 1)
+        let cases: [(String, [String: Line.Fault], String, [DemoTV.Schedule], Int)] = [
+            ("nothing new in the list", ["getConflictScheduleList 0": .answered(hasToBeOn)],
+             "the first flush did not make one row", [], 0),
+            ("the very programme reserved from another device meanwhile",
+             ["getContentList 1": .afterTheHouseholdSets(theirs), "getConflictScheduleList 0": .answered(hasToBeOn)],
+             Self.notTheFlushes(passedOver, own: 0) + "; and " + Self.oneRowMore, [theirs], 1),
+        ]
+        for (name, faults, what, left, open) in cases {
+            let world = await world(power: "standby", faults: faults)
+
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() } as? TVSitting.Stopped
+
+            XCTAssertEqual(stopped?.what, what, name)
+            XCTAssertTrue(world.said.lines.contains(Self.firstFlushSent("getConflictScheduleList error 40005")),
+                          "\(name): \(world.said.text)")
+            XCTAssertTrue(world.said.lines.contains("the first flush: \(passedOver)"), "\(name): \(world.said.text)")
+            expectEqual(await world.line.sent, Self.toTheQuestion + ["getConflictScheduleList", "getScheduleList"]
+                        + Self.standbyEnding, name)
+            expectEqual(await count("deleteSchedule", in: world), 0, "\(name): a delete was sent")
+            expectEqual(await world.television.schedules, Self.owners + left, name)
+            XCTAssertEqual(try entries(world), ["1502 50110 1"], name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
+            expectNamesNothing((stopped?.what ?? "") + world.said.text)
+        }
+    }
+
     /// The second flush is to send no create, and the check fails where it sent one, though the queue says
     /// of the row just what it says when none was sent. Here the round's opening does not find the row, its
     /// list answered empty that once: the round asks about the reservation and sends a create, which the
