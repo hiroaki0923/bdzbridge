@@ -72,7 +72,8 @@ public enum ScalarError: Error, Equatable, Sendable {
     /// What it means for the rules. Only the codes seen from the methods this app calls are told apart:
     /// 40005 (the television is off where the method needs it on), 41222 (the same programme reserved a second
     /// time) and 41200 (a reservation id the television no longer has). Any other code is not taken for a refusal
-    /// of the request: an unknown answer holds nothing back for good.
+    /// of the request: an unknown answer holds nothing back for good. What a create's own codes say of a
+    /// reservation is read where one is sent (`ScalarClient.refusals`): a code means that in that method alone.
     public var failure: DeviceFailure {
         switch self {
         case .transport: .silent
@@ -363,15 +364,26 @@ public actor ScalarClient {
     /// short would say of every station after the cut that the television does not have it. A list that has
     /// not ended after `stationPages` is not one that was read, and throws as an answer that cannot be read.
     func stations(of broadcastingType: Int) async throws -> [TVStation] {
-        var stations: [TVStation] = []
+        try await stations(of: broadcastingType, after: stationPage(of: broadcastingType, from: 0))
+    }
+
+    /// The same list, read on from its first page: `first` is the page at nought, as `stationPage` gave it.
+    /// For whoever has to tell a failure on the first page from one further on, and so asks for that page
+    /// itself: the pages after it are asked for here, each once, by the rules above.
+    func stations(of broadcastingType: Int,
+                  after first: (stations: [TVStation], rows: Int)) async throws -> [TVStation] {
+        var stations = first.stations
+        var rows = first.rows
         var index = 0
-        for _ in 0..<Self.stationPages {
+        for _ in 1..<Self.stationPages {
+            guard rows >= Self.stationsToAPage else { return stations }
+            index += rows
             let page = try await stationPage(of: broadcastingType, from: index)
             stations += page.stations
-            guard page.rows >= Self.stationsToAPage else { return stations }
-            index += page.rows
+            rows = page.rows
         }
-        throw ScalarError.unreadable(method: "getContentList")
+        guard rows < Self.stationsToAPage else { throw ScalarError.unreadable(method: "getContentList") }
+        return stations
     }
 
     /// One page of the stations of a broadcasting type, from the row at `index`: `avContent.getContentList`
@@ -510,3 +522,316 @@ extension ScalarClient: DeviceEndpoint {
 }
 
 extension ScalarClient: LinkClient {}
+
+// MARK: - sending what waits
+
+/// What a round of sending to a television stands on, carried from one waiting reservation to the next.
+public struct TVRound: Sendable {
+    /// The television's list as last read: before anything was sent, and again after each create it answered.
+    var listed: [TVScheduleRow]
+    /// The stations read in this round, by broadcasting type: a kind of broadcast is read the first time a
+    /// reservation on it is to be sent, and not again. A kind the television lists nothing of is here with
+    /// no stations.
+    var stations: [Int: [TVStation]] = [:]
+    /// The kinds whose stations could not be read in this round. They are not asked for again in it.
+    var unread: Set<Int> = []
+    /// How many reservations running were answered with nothing that says anything about them.
+    var saidNothing = 0
+}
+
+/// What sending a waiting reservation to a television is said as: the reasons written on a row that is held,
+/// the one sentence for a round that could not start, and what making a reservation did beyond its own row.
+/// The reasons are kept in the phone's database, and the one for a clash is held against the one made the
+/// next time the television is asked (`send`): so nothing in them follows the phone's settings.
+extension ScalarClient {
+    /// Written on a reservation whose station is not in the television's list of its kind of broadcast. Not
+    /// that the television cannot receive it: all that is known is that its list has no such station.
+    static let stationNotListed = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+    /// What the reason for a reservation that would stop others from recording begins with, whichever they
+    /// are: a row held for that is known by it, so it is not to change.
+    static let wouldStop = "この予約を入れると、次の予約は録画されません"
+    /// What that reason ends with: how the reader says to make the reservation all the same.
+    static let sendAgainToMakeIt = "「もう一度送る」を選ぶと、それでも予約します。"
+    /// Written on a reservation whose create the television answered as taken and whose list does not have
+    /// it. An answer alone takes nothing out of the queue.
+    static let acceptedNotListed = "テレビは受け付けたと答えましたが、一覧にありません。"
+    /// Written on a reservation whose create was answered as one the television holds already (41222), when
+    /// its list has no recording of the programme.
+    static let saidThereNotListed = "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。"
+    /// Written on a reservation with no programme id: one made by its times goes by another version of the
+    /// method, which is not sent.
+    static let needsAProgramme = "番組を指定しない、時刻だけの予約は、テレビにはまだ送れません。"
+    /// Written on a reservation whose repeat a television is not sent for its programme
+    /// (`TVReservationBody.repeatType`).
+    static let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+    /// The codes a television answers a create with that turn the reservation itself down, each with what is
+    /// written on the row: asked again, it would be answered the same. Of `addSchedule` alone: the same code
+    /// means other things in other methods.
+    ///
+    /// 7 was seen for a create on a station the household is not subscribed to, two of them, and for a weekly
+    /// repeat of another weekday than the programme's, which is not sent from here. Nothing was made by
+    /// either.
+    static let refusals = [
+        7: "テレビがこの予約を受け付けませんでした（7）。契約していない局の番組などは予約できません。",
+    ]
+    /// Why a round did not start: the disk the television records to is not there. Said of the television
+    /// and of no reservation, and nothing is written on any.
+    static let diskNotFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+
+    /// The reason written on a reservation that would stop `named` from recording: the sentence that never
+    /// changes, the rows the television named, each by its name (`name(of:)`) and in the order it named
+    /// them, and how to make the reservation all the same.
+    ///
+    /// It says which reservations by more than their titles, since it is also what the reader consents to:
+    /// it is made of the rows named and of nothing else, so the same sentence a second time is the same
+    /// reservations named, and a consent given to one sentence is not taken for a consent to another.
+    static func wouldStop(naming named: [TVScheduleRow]) -> String {
+        "\(wouldStop): \(named.map(name(of:)).joined(separator: "、"))。\(sendAgainToMakeIt)"
+    }
+
+    /// How a row of the television's list is said in a sentence: its title as the television has it, and the
+    /// day and the time it starts, which tell one reservation of a programme from the next day's. A reminder
+    /// to watch says that it is one, in the television's own word for it: it is no recording, and the app
+    /// lists none.
+    static func name(of row: TVScheduleRow) -> String {
+        let start = RecorderTime.parse(row.startDateTime).map { "（\(said($0))）" } ?? ""
+        return (row.type == "reminder" ? "視聴予約" : "") + "「\(row.title ?? "")」" + start
+    }
+
+    /// A start as a sentence says it: the month, the day and the time of day in Japan, to the nearest minute
+    /// -- a television writes a reminder's start a second before its programme's. Written out here and not by
+    /// a formatter, so that nothing of the phone's calendar or clock style gets into a sentence that is kept
+    /// and compared.
+    static func said(_ start: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let parts = calendar.dateComponents([.month, .day, .hour, .minute], from: start.addingTimeInterval(30))
+        return String(format: "%d/%d %02d:%02d", parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0,
+                      parts.minute ?? 0)
+    }
+
+    /// Said of a reservation that was made and that the television's list marks as sharing its time with
+    /// others. What the mark costs it is the television's to decide: a recording marked `fullyOverlapped`
+    /// was seen to be the one that loses, and no other mark has been seen on a recording.
+    static func madeAndMarked(_ title: String) -> String {
+        "「\(title)」はほかの予約と重なっていて、録画されないことがあります"
+    }
+
+    /// Said when making a reservation left others marked that were not marked before, and that the television
+    /// had not named when it was asked.
+    static func leftMarked(_ title: String, _ rows: [TVScheduleRow]) -> String {
+        "「\(title)」を登録したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と重なりました"
+    }
+
+    /// What making the reservation titled `title` did beyond its own row, as a sentence for the reader, or
+    /// nil when it did nothing more: read from the list as it was before the create (`before`) and as it is
+    /// after (`after`), where `made` is the row that was made.
+    ///
+    /// Two things are said. That the row made is itself marked as overlapping: it was made, and may not
+    /// record. And each row that was not marked before and is now, by its name -- but for the rows in
+    /// `named`, which the television named when it was asked and the reader consented to. A television was
+    /// seen to mark a reminder to watch so, without having named it. A row that was marked already, and one
+    /// that was not in the list before, are not this create's doing.
+    static func remark(on title: String, made: TVScheduleRow, before: [TVScheduleRow], after: [TVScheduleRow],
+                       named: [TVScheduleRow]) -> String? {
+        let unmarked = Set(before.filter { !$0.overlaps }.map(\.id))
+        let consentedTo = Set(named.map(\.id))
+        let marked = after.filter { $0.overlaps && unmarked.contains($0.id) && !consentedTo.contains($0.id) }
+        var sentences: [String] = []
+        if made.overlaps { sentences.append(madeAndMarked(title)) }
+        if !marked.isEmpty { sentences.append(leftMarked(title, marked)) }
+        return sentences.isEmpty ? nil : sentences.joined(separator: "。")
+    }
+}
+
+extension ScalarClient: QueueTarget {
+    /// What waits for the television is what a television's client is sent.
+    public static let slot = DeviceSlot.tv
+
+    /// How many reservations running may be answered with nothing that says anything about them before the
+    /// round stops: at the second, what is wrong is taken to be the television's and not theirs.
+    static let rowsThatSayNothing = 2
+
+    /// The disk, then the list. A disk that is not there stops the round before anything else is asked, and
+    /// nothing is written on any reservation for it: they go by themselves once it is back. Silence stops
+    /// the round, and so does a cookie the television does not take. An answer that cannot be read stops it
+    /// too, as one that says nothing: without the disk known and the list read, nothing is to be sent.
+    ///
+    /// The rows the list holds already are handed back, the ones with a reason on them as well: each
+    /// reservation the television has a recording for, by its channel and its programme (`holding`), never
+    /// a reminder.
+    public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<TVRound> {
+        do {
+            guard try await storage().mounted else { return .stopped(.cannotRecord(reason: Self.diskNotFound)) }
+            let listed = try await schedules()
+            let there = waiting.filter { listed.holding($0.request) != nil }
+            return .open(TVRound(listed: listed), alreadyThere: Set(there.map(\.id)))
+        } catch {
+            return .stopped(Self.stop(for: error, afterSending: false) ?? .saysNothing)
+        }
+    }
+
+    /// One waiting reservation, in this order, each request once:
+    ///
+    ///  1. What a television is not sent is held with its reason, and nothing is asked: a reservation with
+    ///     no programme id, and a repeat that is not sent for its programme.
+    ///  2. The station, from the list of the reservation's kind of broadcast (`stations(for:in:)`): read
+    ///     once in a round, and only for a kind that has a reservation to send. A station that is not in a
+    ///     list that was read holds the row. A list that could not be read passes the row over, and is not
+    ///     asked for again in the round.
+    ///  3. What it would stop from recording. The television is asked every time, with the reader's consent
+    ///     as well: the consent was given to the reservations a sentence named, and the list may have
+    ///     changed since. Rows named hold the reservation with the reason that names them, whatever their
+    ///     type, and nothing is sent -- unless the reader consented and the reason on the row is the very
+    ///     reason this answer makes. An answer that cannot be read is never taken for nothing named.
+    ///  4. The create, then the list. Listed: made, with what the list shows it did beyond its own row
+    ///     (`remark`). Answered and not listed: held, since an answer alone takes nothing out of the queue.
+    ///     Answered as held already (41222) and listed: already there; not listed: held. A code that turns
+    ///     the reservation down (`refusals`): held with its reason. Silence at the create stops the round,
+    ///     and nothing is sent after it, the list included: the reservation may have been made, and the next
+    ///     round's list says.
+    ///  5. An answer to the question, to the create or to the list after it that says nothing about the
+    ///     reservation -- a code not known here, one that cannot be read -- passes the row over with nothing
+    ///     written on it, and a second such row running stops the round. A row made, found or held starts
+    ///     the count again. A row passed over for a list of stations that could not be read is not counted
+    ///     and does not start it again: nothing was asked about it.
+    ///
+    /// At any step, silence stops the round, and so does a cookie the television does not take. Silence
+    /// after the create was answered as taken is told as silence at the create is: the reservation is on the
+    /// television as far as its answer goes, and has not been seen in its list.
+    public func send(_ waiting: PendingReservation, consented: Bool,
+                     in round: TVRound) async -> (sent: RowSent, round: TVRound) {
+        var round = round
+        let request = waiting.request
+        guard request.eventID != nil else { return Self.settled(.refused(reason: Self.needsAProgramme), round) }
+        guard TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
+            return Self.settled(.refused(reason: Self.repeatNotTaken), round)
+        }
+
+        let stations: [TVStation]
+        switch await self.stations(for: request.broadcastingType, in: round) {
+        case .read(let read):
+            stations = read
+            round.stations[request.broadcastingType] = read
+        case .unread:
+            round.unread.insert(request.broadcastingType)
+            return (.passedOver, round)
+        case .stopped(let stop):
+            return (.stopped(stop, passedOver: false), round)
+        }
+        // The body is nil for a station that is not the reservation's own channel, and for nothing else by
+        // now: so with no body there is no station of its own to send it on.
+        guard let station = stations.first(where: { $0.serviceID == request.serviceID }),
+              let body = TVReservationBody(request, on: station) else {
+            return Self.settled(.refused(reason: Self.stationNotListed), round)
+        }
+
+        let named: [TVScheduleRow]
+        do {
+            named = try await wouldPushOut(body)
+        } catch {
+            return Self.unanswered(error, afterSending: false, round)
+        }
+        if !named.isEmpty {
+            let reason = Self.wouldStop(naming: named)
+            guard consented, waiting.problem == reason else { return Self.settled(.refused(reason: reason), round) }
+        }
+
+        var saidThere = false
+        do {
+            try await addSchedule(body)
+        } catch let error as ScalarError where error.failure == .alreadyThere {
+            saidThere = true
+        } catch {
+            if let reason = Self.refusal(in: error) { return Self.settled(.refused(reason: reason), round) }
+            return Self.unanswered(error, afterSending: true, round)
+        }
+
+        let before = round.listed
+        do {
+            round.listed = try await schedules()
+        } catch {
+            return Self.unanswered(error, afterSending: !saidThere, round)
+        }
+        guard let made = round.listed.holding(request) else {
+            let reason = saidThere ? Self.saidThereNotListed : Self.acceptedNotListed
+            return Self.settled(.refused(reason: reason), round)
+        }
+        guard !saidThere else { return Self.settled(.alreadyThere, round) }
+        let remark = Self.remark(on: request.title, made: made, before: before, after: round.listed, named: named)
+        return Self.settled(.made(saying: remark), round)
+    }
+
+    /// What reading the stations of one kind of broadcast came to, for a round.
+    private enum StationsRead {
+        case read([TVStation])
+        /// The list could not be read, and nothing says why that is the reservation's.
+        case unread
+        case stopped(SendingStop)
+    }
+
+    /// The stations of one kind of broadcast, for a round: what the round has read already, and otherwise
+    /// the television's list, asked for once. Nothing is asked for a kind that could not be read in this
+    /// round.
+    ///
+    /// The first page is asked for here, so that an error on it can be told from one further on. Answered
+    /// with the method's own error, the television is taken to list no such kind of broadcast, as one with
+    /// no tuner for it might -- what such a television answers has not been seen -- and the kind has no
+    /// stations: its reservations are held as any whose station is missing, where the reader sees them, and
+    /// do not wait unsaid for a list that will never come. Any other failure, on that page or a later one,
+    /// leaves the kind unread: a list cut short would say of every station after the cut that the television
+    /// does not have it.
+    private func stations(for broadcastingType: Int, in round: TVRound) async -> StationsRead {
+        if let read = round.stations[broadcastingType] { return .read(read) }
+        if round.unread.contains(broadcastingType) { return .unread }
+        do {
+            let first: (stations: [TVStation], rows: Int)
+            do {
+                first = try await stationPage(of: broadcastingType, from: 0)
+            } catch ScalarError.rpc {
+                return .read([])
+            }
+            return .read(try await stations(of: broadcastingType, after: first))
+        } catch {
+            return Self.stop(for: error, afterSending: false).map { .stopped($0) } ?? .unread
+        }
+    }
+
+    /// The stop a failure is, when it is one that ends a round whatever was being asked: nothing answered,
+    /// or the television wants the app registered again. Nil for a failure that says nothing of the kind.
+    private static func stop(for error: any Error, afterSending: Bool) -> SendingStop? {
+        switch (error as? any DeviceError)?.failure {
+        case .silent?: .silent(afterSending: afterSending)
+        case .needsPairing?: .needsPairing
+        default: nil
+        }
+    }
+
+    /// What a create's failure turns the reservation down with, when its code is one that does (`refusals`).
+    private static func refusal(in error: any Error) -> String? {
+        guard case .rpc(_, _, let code, _)? = error as? ScalarError else { return nil }
+        return refusals[code]
+    }
+
+    /// A reservation that is settled -- made, found there, or held with a reason -- which starts the count of
+    /// the rows that say nothing again.
+    private static func settled(_ sent: RowSent, _ round: TVRound) -> (sent: RowSent, round: TVRound) {
+        var round = round
+        round.saidNothing = 0
+        return (sent, round)
+    }
+
+    /// What a request about one reservation that failed leaves of it: the round stopped for silence or for
+    /// the cookie, and otherwise the row passed over with nothing written on it, as one more that says
+    /// nothing -- which stops the round at the second running.
+    private static func unanswered(_ error: any Error, afterSending: Bool,
+                                   _ round: TVRound) -> (sent: RowSent, round: TVRound) {
+        if let stop = stop(for: error, afterSending: afterSending) {
+            return (.stopped(stop, passedOver: false), round)
+        }
+        var round = round
+        round.saidNothing += 1
+        guard round.saidNothing >= rowsThatSayNothing else { return (.passedOver, round) }
+        return (.stopped(.saysNothing, passedOver: true), round)
+    }
+}

@@ -22,8 +22,9 @@ public struct TVScheduleRow: Sendable, Equatable {
     /// Thursday's programme and `w7` on a Sunday's. The television says it takes `w15` and `w16` as well,
     /// which no row has carried.
     public var repeatType: String?
-    /// `notOverlapped`, or `fullyOverlapped` for the reservation that loses to others at its time: also when
-    /// they share only a part of it.
+    /// `notOverlapped`; `fullyOverlapped` for the recording that loses to others at its time, also when they
+    /// share only a part of it; and `partlyOverlapped`, seen on a reminder to watch once recordings stood at
+    /// a part of its time, and gone again when they were deleted.
     public var overlapStatus: String?
     /// Only `notStarted` has been seen.
     public var recordingStatus: String?
@@ -72,6 +73,11 @@ public struct TVScheduleRow: Sendable, Equatable {
         ["id": id, "startDateTime": startDateTime, "title": title ?? "", "durationSec": durationSec,
          "type": type, "uri": uri]
     }
+
+    /// Whether the television marks the row as sharing its time with others: any status but `notOverlapped`,
+    /// one it has never been seen to say included. A row that says nothing is taken for one that is not
+    /// marked.
+    var overlaps: Bool { overlapStatus.map { $0 != "notOverlapped" } == true }
 
     /// The broadcasting type behind each scheme of a television's uri, by the name `Codes.broadcasting` has
     /// for it.
@@ -133,7 +139,7 @@ public struct TVScheduleRow: Sendable, Equatable {
             eventID: eventId.flatMap { Int($0) },
             qualityCode: quality.flatMap { Codes.quality[$0] } ?? 0,
             recording: underWay && recordingStatus.map { $0 != "notStarted" } == true,
-            conflict: overlapStatus.map { $0 != "notOverlapped" } == true,
+            conflict: overlaps,
             destination: "",
             sizeMB: nil,
             creator: nil,
