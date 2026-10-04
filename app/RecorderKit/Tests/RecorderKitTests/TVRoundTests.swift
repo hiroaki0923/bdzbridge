@@ -70,15 +70,16 @@ final class TVRoundTests: XCTestCase {
     }
 
     /// Something the household has on its television: a recording, or a reminder when its id says so, on the
-    /// station at `station`, an hour from the start unless said.
+    /// station at `station`, an hour from the start unless said, and once unless a repeat is said.
     private func owned(_ id: String, on station: Int, _ title: String, at offset: TimeInterval = 0,
-                       for durationSec: Int = 3600, programme: Int? = nil) -> DemoTV.Schedule {
+                       for durationSec: Int = 3600, programme: Int? = nil,
+                       repeating: String = "1") -> DemoTV.Schedule {
         let chosen = Self.stations[station]
         let reminder = id.hasPrefix("reminder")
         return DemoTV.Schedule(id: id, type: reminder ? "reminder" : "recording", scheme: chosen.scheme,
                                serviceID: chosen.serviceID, station: chosen.name, title: title,
-                               start: Self.start + offset, durationSec: durationSec, quality: reminder ? nil : "DR",
-                               eventId: programme)
+                               start: Self.start + offset, durationSec: durationSec, repeatType: repeating,
+                               quality: reminder ? nil : "DR", eventId: programme)
     }
 
     private struct NotOpened: Error {}
@@ -273,6 +274,63 @@ final class TVRoundTests: XCTestCase {
                         name)
             expectEqual(await bench.television.schedules, household, name)
         }
+    }
+
+    /// A reservation that asks for a repeat is not on the television already because its programme is
+    /// reserved there once: taken for there, it would leave the queue with every later programme unreserved
+    /// and nothing said. At the opening it is not handed back, where every other pairing is: once asked and
+    /// once held; once asked and a repeat held, which loses nothing; a repeat asked and a repeat held, the
+    /// same one or another. Sent, it is held with a reason of its own before anything is asked, so that the
+    /// queue's flush sends nothing beyond the two requests of the opening, and the row stays in the queue
+    /// with the reason on it. And where the recording of the programme once is on the television only after
+    /// the opening, the create is answered as held already, the list has the recording, and the row is held
+    /// with the same reason: not taken for there already.
+    func testARepeatIsNotThereAlreadyBecauseItsProgrammeIsReservedOnce() async throws {
+        let reason = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
+            + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        let pairs: [(name: String, asked: String, held: String, there: Bool)] = [
+            ("once asked, once held", "1", "1", true),
+            ("once asked, a repeat held", "1", "w7", true),
+            ("a repeat asked, the same repeat held", "w7", "w7", true),
+            ("a repeat asked, another repeat held", "S001", "d", true),
+            ("a repeat asked, once held", "w7", "1", false),
+        ]
+        // Each pair a week after the one before, on a Sunday at nine as the first is, which Sunday's weekly
+        // code suits.
+        let waiting = pairs.enumerated().map { index, pair in
+            row("サンプル番組\(index)", 50101 + index, on: index % 4, at: TimeInterval(index) * 604_800,
+                repeating: pair.asked)
+        }
+        let household = pairs.enumerated().map { index, pair in
+            owned("recording.\(11 + index)", on: index % 4, "サンプル番組\u{3000}\(index)再",
+                  at: TimeInterval(index) * 604_800, programme: 50101 + index, repeating: pair.held)
+        }
+
+        let bench = await bench(holding: household)
+        let opened = try await open(bench, for: waiting)
+        for (index, pair) in pairs.enumerated() {
+            XCTAssertEqual(opened.there.contains(waiting[index].id), pair.there, pair.name)
+        }
+        var round = opened.round
+        expectEqual(await send(waiting[4], in: &round, on: bench), Came(.refused(reason: reason), asked: []))
+
+        let queued = await self.bench(holding: household)
+        let store = try temporaryStore()
+        for row in waiting { try await store.queue(row) }
+        let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: Self.start - 86_400)
+        XCTAssertEqual(outcome.alreadyThere.map(\.id), waiting.prefix(4).map(\.id))
+        XCTAssertEqual(outcome.refused.map(\.id), [waiting[4].id])
+        expectEqual(await queued.line.sent, [Self.disk, Self.list])
+        expectEqual(try await store.pendingReservations().map(\.problem), [reason])
+        expectEqual(await queued.television.schedules, household)
+
+        // The household set the programme once with the remote after the round was opened.
+        let later = await self.bench()
+        round = try await open(later, for: waiting).round
+        await later.television.put([household[4]])
+        expectEqual(await send(waiting[4], in: &round, on: later),
+                    Came(.refused(reason: reason), asked: [Self.kind, Self.question, Self.create, Self.list]))
+        expectEqual(await later.television.schedules, [household[4]])
     }
 
     // MARK: - the stations
@@ -665,6 +723,8 @@ final class TVRoundTests: XCTestCase {
         XCTAssertEqual(ScalarClient.acceptedNotListed, "テレビは受け付けたと答えましたが、一覧にありません。")
         XCTAssertEqual(ScalarClient.saidThereNotListed,
                        "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。")
+        XCTAssertEqual(ScalarClient.reservedOnceOnly, "テレビにはこの番組の 1 回だけの予約がすでにあります。"
+                       + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。")
         XCTAssertEqual(ScalarClient.diskNotFound, "録画用の USB HDD が見つからないため、テレビへの予約は送っていません")
         XCTAssertEqual(ScalarClient.refusals.keys.sorted(), [7])
         XCTAssertEqual(ScalarClient.slot, .tv)

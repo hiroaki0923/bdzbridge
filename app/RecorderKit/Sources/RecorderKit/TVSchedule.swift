@@ -157,6 +157,21 @@ public struct TVScheduleRow: Sendable, Equatable {
         guard uri == other.uri, eventId == other.eventId else { return false }
         return eventId != nil || startDateTime == other.startDateTime
     }
+
+    /// Whether this row, the recording the television holds for `request` (`holding`), is less than the
+    /// request asks for: the programme recorded once -- a repeat of `1`, or none said -- where the request
+    /// asks for a repeat. What the request asks is read as a television would be sent it
+    /// (`TVReservationBody.repeatType`), and a repeat that is not sent is a repeat asked for all the same.
+    /// Taken for the request's own, such a row would leave every later programme unreserved, with nothing
+    /// said.
+    ///
+    /// Nothing else falls short. A request for once that a repeat holds loses nothing. And a repeat held
+    /// for a request that asks for another repeat is taken for it: nothing measured tells what the
+    /// difference between two repeats costs.
+    func fallsShort(of request: ReservationRequest) -> Bool {
+        (repeatType ?? "1") == "1"
+            && TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != "1"
+    }
 }
 
 extension Array where Element == TVScheduleRow {
@@ -166,8 +181,10 @@ extension Array where Element == TVScheduleRow {
     ///
     /// Nothing else is held against the request. Not the title: a television lists a reservation under a
     /// title of its own and not under the one it was sent. Not the start: a reservation that follows its
-    /// programme is that programme's wherever its start has moved to. And not the name in the uri, which is
-    /// the television's own for the station.
+    /// programme is that programme's wherever its start has moved to. Not the name in the uri, which is
+    /// the television's own for the station. And not the repeat: whether the row found is all that the
+    /// request asks for is another question (`TVScheduleRow.fallsShort`), for whoever reads the answer as
+    /// a reservation that need not be sent.
     ///
     /// A reminder to watch the programme is no match: it records nothing. A request with no programme id
     /// matches nothing, whatever stands at its time: its channel alone does not say which row is its own.

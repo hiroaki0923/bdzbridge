@@ -564,6 +564,13 @@ extension ScalarClient {
     /// Written on a reservation whose repeat a television is not sent for its programme
     /// (`TVReservationBody.repeatType`).
     static let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+    /// Written on a reservation that asks for a repeat, when the television holds a recording of its
+    /// programme once (`TVScheduleRow.fallsShort`). It is not taken for there already: the programmes after
+    /// this one would go unreserved with nothing said. Nor can it be made beside the one held, which a
+    /// television answers as held already whatever the repeat, and nothing here changes a television's
+    /// reservation: so the reader is told what would get the repeat made.
+    static let reservedOnceOnly = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
+        + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
     /// The codes a television answers a create with that turn the reservation itself down, each with what is
     /// written on the row: asked again, it would be answered the same. Of `addSchedule` alone: the same code
     /// means other things in other methods.
@@ -666,12 +673,16 @@ extension ScalarClient: QueueTarget {
     ///
     /// The rows the list holds already are handed back, the ones with a reason on them as well: each
     /// reservation the television has a recording for, by its channel and its programme (`holding`), never
-    /// a reminder.
+    /// a reminder. But not a reservation that asks for a repeat where the recording held is of the
+    /// programme once (`fallsShort`): what the television holds is less than was asked, and the row stays
+    /// in the queue for `send` to hold with the reason for that.
     public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<TVRound> {
         do {
             guard try await storage().mounted else { return .stopped(.cannotRecord(reason: Self.diskNotFound)) }
             let listed = try await schedules()
-            let there = waiting.filter { listed.holding($0.request) != nil }
+            let there = waiting.filter { row in
+                listed.holding(row.request).map { !$0.fallsShort(of: row.request) } == true
+            }
             return .open(TVRound(listed: listed), alreadyThere: Set(there.map(\.id)))
         } catch {
             return .stopped(Self.stop(for: error, afterSending: false) ?? .saysNothing)
@@ -681,7 +692,9 @@ extension ScalarClient: QueueTarget {
     /// One waiting reservation, in this order, each request once:
     ///
     ///  1. What a television is not sent is held with its reason, and nothing is asked: a reservation with
-    ///     no programme id, and a repeat that is not sent for its programme.
+    ///     no programme id, and a repeat that is not sent for its programme. So is a repeat whose programme
+    ///     the round's list has a recording of once (`reservedOnceOnly`): its create would be answered as
+    ///     held already, and what is held is less than it asks for.
     ///  2. The station, from the list of the reservation's kind of broadcast (`stations(for:in:)`): read
     ///     once in a round, and only for a kind that has a reservation to send. A station that is not in a
     ///     list that was read holds the row. A list that could not be read passes the row over, and is not
@@ -693,10 +706,11 @@ extension ScalarClient: QueueTarget {
     ///     reason this answer makes. An answer that cannot be read is never taken for nothing named.
     ///  4. The create, then the list. Listed: made, with what the list shows it did beyond its own row
     ///     (`remark`). Answered and not listed: held, since an answer alone takes nothing out of the queue.
-    ///     Answered as held already (41222) and listed: already there; not listed: held. A code that turns
-    ///     the reservation down (`refusals`): held with its reason. Silence at the create stops the round,
-    ///     and nothing is sent after it, the list included: the reservation may have been made, and the next
-    ///     round's list says.
+    ///     Answered as held already (41222) and listed: already there, unless what is listed is the
+    ///     programme once and the reservation asks for a repeat, which holds it as in 1; not listed: held.
+    ///     A code that turns the reservation down (`refusals`): held with its reason. Silence at the create
+    ///     stops the round, and nothing is sent after it, the list included: the reservation may have been
+    ///     made, and the next round's list says.
     ///  5. An answer to the question, to the create or to the list after it that says nothing about the
     ///     reservation -- a code not known here, one that cannot be read -- passes the row over with nothing
     ///     written on it, and a second such row running stops the round. A row made, found or held starts
@@ -713,6 +727,11 @@ extension ScalarClient: QueueTarget {
         guard request.eventID != nil else { return Self.settled(.refused(reason: Self.needsAProgramme), round) }
         guard TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
             return Self.settled(.refused(reason: Self.repeatNotTaken), round)
+        }
+        // Found by the round's list as it stands now, which a create earlier in the round may have read
+        // again: the opening left such a row in the queue, and so does this.
+        if round.listed.holding(request)?.fallsShort(of: request) == true {
+            return (.refused(reason: Self.reservedOnceOnly), round)
         }
 
         let stations: [TVStation]
@@ -764,7 +783,11 @@ extension ScalarClient: QueueTarget {
             let reason = saidThere ? Self.saidThereNotListed : Self.acceptedNotListed
             return Self.settled(.refused(reason: reason), round)
         }
-        guard !saidThere else { return Self.settled(.alreadyThere, round) }
+        guard !saidThere else {
+            // Held already, whatever the repeat that was asked: so what is held may be less than that.
+            let short = made.fallsShort(of: request)
+            return Self.settled(short ? .refused(reason: Self.reservedOnceOnly) : .alreadyThere, round)
+        }
         let remark = Self.remark(on: request.title, made: made, before: before, after: round.listed, named: named)
         return Self.settled(.made(saying: remark), round)
     }

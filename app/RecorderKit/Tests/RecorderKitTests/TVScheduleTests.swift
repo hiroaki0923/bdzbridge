@@ -4,7 +4,8 @@ import XCTest
 
 /// A television's row read into the terms the screens show a reservation in, a reservation the app holds
 /// found again in the list just read from the television, and what the list holds for a request that waits to
-/// be sent. The rows are in the television's shapes with invented values.
+/// be sent, with whether that is all the request asks. The rows are in the television's shapes with invented
+/// values.
 final class TVScheduleTests: XCTestCase {
     private let startText = "2026-11-01T21:00:00+0900"
     private let start = Date(timeIntervalSince1970: 1_793_534_400)
@@ -250,6 +251,28 @@ final class TVScheduleTests: XCTestCase {
         var timed = request
         timed.eventID = nil
         XCTAssertNil([row(eventId: nil), row()].holding(timed), "a request with no programme id was found")
+    }
+
+    /// A row the television holds for a request is less than the request asks for when it records the
+    /// programme once -- its repeat `1`, or none said -- and the request asks for a repeat: any repeat, one
+    /// that a television is not sent for the programme included, here Monday's weekly code and Monday to
+    /// Friday on a Sunday's programme. Nothing else falls short: once asked, whatever is held; and a repeat
+    /// asked where a repeat is held, the same one or another.
+    func testOnlyAProgrammeRecordedOnceFallsShortOfARepeatAskedFor() {
+        let cases: [(asked: String, held: String?, short: Bool)] = [
+            ("1", "1", false), ("1", nil, false), ("1", "w7", false), ("1", "title", false),
+            ("w7", "w7", false), ("w7", "d", false), ("S001", "title", false), ("d", "w16", false),
+            ("w1", "w7", false),
+            ("w7", "1", true), ("w7", nil, true), ("d", "1", true), ("S001", "1", true), ("S001", nil, true),
+            ("w1", "1", true), ("w15", nil, true),
+        ]
+        for (asked, held, short) in cases {
+            let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800,
+                                             repeatCode: asked, broadcastingType: 2, serviceID: 1024,
+                                             qualityCode: 100, eventID: 12345)
+            XCTAssertEqual(row(repeatType: held).fallsShort(of: request), short,
+                           "\(asked) asked, \(held ?? "nothing said") held")
+        }
     }
 
     // MARK: - telling the devices' rows apart
