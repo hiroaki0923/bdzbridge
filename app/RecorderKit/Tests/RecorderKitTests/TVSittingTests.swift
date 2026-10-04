@@ -253,7 +253,9 @@ final class TVSittingTests: XCTestCase {
         var kept = Self.owners.flatMap { [$0.title, $0.station, $0.uri] } + Self.stations.flatMap { [$0.name, $0.uri] }
         kept += [TVSitting.title, TVSitting.title.replacingOccurrences(of: " ", with: "\u{3000}"), Self.cookie,
                  Self.neverGiven, Self.clientID, Stub.host, DemoTV.mac, "1505"]
-        kept += Self.picks.programmes.flatMap { [String($0.serviceID), String($0.eventID)] }
+        kept += Self.picks.programmes.flatMap {
+            [String($0.serviceID), String($0.eventID), DemoTV.title(ofProgramme: $0.eventID)]
+        }
         for word in Set(kept) where text.contains(word) {
             XCTFail("\(word) was said", file: file, line: line)
         }
@@ -321,7 +323,7 @@ final class TVSittingTests: XCTestCase {
                 + takenOff,
             "a recording where a viewing reservation is": opening + made + takenOff,
             "the same programme twice": opening + made + made + takenOff,
-            "the repeats": opening + Array(repeating: made + takenOff, count: 6).flatMap { $0 },
+            "the repeats": opening + Array(repeating: made + takenOff, count: 5).flatMap { $0 } + made,
             "three at once": opening + three + three,
             "a cookie not taken": opening + made,
             "the stations named": opening + made + takenOff + ["getContentList"],
@@ -360,7 +362,7 @@ final class TVSittingTests: XCTestCase {
             "channels among the picks with no station on the television: 1 of 6",
             "rows in a page past the end of td: 0",
             "rows the question names: 0", "the create: taken, annotation 0; rows made: 1",
-            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: yes",
+            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: no",
             "the viewing reservation: Wednesday 20:59:59; its uri is the station's own: yes",
             "rows the question names: 0; the viewing reservation among them: no",
             "rows of the programme before: 1 recording, 1 reminder",
@@ -369,12 +371,16 @@ final class TVSittingTests: XCTestCase {
             "the second: error 41222, read as already there: yes; rows made: 0",
             "the programme: Wednesday 05:00:00", "round 2, title: rows the question names: 0",
             "round 2, title sent: taken, annotation 0; rows made: 1",
-            "round 6, w4 sent: taken, annotation 0; rows made: 1",
-            "  read back: repeatType w4, start Wednesday 05:00:00",
+            "  read back: repeatType w16, start Wednesday 05:00:00",
+            "round 6, w4 sent: error 7; rows made: 0",
             "the third later, the second: rows the question names: 0",
-            "the third later, rows the question for the third names: 0",
-            "the third earlier, with them in place: the first notOverlapped, the second notOverlapped,"
-                + " the third notOverlapped, the viewing reservation notOverlapped",
+            "the third later, rows the question for the third names: 1 (the first)",
+            "the third later: every row named is the check's own, so the third is made",
+            "the third later, with them in place: the first fullyOverlapped, the second notOverlapped,"
+                + " the third notOverlapped",
+            "the third earlier, rows the question for the third names: 1 (the first)",
+            "the third earlier, with them in place: the first fullyOverlapped, the second notOverlapped,"
+                + " the third notOverlapped, the viewing reservation partlyOverlapped",
             "the create with a cookie the television never gave: HTTP 403; rows made: 0",
             "station 1 of 2 (cs): rows the question names: 0",
             "station 1 of 2 (cs): taken, annotation 0; rows made: 1",
@@ -798,7 +804,7 @@ final class TVSittingTests: XCTestCase {
     /// taken off: the television is as it was found and the ledger has nothing open.
     func testTheThirdIsMadeWhenTheQuestionNamesTheChecksOwnFirst() async throws {
         let first = DemoTV.Schedule(id: "recording.46", serviceID: 1501, station: Self.stations[0].name,
-                                    title: DemoTV.listedTitle(TVSitting.title), start: Self.at(5, 20), eventId: 50109)
+                                    title: DemoTV.title(ofProgramme: 50109), start: Self.at(5, 20), eventId: 50109)
         let world = await world(faults: ["getConflictScheduleList 2": try naming(first)])
 
         try await world.sitting.threeAtOnce()
@@ -814,9 +820,9 @@ final class TVSittingTests: XCTestCase {
             "the third later, rows the question for the third names: 1 (the first)",
             "the third later: every row named is the check's own, so the third is made",
             "the third later, the third: taken, annotation 0; rows made: 1",
-            "the third later, with them in place: the first notOverlapped, the second notOverlapped,"
+            "the third later, with them in place: the first fullyOverlapped, the second notOverlapped,"
                 + " the third notOverlapped",
-            "the third earlier, rows the question for the third names: 0",
+            "the third earlier, rows the question for the third names: 1 (the first)",
         ] {
             XCTAssertTrue(world.said.text.components(separatedBy: "\n").contains(line), "not said: \(line)")
         }
