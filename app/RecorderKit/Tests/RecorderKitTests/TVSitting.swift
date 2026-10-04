@@ -650,12 +650,12 @@ actor TVSitting {
     }
 
     /// One waiting reservation, sent as the app sends what waits for a television, to a television left in
-    /// standby. It is queued in a store of the check's own, kept in `directory` and gone when the check
-    /// ends, and sent by the queue's own flush with the sitting's client: the round the app ships -- the
-    /// disk, the list, the stations, the question, the create, the list. Then the same reservation is queued
-    /// and flushed a second time, which is to find it on the television and send no create; and the row is
-    /// taken off. Whether a write goes through hours into standby, and what the panel, the lamp and the disk
-    /// do meanwhile, is what it is run to see.
+    /// standby. It is queued in a store of the check's own, kept in memory so that nothing of it is on a
+    /// disk at any time, and sent by the queue's own flush with the sitting's client: the round the app
+    /// ships -- the disk, the list, the stations, the question, the create, the list. Then the same
+    /// reservation is queued and flushed a second time, which is to find it on the television and send no
+    /// create; and the row is taken off. Whether a write goes through hours into standby, and what the
+    /// panel, the lamp and the disk do meanwhile, is what it is run to see.
     ///
     /// It makes nothing unless the television says `standby`, and is not begun on one whose disk is not
     /// there. The programme is the first among the picks with an empty slot of which the television holds no
@@ -667,7 +667,7 @@ actor TVSitting {
     /// already and then found in the list. At the second flush it is the opening's: a row the list has after
     /// a create, by the one rule there is for finding it, the list had at the opening. How many creates went
     /// is counted where it can be, on the invented television.
-    func aWaitingRowInStandby(queuedIn directory: URL = FileManager.default.temporaryDirectory) async throws {
+    func aWaitingRowInStandby() async throws {
         try await making(in: "standby") {
             let disk = try await ask("getStorageList") { try await client.storage() }
             say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
@@ -680,11 +680,7 @@ actor TVSitting {
             let body = try body(pick, on: station)
             let waiting = PendingReservation(request: Self.request(pick), serviceName: "", queuedAt: now(),
                                              target: .tv)
-            let file = directory.appendingPathComponent("BDBridge-sitting-\(UUID().uuidString).sqlite3").path
-            defer {
-                for kept in [file, file + "-wal", file + "-shm"] { try? FileManager.default.removeItem(atPath: kept) }
-            }
-            guard let store = try? GuideStore(path: file) else {
+            guard let store = try? GuideStore(path: ":memory:") else {
                 throw Refused(why: "the check's own queue could not be made")
             }
 

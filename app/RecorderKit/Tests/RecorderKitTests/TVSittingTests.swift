@@ -898,29 +898,17 @@ final class TVSittingTests: XCTestCase {
             + " \(stop)"
     }
 
-    /// A directory of the test's own for the queue of the standby check, which goes when the test ends:
-    /// whatever is in it after a check is what the check left behind.
-    private func queueDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RecorderKitTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        return directory
-    }
-
     /// The check for a television left in standby, on the invented one in standby with the household's rows
     /// in place. One waiting row goes through the queue's own flush: the round's six requests, the question
     /// in front of the create. The same row flushed again is found on the television, with the disk and the
     /// list asked and nothing else. One create went in all, its entry in the ledger before it. The programme
     /// is not the first with an empty slot: the household holds a recording of that one, which the round
     /// would have taken for the row. Afterwards the household's rows are as they were, the ledger has nothing
-    /// open, the check's queue is gone from where it was kept, nothing that was said names anything, and the
-    /// count afterwards passes.
+    /// open, nothing that was said names anything, and the count afterwards passes.
     func testAWaitingRowGoesThroughTheRoundInStandbyAndIsFoundThereTheSecondTime() async throws {
         let world = await world(power: "standby")
-        let queue = try queueDirectory()
 
-        try await world.sitting.aWaitingRowInStandby(queuedIn: queue)
+        try await world.sitting.aWaitingRowInStandby()
 
         expectEqual(await world.line.sent, Self.toTheQuestion + Self.made + ["getScheduleList"]
                     + Self.roundOpening + ["getScheduleList"] + Self.takenOff)
@@ -929,7 +917,6 @@ final class TVSittingTests: XCTestCase {
         expectEqual(await world.television.schedules, Self.owners)
         XCTAssertEqual(try entries(world), ["1501 50103 1", "1501 50103 1"])
         XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: queue.path), [])
         expectEqual(world.said.lines, [
             "the disk: mounted", "the list: rows 11, recordings 9, losing to another 0",
             "the first flush: \(Self.round(sent: 1))", "the first flush: rows made: 1",
@@ -953,10 +940,7 @@ final class TVSittingTests: XCTestCase {
     /// round that stops, before its list: nothing is asked about and nothing made, and the entry written
     /// for the flush is struck out, the list showing nothing new.
     func testTheStandbyCheckMakesNothingWithoutLeaveOrOnATelevisionThatIsOnOrHasNoDisk() async throws {
-        let queue = try queueDirectory()
-        let check: @Sendable (World) async throws -> Void = {
-            try await $0.sitting.aWaitingRowInStandby(queuedIn: queue)
-        }
+        let check: @Sendable (World) async throws -> Void = { try await $0.sitting.aWaitingRowInStandby() }
         let diskless = await world(power: "standby")
         await diskless.television.unmount()
         let refusals: [(World, String, [String])] = [
@@ -992,7 +976,6 @@ final class TVSittingTests: XCTestCase {
         expectEqual(await gone.television.schedules, Self.owners)
         XCTAssertEqual(try entries(gone), ["1501 50103 1"])
         XCTAssertEqual(try TVLedger.read(gone.ledger).open, 0)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: queue.path), [])
     }
 
     /// A round that goes wrong leaves what a create that failed leaves, by the same rules.
@@ -1011,7 +994,6 @@ final class TVSittingTests: XCTestCase {
     /// the row the check's own list shows is the check's and is taken off, and the check fails: the round
     /// did not say it made one. After an entry left open the next check makes nothing.
     func testARoundThatGoesWrongLeavesWhatACreateThatFailedLeaves() async throws {
-        let queue = try queueDirectory()
         let elsewhere = Self.owned("recording.46", on: 3, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
         let theirs = Self.owned("recording.46", on: 0, "サンプル深夜便", Self.at(4, 3), programme: 50103)
         let taken = #"{"result":[{"annotation":0}],"id":1}"#, unreadable = #"{"result":[],"id":1}"#
@@ -1049,19 +1031,18 @@ final class TVSittingTests: XCTestCase {
         ]
         for (name, faults, said, what, afterTheStations, left, open) in cases {
             let world = await world(power: "standby", faults: faults)
-            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby(queuedIn: queue) }
+            let stopped = await thrown { try await world.sitting.aWaitingRowInStandby() }
             XCTAssertEqual((stopped as? TVSitting.Stopped)?.what, what, name)
             XCTAssertTrue(world.said.lines.contains("the first flush: \(said)"), "\(name): \(world.said.text)")
             expectEqual(await world.line.sent, Self.toTheQuestion + afterTheStations, name)
             expectEqual(await world.television.schedules, Self.owners + left, name)
             XCTAssertEqual(try entries(world), ["1501 50103 1"], name)
             XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
-            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: queue.path), [], name)
             expectNamesNothing(what + world.said.text)
 
             guard open == 1 else { continue }
             await world.line.forget()
-            let next = await thrown { try await world.sitting.aWaitingRowInStandby(queuedIn: queue) }
+            let next = await thrown { try await world.sitting.aWaitingRowInStandby() }
             XCTAssertEqual((next as? TVSitting.Stopped)?.what.hasPrefix("entries of the ledger not struck out: 1."),
                            true, name)
             expectEqual(await world.line.sent, [], name)
@@ -1071,7 +1052,7 @@ final class TVSittingTests: XCTestCase {
         // all the same: here the disk is gone by the second round, which stops on it.
         let unmounted = #"{"result":[[{"uri":"usb:recStorage","mounted":"unmounted"}]],"id":1}"#
         let twice = await world(power: "standby", faults: ["getStorageList 2": .answered(unmounted)])
-        let second = await thrown { try await twice.sitting.aWaitingRowInStandby(queuedIn: queue) }
+        let second = await thrown { try await twice.sitting.aWaitingRowInStandby() }
         XCTAssertEqual((second as? TVSitting.Stopped)?.what, "the same row a second time was not found on the"
                        + " television")
         expectEqual(await twice.line.sent, Self.toTheQuestion + made + ["getStorageList", "getScheduleList"]
