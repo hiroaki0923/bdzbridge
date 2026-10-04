@@ -652,6 +652,13 @@ extension ScalarClient: QueueTarget {
     /// round stops: at the second, what is wrong is taken to be the television's and not theirs.
     static let rowsThatSayNothing = 2
 
+    /// The codes that, answered to the list of stations, say a state the television is in and nothing of
+    /// the kinds of broadcast it has: 40005, which this client reads as "has to be on" in every method
+    /// (`ScalarError.failure`) and which a television in standby answered other methods with; and 7, its
+    /// "illegal state", which that list has not been seen answered with. Not what 7 says of a create
+    /// (`refusals`): a code means that in that method alone.
+    static let statesOfTheTelevision: Set = [7, 40005]
+
     /// The disk, then the list. A disk that is not there stops the round before anything else is asked, and
     /// nothing is written on any reservation for it: they go by themselves once it is back. Silence stops
     /// the round, and so does a cookie the television does not take. An answer that cannot be read stops it
@@ -776,11 +783,16 @@ extension ScalarClient: QueueTarget {
     ///
     /// The first page is asked for here, so that an error on it can be told from one further on. Answered
     /// with the method's own error, the television is taken to list no such kind of broadcast, as one with
-    /// no tuner for it might -- what such a television answers has not been seen -- and the kind has no
-    /// stations: its reservations are held as any whose station is missing, where the reader sees them, and
-    /// do not wait unsaid for a list that will never come. Any other failure, on that page or a later one,
-    /// leaves the kind unread: a list cut short would say of every station after the cut that the television
-    /// does not have it.
+    /// no tuner for it might, and the kind has no stations: its reservations are held as any whose station
+    /// is missing, where the reader sees them, and do not wait unsaid for a list that will never come.
+    ///
+    /// But for an error that says a state the television is in (`statesOfTheTelevision`): that is no word
+    /// on what it receives, and held for it, every reservation of the kind would stop going by itself for
+    /// something that passes. It leaves the kind unread, as any other failure does, on that page or a later
+    /// one: a list cut short would say of every station after the cut that the television does not have it.
+    ///
+    /// Both readings are taken, not seen: no television was asked for its stations hours into standby, and
+    /// none was asked for a kind it lacks.
     private func stations(for broadcastingType: Int, in round: TVRound) async -> StationsRead {
         if let read = round.stations[broadcastingType] { return .read(read) }
         if round.unread.contains(broadcastingType) { return .unread }
@@ -788,7 +800,7 @@ extension ScalarClient: QueueTarget {
             let first: (stations: [TVStation], rows: Int)
             do {
                 first = try await stationPage(of: broadcastingType, from: 0)
-            } catch ScalarError.rpc {
+            } catch ScalarError.rpc(_, _, let code, _) where !Self.statesOfTheTelevision.contains(code) {
                 return .read([])
             }
             return .read(try await stations(of: broadcastingType, after: first))

@@ -279,8 +279,9 @@ final class TVRoundTests: XCTestCase {
 
     /// A row whose station is not in a list that was read is held, and nothing is asked about it: the list is
     /// read once, and the next row of that kind is sent on it. So is a row of a kind of broadcast the
-    /// television is not asked for at all. A list answered with the method's own error on its first page is
-    /// a kind the television lists nothing of: its rows are held the same, and it is not asked for again.
+    /// television is not asked for at all. A list answered on its first page with an error of the method's
+    /// own that says no state of the television is a kind the television lists nothing of: its rows are held
+    /// the same, and it is not asked for again.
     func testARowWhoseStationIsNotInTheListIsHeld() async throws {
         let reason = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
         let bench = await bench()
@@ -306,7 +307,9 @@ final class TVRoundTests: XCTestCase {
     /// missing. The kind is not asked for again in the round, and its rows do not count toward stopping it:
     /// two of them running, and the round goes on to a row of another kind. So it is for an answer that
     /// cannot be read, and for a failure on a page after the first -- an error there is no end of a list, and
-    /// a station on that page is not taken for one the television lacks.
+    /// a station on that page is not taken for one the television lacks. And so it is for a first page
+    /// answered with an error that says a state of the television, that it has to be on or is in no state
+    /// for the request: that is not a kind it lacks, and nothing is written on a row for it.
     func testARowWhoseKindCouldNotBeReadIsPassedOverAndNotHeld() async throws {
         let satellites = (0..<61).map { DemoTV.Station(scheme: "isdbbs", serviceID: 1700 + $0, name: "サンプルBS\($0)") }
         let failures: [(String, [String: Line.Fault], [String])] = [
@@ -315,6 +318,10 @@ final class TVRoundTests: XCTestCase {
              [Self.kind, Self.kind]),
             ("a later page answered with an error", ["\(Self.kind) 1": .answered(Self.refused(3))],
              [Self.kind, Self.kind]),
+            ("a first page answered that the television has to be on",
+             ["\(Self.kind) 0": .answered(Self.refused(40005))], [Self.kind]),
+            ("a first page answered with an illegal state", ["\(Self.kind) 0": .answered(Self.refused(7))],
+             [Self.kind]),
         ]
         for (name, faults, asked) in failures {
             let bench = await bench(receiving: satellites + Self.stations.prefix(4), faults: faults)
@@ -322,6 +329,7 @@ final class TVRoundTests: XCTestCase {
 
             expectEqual(await send(row("サンプル映画", 50101, on: 4, service: 1755), in: &round, on: bench),
                         Came(.passedOver, asked: asked), name)
+            XCTAssertEqual(round.saidNothing, 0, "\(name): counted among the rows that say nothing")
             expectEqual(await send(row("サンプル寄席", 50102, on: 4, at: 7200, service: 1701), in: &round, on: bench),
                         Came(.passedOver, asked: []), name)
             expectEqual(await send(row("サンプル劇場", 50103, on: 0), in: &round, on: bench),
