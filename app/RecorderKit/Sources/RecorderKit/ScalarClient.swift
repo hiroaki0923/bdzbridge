@@ -735,10 +735,11 @@ extension ScalarClient: QueueTarget {
     ///     nothing written on it, and the next round's list says whether it was made.
     ///  7. The count of the rows that say nothing is started again by a reservation the television answered
     ///     about, at the question, the create or the list after it: one held for what it would stop,
-    ///     turned down by a code, held for not being listed, made, or found there. A reservation that
-    ///     nothing was asked about neither counts nor starts the count again: one held in 1, one whose
-    ///     station is not in the list, and one passed over for a list of stations that could not be read.
-    ///     A row held without a question says nothing of whether the television answers one.
+    ///     turned down by a code, held for not being listed, held for its programme being listed once
+    ///     after a create answered as held already, made, or found there. A reservation that nothing was
+    ///     asked about neither counts nor starts the count again: one held in 1, one whose station is not
+    ///     in the list, and one passed over for a list of stations that could not be read. A row held
+    ///     without a question says nothing of whether the television answers one.
     ///
     /// At any step, silence stops the round, and so does a cookie the television does not take. Silence
     /// after the create was answered as taken is told as silence at the create is: the reservation is on the

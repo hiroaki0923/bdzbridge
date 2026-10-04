@@ -601,21 +601,23 @@ final class TVRoundTests: XCTestCase {
     /// over, with nothing to write on it, and the round goes on. A second such row running stops the round.
     ///
     /// A row the television answered about in between starts the count again: one made, found there, held
-    /// for what it would stop, turned down by a code, or held because its create was answered as taken and
-    /// the list does not have it. A row that nothing was asked about neither counts nor starts it again:
-    /// one whose station is not in the list, one with no programme id, one whose repeat is not sent, one
-    /// whose programme the television has reserved once, and one passed over for stations that could not be
-    /// read. After a row answered with nothing, such a row, and another answered with nothing, the round
-    /// stops.
+    /// for what it would stop, turned down by a code, held because its create was answered as taken and
+    /// the list does not have it, or held because its create was answered as held already and the list has
+    /// its programme reserved once where it asks for a repeat. A row that nothing was asked about neither
+    /// counts nor starts it again: one whose station is not in the list, one with no programme id, one
+    /// whose repeat is not sent, one whose programme the television had reserved once when the round
+    /// opened, and one passed over for stations that could not be read. After a row answered with nothing,
+    /// such a row, and another answered with nothing, the round stops.
     func testASecondRowRunningThatSaysNothingStopsTheRound() async throws {
         enum Kind {
             case unknownAtTheCreate, unknownAtTheQuestion, heldAlreadyAndListUnreadable
-            case made, foundThere, wouldStopAnother, turnedDown, takenAndNotListed
+            case made, foundThere, wouldStopAnother, turnedDown, takenAndNotListed, reservedOnceSince
             case stationNotListed, noProgramme, repeatNotSent, reservedOnce, kindUnread
         }
         // The kinds of row that the question is not asked about, and those whose create is followed by the list.
         let notAskedAbout: Set<Kind> = [.stationNotListed, .noProgramme, .repeatNotSent, .reservedOnce, .kindUnread]
-        let listed: Set<Kind> = [.made, .foundThere, .heldAlreadyAndListUnreadable, .takenAndNotListed]
+        let listed: Set<Kind> = [.made, .foundThere, .heldAlreadyAndListUnreadable, .takenAndNotListed,
+                                 .reservedOnceSince]
         let stopped = RowSent.stopped(.saysNothing, passedOver: true)
         func held(_ reason: String) -> RowSent { .refused(reason: reason) }
         let clash = ScalarClient.wouldStop(naming: [owned("recording.71", on: 1, "サンプル紀行", at: 7200).row])
@@ -635,6 +637,9 @@ final class TVRoundTests: XCTestCase {
              [.passedOver, held(ScalarClient.refusals[7] ?? ""), .passedOver]),
             ("one taken and not listed in between", [.unknownAtTheCreate, .takenAndNotListed, .unknownAtTheCreate],
              [.passedOver, held(ScalarClient.acceptedNotListed), .passedOver]),
+            ("one whose programme is reserved once after the round opened in between",
+             [.unknownAtTheCreate, .reservedOnceSince, .unknownAtTheCreate],
+             [.passedOver, held(ScalarClient.reservedOnceOnly), .passedOver]),
             ("one whose station is not in the list in between",
              [.unknownAtTheCreate, .stationNotListed, .unknownAtTheCreate],
              [.passedOver, held(ScalarClient.stationNotListed), stopped]),
@@ -692,6 +697,12 @@ final class TVRoundTests: XCTestCase {
                 case .foundThere:
                     let there = owned("recording.9\(index)", on: 0, "サンプル紀行", at: offset, programme: programme)
                     await bench.television.put(await bench.television.schedules + [there])
+                case .reservedOnceSince:
+                    // Set once with the remote after the round opened: the create is answered as held
+                    // already, and the list read after it has the programme once.
+                    let once = owned("recording.5\(index)", on: 0, "サンプル紀行", at: offset, programme: programme)
+                    await bench.television.put(await bench.television.schedules + [once])
+                    waiting = row(title, programme, at: offset, repeating: "d")
                 case .stationNotListed: waiting = row(title, programme, at: offset, service: 1599)
                 case .noProgramme: waiting = row(title, nil, at: offset)
                 // Monday to Friday is not sent for a programme of a Sunday, nor for one before four on Monday.
