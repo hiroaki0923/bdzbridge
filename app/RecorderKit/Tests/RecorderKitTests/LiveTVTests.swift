@@ -165,13 +165,17 @@ import XCTest
 /// finding that out.
 ///
 /// **The evening before, before the television is left to go to standby**, the picks are written
-/// (`testWritingThePicks`, above) and the tests are built. The recorder is asked nothing after that until
-/// the check has ended, and not by these commands alone: **for the night, whatever else asks the recorder or
-/// the television is stopped as well** -- a server that refreshes its guide from the recorder, the app on
-/// every phone, closed and with its background refresh off. What waking a recorder does to a television it
-/// is wired to was never measured, and a television that something else asked during the night is not one
-/// that was left alone. Then the television is switched off with its remote, its USB disk connected, and
-/// nobody touches it or its remote again until the check has ended.
+/// (`testWritingThePicks`, above), the tests are built, and the registration is in the jar:
+/// `testReadingWhatNeedsTheRegistration` passes with it while the television is still on. Two of the
+/// morning's three commands send with that registration, and registering takes a television that is on and
+/// showing a broadcast: a jar found wanting in the morning has cost the night. The recorder is asked nothing
+/// after its guide was read for the picks until the check has ended, and not by these commands alone:
+/// **for the night, whatever else asks the recorder or the television is stopped as well** -- a server that
+/// refreshes its guide from the recorder, the app on every phone, closed and with its background refresh
+/// off. What waking a recorder does to a television it is wired to was never measured, and a television
+/// that something else asked during the night is not one that was left alone. Then the television is
+/// switched off with its remote, its USB disk connected, and nobody touches it or its remote again until
+/// the check has ended.
 ///
 /// **In the morning**, with nobody having touched the television, three commands in this order. From the
 /// first to the end of the third the owner is at the television and looks at its panel, which is to stay
@@ -203,10 +207,15 @@ import XCTest
 ///    the panel: `active` is not a lit panel. It is not asked after a request that met no answer.
 ///
 /// **Then the television is switched on** with its remote, and the count afterwards is run with the same
-/// ledger: `testWhatIsLeftAfterwards`, which has passed only when it says `nothing of the sitting is left`.
-/// The owner looks at the television's own list: nothing on it is the sitting's. Where the check failed or
-/// was cut off, the television is switched on and its list looked at before anything else is run, as after
-/// any check that fails.
+/// ledger. Its command for this sitting, which has no viewing reservation to name:
+///
+///     TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testWhatIsLeftAfterwards \
+///         swift test --filter LiveTVTests/testWhatIsLeftAfterwards
+///
+/// It has passed only when it says `nothing of the sitting is left`: run with `TV_WRITE` still naming the
+/// check, it is skipped, and a skip looked at nothing. The owner looks at the television's own list:
+/// nothing on it is the sitting's. Where the check failed or was cut off, the television is switched on and
+/// its list looked at before anything else is run, as after any check that fails.
 ///
 /// **When the last sitting is over**, the owner takes the clients that were registered for the checks off
 /// the television's list of registered devices -- the one `testRegistering` made, under its nickname, and
