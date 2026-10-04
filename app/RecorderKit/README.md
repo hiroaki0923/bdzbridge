@@ -40,6 +40,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `LinkRules.swift` | Whether to give up, try once more or make sure of the device first; where it was last tried |
 | `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
 | `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission |
+| `LinkOperation.swift` | What something asked of a device through its link is made of, whichever device: the line on the screen while it is out, how it failed and the sentence for it (`OperationFailure`), what is said and done about that, and the whole in order for an operation of one request (`run`) |
 | `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address |
 | `ScalarClient.swift` | A Sony BRAVIA's own control API: the JSON-RPC envelope, its errors, the registration by PIN and the cookie it hands out |
 | `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered |
