@@ -184,9 +184,15 @@ import XCTest
 ///    `TV_LEDGER` names a file that is not there yet: this sitting's own, and not the one of a sitting held
 ///    with the television on. Like every command that carries `TV_WRITE`, it is given ten minutes by
 ///    whatever runs it and is not interrupted, though it is over in seconds: cut off between its create and
-///    its delete, it leaves a reservation on the television and its entry open in the ledger. It says what
-///    the queue said of each flush, by its counts and its stop, and how many rows the list showed each had
-///    made: `sent 1` and one row for the first, `found there already 1` and no row for the second.
+///    its delete, it leaves a reservation on the television and its entry open in the ledger.
+///
+///    Of each flush it says three things. What the flush sent, a request at a time, by its method and the
+///    kind of its answer (`answered`, `error` and a code, `HTTP` and a status, `no answer`): the disk, the
+///    list, the stations, the question, the create and the list for the first, and the disk and the list
+///    alone for the second. What the queue said of it, by its counts and its stop: `sent 1` for the first,
+///    `found there already 1` for the second. And how many rows the list showed it had made: one, and
+///    none. A second flush with an `addSchedule` among what it sent fails the check, whatever the queue said
+///    of it.
 ///
 /// **Then the television is switched on** with its remote, and the count afterwards is run with the same
 /// ledger: `testWhatIsLeftAfterwards`, which has passed only when it says `nothing of the sitting is left`.
@@ -377,7 +383,7 @@ final class LiveTVTests: XCTestCase {
             throw XCTSkip("TV_WRITE is not the name of this test: a command of the sitting runs the one it names.")
         }
         let jar = try liveJar()
-        let client = try liveClient(jar)
+        let (client, line) = try live(jar)
         guard jar.load()?.cookie != nil else { throw XCTSkip("Nothing is registered in the jar yet.") }
         guard let ledger = try Self.file("TV_LEDGER") else {
             throw XCTSkip("Set TV_LEDGER to a file for the sitting's ledger, outside what the repository tracks.")
@@ -389,8 +395,8 @@ final class LiveTVTests: XCTestCase {
             try XCTUnwrap(TVSitting.reminderStart(text),
                           "TV_REMINDER is the start of the viewing reservation in Japan's time, as 2026-11-04 21:00")
         }
-        let sitting = TVSitting(client: client, picks: try TVPicks.read(picks), ledger: ledger, mayWrite: mayWrite,
-                                reminder: reminder,
+        let sitting = TVSitting(client: client, line: line, picks: try TVPicks.read(picks), ledger: ledger,
+                                mayWrite: mayWrite, reminder: reminder,
                                 look: Self.environment("TV_LOOK").flatMap { TimeInterval($0) } ?? 30,
                                 say: TVSitting.printer(beside: ledger))
         do {
@@ -417,10 +423,19 @@ final class LiveTVTests: XCTestCase {
     }
 
     private func liveClient(_ credentials: any TVCredentialStore) throws -> ScalarClient {
+        try live(credentials).client
+    }
+
+    /// The client every test here sends with, and the line it is built on: the transport the app sends
+    /// with, under a line that keeps the method of each request and the kind of its answer (`TVLine`). A
+    /// check of the sitting is handed both, and the one for a television in standby says from the line what
+    /// the round sent. The line changes nothing of what is sent or of what comes back.
+    private func live(_ credentials: any TVCredentialStore) throws -> (client: ScalarClient, line: TVLine) {
         guard let host = ProcessInfo.processInfo.environment["TV_HOST"], !host.isEmpty else {
             throw XCTSkip("Set TV_HOST to a television's address to run this.")
         }
-        return ScalarClient(host: host, transport: URLSessionTransport.withoutCookies(), credentials: credentials)
+        let line = TVLine(URLSessionTransport.withoutCookies())
+        return (ScalarClient(host: host, transport: line, credentials: credentials), line)
     }
 
     private func liveJar() throws -> FileTVCredentials {

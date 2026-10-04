@@ -168,6 +168,71 @@ enum TVFile {
     }
 }
 
+/// The line a sitting's client sends on: another transport, which is handed each request as it came and
+/// hands back what it got, and keeps what went over it -- for each request the name of its method and the
+/// kind of its answer, in the order sent. It is what lets a check say what the app's own round sent, which
+/// the queue does not: of a round the queue says what became of each row, and a row found on the television
+/// reads the same there whether a create went for it or none.
+///
+/// A method's name and the kind of an answer, and nothing else: never a body, an address, a header or a
+/// cookie, of a request or of an answer. What is kept here is said by a check, and what a check says is
+/// never a title, a station's name, an id of the television's, an address or a cookie -- and a request and
+/// its answer carry all of those. So a name is kept only when it is letters of the alphabet, as every method
+/// the client asks for is, and an answer is said as one of four kinds, two of them with a number: `answered`,
+/// `error <code>`, `HTTP <status>`, `no answer`. Nothing a television or a household wrote comes through.
+actor TVLine: HTTPTransport {
+    /// One request that went over the line.
+    struct Sent: Sendable, Equatable {
+        var method: String
+        var answer: String
+
+        var said: String { "\(method) \(answer)" }
+    }
+
+    /// What is kept of a request that was not answered: whatever the transport underneath threw, since
+    /// nothing came back to tell a kind by. The client takes no more for silence than that.
+    static let noAnswer = "no answer"
+
+    private let transport: any HTTPTransport
+    private(set) var sent: [Sent] = []
+
+    init(_ transport: any HTTPTransport) {
+        self.transport = transport
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let method = Self.method(of: request)
+        do {
+            let response = try await transport.send(request)
+            sent.append(Sent(method: method, answer: Self.kind(of: response)))
+            return response
+        } catch {
+            sent.append(Sent(method: method, answer: Self.noAnswer))
+            throw error
+        }
+    }
+
+    /// The method a request asks for, when its body names one in letters of the alphabet alone. Any other
+    /// text there is not a method of the client's, and is not kept.
+    static func method(of request: HTTPRequest) -> String {
+        let object = request.body.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let letters = CharacterSet(charactersIn: "A"..."Z").union(CharacterSet(charactersIn: "a"..."z"))
+        guard let method = object?["method"] as? String, !method.isEmpty,
+              method.unicodeScalars.allSatisfy(letters.contains) else { return "a request that names no method" }
+        return method
+    }
+
+    /// An answer by its kind, as the client tells one: a status other than 200 by its number, the method's
+    /// own error by its code, and anything else as answered. Whether the client could read what an answer
+    /// held is not told here: that is in what a check says of the request.
+    static func kind(of response: HTTPResponse) -> String {
+        guard response.statusCode == 200 else { return "HTTP \(response.statusCode)" }
+        let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
+        if let code = (object?["error"] as? [Any])?.first as? Int { return "error \(code)" }
+        return "answered"
+    }
+}
+
 /// The checks with which the requests that make a reservation on a television meet a real one, the owner
 /// watching: each a function here, run against the real television by `LiveTVTests` and, before that, against
 /// the invented one by `TVSittingTests`, in the same order and by the same code.
@@ -204,13 +269,16 @@ enum TVFile {
 ///   its create through the queue's flush and not from here. The ledger is written before each flush, the
 ///   list is read before it and after it, and the check's own rows are told as after any create. The
 ///   question before the create is the round's: it sends none when the television names any row at all, or
-///   when its answer cannot be read. After silence nothing is sent again, by the round or from here.
+///   when its answer cannot be read. After silence nothing is sent again, by the round or from here. What
+///   each flush sent is said, a request at a time, and a second flush of the same reservation that sent a
+///   create fails the check.
 /// - **Which viewing reservation is the sitting's is said by the owner**, by its start, and never guessed:
 ///   not the newest in the list, and not one found by its title.
 /// - **Each request is sent once.** Nothing here asks again.
-/// - **What is said** is counts, statuses, error codes, field names, weekdays, times of day and the repeat
-///   read back: never a title, a station's name, an id of the television's, an address or a cookie. That
-///   holds for what a check throws as well, so an error is said by its kind (`said`) and never as it came.
+/// - **What is said** is counts, statuses, error codes, field names, weekdays, times of day, the repeat read
+///   back and the names of the methods sent: never a title, a station's name, an id of the television's,
+///   an address or a cookie. That holds for what a check throws as well, so an error is said by its kind
+///   (`said`) and never as it came.
 actor TVSitting {
     /// The title every reservation of a sitting is made under: the picks carry none, and no programme's is
     /// sent. It is not what a row left behind is known by: that is the ledger, and a television sent this
@@ -245,6 +313,8 @@ actor TVSitting {
     }
 
     private let client: ScalarClient
+    /// The line `client` sends on, which keeps what went over it.
+    private let line: TVLine
     private let picks: TVPicks
     private let ledgerFile: URL
     private let mayWrite: Bool
@@ -268,14 +338,16 @@ actor TVSitting {
     /// How many creates the check under way has sent.
     private var sent = 0
 
-    /// `reminder` is the start of the viewing reservation the owner set for the sitting, for the checks that
-    /// are about it. `look` is how long a reservation with a repeat is left on the television for the owner
-    /// to read how its own list words it, never longer than `longestLook`. `now` and `say` are the clock and
-    /// the terminal, which a rehearsal replaces.
-    init(client: ScalarClient, picks: TVPicks, ledger: URL, mayWrite: Bool, reminder: Date? = nil,
+    /// `line` is the transport `client` was built on: whoever makes the client makes it on a line and hands
+    /// both in. `reminder` is the start of the viewing reservation the owner set for the sitting, for the
+    /// checks that are about it. `look` is how long a reservation with a repeat is left on the television
+    /// for the owner to read how its own list words it, never longer than `longestLook`. `now` and `say` are
+    /// the clock and the terminal, which a rehearsal replaces.
+    init(client: ScalarClient, line: TVLine, picks: TVPicks, ledger: URL, mayWrite: Bool, reminder: Date? = nil,
          look: TimeInterval = 0, now: @escaping @Sendable () -> Date = { Date() },
          say: @escaping @Sendable (String) -> Void) {
         self.client = client
+        self.line = line
         self.picks = picks
         ledgerFile = ledger
         self.mayWrite = mayWrite
@@ -663,13 +735,21 @@ actor TVSitting {
     /// finds one by (`holding`): a recording of it the round would take for the reservation at its opening
     /// and send nothing, and that recording would be the household's.
     ///
-    /// What the queue says of a flush is all there is to go by, and it says a row was found there already
-    /// both for one the round's opening found in the list and for one whose create was answered as held
-    /// already and then found in the list. At the second flush it is the opening's: a row the list has after
-    /// a create, by the one rule there is for finding it, the list had at the opening. How many creates went
-    /// is counted where it can be, on the invented television.
+    /// What the queue says of a flush does not say what the round sent: it says a row was found there
+    /// already both for one the round's opening found in the list and for one whose create was answered as
+    /// held already and then found in the list. So what each flush sent is read from the line and said. The
+    /// second flush is to have sent no create: a row the list has after a create, by the one rule there is
+    /// for finding it, the list had at the opening. Where it sent one all the same, the check fails, once
+    /// everything is taken off.
     func aWaitingRowInStandby() async throws {
+        let from = await line.sent.count
         try await making(in: "standby") {
+            // The guard has just asked the television what it says it is. A line that kept nothing of that
+            // is not the one the client sends on: what a flush sent could not be said, and a second flush
+            // that sent a create would pass for one that sent none.
+            guard await line.sent.count > from else {
+                throw Refused(why: "the sitting was handed a line that its client does not send on")
+            }
             let disk = try await ask("getStorageList") { try await client.storage() }
             say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
             guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
@@ -694,7 +774,11 @@ actor TVSitting {
             let second = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
                                          "the second flush")
             try await takeOff()
-            guard second.outcome.alreadyThere.count == 1, second.outcome.sent.isEmpty else {
+            guard !second.sent.contains(where: { $0.method == "addSchedule" }) else {
+                throw Stopped(what: "the second flush sent a create: the row was to be found on the television"
+                              + " at the round's opening, with nothing sent for it")
+            }
+            guard second.outcome.alreadyThere.count == 1 else {
                 throw Stopped(what: "the same row a second time was not found on the television")
             }
         }
@@ -961,17 +1045,19 @@ actor TVSitting {
         return rows
     }
 
-    /// What a flush of the check's own queue came to: what the queue said of the round, and the rows the
-    /// list shows it made.
+    /// What a flush of the check's own queue came to: what the queue said of the round, what went over the
+    /// line for it, and the rows the list shows it made.
     private struct Flushed {
         var outcome: PendingQueue.Outcome
+        var sent: [TVLine.Sent]
         var rows: [TVScheduleRow]
     }
 
     /// One waiting reservation, queued in `store` and sent by the queue's own flush with the sitting's
     /// client, once: the round the app ships. The create is the round's to send and not `create`'s, so what
     /// is kept around a create is kept around the flush, which may send one: the ledger first, then the
-    /// flush, then the list, whatever the queue says of the round (`made`).
+    /// flush, then the list, whatever the queue says of the round (`made`). What the flush sent is said
+    /// first, as the line kept it: each request by its method and the kind of its answer, in order.
     ///
     /// Nothing was made, whatever is new in the list, when the queue says the reservation was found on the
     /// television already. A create may have been taken unless what the queue says shows that none was
@@ -984,7 +1070,10 @@ actor TVSitting {
         let before = Set((listed ?? []).map(\.id))
         do { try await store.queue(waiting) } catch { throw Stopped(what: "the check's own queue cannot be written") }
         let entry = try note(pick, repeating: repeatType)
+        let from = await line.sent.count
         let outcome = await PendingQueue.flush(client: client, store: store, now: now())
+        let sent = Array(await line.sent.dropFirst(from))
+        say("\(name) sent: \(sent.isEmpty ? "nothing" : sent.map(\.said).joined(separator: ", "))")
         let answer = Self.said(ofARound: outcome)
         say("\(name): \(answer)")
         let sending = Sending(a: name, the: name, answer: answer, madeNothing: !outcome.alreadyThere.isEmpty,
@@ -992,7 +1081,7 @@ actor TVSitting {
                               silent: outcome.stopped == .silent(afterSending: true))
         let rows = try await made(by: sending, noted: entry, of: pick, before: before)
         say("\(name): rows made: \(rows.count)")
-        return Flushed(outcome: outcome, rows: rows)
+        return Flushed(outcome: outcome, sent: sent, rows: rows)
     }
 
     /// Takes off what the check has made and not yet seen gone: each row as it was last read, each delete
