@@ -1351,6 +1351,8 @@ final class TVSittingTests: XCTestCase {
              Self.round(held: 1, "answered as there already, and not in the list"), true),
             (held(ScalarClient.needsAProgramme), Self.round(held: 1, "not one a television is sent"), true),
             (held(ScalarClient.repeatNotTaken), Self.round(held: 1, "not one a television is sent"), true),
+            (held(ScalarClient.reservedOnceOnly),
+             Self.round(held: 1, "a repeat of a programme the television has reserved once"), true),
             (held(ScalarClient.acceptedNotListed), Self.round(held: 1, "answered as taken, and not in the list"),
              false),
             (held("「サンプル劇場」は予約できません。"), Self.round(held: 1, "a reason of another kind"), false),
@@ -1364,6 +1366,7 @@ final class TVSittingTests: XCTestCase {
              Self.round(stop: "stopped by silence, at a create or after it"), false),
             (outcome { $0.stopped = .needsPairing }, Self.round(stop: "stopped: the registration is wanted again"),
              false),
+            (outcome { $0.stopped = .saysNothing }, Self.round(stop: "stopped: answers that say nothing"), false),
             (outcome {
                 $0.deferred = [row]
                 $0.stopped = .saysNothing

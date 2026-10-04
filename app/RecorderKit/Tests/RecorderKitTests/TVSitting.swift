@@ -1420,7 +1420,9 @@ actor TVSitting {
 
     /// A reason the round wrote on a row, by its kind, and whether a row held for it is one no create was
     /// taken for. The one reason that says a create was taken is the one for a create answered as taken
-    /// whose reservation the list does not have. A reason not known here says neither.
+    /// whose reservation the list does not have. A repeat held because the television has its programme
+    /// reserved once had no create taken: either none was sent, or it was answered as held already, which
+    /// was measured to make nothing. A reason not known here says neither.
     private static func kind(ofAReason reason: String?) -> (said: String, noCreateTaken: Bool) {
         guard let reason else { return ("no reason", false) }
         if reason.hasPrefix(ScalarClient.wouldStop) { return ("it would stop another from recording", true) }
@@ -1432,6 +1434,8 @@ actor TVSitting {
         case ScalarClient.saidThereNotListed: return ("answered as there already, and not in the list", true)
         case ScalarClient.acceptedNotListed: return ("answered as taken, and not in the list", false)
         case ScalarClient.needsAProgramme, ScalarClient.repeatNotTaken: return ("not one a television is sent", true)
+        case ScalarClient.reservedOnceOnly:
+            return ("a repeat of a programme the television has reserved once", true)
         default: return ("a reason of another kind", false)
         }
     }
@@ -1439,9 +1443,10 @@ actor TVSitting {
     /// Whether what the queue said of a round shows that no create of it was taken: the reservation found on
     /// the television already, or held with a reason that says so; or the round stopped where none had gone
     /// out, for the disk or for silence before one. Anything else does not say, and is not taken for a no:
-    /// a round passes a row over for a create whose answer, or the list after it, it could not read, as it
-    /// does for a question it could not; and a stop for the registration, or for answers that say nothing,
-    /// does not say where it came.
+    /// a round passes a row over for a create whose answer it could not read, as it does for a question it
+    /// could not; and a stop for the registration, or for answers that say nothing, does not say where it
+    /// came. A round stops as saying nothing, its row passed over or not, at its opening and at a question
+    /// as well as where the list after a create it had taken could not be read: so that stop is never a no.
     static func tookNoCreate(_ outcome: PendingQueue.Outcome) -> Bool {
         guard outcome.sent.isEmpty, outcome.deferred.isEmpty else { return false }
         guard outcome.refused.isEmpty else {
