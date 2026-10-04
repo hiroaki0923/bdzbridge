@@ -901,10 +901,15 @@ final class TVSittingTests: XCTestCase {
     /// The check for a television left in standby, on the invented one in standby with the household's rows
     /// in place. One waiting row goes through the queue's own flush: the round's six requests, the question
     /// in front of the create. The same row flushed again is found on the television, with the disk and the
-    /// list asked and nothing else. One create went in all, its entry in the ledger before it. The programme
-    /// is not the first with an empty slot: the household holds a recording of that one, which the round
-    /// would have taken for the row. Afterwards the household's rows are as they were, the ledger has nothing
-    /// open, nothing that was said names anything, and the count afterwards passes.
+    /// list asked and nothing else. One create went in all, its entry in the ledger before it.
+    ///
+    /// The programme is not the first with an empty slot: the household holds a recording of that one, which
+    /// the round would have taken for the row. Nor is it the next, which starts at three in the morning:
+    /// the check reserves nothing of the small hours. It is the first after those with an empty slot of
+    /// which the household holds no recording.
+    ///
+    /// Afterwards the household's rows are as they were, the ledger has nothing open, nothing that was said
+    /// names anything, and the count afterwards passes.
     func testAWaitingRowGoesThroughTheRoundInStandbyAndIsFoundThereTheSecondTime() async throws {
         let world = await world(power: "standby")
 
@@ -915,7 +920,7 @@ final class TVSittingTests: XCTestCase {
         expectEqual(await count("addSchedule", in: world), 1, "the same row was sent a second time")
         expectEqual(await world.line.ledgerAtEachCreate, ["1 entries, the last open"])
         expectEqual(await world.television.schedules, Self.owners)
-        XCTAssertEqual(try entries(world), ["1501 50103 1", "1501 50103 1"])
+        XCTAssertEqual(try entries(world), ["1502 50110 1", "1502 50110 1"])
         XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
         expectEqual(world.said.lines, [
             "the disk: mounted", "the list: rows 11, recordings 9, losing to another 0",
@@ -974,7 +979,7 @@ final class TVSittingTests: XCTestCase {
         XCTAssertTrue(gone.said.lines.contains("the first flush: "
                                                + Self.round(stop: "stopped: no disk to record to")))
         expectEqual(await gone.television.schedules, Self.owners)
-        XCTAssertEqual(try entries(gone), ["1501 50103 1"])
+        XCTAssertEqual(try entries(gone), ["1502 50110 1"])
         XCTAssertEqual(try TVLedger.read(gone.ledger).open, 0)
     }
 
@@ -995,7 +1000,7 @@ final class TVSittingTests: XCTestCase {
     /// did not say it made one. After an entry left open the next check makes nothing.
     func testARoundThatGoesWrongLeavesWhatACreateThatFailedLeaves() async throws {
         let elsewhere = Self.owned("recording.46", on: 3, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
-        let theirs = Self.owned("recording.46", on: 0, "サンプル深夜便", Self.at(4, 3), programme: 50103)
+        let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)
         let taken = #"{"result":[{"annotation":0}],"id":1}"#, unreadable = #"{"result":[],"id":1}"#
         let silence = "the first flush met no answer, and nothing is sent again; rows it made: "
         let afterSilence = Self.round(stop: "stopped by silence, at a create or after it")
@@ -1036,7 +1041,7 @@ final class TVSittingTests: XCTestCase {
             XCTAssertTrue(world.said.lines.contains("the first flush: \(said)"), "\(name): \(world.said.text)")
             expectEqual(await world.line.sent, Self.toTheQuestion + afterTheStations, name)
             expectEqual(await world.television.schedules, Self.owners + left, name)
-            XCTAssertEqual(try entries(world), ["1501 50103 1"], name)
+            XCTAssertEqual(try entries(world), ["1502 50110 1"], name)
             XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
             expectNamesNothing(what + world.said.text)
 
@@ -1059,6 +1064,24 @@ final class TVSittingTests: XCTestCase {
                     + Self.takenOff)
         expectEqual(await twice.television.schedules, Self.owners)
         XCTAssertEqual(try TVLedger.read(twice.ledger).open, 0)
+    }
+
+    /// A programme that starts in the small hours in Japan, from midnight until five, is none the standby
+    /// check reserves: to the second at either end, whatever the day, and by Japan's clock whatever zone
+    /// the machine that runs the check is in.
+    func testAProgrammeThatStartsInTheSmallHoursIsNoneTheStandbyCheckReserves() throws {
+        let cases: [(Date, Bool)] = [
+            (Self.at(3, 23, 59, 59), false), (Self.at(4, 0), true), (Self.at(4, 3), true),
+            (Self.at(4, 4, 59, 59), true), (Self.at(4, 5), false), (Self.at(4, 12), false), (Self.at(7, 2, 30), true),
+        ]
+        let own = NSTimeZone.default
+        defer { NSTimeZone.default = own }
+        for zone in ["Asia/Tokyo", "UTC", "Pacific/Honolulu"] {
+            NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: zone))
+            for (start, expected) in cases {
+                XCTAssertEqual(TVSitting.startsInTheSmallHours(start), expected, "\(TVSitting.when(start)) in \(zone)")
+            }
+        }
     }
 
     /// What the queue said of a round is said by its counts and its stop, and a reason on a row by its

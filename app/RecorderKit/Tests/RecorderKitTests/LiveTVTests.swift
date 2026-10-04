@@ -158,6 +158,12 @@ import XCTest
 /// the command line, one test to a command, never two at once, its files where git does not track them, the
 /// tests built first.
 ///
+/// The programme it reserves is the first among the picks with an empty slot, twenty hours or more ahead,
+/// that does not start between midnight and five in the morning in Japan. Run in the morning, twenty hours
+/// ahead falls in those hours. A station may be off the air then, the guide lists that as a programme like
+/// any other, and what a television answers a create for one has not been seen: the night is not for
+/// finding that out.
+///
 /// **The evening before, before the television is left to go to standby**, the picks are written
 /// (`testWritingThePicks`, above) and the tests are built. The recorder is asked nothing after that until
 /// the check has ended. Then the television is switched off with its remote, its USB disk connected, and

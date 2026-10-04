@@ -658,9 +658,10 @@ actor TVSitting {
     /// panel, the lamp and the disk do meanwhile, is what it is run to see.
     ///
     /// It makes nothing unless the television says `standby`, and is not begun on one whose disk is not
-    /// there. The programme is the first among the picks with an empty slot of which the television holds no
-    /// recording, by the rule the round finds one by (`holding`): a recording of it the round would take
-    /// for the reservation at its opening and send nothing, and that recording would be the household's.
+    /// there. The programme is the first among the picks with an empty slot that does not start in the small
+    /// hours (`startsInTheSmallHours`) and of which the television holds no recording, by the rule the round
+    /// finds one by (`holding`): a recording of it the round would take for the reservation at its opening
+    /// and send nothing, and that recording would be the household's.
     ///
     /// What the queue says of a flush is all there is to go by, and it says a row was found there already
     /// both for one the round's opening found in the list and for one whose create was answered as held
@@ -675,7 +676,7 @@ actor TVSitting {
             let listed = try await list()
             say("the list: \(TVLedger.Counts(listed).said)")
             let (pick, station) = try choose(on: try await stations(of: Self.terrestrial), in: listed) {
-                listed.holding(Self.request($0)) == nil
+                !Self.startsInTheSmallHours($0.start) && listed.holding(Self.request($0)) == nil
             }
             let body = try body(pick, on: station)
             let waiting = PendingReservation(request: Self.request(pick), serviceName: "", queuedAt: now(),
@@ -697,6 +698,17 @@ actor TVSitting {
                 throw Stopped(what: "the same row a second time was not found on the television")
             }
         }
+    }
+
+    /// Whether a programme starts in the small hours in Japan: from midnight until five in the morning. The
+    /// check for a television in standby reserves none that does. It is run in the morning, and twenty hours
+    /// ahead of a morning falls there. A station may be off the air then, a guide lists that as a programme
+    /// like any other, and what a television answers a create for one has not been seen: a create turned
+    /// down for it would say nothing of standby, and the one night the check has is not for finding it out.
+    static func startsInTheSmallHours(_ start: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        return calendar.component(.hour, from: start) < 5
     }
 
     /// The count afterwards. Fails unless the ledger has every entry struck out, the list holds no
