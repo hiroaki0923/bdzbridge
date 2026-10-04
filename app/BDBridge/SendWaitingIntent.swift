@@ -15,7 +15,7 @@ struct SendWaitingIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let sending = await BackgroundWork.sendWaiting()
-        let said = Self.saying(sending, televisionSaved: BackgroundWork.televisionSaved)
+        let said = Self.saying(sending, televisionSaved: BackgroundWork.televisionSaved())
         return .result(dialog: IntentDialog(stringLiteral: said))
     }
 

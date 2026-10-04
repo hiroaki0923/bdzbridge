@@ -334,9 +334,9 @@ extension PendingQueue.Outcome {
     /// What became of the queue, as the app says it: on the strip, in the notification and in the Shortcuts
     /// action's answer. A home with a recorder alone has one device a sentence can be about, and reads the
     /// sentences it has always read (`summary`). With a television saved the reader has two, so each sentence
-    /// says which device the round was for; and a round that was not the recorder's says so whatever is saved.
+    /// says which device the round was for.
     func said(withATelevisionSaved televisionSaved: Bool) -> String? {
-        says(naming: televisionSaved || slot != .recorder ? slot.label : nil)
+        televisionSaved ? says(naming: slot.label) : summary
     }
 }
 

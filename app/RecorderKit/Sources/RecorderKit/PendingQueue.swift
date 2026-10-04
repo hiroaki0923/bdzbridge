@@ -46,8 +46,8 @@ public enum PendingQueue {
     ///
     /// The device is read for the round (`QueueTarget.openRound`) at the first row that is to go, and only
     /// then: a queue with nothing to send asks it nothing. A round that cannot be opened ends the flush with
-    /// every row as it was. A row the opening found on the device leaves the queue unsent, whether or not a
-    /// reason is on it.
+    /// every row that is not over as it was. A row the opening found on the device leaves the queue unsent,
+    /// whether or not a reason is on it.
     ///
     /// One the device refused with a reason of its own keeps that reason and is not sent again, since the
     /// answer would be the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`)
@@ -56,8 +56,9 @@ public enum PendingQueue {
     ///
     /// `consenting`: the rows, by id, the reader has said to make though they stop another reservation from
     /// recording. For those rows only, and one among them is sent though a reason is on it: the device is told
-    /// of the consent, and what it makes of it is the device's. Nothing hands any in yet: what asks the reader
-    /// comes with the device that has something to ask.
+    /// of the consent, and what it makes of it is the device's. A consented row that is passed over keeps its
+    /// reason, and waits for the reader again. Nothing hands any in yet: what asks the reader comes with the
+    /// device that has something to ask.
     ///
     /// One flush at a time in the process, whoever asks and whichever device it is for: a second waits for the
     /// first and then reads the queue afresh. The screens and the overnight run each have a client and a
@@ -67,7 +68,7 @@ public enum PendingQueue {
                                                   now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.
         (try? await oneAtATime.run {
-            await send(client: client, store: store, consenting: consenting, now: now)
+            await oneRound(client: client, store: store, consenting: consenting, now: now)
         }) ?? Outcome(slot: Target.slot)
     }
 
@@ -83,8 +84,8 @@ public enum PendingQueue {
 
     private static let oneAtATime = SerialQueue()
 
-    private static func send<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String>,
-                                                  now: Date) async -> Outcome {
+    private static func oneRound<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String>,
+                                                      now: Date) async -> Outcome {
         var outcome = Outcome(slot: Target.slot)
         let waiting = ((try? await store.pendingReservations()) ?? []).filter { $0.target == Target.slot }
         var round: Target.Round?
@@ -123,9 +124,9 @@ public enum PendingQueue {
                 outcome.held.append(pending)
                 continue
             }
-            let (sent, next) = await client.send(pending, consented: consented, in: opened)
+            let (came, next) = await client.send(pending, consented: consented, in: opened)
             round = next
-            switch sent {
+            switch came {
             case .made:
                 try? await store.removePending(pending.id)
                 outcome.sent.append(pending)
@@ -164,28 +165,28 @@ public extension PendingQueue.Outcome {
     func says(naming device: String?) -> String? {
         var lines: [String] = []
         if !sent.isEmpty {
-            lines.append(device.map { "送信待ちだった\(Self.naming(sent))を\($0)に登録しました" }
-                ?? "送信待ちだった\(Self.naming(sent))を登録しました")
+            lines.append(device.map { "送信待ちだった\(Self.titled(sent))を\($0)に登録しました" }
+                ?? "送信待ちだった\(Self.titled(sent))を登録しました")
         }
         if !alreadyThere.isEmpty {
-            lines.append(device.map { "\(Self.naming(alreadyThere))は\($0)にすでに予約がありました" }
-                ?? "\(Self.naming(alreadyThere))はすでに予約されていました")
+            lines.append(device.map { "\(Self.titled(alreadyThere))は\($0)にすでに予約がありました" }
+                ?? "\(Self.titled(alreadyThere))はすでに予約されていました")
         }
         if !expired.isEmpty {
-            lines.append(device.map { "\($0)宛の\(Self.naming(expired))は放送が終わっていたため、送らずに削除しました" }
-                ?? "\(Self.naming(expired))は放送が終わっていたため、送らずに削除しました")
+            lines.append(device.map { "\($0)宛の\(Self.titled(expired))は放送が終わっていたため、送らずに削除しました" }
+                ?? "\(Self.titled(expired))は放送が終わっていたため、送らずに削除しました")
         }
         if !refused.isEmpty {
-            lines.append(device.map { "\(Self.naming(refused))は\($0)に登録できませんでした。理由は予約タブにあります" }
-                ?? "\(Self.naming(refused))はレコーダーが受け付けませんでした。理由は予約タブにあります")
+            lines.append(device.map { "\(Self.titled(refused))は\($0)に登録できませんでした。理由は予約タブにあります" }
+                ?? "\(Self.titled(refused))はレコーダーが受け付けませんでした。理由は予約タブにあります")
         }
         if !deferred.isEmpty {
-            lines.append(device.map { "\(Self.naming(deferred))は\($0)に送れなかったため、次の機会にもう一度送ります" }
-                ?? "\(Self.naming(deferred))は送れなかったため、次の機会にもう一度送ります")
+            lines.append(device.map { "\(Self.titled(deferred))は\($0)に送れなかったため、次の機会にもう一度送ります" }
+                ?? "\(Self.titled(deferred))は送れなかったため、次の機会にもう一度送ります")
         }
         // Only as the end of something else: an interruption before anything went is the app going offline,
-        // which the strip already says. No other stop is said here: each is something about the device, and
-        // is said where the device's state is.
+        // which the strip already says. No other stop is said here: each is something about the device, not
+        // about the queue.
         if interrupted, !lines.isEmpty {
             lines.append(device.map { "途中で\($0)の応答がなくなったため、残りは次につながったときに送ります" }
                 ?? "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります")
@@ -194,7 +195,7 @@ public extension PendingQueue.Outcome {
     }
 
     /// The first by its title, and how many more. "ほか" counts the others, not all of them.
-    private static func naming(_ reservations: [PendingReservation]) -> String {
+    private static func titled(_ reservations: [PendingReservation]) -> String {
         guard let first = reservations.first else { return "" }
         return reservations.count == 1 ? "「\(first.request.title)」"
             : "「\(first.request.title)」ほか \(reservations.count - 1) 件"

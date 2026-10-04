@@ -14,8 +14,9 @@ import XCTest
 /// sentences a sending comes to asks the queue itself (`PendingQueue.flush`), which is what the screens' sending
 /// and the two runs with no screen all end in; neither of those runs is called here.
 ///
-/// What is said of a sending is compared with the bench's own words (`Said`). Those sentences are to be
-/// reworded on purpose before the queue moves, and the rewording is then one edit, there.
+/// What is said of a sending is compared with the bench's own words (`Said`): a rewording is one edit,
+/// there. With a television saved the sentences name the device (`QueueWithATelevisionTests`); here there is
+/// none, and they are the ones a home with a recorder alone has always read.
 @MainActor
 final class QueueGateTests: XCTestCase {
     // MARK: - sending what waits
@@ -31,8 +32,7 @@ final class QueueGateTests: XCTestCase {
     /// reader asked the recorder for and is left as it was. Leaving the app takes the strip's line away: it was
     /// for that visit.
     ///
-    /// The strip's two sentences are to name the device. The read after something was made has to stay
-    /// when the two reads of a connect become one.
+    /// The read after something was made has to stay when the two reads of a connect become one.
     func testPullingDownWhileConnectedReadsThenSendsWhatWaitsUnderALineOfItsOwn() async throws {
         let (bench, recorder, model) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
@@ -279,7 +279,8 @@ final class QueueGateTests: XCTestCase {
     /// connect: what a sending came to cannot be made by hand. The queue is emptied before each, so that what one
     /// left behind is not what the next one finds.
     ///
-    /// The sentences are to be reworded on purpose, and to move beside the queue.
+    /// The sentences live beside the queue's outcome, in the package; this holds them as the app says them
+    /// with no television saved.
     func testWhatBecameOfTheQueueIsSaidInTheseWords() async throws {
         let store = try GuideStore(path: try aBench().guidePath)
         // Read from the queue in the order they start: the one that is over, then the morning's, then noon's.

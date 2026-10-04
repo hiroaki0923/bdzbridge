@@ -427,6 +427,14 @@ final class QueueTargetTests: XCTestCase {
         _ = await PendingQueue.flush(client: asked, store: alone, consenting: [consented.id], now: now)
         expectEqual(await asked.asked,
                     [.open(["それでも予約する番組"]), .send("それでも予約する番組", consented: true, after: 0)])
+
+        // A consented row the device passes over keeps its reason: the consent was for this flush, and the row
+        // waits for the reader again.
+        let passed = try await self.store(with: [consented])
+        let passing = FakeTarget(passed, answering: ["それでも予約する番組": .passedOver])
+        let over = await PendingQueue.flush(client: passing, store: passed, consenting: [consented.id], now: now)
+        expectEqual(try await came(over, passed),
+                    Came(deferred: ["それでも予約する番組"], left: ["それでも予約する番組"], written: [refusal]))
     }
 
     /// What a row came to settles the row. Made, or held by the device already: it leaves the queue, told as
@@ -469,16 +477,19 @@ final class QueueTargetTests: XCTestCase {
         let rows = [row("断られていた番組", 1, startingIn: 1, reason: refusal), row("最初の番組", 2, startingIn: 2),
                     row("次の番組", 3, startingIn: 3), row("その次の番組", 4, startingIn: 4)]
         let waiting = rows.map(\.request.title)
+        // One whose programme is over, in front of a round that cannot be opened, is dropped all the same:
+        // that needs no device.
+        let over = row("終わった番組", 5, startingIn: -3)
         for stop in stops {
             let silence = stop == .silent(afterSending: false) || stop == .silent(afterSending: true)
 
-            let unopened = try await store(with: rows)
+            let unopened = try await store(with: [over] + rows)
             let closed = FakeTarget(unopened, stoppingTheOpeningWith: stop)
             var outcome = await PendingQueue.flush(client: closed, store: unopened, now: now)
 
             expectEqual(await closed.asked, [.open(waiting)], "\(stop), at the opening")
             expectEqual(try await came(outcome, unopened),
-                        Came(held: ["断られていた番組"], stopped: stop, left: waiting,
+                        Came(expired: ["終わった番組"], held: ["断られていた番組"], stopped: stop, left: waiting,
                              written: [refusal, nil, nil, nil]), "\(stop), at the opening")
             XCTAssertEqual(outcome.interrupted, silence, "\(stop), at the opening")
 

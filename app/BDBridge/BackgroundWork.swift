@@ -171,9 +171,10 @@ enum BackgroundWork {
     /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
     /// ask: read from what the screens saved, as the recorder's address is. It decides words only -- with one
     /// saved, what became of the queue says which device it went to (`PendingQueue.Outcome.said`) -- and
-    /// nothing is asked of a television from here.
-    static var televisionSaved: Bool {
-        !(UserDefaults.standard.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
+    /// nothing is asked of a television from here. The defaults are handed in for a test of the reading; a run
+    /// reads the app's own.
+    static func televisionSaved(in defaults: UserDefaults = .standard) -> Bool {
+        !(defaults.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
     }
 
     /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.

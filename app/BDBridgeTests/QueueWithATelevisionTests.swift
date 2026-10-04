@@ -8,6 +8,17 @@ import XCTest
 /// reservations went to.
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
+    /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
+    /// screens saved: an address, and not an empty one.
+    func testWhetherATelevisionIsSavedIsReadFromWhatTheScreensSaved() throws {
+        let defaults = try aBench().defaults
+        XCTAssertFalse(BackgroundWork.televisionSaved(in: defaults))
+        defaults.set("", forKey: DefaultsKey.tvHost)
+        XCTAssertFalse(BackgroundWork.televisionSaved(in: defaults), "an address that is empty is none saved")
+        defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+        XCTAssertTrue(BackgroundWork.televisionSaved(in: defaults))
+    }
+
     /// With a television saved the reader has two devices, so each sentence about the queue says which one it
     /// is about: on the strip once the screens have sent what waited, and in the Shortcuts action's answer,
     /// which is told that a television is saved. A sentence for each way a reservation went -- sent, dropped

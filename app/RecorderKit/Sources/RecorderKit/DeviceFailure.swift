@@ -1,7 +1,8 @@
 import Foundation
 
 /// What went wrong, in the terms the rules care about, whichever device said it -- a recorder with a SOAP
-/// fault, a television with a JSON error code. The queue, the waking loop and the guide refresh read an error
+/// fault, a television with a JSON error code. The sending of a waiting reservation (`ReservationTarget.send`),
+/// the waking loop and the guide refresh read an error
 /// only for what to do about it: wake the device, try again later, hold the request back, tell the reader. So
 /// each device's own error says which of these it is (`DeviceError.failure`), and the rules read only that.
 public enum DeviceFailure: Sendable, Equatable {
@@ -30,7 +31,7 @@ public enum DeviceFailure: Sendable, Equatable {
     case unexpected(String)
 
     /// True when the device answered about the request itself and the answer will not change by asking again.
-    /// What the queue holds a reservation back for, with the reason written on it.
+    /// What a waiting reservation is held back for (`ReservationTarget.send`), with the reason written on it.
     public var turnsTheRequestDown: Bool {
         switch self {
         case .refused, .unknownItem: true
@@ -54,8 +55,8 @@ extension RecorderError: DeviceError {
     /// A fault with no code says nothing about the request.
     ///
     /// A fault with a 503 on it is busy whatever code came with it. The client never hands one over
-    /// (`RecorderClient.send` turns every 503 into `busy` first), so that case is only here to keep the reading
-    /// whole.
+    /// (`RecorderClient.send(_:asking:)` turns every 503 into `busy` first), so that case is only here to keep
+    /// the reading whole.
     public var failure: DeviceFailure {
         switch self {
         case .transport, .notHTTP: .silent

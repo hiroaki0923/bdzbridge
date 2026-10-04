@@ -76,7 +76,8 @@ public enum RoundOpened<Round: Sendable>: Sendable {
     /// `alreadyThere`: the ids of the waiting rows the device holds already, those with a reason on them
     /// among them.
     case open(Round, alreadyThere: Set<String>)
-    /// The device could not be read for the round: nothing is sent, and every row stays as it was.
+    /// The device could not be read for the round: nothing is sent, and every row that is not over stays as
+    /// it was.
     case stopped(SendingStop)
 }
 
@@ -98,7 +99,8 @@ public protocol QueueTarget: DeviceEndpoint {
     /// only when the round has a row to send; `waiting` is every row of the device whose programme is not over.
     func openRound(for waiting: [PendingReservation]) async -> RoundOpened<Round>
     /// Sends one waiting row. `consented`: the reader has said to make it though it stops another reservation
-    /// from recording. Each request is sent once. The round comes back as it stands after this row.
+    /// from recording. A request that may have been taken is not sent a second time. The round comes back as it
+    /// stands after this row.
     func send(_ waiting: PendingReservation, consented: Bool,
               in round: Round) async -> (sent: RowSent, round: Round)
 }
@@ -115,8 +117,7 @@ public extension ReservationTarget {
     /// not to `QueueTarget`, so that a device sent in a way of its own has to say whose rows it takes.
     static var slot: DeviceSlot { .recorder }
 
-    /// Nothing is asked and nothing is found: the recorder is told of a reservation it holds already by its
-    /// answer to the create, if at all.
+    /// Nothing is asked and nothing is found: a device with a create alone is read for nothing before it.
     func openRound(for waiting: [PendingReservation]) async -> RoundOpened<NoRound> {
         .open(NoRound(), alreadyThere: [])
     }
@@ -124,8 +125,10 @@ public extension ReservationTarget {
     /// The create, and what its failure says of the row (`DeviceFailure`). Silence ends the round: the device
     /// has gone, and the row may have been made. A refusal with a reason of the device's own
     /// (`DeviceFailure.turnsTheRequestDown`) is the row's, and is written on it. A failure that says nothing
-    /// about the reservation -- a 503, an answer with no code -- passes it over. `consented` is not read: the
-    /// device is asked nothing before the create that the reader could have answered.
+    /// about the reservation -- a 503, an answer with no code -- passes it over; an answer that the device holds
+    /// it already (`DeviceFailure.alreadyThere`) is among those, as it always was: no recorder's answer says
+    /// it. `consented` is not read: the device is asked nothing before the create that the reader could have
+    /// answered.
     func send(_ waiting: PendingReservation, consented: Bool,
               in round: NoRound) async -> (sent: RowSent, round: NoRound) {
         do {

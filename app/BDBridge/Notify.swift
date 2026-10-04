@@ -73,7 +73,7 @@ enum Notify {
     /// With a television saved it says which device the reservations went to (`PendingQueue.Outcome.said`).
     static func queueFlushed(_ outcome: PendingQueue.Outcome) async {
         guard !outcome.isEmpty,
-              let said = outcome.said(withATelevisionSaved: BackgroundWork.televisionSaved) else { return }
+              let said = outcome.said(withATelevisionSaved: BackgroundWork.televisionSaved()) else { return }
         await post(id: "queue-flushed", title: "送信待ちの予約", body: said)
     }
 
