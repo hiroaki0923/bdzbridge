@@ -416,8 +416,15 @@ public actor ScalarClient {
     /// by its id. The answer names no reservation: what was made is read from the list afterwards. The same
     /// station, start and programme a second time is answered with error 41222, whatever the repeat. Nothing
     /// is sent a second time for silence: the first may have arrived.
-    func addSchedule(_ body: TVReservationBody) async throws {
-        _ = try await authenticated("recording", "addSchedule", version: "1.1", params: [body.creating])
+    ///
+    /// All the answer says is a number, its `annotation`, and that is what is handed back: nil when the
+    /// answer has none. Every create a television has taken answered 0, the one that cost another
+    /// reservation its recording included, so what another number means is not known, and nothing is made
+    /// to depend on it: it is there for whoever sends a create to see what came back.
+    @discardableResult
+    func addSchedule(_ body: TVReservationBody) async throws -> Int? {
+        let result = try await authenticated("recording", "addSchedule", version: "1.1", params: [body.creating])
+        return (result as? [[String: Any]])?.first?["annotation"] as? Int
     }
 
     // MARK: - plumbing

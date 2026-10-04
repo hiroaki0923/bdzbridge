@@ -157,7 +157,8 @@ final class TVReservationTests: XCTestCase {
     /// request's title, start and length, the repeat and the programme id in the television's spellings. The
     /// create is sent seven fields and the question before it five, and no others -- no mode, whatever mode
     /// the request names. There is no body for a request with no programme id, nor for one whose repeat a
-    /// television is not sent.
+    /// television is not sent, nor for a station that is not the request's own channel: another kind of
+    /// broadcast, or another service of the same kind.
     func testABodyIsWrittenForAProgrammeOnAStation() throws {
         let station = TVStation(broadcastingType: 3, serviceID: 2048,
                                 uri: "tv:isdbbs?trip=65534.65533.2048&srvName=サンプル\u{3000}BS 4K")
@@ -184,6 +185,12 @@ final class TVReservationTests: XCTestCase {
         ]
         XCTAssertEqual(body.asking as NSDictionary, question as NSDictionary)
         XCTAssertEqual(body.creating as NSDictionary, create as NSDictionary)
+
+        let others = [(2, 2048, "another kind of broadcast"), (3, 2049, "another service"), (2, 1024, "both")]
+        for (type, serviceID, name) in others {
+            let other = TVStation(broadcastingType: type, serviceID: serviceID, uri: station.uri)
+            XCTAssertNil(TVReservationBody(request, on: other), "a station that is not the programme's: \(name)")
+        }
 
         request.repeatCode = "w1"
         XCTAssertNil(TVReservationBody(request, on: station), "Monday's code on a Sunday's programme")

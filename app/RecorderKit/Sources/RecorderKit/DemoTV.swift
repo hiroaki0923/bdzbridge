@@ -316,8 +316,9 @@ public actor DemoTV: HTTPTransport {
     /// stand in the way: that is taken, not seen.
     ///
     /// What is made is listed in DR and under a number of its own (`numbered`); the answer names no
-    /// reservation, as a real one's names none. Its title is kept as a real one keeps one, a half-width space
-    /// made full-width: what was sent is not what is listed, and a row is not to be found again by it.
+    /// reservation, as a real one's names none. Its title is listed as a real one was seen to list one
+    /// (`listedTitle`), which is not as it was sent: a row is not to be found again by the title it was
+    /// made with.
     private func add(_ object: [String: Any], _ id: Int) -> HTTPResponse {
         let keys: Set = ["type", "uri", "title", "startDateTime", "durationSec", "repeatType", "eventId"]
         guard let sent = Self.parameter(of: object), let asked = reservation(in: sent, keys: keys),
@@ -332,10 +333,25 @@ public actor DemoTV: HTTPTransport {
         numbered += 1
         schedules.append(Schedule(id: "recording.\(numbered)", scheme: asked.station.scheme,
                                   serviceID: asked.station.serviceID, station: asked.station.name,
-                                  title: asked.title.replacingOccurrences(of: " ", with: "\u{3000}"),
+                                  title: Self.listedTitle(asked.title),
                                   start: asked.start, durationSec: asked.durationSec,
                                   repeatType: asked.repeatType, eventId: eventId))
         return ok(#"[{"annotation":0}]"#, id)
+    }
+
+    /// The marks a guide writes in square brackets that a real one was seen to list as one enclosed character
+    /// each: 字, 再, 二 and S.
+    private static let enclosed = [("[字]", "\u{1F211}"), ("[再]", "\u{1F21E}"), ("[二]", "\u{1F214}"),
+                                   ("[S]", "\u{1F142}")]
+
+    /// A title as a real one was seen to list the one it was sent: a half-width space made full-width, and
+    /// each of the bracketed marks above turned into its enclosed character. Both changes were seen, and the
+    /// second on titles with no space in them at all: a title with such a mark is never listed as sent.
+    /// Other marks in brackets were not among the titles sent, and are left as they are.
+    static func listedTitle(_ sent: String) -> String {
+        enclosed.reduce(sent.replacingOccurrences(of: " ", with: "\u{3000}")) { title, mark in
+            title.replacingOccurrences(of: mark.0, with: mark.1)
+        }
     }
 
     /// A client it lists gets a new cookie, in standby as well, and the ones given before stay good. One it does

@@ -632,6 +632,7 @@ final class ScalarClientTests: XCTestCase {
     /// the cookie. A page of fifty is followed by the one after it; a shorter one ends the list and is not
     /// read on from; and so does an empty one, after a last page of exactly fifty. Each kind is asked for
     /// under the television's name for it, and a kind it has no name for is not asked for: it has no stations.
+    /// A page is as long as the rows the television sent, whatever they read as.
     func testTheStationsAreReadFiftyAtATime() async throws {
         let cases: [(Int, [Int])] = [(0, [0]), (3, [0]), (49, [0]), (50, [0, 50]), (61, [0, 50]), (100, [0, 50, 100])]
         for (count, pages) in cases {
@@ -663,6 +664,24 @@ final class ScalarClientTests: XCTestCase {
         }
         let asked = try await none.requests.map { (try json($0)["params"] as? [[String: Any]])?.first?["source"] }
         XCTAssertEqual(asked.map { $0 as? String }, sources.map(\.1))
+
+        // A row that is no station is left out and counted all the same. Of fifty-three rows the eighth has
+        // no triplet: the first page is still a full one, the next starts fifty rows on and not forty-nine,
+        // and every station that reads is in the list once.
+        let holed = StubTransport { request, _ in
+            let body = try JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any]
+            let from = (body?["params"] as? [[String: Any]])?.first?["stIdx"] as? Int ?? 0
+            let rows = (0..<53).dropFirst(from).prefix(50).map { index in
+                index == 7 ? Self.stationRow(index).filter { $0.key != "tripletStr" } : Self.stationRow(index)
+            }
+            return HTTPResponse(statusCode: 200,
+                                body: try JSONSerialization.data(withJSONObject: ["result": [rows], "id": 1]))
+        }
+        let (holedTV, _) = client(holed, Self.kept)
+        expectEqual(try await holedTV.stations(of: 3).map(\.serviceID), (0..<53).filter { $0 != 7 }.map { 1500 + $0 },
+                    "a page with a row that is no station")
+        let pages = try await holed.requests.map { (try json($0)["params"] as? [[String: Any]])?.first?["stIdx"] }
+        XCTAssertEqual(pages.map { $0 as? Int }, [0, 50], "a page with a row that is no station")
     }
 
     /// A list that cannot be read whole is not read at all. A failure on any page is thrown -- on the first,
@@ -806,6 +825,22 @@ final class ScalarClientTests: XCTestCase {
             let asked = try body()
             expectEqual(await failure { try await tv.addSchedule(asked) }, expected)
             expectEqual(await transport.requests.count, 1, "sent again after \(expected)")
+        }
+    }
+
+    /// A create hands back the number its answer says, as it came: nought, which is all a television has been
+    /// seen to say, and any other. An answer that says none -- an object with nothing in it, a list with
+    /// nothing in it, a number written as text -- hands back nothing, and is a create taken all the same.
+    func testACreateHandsBackWhatItsAnswerSays() async throws {
+        let cases: [(String, Int?)] = [
+            (#"[{"annotation":0}]"#, 0), (#"[{"annotation":1}]"#, 1), ("[{}]", nil), ("[]", nil),
+            (#"[{"annotation":"1"}]"#, nil),
+        ]
+        for (answer, expected) in cases {
+            let transport = StubTransport(always: ok(answer))
+            let (tv, _) = client(transport, Self.kept)
+            expectEqual(try await tv.addSchedule(try body()), expected, answer)
+            expectEqual(await transport.requests.count, 1, answer)
         }
     }
 
@@ -965,6 +1000,32 @@ final class ScalarClientTests: XCTestCase {
         expectEqual(await failure { _ = try await stranger.wouldPushOut(another) }, .needsPairing)
         expectEqual(await failure { try await stranger.addSchedule(another) }, .needsPairing)
         expectEqual(await television.schedules.count, 3)
+    }
+
+    /// The invented television lists a title as a real one was seen to list the one it was sent: a half-width
+    /// space made full-width, and each of the four marks a guide writes in brackets turned into its enclosed
+    /// character, with or without a space in the title. A title with neither is listed as sent. So a row
+    /// with a mark in its title is never found again by the title it was made with, and is deleted as read.
+    func testTheInventedTelevisionListsATitleAsARealOneWasSeenTo() async throws {
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        await television.receives([DemoTV.Station()])
+        let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials(Self.kept))
+        let titles = [
+            ("サンプル劇場[字]", "サンプル劇場\u{1F211}"),
+            ("[二][S]サンプル映画 [再]", "\u{1F214}\u{1F142}サンプル映画\u{3000}\u{1F21E}"),
+            ("サンプル劇場 前編", "サンプル劇場\u{3000}前編"), ("サンプル紀行", "サンプル紀行"),
+        ]
+        for (index, (sent, listed)) in titles.enumerated() {
+            var asked = try body(title: sent)
+            asked.eventId = String(12345 + index)
+            try await tv.addSchedule(asked)
+            let made = try await tv.schedules().first
+            XCTAssertEqual(made?.title.map { Array($0.unicodeScalars) }, Array(listed.unicodeScalars), sent)
+            XCTAssertEqual(DemoTV.listedTitle(sent), listed, sent)
+        }
+        for row in try await tv.schedules() { try await tv.deleteSchedule(row) }
+        expectEqual(await television.schedules, [])
     }
 
     /// The invented television takes a create, and the question before it, only as a real one has been sent

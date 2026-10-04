@@ -45,9 +45,13 @@ struct TVReservationBody: Sendable, Equatable {
 
     /// Nil for a request with no programme id -- a reservation made by its times goes by another version of
     /// the method, which is not sent -- and for a repeat a television is not sent (`repeatType(for:start:)`).
+    /// Nil as well for a station that is not the request's own channel, by its broadcasting type and its
+    /// service id: a programme id means something only on its own service, and what a television makes of
+    /// one under another station's uri has never been sent. This is the last place that can refuse it.
     /// The mode is not looked at: a television has never been sent one, and lists what it records as DR.
     init?(_ request: ReservationRequest, on station: TVStation) {
-        guard let eventID = request.eventID,
+        guard station.broadcastingType == request.broadcastingType, station.serviceID == request.serviceID,
+              let eventID = request.eventID,
               let repeatType = Self.repeatType(for: request.repeatCode, start: request.start) else { return nil }
         uri = station.uri
         title = request.title
