@@ -380,10 +380,14 @@ final class AppModel: LinkHost {
     /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something
     /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
     ///
-    /// A recorder that has been quiet a while is made sure of first (`wakeIfDozing`), under the action's own
-    /// line, so the screen says what the reader asked for from the moment they asked. Silence on the way
-    /// leaves the app offline (`lostTheRecorder`). `sending` marks an action that changes something on the
-    /// recorder, which silence leaves unknown rather than undone, and the reader is told so.
+    /// A recorder that has been quiet a while is made sure of first, under the action's own line, so the
+    /// screen says what the reader asked for from the moment they asked. Silence on the way leaves the app
+    /// offline. `sending` marks an action that changes something on the recorder, which silence leaves
+    /// unknown rather than undone, and the reader is told so.
+    ///
+    /// The check, the clearing and what each failure says and leaves behind are the link's
+    /// (`DeviceLink.run`), which a television's operations go through as well. What is the recorder's is
+    /// handed to it: the sentence for a write that met silence.
     @discardableResult
     func run(_ what: String, sending: Bool = false, _ work: () async throws -> Void) async -> Bool {
         await run(what, sending: sending) { (_: Activities.Token) in try await work() }
@@ -393,21 +397,15 @@ final class AppModel: LinkHost {
     @discardableResult
     func run(_ what: String, sending: Bool = false,
                      _ work: (Activities.Token) async throws -> Void) async -> Bool {
+        // The line is put up here rather than by the link, whose token is nil where it has no host: the work
+        // always has a line to say how far it has got on. Nor is the link's client taken: each action asks
+        // the one its caller had in hand, which is the one the check makes sure of.
         let activity = activities.begin(what)
         defer { activities.end(activity) }
-        guard await wakeIfDozing() else { return false }
-        do {
+        let ran = await recorder.run(sending: sending ? Self.mayHaveArrived : nil) { _, _ in
             try await work(activity)
-            problem = nil
-            return true
-        } catch let error as any DeviceError where error.failure == .silent {
-            lostTheRecorder()
-            problem = sending ? Self.mayHaveArrived : error.explanation
-        } catch let error as any DeviceError {
-            problem = error.explanation
-        } catch {
-            problem = String(describing: error)
         }
+        if case .success = ran { return true }
         return false
     }
 }
