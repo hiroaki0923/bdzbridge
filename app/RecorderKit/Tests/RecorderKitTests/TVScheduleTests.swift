@@ -273,25 +273,46 @@ final class TVScheduleTests: XCTestCase {
         XCTAssertNil([row(eventId: nil), row()].holding(timed), "a request with no programme id was found")
     }
 
-    /// A row the television holds for a request is less than the request asks for when it records the
-    /// programme once -- its repeat `1`, or none said -- and the request asks for a repeat: any repeat, one
-    /// that a television is not sent for the programme included, here Monday's weekly code and Monday to
-    /// Friday on a Sunday's programme. Nothing else falls short: once asked, whatever is held; and a repeat
-    /// asked where a repeat is held, the same one or another.
-    func testOnlyAProgrammeRecordedOnceFallsShortOfARepeatAskedFor() {
-        let cases: [(asked: String, held: String?, short: Bool)] = [
-            ("1", "1", false), ("1", nil, false), ("1", "w7", false), ("1", "title", false),
-            ("w7", "w7", false), ("w7", "d", false), ("S001", "title", false), ("d", "w16", false),
-            ("w1", "w7", false),
-            ("w7", "1", true), ("w7", nil, true), ("d", "1", true), ("S001", "1", true), ("S001", nil, true),
-            ("w1", "1", true), ("w15", nil, true),
+    /// A row the television holds for a request is less than the request asks for when the request asks
+    /// for a repeat and the row records the programme once -- its repeat `1`, or none said -- or repeats on
+    /// some of that repeat's days and not all: under every day, any weekly code, Monday to Friday and
+    /// Monday to Saturday; under Monday to Saturday, Monday to Friday and a weekly code up to Saturday's;
+    /// under Monday to Friday, a weekly code up to Friday's. Nothing else falls short: once asked, whatever
+    /// is held; the same repeat held, or one that takes in each of its days and more; two repeats with no
+    /// day in common; a repeat by the programme's name on either side, against anything but once; and a
+    /// repeat held under a code that is none of these.
+    ///
+    /// What is asked is the request's own code, whenever its programme starts: on a Sunday evening, when a
+    /// television is not sent Monday to Friday, Monday to Saturday or another day's weekly code; on a
+    /// Monday evening, when it is sent them; and before four on a Monday morning, when it is sent no repeat
+    /// with a weekday in it.
+    func testWhatIsHeldFallsShortOfARepeatThatTakesInDaysItDoesNot() {
+        let days = (1...7).map { "w\($0)" }
+        let weekly: [String?] = days, once: [String?] = [nil, "1"]
+        // What falls short of each repeat asked for, written out and not worked out as the row works it
+        // out: the repeats held, as a television lists them.
+        var short: [String: [String?]] = [
+            "1": [],
+            "S001": once,
+            "d": once + weekly + ["w15", "w16"],
+            "w16": once + weekly.prefix(6) + ["w15"],
+            "w15": once + weekly.prefix(5),
+            "なし": once,
         ]
-        for (asked, held, short) in cases {
-            let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800,
-                                             repeatCode: asked, broadcastingType: 2, serviceID: 1024,
-                                             qualityCode: 100, eventID: 12345)
-            XCTAssertEqual(row(repeatType: held).fallsShort(of: request), short,
-                           "\(asked) asked, \(held ?? "nothing said") held")
+        for code in days { short[code] = once }
+        let held = once + weekly + ["d", "w15", "w16", "title", "w0", "w8", "w17", "なし"]
+        let starts = [("a Sunday evening", start), ("a Monday evening", start + 86_400),
+                      ("a Monday before four", start + 18_000)]
+        for (when, start) in starts {
+            for (asked, falling) in short {
+                let request = ReservationRequest(title: "サンプル劇場", start: start, durationSec: 1800,
+                                                 repeatCode: asked, broadcastingType: 2, serviceID: 1024,
+                                                 qualityCode: 100, eventID: 12345)
+                for held in held {
+                    XCTAssertEqual(row(repeatType: held).fallsShort(of: request), falling.contains(held),
+                                   "\(asked) asked, \(held ?? "nothing said") held, on \(when)")
+                }
+            }
         }
     }
 

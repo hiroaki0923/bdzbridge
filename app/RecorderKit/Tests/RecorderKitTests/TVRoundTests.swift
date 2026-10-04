@@ -276,24 +276,31 @@ final class TVRoundTests: XCTestCase {
         }
     }
 
-    /// A reservation that asks for a repeat is not on the television already because its programme is
-    /// reserved there once: taken for there, it would leave the queue with every later programme unreserved
-    /// and nothing said. At the opening it is not handed back, where every other pairing is: once asked and
-    /// once held; once asked and a repeat held, which loses nothing; a repeat asked and a repeat held, the
-    /// same one or another. Sent, it is held with a reason of its own before anything is asked, so that the
-    /// queue's flush sends nothing beyond the two requests of the opening, and the row stays in the queue
-    /// with the reason on it. And where the recording of the programme once is on the television only after
-    /// the opening, the create is answered as held already, the list has the recording, and the row is held
-    /// with the same reason: not taken for there already.
-    func testARepeatIsNotThereAlreadyBecauseItsProgrammeIsReservedOnce() async throws {
-        let reason = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
+    /// A reservation that asks for a repeat is not on the television already because the television holds
+    /// less of its programme: the programme once, or a repeat on some of that repeat's days and not all.
+    /// Taken for there, it would leave the queue with the other days unreserved and nothing said. At the
+    /// opening it is not handed back, where every other pairing is: once asked and once held; once asked
+    /// and a repeat held, which loses nothing; a repeat asked and the same repeat held, or one of more
+    /// days; and a repeat by the programme's name against one by days. Sent, it is held before anything is
+    /// asked, with the reason for what is held -- once, or fewer days -- so that the queue's flush sends
+    /// nothing beyond the two requests of the opening, and the rows stay in the queue with their reasons on
+    /// them. And where what falls short is on the television only after the opening, the create is answered
+    /// as held already, the list has the recording, and the row is held with the same reason: not taken
+    /// for there already.
+    func testARepeatIsNotThereAlreadyWhereTheTelevisionHoldsLessOfItsProgramme() async throws {
+        let once = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
             + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
-        let pairs: [(name: String, asked: String, held: String, there: Bool)] = [
-            ("once asked, once held", "1", "1", true),
-            ("once asked, a repeat held", "1", "w7", true),
-            ("a repeat asked, the same repeat held", "w7", "w7", true),
-            ("a repeat asked, another repeat held", "S001", "d", true),
-            ("a repeat asked, once held", "w7", "1", false),
+        let fewer = "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
+            + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        // What each is held with, where what the television holds falls short of it.
+        let pairs: [(name: String, asked: String, held: String, reason: String?)] = [
+            ("once asked, once held", "1", "1", nil),
+            ("once asked, a repeat held", "1", "w7", nil),
+            ("a repeat asked, the same repeat held", "w7", "w7", nil),
+            ("a repeat asked, a repeat of more days held", "w7", "d", nil),
+            ("a repeat by the name asked, a repeat by days held", "S001", "d", nil),
+            ("a repeat asked, once held", "w7", "1", once),
+            ("a repeat asked, a repeat of fewer days held", "d", "w7", fewer),
         ]
         // Each pair a week after the one before, on a Sunday at nine as the first is, which Sunday's weekly
         // code suits.
@@ -305,32 +312,41 @@ final class TVRoundTests: XCTestCase {
             owned("recording.\(11 + index)", on: index % 4, "サンプル番組\u{3000}\(index)再",
                   at: TimeInterval(index) * 604_800, programme: 50101 + index, repeating: pair.held)
         }
+        let short = pairs.indices.filter { pairs[$0].reason != nil }
+        let there = pairs.indices.filter { pairs[$0].reason == nil }
+        XCTAssertEqual(short, [5, 6])
 
         let bench = await bench(holding: household)
         let opened = try await open(bench, for: waiting)
         for (index, pair) in pairs.enumerated() {
-            XCTAssertEqual(opened.there.contains(waiting[index].id), pair.there, pair.name)
+            XCTAssertEqual(opened.there.contains(waiting[index].id), pair.reason == nil, pair.name)
         }
         var round = opened.round
-        expectEqual(await send(waiting[4], in: &round, on: bench), Came(.refused(reason: reason), asked: []))
+        for index in short {
+            expectEqual(await send(waiting[index], in: &round, on: bench),
+                        Came(.refused(reason: pairs[index].reason ?? ""), asked: []), pairs[index].name)
+        }
 
         let queued = await self.bench(holding: household)
         let store = try temporaryStore()
         for row in waiting { try await store.queue(row) }
         let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: Self.start - 86_400)
-        XCTAssertEqual(outcome.alreadyThere.map(\.id), waiting.prefix(4).map(\.id))
-        XCTAssertEqual(outcome.refused.map(\.id), [waiting[4].id])
+        XCTAssertEqual(outcome.alreadyThere.map(\.id), there.map { waiting[$0].id })
+        XCTAssertEqual(outcome.refused.map(\.id), short.map { waiting[$0].id })
         expectEqual(await queued.line.sent, [Self.disk, Self.list])
-        expectEqual(try await store.pendingReservations().map(\.problem), [reason])
+        expectEqual(try await store.pendingReservations().map(\.problem), [once, fewer])
         expectEqual(await queued.television.schedules, household)
 
-        // The household set the programme once with the remote after the round was opened.
-        let later = await self.bench()
-        round = try await open(later, for: waiting).round
-        await later.television.put([household[4]])
-        expectEqual(await send(waiting[4], in: &round, on: later),
-                    Came(.refused(reason: reason), asked: [Self.kind, Self.question, Self.create, Self.list]))
-        expectEqual(await later.television.schedules, [household[4]])
+        // The household set the programme with the remote after the round was opened, once or on fewer days.
+        for index in short {
+            let later = await self.bench()
+            round = try await open(later, for: waiting).round
+            await later.television.put([household[index]])
+            expectEqual(await send(waiting[index], in: &round, on: later),
+                        Came(.refused(reason: pairs[index].reason ?? ""),
+                             asked: [Self.kind, Self.question, Self.create, Self.list]), pairs[index].name)
+            expectEqual(await later.television.schedules, [household[index]], pairs[index].name)
+        }
     }
 
     // MARK: - the stations
@@ -849,6 +865,9 @@ final class TVRoundTests: XCTestCase {
                        "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。")
         XCTAssertEqual(ScalarClient.reservedOnceOnly, "テレビにはこの番組の 1 回だけの予約がすでにあります。"
                        + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。")
+        XCTAssertEqual(ScalarClient.reservedOnFewerDays,
+                       "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
+                       + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。")
         XCTAssertEqual(ScalarClient.diskNotFound, "録画用の USB HDD が見つからないため、テレビへの予約は送っていません")
         XCTAssertEqual(ScalarClient.refusals.keys.sorted(), [7])
         XCTAssertEqual(ScalarClient.slot, .tv)
