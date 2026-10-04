@@ -33,7 +33,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
 | `DeviceFailure.swift` | What a failure means whichever device it came from: silent, busy, refused and the rest |
-| `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, reserved on, asked for a guide |
+| `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
 | `Waking.swift` | Waiting for a recorder to come back after a magic packet |
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
@@ -52,7 +52,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
 | `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
 | `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, and which types are behind |
-| `PendingQueue.swift` | Sending the reservations that were made while the recorder could not be reached |
+| `PendingQueue.swift` | Sending the reservations that were made while their device could not be reached, a row at a time by the device's own way of sending one, and the sentences for what became of them |
 | `Logo.swift` | The station-logo file, and the broadcast colour table the PNGs rely on |
 | `Series.swift` | Programme names and grouping keys from recording titles |
 | `Titles.swift` | Watch states, and recordings gathered into programmes |

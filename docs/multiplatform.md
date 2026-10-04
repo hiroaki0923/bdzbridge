@@ -27,9 +27,11 @@ Android 版はないか、という問い合わせを受けての調査です。
   渡す。1 つの操作を作る部品（操作の前の確認とその理由、進行中の行、失敗の種類と文、失敗の伝え方）も
   `DeviceLink` に載せ（`LinkOperation.swift`）、レコーダーの操作の入口とテレビの一覧の読み込みが同じものを通る。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
-  `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・予約できる・番組表を
-  取れる機器なら何でも受け、エラーは機器に依らない分類で読む。レコーダー以外の機器を足すための継ぎ目で、
-  レコーダーに対する動きは変わらない。テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
+  `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・送信待ちの 1 件を
+  送れる・番組表を取れる機器なら何でも受け、エラーは機器に依らない分類で読む。送信待ちの 1 件をどう送るかは
+  機器のもので（`QueueTarget`）、レコーダーの送り方は、作成の要求だけを持つ機器（`ReservationTarget`）の既定。
+  レコーダー以外の機器を足すための継ぎ目で、レコーダーに対する動きは変わらない。
+  テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
   `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧と削除も
   `TVDriver` の手順で（1 行の読みと、消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文もそこにある。
   アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。
@@ -46,13 +48,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-43 ファイル、7,336 行（空行とコメントを含み、`Package.swift` を除く）。テストは 8,084 行。
+43 ファイル、7,548 行（空行とコメントを含み、`Package.swift` を除く）。テストは 8,588 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 2,847 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 2,897 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 3,109 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -60,11 +62,11 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,886 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,881 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,337 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
-BackgroundWork、Notify、SendWaitingIntent を合わせて約 820 行です。RecorderKit だけを共有する案では、どれを
+何を取るか）で、AppModel（9 ファイルで 2,339 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。RecorderKit だけを共有する案では、どれを
 選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの
@@ -160,7 +162,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、122 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、123 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （当時の `AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
@@ -179,7 +181,8 @@ RecorderKit に移したのと同じ理由で、0.3 でこれを RecorderKit の
 「レコーダーにもう無かった」を表示文言の比較ではなく結果の種類（`ItemOutcome.gone`）で見分けるようにしました。
 
 同じときに、共有の規則がレコーダーの型（`RecorderClient`）を直接取るのをやめました。`Waking.waitForAnswer` は
-確かめられる機器（`DeviceEndpoint`）を、`PendingQueue.flush` は予約できる機器（`ReservationTarget`）を、
+確かめられる機器（`DeviceEndpoint`）を、`PendingQueue.flush` は予約できる機器（`ReservationTarget`。いまは
+送信待ちの 1 件を送れる機器 `QueueTarget` で、下に書きます）を、
 `GuideRefresh.run` は番組表を取れる機器（`GuideSource`）を取ります。エラーは `RecorderError` の述語ではなく、
 機器に依らない分類（`DeviceFailure`: 無応答、混んでいる、この要求への断り、電源が要る、など）で読みます。
 `RecorderClient` は今あるメソッドの上でこれらに適合するので、呼び出し側は変わりません。プロトコルに入れたのは、
@@ -250,6 +253,18 @@ AppModel の中の関数ではなく振る舞いで書き直してあります�
 あとの無応答に出す文は操作が渡します。この載せ替えも、アプリのテスト（122 件）と RecorderKit の既存の
 テストを、本体を変えずに通すことを条件にしました。部品そのものは `LinkPartsTests` が偽の外界で確かめます。
 レコーダーの個々の操作はまだ AppModel にあり、この部品の上に 1 つずつ移せます。
+
+そのあと、送信待ちが「1 件をどう送るか」を持つのをやめました。`PendingQueue.flush` は、送信待ちの 1 件を
+自分のやり方で送れる機器（`QueueTarget`）を取り、機器に 1 件ずつ送らせて、その結果（作った、すでにあった、
+理由を付けて断った、見送った、この回はここまで）だけを読みます。送信待ちに残るのは、送る順番と、結果に応じて
+行をどうするかです。レコーダーの送り方（作成を 1 回送り、無応答ならその回を打ち切り、理由の付いた断りは行に
+書き、それ以外は見送る）は、`PendingQueue` から `ReservationTarget` の既定の実装へ移しました。写しは
+作っていません。どの機器宛の行を受け取るかは機器の型が言うので（`QueueTarget.slot`）、別の機器宛の行を
+渡す書き方はできません。結果の文も、アプリ（`Notify.swift`）から `PendingQueue.Outcome` の横へ移し、機器の
+呼び名を受け取れるようにしました。テレビに送る実装はまだありません。レコーダーだけの家では、送るものも文も
+一字も変わらず、アプリのテスト（122 件）と RecorderKit の既存のテストは本体を変えずに通ります。テレビを
+登録してある家で変わるのは、文がどの機器に送ったかを言うことだけです（「送信待ちだった「…」をレコーダーに
+登録しました」。言うかどうかはアプリが決めます）。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と
