@@ -1353,6 +1353,8 @@ final class TVSittingTests: XCTestCase {
             (held(ScalarClient.repeatNotTaken), Self.round(held: 1, "not one a television is sent"), true),
             (held(ScalarClient.reservedOnceOnly),
              Self.round(held: 1, "a repeat of a programme the television has reserved once"), true),
+            (held(ScalarClient.reservedOnFewerDays),
+             Self.round(held: 1, "a repeat of a programme the television has reserved on fewer days"), true),
             (held(ScalarClient.acceptedNotListed), Self.round(held: 1, "answered as taken, and not in the list"),
              false),
             (held("「サンプル劇場」は予約できません。"), Self.round(held: 1, "a reason of another kind"), false),

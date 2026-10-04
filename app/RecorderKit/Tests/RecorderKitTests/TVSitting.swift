@@ -1421,8 +1421,9 @@ actor TVSitting {
     /// A reason the round wrote on a row, by its kind, and whether a row held for it is one no create was
     /// taken for. The one reason that says a create was taken is the one for a create answered as taken
     /// whose reservation the list does not have. A repeat held because the television has its programme
-    /// reserved once had no create taken: either none was sent, or it was answered as held already, which
-    /// was measured to make nothing. A reason not known here says neither.
+    /// reserved once, or with a repeat that takes in fewer days, had no create taken: either none was sent,
+    /// or it was answered as held already, which was measured to make nothing. A reason not known here says
+    /// neither.
     private static func kind(ofAReason reason: String?) -> (said: String, noCreateTaken: Bool) {
         guard let reason else { return ("no reason", false) }
         if reason.hasPrefix(ScalarClient.wouldStop) { return ("it would stop another from recording", true) }
@@ -1436,6 +1437,8 @@ actor TVSitting {
         case ScalarClient.needsAProgramme, ScalarClient.repeatNotTaken: return ("not one a television is sent", true)
         case ScalarClient.reservedOnceOnly:
             return ("a repeat of a programme the television has reserved once", true)
+        case ScalarClient.reservedOnFewerDays:
+            return ("a repeat of a programme the television has reserved on fewer days", true)
         default: return ("a reason of another kind", false)
         }
     }
