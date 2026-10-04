@@ -504,6 +504,45 @@ actor TVSitting {
         }
     }
 
+    /// The repeats a television can be sent one of at a time, by a name a command can carry: the programme's
+    /// own weekday, by its name, daily, Monday to Friday, Monday to Saturday.
+    static let repeatsByName = ["weekly", "title", "daily", "weekdays", "weekdaysAndSaturday"]
+
+    /// One repeat, alone, on the programme `theRepeats` uses: asked about, made, read back, left on the
+    /// television until `looked` returns, and deleted. For an owner who reads the television's own list at
+    /// their own pace, and cannot follow six in a row by the clock. Whoever hands `looked` in gives it an
+    /// end: a reservation with a repeat is not left on a television on the strength of a word that may never
+    /// come. A name that is not one of `repeatsByName` is refused before anything is sent.
+    func oneRepeat(_ which: String, until looked: @Sendable () async -> Void) async throws {
+        guard Self.repeatsByName.contains(which) else {
+            throw Refused(why: "no such repeat to try: it is one of \(Self.repeatsByName.joined(separator: ", "))")
+        }
+        try await making {
+            let listed = try await list()
+            let stations = try await stations(of: Self.terrestrial)
+            let (pick, station) = try choose(on: stations, in: listed, everyDay: true) {
+                TVReservationBody.repeatType(for: "w15", start: $0.start) != nil
+            }
+            let own = (1...7).first { TVReservationBody.repeatType(for: "w\($0)", start: pick.start) != nil }
+            guard let own else { throw Refused(why: "the programme chosen has no weekday code") }
+            let codes = ["weekly": "w\(own)", "title": "S001", "daily": "d", "weekdays": "w15",
+                         "weekdaysAndSaturday": "w16"]
+            say("the programme: \(Self.when(pick.start))")
+            let body = try body(pick, on: station, repeating: codes[which] ?? "1")
+            let created = try await create(leave(for: body, "\(body.repeatType): "), of: pick)
+            say("\(body.repeatType) sent: \(created.answer); rows made: \(created.rows.count)")
+            for row in created.rows {
+                say("  read back: repeatType \(row.repeatType ?? "none"), start \(Self.when(row))")
+            }
+            if !created.rows.isEmpty {
+                say("  on the television's own list until it has been looked at: how is its repeat worded?")
+                await looked()
+                say("  looked at, and taken off now")
+            }
+            try await takeOff()
+        }
+    }
+
     /// Three at once, twice. First as it was measured by script: two at one time on two stations, and a
     /// third on a third station that starts later and overlaps them in part, in an empty slot. Then with the
     /// third starting before the two, beside the household's viewing reservation, which is on a station of

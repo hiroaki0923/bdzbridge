@@ -250,6 +250,30 @@ final class LiveTVTests: XCTestCase {
         try await sitting { try await $0.theRepeats() }
     }
 
+    /// One repeat at a time, for an owner who reads the television's own list at their own pace: `TV_REPEAT`
+    /// names it (`weekly`, `title`, `daily`, `weekdays`, `weekdaysAndSaturday`), and the reservation stays on
+    /// the television until a file is put beside the ledger -- the ledger's path with `.looked` on it
+    /// (`touch`) -- or eight minutes have passed, whichever comes first, and is then deleted. It is run in the
+    /// background, since it ends when somebody says so; what it says is read from the `.said` file meanwhile.
+    func testOneRepeatLeftUntilLookedAt() async throws {
+        guard let which = Self.environment("TV_REPEAT") else {
+            throw XCTSkip("Set TV_REPEAT to the repeat to try: one of \(TVSitting.repeatsByName).")
+        }
+        guard let ledger = try Self.file("TV_LEDGER") else { throw XCTSkip("Set TV_LEDGER.") }
+        let looked = ledger.appendingPathExtension("looked")
+        try? FileManager.default.removeItem(at: looked)
+        try await sitting { sitting in
+            try await sitting.oneRepeat(which) {
+                // Never without an end: left to itself the reservation would record day after day.
+                let end = Date().addingTimeInterval(8 * 60)
+                while !FileManager.default.fileExists(atPath: looked.path), Date() < end {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                try? FileManager.default.removeItem(at: looked)
+            }
+        }
+    }
+
     func testThreeAtOnce() async throws {
         try await sitting { try await $0.threeAtOnce() }
     }

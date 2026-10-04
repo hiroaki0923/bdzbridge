@@ -823,6 +823,33 @@ final class TVSittingTests: XCTestCase {
         expectNamesNothing(world.said.text)
     }
 
+    /// One repeat at a time: the reservation is on the invented television, with the repeat that was named,
+    /// while it is being looked at and not after, and what the check sends is the question, the create and
+    /// the list, then the delete and the list -- once each. A name that is no repeat's is refused with
+    /// nothing sent.
+    func testOneRepeatIsOnTheTelevisionWhileItIsLookedAtAndNotAfter() async throws {
+        for (which, code) in [("weekly", "w3"), ("title", "title"), ("daily", "d"), ("weekdays", "w15"),
+                              ("weekdaysAndSaturday", "w16")] {
+            let world = await world()
+            let seen = Said()
+            try await world.sitting.oneRepeat(which) {
+                let made = await world.television.schedules.filter { !Self.owners.contains($0) }
+                seen.add(made.map(\.repeatType).joined(separator: " "))
+            }
+            XCTAssertEqual(seen.lines, [code], "\(which): what was on the television while it was looked at")
+            expectEqual(await world.line.sent, Self.opening + Self.made + Self.takenOff, which)
+            expectEqual(await world.television.schedules, Self.owners, which)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 0, which)
+            expectNamesNothing(world.said.text)
+        }
+
+        let world = await world()
+        let refused = await thrown { try await world.sitting.oneRepeat("fortnightly") {} } as? TVSitting.Refused
+        XCTAssertNotNil(refused, "a repeat nobody named was tried")
+        expectEqual(await world.line.sent, [], "something was sent for a repeat nobody named")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path))
+    }
+
     /// On each station named the question comes before the create as well. A question the television
     /// answers with an error of its own is what the app would meet first for such a station: it is said, no
     /// create is sent, and the next station is still asked about. Silence there ends the check.
