@@ -9,6 +9,8 @@ import Foundation
 /// is: not sent, not dropped, no reason written on it.
 public enum PendingQueue {
     public struct Outcome: Sendable, Equatable {
+        /// The device the round was for: the one whose rows were taken (`QueueTarget.slot`).
+        public var slot: DeviceSlot
         /// Sent to the device, and gone from the queue.
         public var sent: [PendingReservation] = []
         /// Dropped because the programme had already finished.
@@ -52,28 +54,38 @@ public enum PendingQueue {
     /// or cancel it. A failure that says nothing about the reservation -- a 503, an answer with no code --
     /// leaves it as it was.
     ///
+    /// `consenting`: the rows, by id, the reader has said to make though they stop another reservation from
+    /// recording. For those rows only, and one among them is sent though a reason is on it: the device is told
+    /// of the consent, and what it makes of it is the device's. Nothing hands any in yet: what asks the reader
+    /// comes with the device that has something to ask.
+    ///
     /// One flush at a time in the process, whoever asks and whichever device it is for: a second waits for the
     /// first and then reads the queue afresh. The screens and the overnight run each have a client and a
     /// connection of their own and can run at once: both could read the same waiting reservation and send it,
     /// and one sent twice is made twice.
-    public static func flush<Target: QueueTarget>(client: Target, store: GuideStore,
+    public static func flush<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String> = [],
                                                   now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.
-        (try? await oneAtATime.run { await send(client: client, store: store, now: now) }) ?? Outcome()
+        (try? await oneAtATime.run {
+            await send(client: client, store: store, consenting: consenting, now: now)
+        }) ?? Outcome(slot: Target.slot)
     }
 
-    /// Whether a flush would send anything: one that waits for the recorder, has not been refused and whose
-    /// programme is not over. What is worth asking before the recorder is woken for the queue's sake. The rest
-    /// of what waits for it needs no recorder: the refused ones wait for the reader, and the finished ones are
-    /// dropped whenever a flush runs. What waits for another device is not the recorder's to be woken for.
-    public static func hasSomethingToSend(_ waiting: [PendingReservation], now: Date = Date()) -> Bool {
-        waiting.contains { $0.target == .recorder && $0.problem == nil && $0.request.end >= now }
+    /// Whether a flush for `slot` would send anything: one that waits for that device, has not been refused
+    /// and whose programme is not over. What is worth asking before a recorder is woken for the queue's sake.
+    /// The rest of what waits for it needs no device: the refused ones wait for the reader, and the finished
+    /// ones are dropped whenever a flush runs. What waits for another device is not this one's to be woken
+    /// for. There is no client here to say which device is meant, so it is named: the recorder, unless said.
+    public static func hasSomethingToSend(_ waiting: [PendingReservation], for slot: DeviceSlot = .recorder,
+                                          now: Date = Date()) -> Bool {
+        waiting.contains { $0.target == slot && $0.problem == nil && $0.request.end >= now }
     }
 
     private static let oneAtATime = SerialQueue()
 
-    private static func send<Target: QueueTarget>(client: Target, store: GuideStore, now: Date) async -> Outcome {
-        var outcome = Outcome()
+    private static func send<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String>,
+                                                  now: Date) async -> Outcome {
+        var outcome = Outcome(slot: Target.slot)
         let waiting = ((try? await store.pendingReservations()) ?? []).filter { $0.target == Target.slot }
         var round: Target.Round?
         // The rows the opening found on the device, by id.
@@ -84,7 +96,8 @@ public enum PendingQueue {
                 outcome.expired.append(pending)
                 continue
             }
-            let isToGo = pending.problem == nil
+            let consented = consenting.contains(pending.id)
+            let isToGo = pending.problem == nil || consented
             if round == nil, isToGo {
                 switch await client.openRound(for: waiting.filter { $0.request.end >= now }) {
                 case .stopped(let stop):
@@ -110,7 +123,7 @@ public enum PendingQueue {
                 outcome.held.append(pending)
                 continue
             }
-            let (sent, next) = await client.send(pending, consented: false, in: opened)
+            let (sent, next) = await client.send(pending, consented: consented, in: opened)
             round = next
             switch sent {
             case .made:

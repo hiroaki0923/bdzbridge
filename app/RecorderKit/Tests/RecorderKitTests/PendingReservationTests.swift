@@ -295,4 +295,335 @@ final class PendingQueueWorthTests: XCTestCase {
         XCTAssertTrue(PendingQueue.hasSomethingToSend([elsewhere, pending(start: now.addingTimeInterval(3600))],
                                                       now: now))
     }
+
+    /// Asked for a device by name, it is that device's rows that count and no other's, by the same rule: one
+    /// that has not been refused and whose programme is not over.
+    func testWhatWaitsForADeviceIsWorthReachingThatDeviceFor() {
+        let televisions = pending(start: now.addingTimeInterval(3600), target: .tv)
+        XCTAssertTrue(PendingQueue.hasSomethingToSend([televisions], for: .tv, now: now))
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([televisions], for: .recorder, now: now))
+        XCTAssertFalse(PendingQueue.hasSomethingToSend([pending(start: now.addingTimeInterval(3600))], for: .tv,
+                                                       now: now), "the recorder's is not the television's")
+        XCTAssertFalse(PendingQueue.hasSomethingToSend(
+            [pending(start: now.addingTimeInterval(3600), problem: "断られました", target: .tv),
+             pending(start: now.addingTimeInterval(-7200), target: .tv)], for: .tv, now: now))
+    }
+}
+
+/// What the queue's loop does with a device's answers, whichever device it is: asked of a device of the tests'
+/// own (`FakeTarget`), which takes what waits for the television and answers as each test says.
+final class QueueTargetTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+    private let refusal = "この局は録画できません"
+
+    /// The rows are dealt with in the order they start, each as the queue comes to it. One whose programme is
+    /// over is dropped. One with a reason on it is held. The device is read for the round at the first row
+    /// that is to go: once, and handed every row that is not over, the held ones among them. By then what was
+    /// over before that row has gone from the queue, and what is over after it has not. Each row that is to go
+    /// is then sent, in the round as the row before it left it.
+    func testTheRowsGoInTheirOrderAndTheRoundIsOpenedAtTheFirstThatIsToGo() async throws {
+        let store = try await store(with: [
+            row("終わった番組", 1, startingIn: -3),
+            row("断られていた長い番組", 2, startingIn: -2.5, lasting: 4, reason: refusal),
+            row("その間に終わった番組", 3, startingIn: -2.25, lasting: 0.25),
+            row("放送中の長い番組", 4, startingIn: -2, lasting: 4),
+            row("あとから始まって終わった番組", 5, startingIn: -1.5, lasting: 0.25),
+            row("断られていた番組", 6, startingIn: 1, reason: refusal),
+            row("これからの番組", 7, startingIn: 2),
+        ])
+        let device = FakeTarget(store)
+
+        let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+        expectEqual(await device.asked, [
+            .open(["断られていた長い番組", "放送中の長い番組", "断られていた番組", "これからの番組"]),
+            .send("放送中の長い番組", after: 0),
+            .send("これからの番組", after: 1),
+        ])
+        expectEqual(await device.queuedAtOpening,
+                    ["断られていた長い番組", "放送中の長い番組", "あとから始まって終わった番組", "断られていた番組",
+                     "これからの番組"])
+        expectEqual(try await came(outcome, store),
+                    Came(sent: ["放送中の長い番組", "これからの番組"],
+                         expired: ["終わった番組", "その間に終わった番組", "あとから始まって終わった番組"],
+                         held: ["断られていた長い番組", "断られていた番組"],
+                         left: ["断られていた長い番組", "断られていた番組"], written: [refusal, refusal]))
+    }
+
+    /// With nothing to send -- no rows, only rows whose programmes are over, only rows with a reason on them --
+    /// nothing is asked of the device: no round is opened. What is over is dropped all the same.
+    func testWithNothingToSendNothingIsAskedOfTheDevice() async throws {
+        let over = row("終わった番組", 1, startingIn: -3)
+        let held = row("断られていた番組", 2, startingIn: 1, reason: refusal)
+        let queues: [(name: String, rows: [PendingReservation], comes: Came)] = [
+            ("nothing waiting", [], Came()),
+            ("only what is over", [over], Came(expired: ["終わった番組"])),
+            ("only what was refused", [held], Came(held: ["断られていた番組"], left: ["断られていた番組"],
+                                                   written: [refusal])),
+            ("both", [over, held], Came(expired: ["終わった番組"], held: ["断られていた番組"],
+                                        left: ["断られていた番組"], written: [refusal])),
+        ]
+        for queue in queues {
+            let store = try await store(with: queue.rows)
+            let device = FakeTarget(store)
+
+            let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+            expectEqual(await device.asked, [], queue.name)
+            expectEqual(try await came(outcome, store), queue.comes, queue.name)
+        }
+    }
+
+    /// A row the opening found on the device leaves the queue and is not sent: one with a reason on it as
+    /// well, whether the queue passed it before the round was opened or comes to it afterwards. It is told as
+    /// found there, not as sent, and it is news.
+    func testARowTheOpeningFoundOnTheDeviceLeavesTheQueueUnsent() async throws {
+        let foundThere = [
+            row("断られていたがテレビにある番組", 1, startingIn: 1, reason: refusal),
+            row("テレビにある番組", 2, startingIn: 2),
+            row("あとの断られていたがテレビにある番組", 3, startingIn: 3, reason: refusal),
+            row("あとのテレビにある番組", 4, startingIn: 4),
+        ]
+        let others = [row("テレビにない番組", 5, startingIn: 5),
+                      row("断られていた番組", 6, startingIn: 6, reason: refusal)]
+        let store = try await store(with: foundThere + others)
+        let device = FakeTarget(store, finding: foundThere)
+
+        let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+        expectEqual(await device.asked,
+                    [.open((foundThere + others).map(\.request.title)), .send("テレビにない番組", after: 0)])
+        expectEqual(try await came(outcome, store),
+                    Came(sent: ["テレビにない番組"], alreadyThere: foundThere.map(\.request.title),
+                         held: ["断られていた番組"], left: ["断られていた番組"], written: [refusal]))
+        XCTAssertFalse(PendingQueue.Outcome(slot: .tv, alreadyThere: [foundThere[1]]).isEmpty,
+                       "a reservation found there is no longer waiting, which the reader has not been told")
+    }
+
+    /// A row with a reason on it is not sent, unless the reader consented to it: then it is sent though the
+    /// reason is on it, and the device is told of the consent. Consent is by id and for that row alone: the
+    /// row beside it stays held, and a row with no reason is sent as one not consented to. A consented row is
+    /// a row to go, so the round is opened for it though nothing else waits.
+    func testARowWithAReasonIsHeldUnlessTheReaderConsentedToIt() async throws {
+        let held = row("断られたままの番組", 1, startingIn: 1, reason: refusal)
+        let consented = row("それでも予約する番組", 2, startingIn: 2, reason: refusal)
+        let plain = row("これからの番組", 3, startingIn: 3)
+        let store = try await store(with: [held, consented, plain])
+        let device = FakeTarget(store)
+
+        let outcome = await PendingQueue.flush(client: device, store: store, consenting: [consented.id], now: now)
+
+        expectEqual(await device.asked, [
+            .open(["断られたままの番組", "それでも予約する番組", "これからの番組"]),
+            .send("それでも予約する番組", consented: true, after: 0),
+            .send("これからの番組", after: 1),
+        ])
+        expectEqual(try await came(outcome, store),
+                    Came(sent: ["それでも予約する番組", "これからの番組"], held: ["断られたままの番組"],
+                         left: ["断られたままの番組"], written: [refusal]))
+
+        let alone = try await self.store(with: [consented])
+        let asked = FakeTarget(alone)
+        _ = await PendingQueue.flush(client: asked, store: alone, consenting: [consented.id], now: now)
+        expectEqual(await asked.asked,
+                    [.open(["それでも予約する番組"]), .send("それでも予約する番組", consented: true, after: 0)])
+    }
+
+    /// What a row came to settles the row. Made, or held by the device already: it leaves the queue, told as
+    /// sent or as found there. Refused: the reason is written on it. Passed over: it stays as it was. After
+    /// each of those the next row is sent, in the round as this row left it. A stop ends the round there, the
+    /// row as it was -- counted with the rows passed over when the device says so, and in no list when not --
+    /// and the next row is not sent.
+    func testWhatARowCameToSettlesTheRowAndWhetherTheRoundGoesOn() async throws {
+        let first = "最初の番組", second = "次の番組"
+        let goesOn: [FakeTarget.Asked] = [.open([first, second]), .send(first, after: 0), .send(second, after: 1)]
+        let ends: [FakeTarget.Asked] = [.open([first, second]), .send(first, after: 0)]
+        let answers: [(answer: RowSent, asked: [FakeTarget.Asked], comes: Came)] = [
+            (.made, goesOn, Came(sent: [first, second])),
+            (.alreadyThere, goesOn, Came(sent: [second], alreadyThere: [first])),
+            (.refused(reason: refusal), goesOn,
+             Came(sent: [second], refused: [first], reasons: [refusal], left: [first], written: [refusal])),
+            (.passedOver, goesOn, Came(sent: [second], deferred: [first], left: [first], written: [nil])),
+            (.stopped(.saysNothing, passedOver: true), ends,
+             Came(deferred: [first], stopped: .saysNothing, left: [first, second], written: [nil, nil])),
+            (.stopped(.silent(afterSending: true), passedOver: false), ends,
+             Came(stopped: .silent(afterSending: true), left: [first, second], written: [nil, nil])),
+        ]
+        for (answer, asked, comes) in answers {
+            let store = try await store(with: [row(first, 1, startingIn: 1), row(second, 2, startingIn: 2)])
+            let device = FakeTarget(store, answering: [first: answer])
+
+            let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+            expectEqual(await device.asked, asked, "\(answer)")
+            expectEqual(try await came(outcome, store), comes, "\(answer)")
+        }
+    }
+
+    /// Whatever stops a round, it is said why, nothing is sent after it, and the rows not yet sent stay as
+    /// they were: in the queue, with nothing written on them, and in none of the outcome's lists. A round
+    /// that cannot be opened sends nothing at all. Only silence is the device having gone away part way.
+    func testWhateverStopsARoundLeavesTheRowsNotYetSentAsTheyWere() async throws {
+        let stops: [SendingStop] = [.silent(afterSending: false), .silent(afterSending: true), .needsPairing,
+                                    .cannotRecord(reason: "録画用のディスクが見つかりません"), .saysNothing]
+        let rows = [row("断られていた番組", 1, startingIn: 1, reason: refusal), row("最初の番組", 2, startingIn: 2),
+                    row("次の番組", 3, startingIn: 3), row("その次の番組", 4, startingIn: 4)]
+        let waiting = rows.map(\.request.title)
+        for stop in stops {
+            let silence = stop == .silent(afterSending: false) || stop == .silent(afterSending: true)
+
+            let unopened = try await store(with: rows)
+            let closed = FakeTarget(unopened, stoppingTheOpeningWith: stop)
+            var outcome = await PendingQueue.flush(client: closed, store: unopened, now: now)
+
+            expectEqual(await closed.asked, [.open(waiting)], "\(stop), at the opening")
+            expectEqual(try await came(outcome, unopened),
+                        Came(held: ["断られていた番組"], stopped: stop, left: waiting,
+                             written: [refusal, nil, nil, nil]), "\(stop), at the opening")
+            XCTAssertEqual(outcome.interrupted, silence, "\(stop), at the opening")
+
+            let opened = try await store(with: rows)
+            let device = FakeTarget(opened, answering: ["次の番組": .stopped(stop, passedOver: false)])
+            outcome = await PendingQueue.flush(client: device, store: opened, now: now)
+
+            expectEqual(await device.asked,
+                        [.open(waiting), .send("最初の番組", after: 0), .send("次の番組", after: 1)], "\(stop)")
+            expectEqual(try await came(outcome, opened),
+                        Came(sent: ["最初の番組"], held: ["断られていた番組"], stopped: stop,
+                             left: ["断られていた番組", "次の番組", "その次の番組"], written: [refusal, nil, nil]),
+                        "\(stop)")
+            XCTAssertEqual(outcome.interrupted, silence, "\(stop)")
+        }
+    }
+
+    /// A device is sent what waits for it and nothing else, whichever device it is, and the outcome says
+    /// whose round it was. What waits for another device is never handed to this one, at the opening or
+    /// after, and is as it was: one whose programme is over is not dropped, and nothing is written on any.
+    /// The recorder's client then takes the recorder's and leaves the rest.
+    func testWhatWaitsForAnotherDeviceIsNeverHandedToTheTarget() async throws {
+        let projector = DeviceSlot(rawValue: "projector")
+        let store = try await store(with: [
+            row("レコーダー宛の終わった番組", 1, startingIn: -3, target: .recorder),
+            row("レコーダーに送る番組", 2, startingIn: 1, target: .recorder),
+            row("テレビに送る番組", 3, startingIn: 2),
+            row("ほかの機器に送る番組", 4, startingIn: 3, target: projector),
+        ])
+        let device = FakeTarget(store)
+
+        let televisions = await PendingQueue.flush(client: device, store: store, now: now)
+
+        XCTAssertEqual(televisions.slot, .tv)
+        expectEqual(await device.asked, [.open(["テレビに送る番組"]), .send("テレビに送る番組", after: 0)])
+        expectEqual(try await came(televisions, store),
+                    Came(sent: ["テレビに送る番組"],
+                         left: ["レコーダー宛の終わった番組", "レコーダーに送る番組", "ほかの機器に送る番組"],
+                         written: [nil, nil, nil]))
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let recorders = await PendingQueue.flush(client: RecorderClient(host: "192.0.2.1", transport: transport),
+                                                 store: store, now: now)
+
+        XCTAssertEqual(recorders.slot, .recorder)
+        expectEqual(try await came(recorders, store),
+                    Came(sent: ["レコーダーに送る番組"], expired: ["レコーダー宛の終わった番組"],
+                         left: ["ほかの機器に送る番組"], written: [nil]))
+        expectEqual(await device.asked.count, 2, "the television was asked nothing by the recorder's flush")
+    }
+
+    // MARK: - what the tests put in the queue, and read back
+
+    /// A row waiting for the television unless said, for the programme numbered `number`, which starts
+    /// `hours` from now and lasts `lasting` of them.
+    private func row(_ title: String, _ number: Int, startingIn hours: Double, lasting: Double = 1,
+                     reason: String? = nil, target: DeviceSlot = .tv) -> PendingReservation {
+        var row = pending(title, eventID: number, start: now.addingTimeInterval(hours * 3600), problem: reason,
+                          target: target)
+        row.request.durationSec = Int(lasting * 3600)
+        return row
+    }
+
+    /// A cache of the test's own with `rows` waiting in it.
+    private func store(with rows: [PendingReservation]) async throws -> GuideStore {
+        let store = try temporaryStore()
+        for row in rows { try await store.queue(row) }
+        return store
+    }
+
+    /// What a flush came to and what it left in the queue, by title.
+    private func came(_ outcome: PendingQueue.Outcome, _ store: GuideStore) async throws -> Came {
+        let left = try await store.pendingReservations()
+        return Came(sent: outcome.sent.map(\.request.title), alreadyThere: outcome.alreadyThere.map(\.request.title),
+                    expired: outcome.expired.map(\.request.title), refused: outcome.refused.map(\.request.title),
+                    reasons: outcome.refused.map(\.problem), deferred: outcome.deferred.map(\.request.title),
+                    held: outcome.held.map(\.request.title), stopped: outcome.stopped,
+                    left: left.map(\.request.title), written: left.map(\.problem))
+    }
+}
+
+/// What a flush came to, by title: the list of the outcome each row is in, the reasons on the ones refused,
+/// why the round stopped, and what is left in the queue -- every device's -- with what is written on each.
+private struct Came: Equatable {
+    var sent: [String] = []
+    var alreadyThere: [String] = []
+    var expired: [String] = []
+    var refused: [String] = []
+    var reasons: [String?] = []
+    var deferred: [String] = []
+    var held: [String] = []
+    var stopped: SendingStop?
+    var left: [String] = []
+    var written: [String?] = []
+}
+
+/// A device of the tests' own behind the queue's protocol, which takes what waits for the television. It
+/// answers the opening and each row as the test says -- a row it is told nothing of is made -- and writes down
+/// what it was asked. Its round counts the rows it has been sent: what a device carries from one row to the
+/// next, so that the queue is seen to hand each row the round the row before it left.
+private actor FakeTarget: QueueTarget {
+    static let slot = DeviceSlot.tv
+
+    struct Round: Sendable {
+        var sent = 0
+    }
+
+    enum Asked: Equatable {
+        /// The round opened, for the rows with these titles.
+        case open([String])
+        /// A row sent, by its title, in a round that had been sent `after` rows before it.
+        case send(String, consented: Bool = false, after: Int)
+    }
+
+    private(set) var asked: [Asked] = []
+    /// The titles in the queue, every device's, at the moment the round was opened.
+    private(set) var queuedAtOpening: [String]?
+    private let store: GuideStore
+    private let stop: SendingStop?
+    private let found: Set<String>
+    private let answers: [String: RowSent]
+
+    /// `stop` is what the opening comes to in place of a round; `found` the rows the opening finds on the
+    /// device; `answers` what sending a row comes to, by its title.
+    init(_ store: GuideStore, stoppingTheOpeningWith stop: SendingStop? = nil,
+         finding found: [PendingReservation] = [], answering answers: [String: RowSent] = [:]) {
+        self.store = store
+        self.stop = stop
+        self.found = Set(found.map(\.id))
+        self.answers = answers
+    }
+
+    func probe(timeout: TimeInterval) async throws {}
+
+    func openRound(for waiting: [PendingReservation]) async -> RoundOpened<Round> {
+        asked.append(.open(waiting.map(\.request.title)))
+        queuedAtOpening = ((try? await store.pendingReservations()) ?? []).map(\.request.title)
+        if let stop { return .stopped(stop) }
+        return .open(Round(), alreadyThere: found)
+    }
+
+    func send(_ waiting: PendingReservation, consented: Bool,
+              in round: Round) async -> (sent: RowSent, round: Round) {
+        asked.append(.send(waiting.request.title, consented: consented, after: round.sent))
+        return (answers[waiting.request.title] ?? .made, Round(sent: round.sent + 1))
+    }
 }
