@@ -85,6 +85,18 @@ extension TVPicks {
 
     static func read(_ file: URL) throws -> TVPicks { try TVFile.read(TVPicks.self, from: file) }
     func write(to file: URL) throws { try TVFile.write(self, to: file) }
+
+    /// The picks a check of the sitting chooses from, read from the file `variable` names. A file that
+    /// cannot be read is thrown by that name and never as it came: the error for a file that is not there
+    /// carries its whole path, the home directory in it, and a test that throws one has it printed.
+    static func read(_ file: URL, namedBy variable: String) throws -> TVPicks {
+        do {
+            return try read(file)
+        } catch {
+            throw TVSitting.Stopped(what: "\(variable) cannot be read: it is to name the file testWritingThePicks"
+                                    + " wrote")
+        }
+    }
 }
 
 /// What a sitting has made on the television, kept in a file outside the repository so that it outlives a

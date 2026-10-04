@@ -1734,6 +1734,30 @@ final class TVSittingTests: XCTestCase {
         }
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("サンプル"))
     }
+
+    /// A picks file that cannot be read is said by the variable that names it and by nothing of the file:
+    /// one that is not there, whose error as it comes has the whole path in it, and one that holds no picks.
+    /// One that can be read is read as it was written.
+    func testAPicksFileThatCannotBeReadIsSaidWithoutItsPath() throws {
+        let directory = FileManager.default.temporaryDirectory
+        let files = (0..<3).map { _ in directory.appendingPathComponent("RecorderKitTests-\(UUID().uuidString).json") }
+        addTeardownBlock { for file in files { try? FileManager.default.removeItem(at: file) } }
+        try Data("サンプル".utf8).write(to: files[1])
+
+        for file in files.prefix(2) {
+            XCTAssertThrowsError(try TVPicks.read(file, namedBy: "TV_PICKS")) { error in
+                XCTAssertEqual((error as? TVSitting.Stopped)?.what,
+                               "TV_PICKS cannot be read: it is to name the file testWritingThePicks wrote")
+                // What a test that throws it has printed.
+                let printed = "\(error) \(error.localizedDescription)"
+                XCTAssertFalse(printed.contains(file.lastPathComponent) || printed.contains(directory.path))
+            }
+        }
+
+        try Self.picks.write(to: files[2])
+        XCTAssertEqual(try TVPicks.read(files[2], namedBy: "TV_PICKS"), Self.picks)
+    }
+
     /// The picks are read from a recorder, and what goes wrong on the way is said by its kind and nothing
     /// else: no answer, something that is no recorder, an address nothing can be sent to, an answer that
     /// could not be read. An error as it comes has the recorder's address in it, and a test prints what it

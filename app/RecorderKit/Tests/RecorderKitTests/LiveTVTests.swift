@@ -403,8 +403,8 @@ final class LiveTVTests: XCTestCase {
             try XCTUnwrap(TVSitting.reminderStart(text),
                           "TV_REMINDER is the start of the viewing reservation in Japan's time, as 2026-11-04 21:00")
         }
-        let sitting = TVSitting(client: client, line: line, picks: try TVPicks.read(picks), ledger: ledger,
-                                mayWrite: mayWrite, reminder: reminder,
+        let sitting = TVSitting(client: client, line: line, picks: try TVPicks.read(picks, namedBy: "TV_PICKS"),
+                                ledger: ledger, mayWrite: mayWrite, reminder: reminder,
                                 look: Self.environment("TV_LOOK").flatMap { TimeInterval($0) } ?? 30,
                                 say: TVSitting.printer(beside: ledger))
         do {
