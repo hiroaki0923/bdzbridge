@@ -271,7 +271,8 @@ actor TVLine: HTTPTransport {
 ///   question before the create is the round's: it sends none when the television names any row at all, or
 ///   when its answer cannot be read. After silence nothing is sent again, by the round or from here. What
 ///   each flush sent is said, a request at a time, and a second flush of the same reservation that sent a
-///   create fails the check.
+///   create fails the check. As it ends the check asks once more what the television says it is, unless a
+///   request of its own or of the round's met no answer.
 /// - **Which viewing reservation is the sitting's is said by the owner**, by its start, and never guessed:
 ///   not the newest in the list, and not one found by its title.
 /// - **Each request is sent once.** Nothing here asks again.
@@ -741,47 +742,59 @@ actor TVSitting {
     /// second flush is to have sent no create: a row the list has after a create, by the one rule there is
     /// for finding it, the list had at the opening. Where it sent one all the same, the check fails, once
     /// everything is taken off.
+    ///
+    /// Once the television has said it is in standby and the check has begun, it ends, however it ends, by
+    /// asking once more what the television says it is (`sayWhatTheTelevisionSaysItIs`).
     func aWaitingRowInStandby() async throws {
         let from = await line.sent.count
-        try await making(in: "standby") {
-            // The guard has just asked the television what it says it is. A line that kept nothing of that
-            // is not the one the client sends on: what a flush sent could not be said, and a second flush
-            // that sent a create would pass for one that sent none.
-            guard await line.sent.count > from else {
-                throw Refused(why: "the sitting was handed a line that its client does not send on")
-            }
-            let disk = try await ask("getStorageList") { try await client.storage() }
-            say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
-            guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
-            let listed = try await list()
-            say("the list: \(TVLedger.Counts(listed).said)")
-            let (pick, station) = try choose(on: try await stations(of: Self.terrestrial), in: listed) {
-                !Self.startsInTheSmallHours($0.start) && listed.holding(Self.request($0)) == nil
-            }
-            let body = try body(pick, on: station)
-            let waiting = PendingReservation(request: Self.request(pick), serviceName: "", queuedAt: now(),
-                                             target: .tv)
-            guard let store = try? GuideStore(path: ":memory:") else {
-                throw Refused(why: "the check's own queue could not be made")
-            }
+        var began = false
+        var failure: (any Error)?
+        do {
+            try await making(in: "standby") {
+                // The guard has just asked the television what it says it is. A line that kept nothing of
+                // that is not the one the client sends on: what a flush sent could not be said, and a second
+                // flush that sent a create would pass for one that sent none.
+                guard await line.sent.count > from else {
+                    throw Refused(why: "the sitting was handed a line that its client does not send on")
+                }
+                began = true
+                let disk = try await ask("getStorageList") { try await client.storage() }
+                say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
+                guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
+                let listed = try await list()
+                say("the list: \(TVLedger.Counts(listed).said)")
+                let (pick, station) = try choose(on: try await stations(of: Self.terrestrial), in: listed) {
+                    !Self.startsInTheSmallHours($0.start) && listed.holding(Self.request($0)) == nil
+                }
+                let body = try body(pick, on: station)
+                let waiting = PendingReservation(request: Self.request(pick), serviceName: "", queuedAt: now(),
+                                                 target: .tv)
+                guard let store = try? GuideStore(path: ":memory:") else {
+                    throw Refused(why: "the check's own queue could not be made")
+                }
 
-            let first = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
-                                        "the first flush")
-            for row in first.rows { say("the row read back: \(Self.held(row, against: body))") }
-            guard first.outcome.sent.count == 1, first.rows.count == 1 else {
-                throw Stopped(what: "the first flush did not make one row")
+                let first = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
+                                            "the first flush")
+                for row in first.rows { say("the row read back: \(Self.held(row, against: body))") }
+                guard first.outcome.sent.count == 1, first.rows.count == 1 else {
+                    throw Stopped(what: "the first flush did not make one row")
+                }
+                let second = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
+                                             "the second flush")
+                try await takeOff()
+                guard !second.sent.contains(where: { $0.method == "addSchedule" }) else {
+                    throw Stopped(what: "the second flush sent a create: the row was to be found on the"
+                                  + " television at the round's opening, with nothing sent for it")
+                }
+                guard second.outcome.alreadyThere.count == 1 else {
+                    throw Stopped(what: "the same row a second time was not found on the television")
+                }
             }
-            let second = try await flush(waiting, of: pick, repeating: body.repeatType, through: store,
-                                         "the second flush")
-            try await takeOff()
-            guard !second.sent.contains(where: { $0.method == "addSchedule" }) else {
-                throw Stopped(what: "the second flush sent a create: the row was to be found on the television"
-                              + " at the round's opening, with nothing sent for it")
-            }
-            guard second.outcome.alreadyThere.count == 1 else {
-                throw Stopped(what: "the same row a second time was not found on the television")
-            }
+        } catch {
+            failure = error
         }
+        if began { await sayWhatTheTelevisionSaysItIs(since: from) }
+        if let failure { throw failure }
     }
 
     /// Whether a programme starts in the small hours in Japan: from midnight until five in the morning. The
@@ -793,6 +806,25 @@ actor TVSitting {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         return calendar.component(.hour, from: start) < 5
+    }
+
+    /// What the television says it is, asked once more as the check for one in standby ends, and said. The
+    /// check asked at its beginning, and afterwards the eye cannot tell: `active` is not a lit panel, and a
+    /// television that a write brought on with its panel dark would pass for one that stayed in standby. It
+    /// fails nothing, whatever is said: it is part of what the night measured. A read that fails is said by
+    /// its kind and not thrown.
+    ///
+    /// Not asked when anything sent since `from` met no answer, the check's own or the round's: after
+    /// silence nothing is sent but what the rules allow, and this is not among it.
+    private func sayWhatTheTelevisionSaysItIs(since from: Int) async {
+        let sent = await line.sent.dropFirst(from)
+        guard !sent.contains(where: { $0.answer == TVLine.noAnswer }) else { return }
+        do {
+            let power = try await client.powerStatus()
+            say("the television says it is: \(power)")
+        } catch {
+            say("what the television says it is was not read: \(Self.said(error))")
+        }
     }
 
     /// The count afterwards. Fails unless the ledger has every entry struck out, the list holds no

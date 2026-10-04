@@ -194,6 +194,10 @@ import XCTest
 ///    none. A second flush with an `addSchedule` among what it sent fails the check, whatever the queue said
 ///    of it.
 ///
+///    Its last line is what the television says it is, asked once more as the check ends: `the television
+///    says it is: standby`. Whatever is said there fails nothing, and is written down with what was seen of
+///    the panel: `active` is not a lit panel. It is not asked after a request that met no answer.
+///
 /// **Then the television is switched on** with its remote, and the count afterwards is run with the same
 /// ledger: `testWhatIsLeftAfterwards`, which has passed only when it says `nothing of the sitting is left`.
 /// The owner looks at the television's own list: nothing on it is the sitting's. Where the check failed or
