@@ -355,9 +355,9 @@ public actor ScalarClient {
     /// The stations of one broadcasting type, in the television's order, read a page at a time: a page of
     /// fifty rows is followed by the one after it, and a shorter one ends the list.
     ///
-    /// How a list ends whose last page is exactly fifty has not been seen. An empty page ends it, as any
-    /// short page does. If what comes instead is an error, it is thrown like any other: none is taken for
-    /// the end of the list until it is known which one a television answers a page past the end with.
+    /// A page asked for past the end of a list is an empty one: a television answered no rows there. So a
+    /// list whose last page is exactly fifty ends on the empty page after it, as any short page ends one,
+    /// and an error is thrown like any other: none is the end of a list.
     ///
     /// Any failure on any page throws, and nothing is handed back of the pages read before it: a list cut
     /// short would say of every station after the cut that the television does not have it. A list that has
