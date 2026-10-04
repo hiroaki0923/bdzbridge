@@ -1,9 +1,9 @@
 import Foundation
 
 /// An invented Sony BRAVIA: it answers the methods the app uses, in the shapes a real one gives them, and remembers
-/// what it was told -- the clients registered with it, the cookies it gave out, and the reservations put on it
-/// until they are deleted. For the tests of the package and of the app, and for the demo, as `DemoRecorder` is
-/// for the recorder. Every value in it is invented.
+/// what it was told -- the clients registered with it, the cookies it gave out, the stations it receives, and
+/// the reservations put on it or made on it by a request until they are deleted. For the tests of the package
+/// and of the app, and for the demo, as `DemoRecorder` is for the recorder. Every value in it is invented.
 ///
 /// Each request is put down in `calls` as its method and whether a cookie or a PIN came with it, which is what the
 /// tests read: what was asked, never the cookie itself.
@@ -12,6 +12,10 @@ public actor DemoTV: HTTPTransport {
     public static let mac = "f8:4e:17:00:00:0a"
     public static let model = "KJ-SAMPLE"
     public static let pin = "1234"
+    /// The error it answers a request with that is not written as a real one has been sent it. What a real one
+    /// makes of such a request has not been seen, so the code is one no television gives: nothing can come to
+    /// read it as a real one's.
+    public static let inventedError = 99999
 
     /// `standby` or `active`. It shows its PIN, and so can be registered by one, only when active.
     public var power: String
@@ -20,8 +24,14 @@ public actor DemoTV: HTTPTransport {
     private var cookies: Set<String> = []
     private var registered: Set<String> = []
     private var issued = 0
-    /// What it is set to record and to remind of, in the order they were put.
+    /// What it is set to record and to remind of, in the order they were put or made.
     public private(set) var schedules: [Schedule] = []
+    /// The stations it receives, in the order they were put: none until a test puts some.
+    public private(set) var stations: [Station] = []
+    /// The highest number anything it has held was listed under, a reminder included. What it makes is
+    /// numbered one above, so a number is never given twice, whatever was deleted in between: a real one's
+    /// ids were seen only to grow.
+    private var numbered = 0
     public private(set) var calls: [String] = []
 
     public init(power: String = "standby", mac: String = DemoTV.mac) {
@@ -79,18 +89,11 @@ public actor DemoTV: HTTPTransport {
             self.eventId = eventId
         }
 
-        /// The station's name goes in as it is, as a real one writes it. The network and the transport stream
-        /// before the service are invented numbers, the same for every station.
-        var uri: String { "tv:\(scheme)?trip=65534.65533.\(serviceID)&srvName=\(station)" }
+        /// Its channel, as a real one writes one (`DemoTV.uri`).
+        var uri: String { DemoTV.uri(scheme: scheme, serviceID: serviceID, station: station) }
 
-        /// The start as a real one writes it: Japan's time, the offset with no colon.
-        var startDateTime: String {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = RecorderTime.timeZone
-            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'+0900'"
-            return formatter.string(from: start)
-        }
+        /// Its start, as a real one writes one (`DemoTV.startText`).
+        var startDateTime: String { DemoTV.startText(start) }
 
         /// The mode as the list gives it: only what is recorded has one, whatever this was made with.
         private var listedQuality: String? { type == "recording" ? quality : nil }
@@ -121,7 +124,70 @@ public actor DemoTV: HTTPTransport {
     }
 
     /// Holds these and nothing else, as if they had been made on it with its remote.
-    public func put(_ schedules: [Schedule]) { self.schedules = schedules }
+    public func put(_ schedules: [Schedule]) {
+        self.schedules = schedules
+        numbered = max(numbered, schedules.map(\.number).max() ?? 0)
+    }
+
+    /// One station the invented television receives: a row of the list a real one gives of a kind of
+    /// broadcast, and what a reservation made by a request is made on.
+    public struct Station: Sendable, Equatable {
+        /// The kind of broadcast, as a uri spells it: one of the five a schedule's can be.
+        public var scheme: String
+        public var serviceID: Int
+        public var name: String
+        /// A real one has been seen to say `tv`, `radio` and nothing at all.
+        public var programMediaType: String
+
+        public init(scheme: String = "isdbt", serviceID: Int = 1024, name: String = "サンプルテレビ",
+                    programMediaType: String = "tv") {
+            self.scheme = scheme
+            self.serviceID = serviceID
+            self.name = name
+            self.programMediaType = programMediaType
+        }
+
+        /// As a schedule on it writes it: what a reservation for it has to be sent with, to the letter.
+        var uri: String { DemoTV.uri(scheme: scheme, serviceID: serviceID, station: name) }
+
+        /// Its row as the list gives it, the `index`th of its kind: seven fields. The number it is shown
+        /// under is made of the service id, and it has no button of the remote, as a real one's subchannel
+        /// has none.
+        func fields(at index: Int) -> [String: Any] {
+            ["uri": uri, "title": name, "index": index, "dispNum": String(format: "%03d", serviceID % 1000),
+             "tripletStr": "65534.65533.\(serviceID)", "programMediaType": programMediaType,
+             "directRemoteNum": -1]
+        }
+    }
+
+    /// Receives these stations and no others, each kind of broadcast in the order given.
+    public func receives(_ stations: [Station]) { self.stations = stations }
+
+    /// A channel's uri: the station's name goes in as it is, as a real one writes it. The network and the
+    /// transport stream before the service are invented numbers, the same for every station.
+    static func uri(scheme: String, serviceID: Int, station: String) -> String {
+        "tv:\(scheme)?trip=65534.65533.\(serviceID)&srvName=\(station)"
+    }
+
+    /// A start as a real one writes it: Japan's time, the offset with no colon. Written here and not by the
+    /// client's own function: a television that shared that could not catch the client writing a start wrong.
+    static func startText(_ date: Date) -> String { startFormatter().string(from: date) }
+
+    /// The time a start names, when it is written just as a real one writes it. Nil for any other spelling
+    /// of the same time: a real one has never been sent one.
+    static func startTime(_ text: String) -> Date? {
+        guard let date = startFormatter().date(from: text),
+              startText(date).unicodeScalars.elementsEqual(text.unicodeScalars) else { return nil }
+        return date
+    }
+
+    private static func startFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = RecorderTime.timeZone
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'+0900'"
+        return formatter
+    }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let object = (try? JSONSerialization.jsonObject(with: request.body ?? Data())) as? [String: Any] ?? [:]
@@ -148,10 +214,143 @@ public actor DemoTV: HTTPTransport {
             // to one with a cookie it no longer takes: that it is refused the same way is taken, not seen.
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             return delete(object, id)
+        case "getContentList":
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "avContent", version: "1.0") else { return unknown(method, id) }
+            return stationPage(object, id)
+        case "getConflictScheduleList":
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "recording", version: "1.0") else { return unknown(method, id) }
+            return wouldPushOut(object, id)
+        case "addSchedule":
+            // As for a delete: that a create is refused for its cookie as the reads are is taken, not seen.
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "recording", version: "1.1") else { return unknown(method, id) }
+            return add(object, id)
         case "actRegister":
             return register(object, request, id)
         default:
-            return HTTPResponse(statusCode: 200, body: Data(#"{"error":[12,"\#(method)"],"id":\#(id)}"#.utf8))
+            return unknown(method, id)
+        }
+    }
+
+    /// What a real one answers a method, or a version of one, that it does not have.
+    private func unknown(_ method: String, _ id: Int) -> HTTPResponse {
+        HTTPResponse(statusCode: 200, body: Data(#"{"error":[12,"\#(method)"],"id":\#(id)}"#.utf8))
+    }
+
+    /// Whether a request went to `service` in `version`: the one version of a method the app sends, at the
+    /// service it sends it to. A real one has other versions of these methods, which mean other things and
+    /// which the app does not send: here they are answered as a method it does not have.
+    private static func asks(_ request: HTTPRequest, _ object: [String: Any], of service: String,
+                             version: String) -> Bool {
+        request.url.path == "/sony/\(service)" && object["version"] as? String == version
+    }
+
+    /// The kinds of broadcast a real one lists stations of.
+    private static let schemes = ["isdbt", "isdbbs", "isdbcs", "isdbs3bs", "isdbs3cs"]
+    /// The repeats a real one says it takes.
+    private static let repeatTypes: Set = ["1", "d", "w1", "w2", "w3", "w4", "w5", "w6", "w7", "w15", "w16", "title"]
+
+    /// The one thing in a request's parameters, which is all these three methods are sent.
+    private static func parameter(of object: [String: Any]) -> [String: Any]? {
+        guard let params = object["params"] as? [Any], params.count == 1 else { return nil }
+        return params[0] as? [String: Any]
+    }
+
+    private func refused(_ id: Int) -> HTTPResponse {
+        json(["error": [Self.inventedError, "not as a real one has been sent it"], "id": id])
+    }
+
+    /// One page of the stations of a kind of broadcast, as a real one lists them: from `stIdx`, as many as
+    /// `cnt` says and never more than fifty, the most a real one has been asked for in one answer. Past the
+    /// last station it answers an empty page: what a real one answers there has not been seen. A source that
+    /// is no kind of broadcast is answered with error 3, as a real one answers it; a request with other
+    /// fields than these three, with the invented error.
+    private func stationPage(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys) == ["source", "stIdx", "cnt"],
+              let source = sent["source"] as? String, let from = sent["stIdx"] as? Int, from >= 0,
+              let count = sent["cnt"] as? Int, count > 0 else { return refused(id) }
+        guard source.hasPrefix("tv:"), Self.schemes.contains(String(source.dropFirst("tv:".count))) else {
+            return json(["error": [3, "no such source"], "id": id])
+        }
+        let page = stations.filter { "tv:\($0.scheme)" == source }.enumerated()
+            .dropFirst(from).prefix(min(count, 50))
+        return json(["result": [page.map { $0.element.fields(at: $0.offset) }], "id": id])
+    }
+
+    /// What a create and the question before it both say of a reservation, read from a body with just the
+    /// fields in `keys`. Nil unless each is as a real one has been sent it: a uri that is one of this
+    /// television's stations' to the letter, a title, the start in the television's own spelling, the length
+    /// as a number, and a repeat it takes. Whether the repeat suits the programme's day is not looked at.
+    private func reservation(in sent: [String: Any], keys: Set<String>)
+        -> (station: Station, title: String, start: Date, durationSec: Int, repeatType: String)? {
+        guard Set(sent.keys) == keys, let uri = sent["uri"] as? String,
+              let station = stations.first(where: { $0.uri.unicodeScalars.elementsEqual(uri.unicodeScalars) }),
+              let title = sent["title"] as? String,
+              let start = (sent["startDateTime"] as? String).flatMap(Self.startTime),
+              let durationSec = sent["durationSec"] as? Int, durationSec > 0,
+              let repeatType = sent["repeatType"] as? String, Self.repeatTypes.contains(repeatType) else {
+            return nil
+        }
+        return (station, title, start, durationSec, repeatType)
+    }
+
+    /// The question of what a reservation would stop from recording, asked as a real one has been asked it:
+    /// the five fields and no others. Its answer is that nothing would be: which reservation loses to which
+    /// is not played here.
+    private func wouldPushOut(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        let keys: Set = ["uri", "title", "startDateTime", "durationSec", "repeatType"]
+        guard let sent = Self.parameter(of: object), reservation(in: sent, keys: keys) != nil else {
+            return refused(id)
+        }
+        return ok("[[]]", id)
+    }
+
+    /// Makes a recording, for a create written as a real one has been sent it and no other way: the five
+    /// fields of the question, `type` saying `recording` and the programme's id as decimal text, seven and no
+    /// others -- no mode among them. Anything else is answered with the invented error, and nothing is made.
+    ///
+    /// The same station, start and programme a second time is answered with error 41222, whatever the repeat,
+    /// as a real one answers it, and the first stays the only one. A reminder for the programme does not
+    /// stand in the way: that is taken, not seen.
+    ///
+    /// What is made is listed in DR and under a number of its own (`numbered`); the answer names no
+    /// reservation, as a real one's names none. Its title is listed as a real one was seen to list one
+    /// (`listedTitle`), which is not as it was sent: a row is not to be found again by the title it was
+    /// made with.
+    private func add(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        let keys: Set = ["type", "uri", "title", "startDateTime", "durationSec", "repeatType", "eventId"]
+        guard let sent = Self.parameter(of: object), let asked = reservation(in: sent, keys: keys),
+              sent["type"] as? String == "recording", let programme = sent["eventId"] as? String,
+              !programme.isEmpty, programme.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) }),
+              let eventId = Int(programme) else { return refused(id) }
+        let held = schedules.contains { schedule in
+            schedule.type == "recording" && schedule.uri.unicodeScalars.elementsEqual(asked.station.uri.unicodeScalars)
+                && schedule.start == asked.start && schedule.eventId == eventId
+        }
+        guard !held else { return json(["error": [41222, "already scheduled"], "id": id]) }
+        numbered += 1
+        schedules.append(Schedule(id: "recording.\(numbered)", scheme: asked.station.scheme,
+                                  serviceID: asked.station.serviceID, station: asked.station.name,
+                                  title: Self.listedTitle(asked.title),
+                                  start: asked.start, durationSec: asked.durationSec,
+                                  repeatType: asked.repeatType, eventId: eventId))
+        return ok(#"[{"annotation":0}]"#, id)
+    }
+
+    /// The marks a guide writes in square brackets that a real one was seen to list as one enclosed character
+    /// each: 字, 再, 二 and S.
+    private static let enclosed = [("[字]", "\u{1F211}"), ("[再]", "\u{1F21E}"), ("[二]", "\u{1F214}"),
+                                   ("[S]", "\u{1F142}")]
+
+    /// A title as a real one was seen to list the one it was sent: a half-width space made full-width, and
+    /// each of the bracketed marks above turned into its enclosed character. Both changes were seen, and the
+    /// second on titles with no space in them at all: a title with such a mark is never listed as sent.
+    /// Other marks in brackets were not among the titles sent, and are left as they are.
+    static func listedTitle(_ sent: String) -> String {
+        enclosed.reduce(sent.replacingOccurrences(of: " ", with: "\u{3000}")) { title, mark in
+            title.replacingOccurrences(of: mark.0, with: mark.1)
         }
     }
 

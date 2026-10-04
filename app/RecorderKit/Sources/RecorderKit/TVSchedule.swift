@@ -81,18 +81,26 @@ public struct TVScheduleRow: Sendable, Equatable {
     /// both or neither, half a channel being none. Cut as a string and not as a URL: the station name is in it
     /// as the television has it, unescaped, and may hold anything. So the three numbers run from the first
     /// `?trip=` to the first `&` after it, or to the end when nothing follows them, and what the station is
-    /// called is not looked at. Each of the three is digits and nothing else -- `Int` by itself would take a
-    /// sign -- and the service id is one its sixteen bits can hold.
+    /// called is not looked at. The numbers are read as `serviceID(ofTriplet:)` reads them.
     static func channel(of uri: String) -> (broadcastingType: Int, serviceID: Int)? {
         guard uri.hasPrefix("tv:"), let trip = uri.range(of: "?trip=", options: .literal) else { return nil }
         let scheme = String(uri[..<trip.lowerBound].dropFirst("tv:".count))
         let rest = uri[trip.upperBound...]
         let triplet = rest[..<(rest.range(of: "&", options: .literal)?.lowerBound ?? rest.endIndex)]
-            .split(separator: ".", omittingEmptySubsequences: false)
-        guard let type = schemes[scheme].flatMap({ Codes.broadcasting[$0] }), triplet.count == 3,
-              triplet.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy { ("0"..."9").contains($0) } }),
-              let serviceID = Int(triplet[2]), serviceID <= 0xFFFF else { return nil }
+        guard let type = schemes[scheme].flatMap({ Codes.broadcasting[$0] }),
+              let serviceID = serviceID(ofTriplet: triplet) else { return nil }
         return (type, serviceID)
+    }
+
+    /// The service id in `<onid>.<tsid>.<sid>`, as a uri writes a channel and as a station's own row does: the
+    /// last of three numbers. Each of the three is digits and nothing else -- `Int` by itself would take a
+    /// sign -- and the service id is one its sixteen bits can hold. Nil for anything else.
+    static func serviceID(ofTriplet triplet: some StringProtocol) -> Int? {
+        let numbers = triplet.split(separator: ".", omittingEmptySubsequences: false)
+        guard numbers.count == 3,
+              numbers.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy { ("0"..."9").contains($0) } }),
+              let serviceID = Int(numbers[2]), serviceID <= 0xFFFF else { return nil }
+        return serviceID
     }
 
     /// The reservation in the terms the screens read, the recorder's: nil for a reminder, which is not one,

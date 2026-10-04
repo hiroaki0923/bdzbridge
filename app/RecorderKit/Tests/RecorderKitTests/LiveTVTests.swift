@@ -15,22 +15,148 @@ import XCTest
 /// runs, since somebody has to read the PIN off the screen in between -- the television on, and showing a
 /// broadcast:
 ///
-///     TV_HOST=… TV_JAR=<a file kept out of the repository> swift test --filter LiveTVTests/testRegistering
+///     TV_HOST=… TV_JAR=<an absolute path git does not track> swift test --filter LiveTVTests/testRegistering
 ///     TV_HOST=… TV_JAR=… TV_PIN=<the four digits> swift test --filter LiveTVTests/testRegistering
 ///
 /// The first run puts the PIN on the screen, where it is to stay until it is typed or runs out. The second
 /// registers, and keeps the client id and the cookie in the jar; neither is printed. With that jar,
 /// `testReadingWhatNeedsTheRegistration` reads the disk and the reservations and says how many there are, not
 /// what they are. The television then lists this client under `TV_NICKNAME` (BD Bridge (test) unless set), to
-/// be taken off its list by hand afterwards.
+/// be taken off its list by hand afterwards. These three say what they found by its kind -- a television, on
+/// or in standby; no answer; an error's code -- and never the television's model or an error as it came,
+/// which can have the address in it.
+///
+/// ## The sitting
+///
+/// The rest are the checks with which the three requests that reserve on a television -- its stations, the
+/// question of what a reservation would stop from recording, the create -- meet a real one, sent by the
+/// app's own client with the owner at the television. They are `TVSitting`'s, where the rules of a check that
+/// writes to somebody's television are written, and `TVSittingTests` rehearses every one of them on the
+/// invented television first. They say counts, statuses, error codes, weekdays and times of day, and never a
+/// title, a station's name, an id of the television's, an address or a cookie.
+///
+/// **Every command is written out whole.** Its variables stand on the command line, in front of
+/// `swift test`, and are never exported: one left set in the shell goes with every `swift test` after it,
+/// the one a commit runs included. Its filter names one test. And every file it names -- `TV_JAR`,
+/// `TV_PICKS`, `TV_LEDGER` -- is an absolute path that git does not track: under `notes/` of this
+/// repository, or outside it. A test given any other path fails before anything is sent or written. The
+/// picks and the ledger say which stations the house receives, and the jar is a key to its television.
+///
+/// **Before the sitting**, the programmes the checks choose from are picked from the recorder's guide into a
+/// file: what a reservation is made of, with no title and no station's name. This sends the television
+/// nothing, and the checks send the recorder nothing. With the television on it can be done a minute before
+/// the first check. Only a sitting that watches a television in standby has it done before the television is
+/// left to go to standby: the recorder is not to be asked anything while that is watched, since what waking
+/// a recorder does to a television it is wired to was never measured.
+///
+///     RECORDER_HOST=… TV_PICKS=<repository>/notes/<a file> \
+///         swift test --filter LiveTVTests/testWritingThePicks
+///
+/// with `TV_PICKS_ALSO=cs:<service id>,bs:<service id>` beside them to name the stations of the last check
+/// but one: a CS station, and a station the television lists and does not receive.
+///
+/// **At the sitting** the television is on and showing a broadcast, its USB disk connected. Before the first
+/// check that makes anything the owner looks at the television's own list of reservations, reads two of its
+/// settings aloud (remote start; whether a pre-shared key is asked for), and sets one viewing reservation
+/// with the remote: for a terrestrial programme that starts on the hour in the evening, a day or more ahead,
+/// with nothing else reserved within three hours of it. The checks know that viewing reservation by its
+/// start and by nothing else, and the owner says it: `TV_REMINDER`, the day and the minute the programme
+/// starts in Japan's time, written as `2026-11-04 21:00`. A check that is about the viewing reservation
+/// does not run unless exactly one is listed that starts within a minute of that.
+///
+/// **Before the first command**, with none of these variables set, the tests are built, in `app/RecorderKit`:
+///
+///     swift build --build-tests
+///
+/// so that no command of the sitting spends on building the time it was given.
+///
+/// Then one check to a command, in the order below, each from `app/RecorderKit`, and **never two commands at
+/// once**: one is begun when the one before it has ended.
+///
+///     TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_REMINDER='…' TV_WRITE=<the test> \
+///         swift test --filter LiveTVTests/<the test>
+///
+/// - `TV_LEDGER` is where what is about to be made is written down before it is sent. It is **one file for
+///   the whole sitting, the same in every command**, and is not there before the first: each check reads in
+///   it what the ones before it left, and the last holds the television's list against it. It keeps when its
+///   first entry was written, and a check that would make something, and the last, fail on one begun more
+///   than a day before: that file is another sitting's. Two commands at once would each write it over what
+///   the other had written in it.
+/// - `TV_WRITE` is leave to make something, and is **the name of the test being run**, as in
+///   `TV_WRITE=testTheSameProgrammeTwice`. Set to anything else, the test is skipped with nothing sent;
+///   without it, or while the television says `standby`, a check that makes something is skipped with
+///   nothing made.
+/// - **Every command that carries `TV_WRITE` is given ten minutes** by whatever runs it, and is not
+///   interrupted. Cut off between a create and its delete, any of them leaves a reservation on the
+///   television and its entry open in the ledger.
+/// - **What a check says** is put out line by line as it says it, and each line is added as well to the end
+///   of a file beside the ledger: the ledger's path with `.said` on it. Where whatever runs the command
+///   shows its output only when the command has ended, that file is where the lines are read while the
+///   check runs (`tail -f`).
+/// - **No command is started in a minute in which one of the household's own recordings begins or ends**,
+///   or would still be running in one. The television's list would not read after the check as it did
+///   before it, and the check would fail for what is no fault of the sitting's.
+///
+/// 1. `testTheStationsAndAPagePastTheEnd`. Makes nothing. To look at, here and in every check below: that
+///    the picture goes on as it was.
+/// 2. `testAWholeWriteWithTheTelevisionOn`. The eight requests of one reservation, made and deleted. To look
+///    at: whether anything shows on the picture as it is made and as it is deleted.
+/// 3. `testARecordingWhereAViewingReservationIs`. A recording of the viewing reservation's programme, made
+///    and deleted. To look at afterwards: that the viewing reservation is still on the television's list.
+/// 4. `testTheSameProgrammeTwice`. The second is to be refused, and one row deleted.
+/// 5. `testTheRepeatsOneAtATime`. Six reservations of one programme, one after another, each left on the
+///    television for `TV_LOOK` seconds (thirty unless set, and never more than 120). It says the weekday and
+///    the time of the programme first, and then each round as it comes, with its code. The six are sent in
+///    this order: the programme's own weekday (`w1` for a Monday's to `w5` for a Friday's), by its name
+///    (`title`), daily (`d`), Monday to Friday (`w15`), Monday to Saturday (`w16`), and the weekday after
+///    the programme's (`w2` to `w6`). To look at, each time, on the television's own list: how the repeat of
+///    the reservation at that time is worded, and on which day it stands. A round the television answers
+///    with an error makes nothing and has no wait, and the next follows at once: which code is on the
+///    television is read from the lines and never counted off. So the lines are followed as they come, in
+///    a terminal or from the `.said` file. **It runs for six times `TV_LOOK` and about ten seconds more**:
+///    over three minutes as it stands. With `TV_LOOK` above 90 that is too near the ten minutes a command
+///    is given, or past them, and it is run in the background. Cut off, it leaves a reservation with a
+///    repeat on the television, which records day after day until it is deleted with the remote, and that
+///    reservation's entry open in the ledger.
+/// 6. `testThreeAtOnce`. Three reservations at one time, twice: the second time beside the viewing
+///    reservation. To look at afterwards: the viewing reservation, as it was.
+/// 7. `testACreateWithACookieNotTaken`. To look at: that no PIN comes up on the screen.
+/// 8. `testTheStationsNamed`. One reservation on each station named with the picks, deleted if it is made.
+///    To look at: what the television shows, if anything, for the station it does not receive.
+/// 9. `testWhatIsLeftAfterwards`. Makes nothing, and fails unless nothing of the sitting is left. **It has
+///    passed only when it says `nothing of the sitting is left`.** A run of it that was skipped -- `TV_WRITE`
+///    still naming another test, a file not named -- looked at nothing: a skip is not a pass, and it is run
+///    again. It fails as well on a ledger that no check has written in: the wrong file, or a sitting that
+///    made nothing. Then the owner deletes the viewing reservation with the remote and looks at the
+///    television's own list once more: nothing on it is the sitting's.
+///
+/// **If the sitting ends early**, after whichever check: `testWhatIsLeftAfterwards` is run all the same,
+/// with the same ledger; then the owner deletes the viewing reservation with the remote, which the
+/// television would otherwise act on at its time, and looks at the television's own list.
+///
+/// **After a check that fails**, whatever it says and whether or not it left an entry open in the ledger,
+/// the owner looks at the television's own list before the next command. A failure may be what the check was
+/// run to find out, and may be something of the sitting left on the television, and what is said does not
+/// always tell the one from the other.
+///
+/// A check that stops on the way says what it left in the ledger, and one that is cut off leaves its entry
+/// open without saying so. The next check then **fails**, and makes nothing, until the owner has seen on the
+/// television's own list that nothing of the sitting is there, deleting it with the remote if it is, and
+/// has set `struck` to `true` on that entry of the ledger by hand. What a check made is listed there as
+/// BD Bridge 確認 or under its programme's own name, on the station and at the start its entry gives (the
+/// start in UTC).
 final class LiveTVTests: XCTestCase {
     func testWhatIsAtTheAddress() async throws {
         let client = try liveClient(MemoryTVCredentials())
         let presence = await client.presence()
-        print("at the address: \(presence)")
-        XCTAssertNotEqual(presence, .nothing)
-        XCTAssertNotEqual(presence, .notATelevision)
-        print("gives a MAC to wake it by: \(try await client.wakeOnLANAddress(timeout: 5) != nil)")
+        print("at the address: \(TVSitting.said(ofWhatAnswers: presence))")
+        switch presence {
+        case .nothing, .notATelevision: XCTFail("no television is at the address")
+        case .standby, .on: break
+        }
+        await byItsKind("the MAC to wake it by") {
+            print("gives a MAC to wake it by: \(try await client.wakeOnLANAddress(timeout: 5) != nil)")
+        }
     }
 
     func testRegistering() async throws {
@@ -42,15 +168,18 @@ final class LiveTVTests: XCTestCase {
         let pin = ProcessInfo.processInfo.environment["TV_PIN"].flatMap { $0.isEmpty ? nil : $0 }
         let nickname = ProcessInfo.processInfo.environment["TV_NICKNAME"] ?? "BD Bridge (test)"
 
-        switch await client.enrol(clientID: clientID, nickname: nickname, pin: pin) {
-        case .pinNeeded:
-            print("the television asked for its PIN: it is on the screen now, and is to stay there")
-            XCTAssertNil(pin, "the PIN given was not taken")
-        case .registered:
-            print("registered: the cookie is in the jar")
-            XCTAssertNotNil(jar.load()?.cookie)
-        case .failed(let why):
-            XCTFail(why)
+        // The two requests the app's `enrol` sends, in its order, and not `enrol` itself: what that hands
+        // back for a failure is a sentence for the app's screen, which can have the address in it.
+        await byItsKind("registering") {
+            _ = try await client.wakeOnLANAddress(timeout: 5)
+            switch try await client.register(clientID: clientID, nickname: nickname, pin: pin) {
+            case .pinNeeded:
+                print("the television asked for its PIN: it is on the screen now, and is to stay there")
+                XCTAssertNil(pin, "the PIN given was not taken")
+            case .registered:
+                print("registered: the cookie is in the jar")
+                XCTAssertNotNil(jar.load()?.cookie)
+            }
         }
     }
 
@@ -58,10 +187,171 @@ final class LiveTVTests: XCTestCase {
         let jar = try liveJar()
         guard jar.load()?.cookie != nil else { throw XCTSkip("Nothing is registered in the jar yet.") }
         let client = try liveClient(jar)
-        let storage = try await client.storage()
-        print("disk to record to: mounted \(storage.mounted)")
-        let rows = try await client.schedules()
-        print("schedules: \(rows.count), of which recordings \(rows.filter { $0.type == "recording" }.count)")
+        await byItsKind("reading what needs the registration") {
+            let storage = try await client.storage()
+            print("disk to record to: mounted \(storage.mounted)")
+            let rows = try await client.schedules()
+            print("schedules: \(rows.count), of which recordings \(rows.filter { $0.type == "recording" }.count)")
+        }
+    }
+
+    /// Sends what `requests` sends, and fails the test by the kind of what went wrong (`TVSitting.said`),
+    /// never with the error as it came: a television's error can carry the address it was sent to, and
+    /// XCTest prints whatever a test throws.
+    private func byItsKind(_ what: String, _ requests: () async throws -> Void) async {
+        do { try await requests() } catch { XCTFail("\(what): \(TVSitting.said(error))") }
+    }
+
+    // MARK: - the sitting
+
+    /// Reads the recorder's guide and sends the television nothing: every terrestrial programme still to
+    /// start, and those of the stations named, by what a reservation of each is made of.
+    func testWritingThePicks() async throws {
+        guard let host = Self.environment("RECORDER_HOST") else {
+            throw XCTSkip("Set RECORDER_HOST to the recorder whose guide the picks are taken from.")
+        }
+        guard let file = try Self.file("TV_PICKS") else {
+            throw XCTSkip("Set TV_PICKS to a file to write the picks to, outside what the repository tracks.")
+        }
+        let named = try (Self.environment("TV_PICKS_ALSO") ?? "").split(separator: ",").map { text in
+            try XCTUnwrap(TVPicks.Channel(String(text)), "TV_PICKS_ALSO is <kind>:<service id>, comma separated")
+        }
+
+        // What goes wrong with the recorder is thrown by its kind: as it comes, it has the address in it.
+        let picks = try await TVPicks.picked(from: RecorderClient(host: host), named: named, after: Date())
+        try picks.write(to: file)
+
+        print("picks: \(picks.programmes.count) programmes on \(Set(picks.programmes.map(\.channel)).count) channels")
+        for (index, channel) in named.enumerated() {
+            let programmes = picks.programmes.filter { $0.channel == channel }.count
+            print("station \(index + 1) of those named: \(programmes) programmes")
+            XCTAssertGreaterThan(programmes, 0, "station \(index + 1) of those named is not in the recorder's guide")
+        }
+        XCTAssertFalse(picks.programmes.isEmpty, "the guide gave no programme to pick")
+    }
+
+    func testTheStationsAndAPagePastTheEnd() async throws {
+        try await sitting { try await $0.theStations() }
+    }
+
+    func testAWholeWriteWithTheTelevisionOn() async throws {
+        try await sitting { try await $0.aWholeWrite() }
+    }
+
+    func testARecordingWhereAViewingReservationIs() async throws {
+        try await sitting { try await $0.aRecordingWhereAViewingReservationIs() }
+    }
+
+    func testTheSameProgrammeTwice() async throws {
+        try await sitting { try await $0.theSameProgrammeTwice() }
+    }
+
+    func testTheRepeatsOneAtATime() async throws {
+        try await sitting { try await $0.theRepeats() }
+    }
+
+    /// One repeat at a time, for an owner who reads the television's own list at their own pace: `TV_REPEAT`
+    /// names it (`weekly`, `title`, `daily`, `weekdays`, `weekdaysAndSaturday`), and the reservation stays on
+    /// the television until a file is put beside the ledger -- the ledger's path with `.looked` on it
+    /// (`touch`) -- or eight minutes have passed, whichever comes first, and is then deleted. It is run in the
+    /// background, since it ends when somebody says so; what it says is read from the `.said` file meanwhile.
+    func testOneRepeatLeftUntilLookedAt() async throws {
+        guard let which = Self.environment("TV_REPEAT") else {
+            throw XCTSkip("Set TV_REPEAT to the repeat to try: one of \(TVSitting.repeatsByName).")
+        }
+        guard let ledger = try Self.file("TV_LEDGER") else { throw XCTSkip("Set TV_LEDGER.") }
+        let looked = ledger.appendingPathExtension("looked")
+        try? FileManager.default.removeItem(at: looked)
+        try await sitting { sitting in
+            try await sitting.oneRepeat(which) {
+                // Never without an end: left to itself the reservation would record day after day.
+                let end = Date().addingTimeInterval(8 * 60)
+                while !FileManager.default.fileExists(atPath: looked.path), Date() < end {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                try? FileManager.default.removeItem(at: looked)
+            }
+        }
+    }
+
+    func testThreeAtOnce() async throws {
+        try await sitting { try await $0.threeAtOnce() }
+    }
+
+    func testACreateWithACookieNotTaken() async throws {
+        // The registered client id with a cookie the television never gave, in a store of its own: nothing
+        // of it reaches the jar, and no cookie this client is answered with would be kept.
+        guard let clientID = try liveJar().load()?.clientID else {
+            throw XCTSkip("Nothing is registered in the jar yet.")
+        }
+        let never = TVCredentials(clientID: clientID, cookie: String(repeating: "0", count: 40))
+        let stranger = try liveClient(MemoryTVCredentials(never))
+        try await sitting { try await $0.aCreateWithACookieNotTaken(sentBy: stranger) }
+    }
+
+    func testTheStationsNamed() async throws {
+        try await sitting { try await $0.theStationsNamed() }
+    }
+
+    func testWhatIsLeftAfterwards() async throws {
+        try await sitting { try await $0.whatIsLeft() }
+    }
+
+    /// Runs one check of the sitting against the television at `TV_HOST`, with the registration in `TV_JAR`,
+    /// the picks in `TV_PICKS`, the ledger in `TV_LEDGER` and the viewing reservation that starts at
+    /// `TV_REMINDER`. There is leave to write only when `TV_WRITE` is the name of the test that called, which
+    /// `#function` gives here; and when it is the name of another, this one is skipped with nothing sent, so
+    /// that a command runs the one check it names whatever its filter lets through.
+    ///
+    /// A check that refuses to run -- no leave, the television in standby, no slot that is empty, no viewing
+    /// reservation named -- is skipped with its reason: it made nothing. Whatever else a check throws fails
+    /// the test, an entry left open in the ledger included: something of the sitting may be on the
+    /// television. What a check says is put out line by line as it is said, and kept in a file beside the
+    /// ledger for whatever runs the command and cannot see it meanwhile (`TVSitting.printer`).
+    private func sitting(_ test: String = #function, _ check: (TVSitting) async throws -> Void) async throws {
+        let leave = Self.environment("TV_WRITE")
+        let mayWrite = TVSitting.mayWrite(leave, running: test)
+        guard leave == nil || mayWrite else {
+            throw XCTSkip("TV_WRITE is not the name of this test: a command of the sitting runs the one it names.")
+        }
+        let jar = try liveJar()
+        let client = try liveClient(jar)
+        guard jar.load()?.cookie != nil else { throw XCTSkip("Nothing is registered in the jar yet.") }
+        guard let ledger = try Self.file("TV_LEDGER") else {
+            throw XCTSkip("Set TV_LEDGER to a file for the sitting's ledger, outside what the repository tracks.")
+        }
+        guard let picks = try Self.file("TV_PICKS") else {
+            throw XCTSkip("Set TV_PICKS to the file testWritingThePicks wrote.")
+        }
+        let reminder = try Self.environment("TV_REMINDER").map { text in
+            try XCTUnwrap(TVSitting.reminderStart(text),
+                          "TV_REMINDER is the start of the viewing reservation in Japan's time, as 2026-11-04 21:00")
+        }
+        let sitting = TVSitting(client: client, picks: try TVPicks.read(picks), ledger: ledger, mayWrite: mayWrite,
+                                reminder: reminder,
+                                look: Self.environment("TV_LOOK").flatMap { TimeInterval($0) } ?? 30,
+                                say: TVSitting.printer(beside: ledger))
+        do {
+            try await check(sitting)
+        } catch let refused as TVSitting.Refused {
+            throw XCTSkip(refused.why)
+        }
+    }
+
+    private static func environment(_ name: String) -> String? {
+        ProcessInfo.processInfo.environment[name].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The file a variable names, or nil when it is not set. A path that is not absolute, or that lies in
+    /// the working tree where git would pick the file up, is refused before anything is read, written or
+    /// sent (`TVSitting.mayKeep`): the test fails, saying which variable and nothing of the path.
+    private static func file(_ name: String) throws -> URL? {
+        guard let path = environment(name) else { return nil }
+        guard TVSitting.mayKeep(at: path) else {
+            throw TVSitting.Stopped(what: "\(name) has to be an absolute path that git does not track: under notes/"
+                                    + " of this repository, or outside it")
+        }
+        return URL(fileURLWithPath: path)
     }
 
     private func liveClient(_ credentials: any TVCredentialStore) throws -> ScalarClient {
@@ -72,10 +362,10 @@ final class LiveTVTests: XCTestCase {
     }
 
     private func liveJar() throws -> FileTVCredentials {
-        guard let path = ProcessInfo.processInfo.environment["TV_JAR"], !path.isEmpty else {
+        guard let file = try Self.file("TV_JAR") else {
             throw XCTSkip("Set TV_JAR to a file to keep the registration in, outside what the repository tracks.")
         }
-        return FileTVCredentials(URL(fileURLWithPath: path))
+        return FileTVCredentials(file)
     }
 }
 

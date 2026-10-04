@@ -345,6 +345,88 @@ public actor ScalarClient {
         _ = try await authenticated("recording", "deleteSchedule", version: "1.1", params: [[row.deletion]])
     }
 
+    /// How many stations a page of the list is asked for: what a television has been seen to give in one
+    /// answer of this version of the method.
+    static let stationsToAPage = 50
+    /// The most pages one list is read for: a thousand stations, more than any kind of broadcast has. A
+    /// television whose pages did not move on with `stIdx` would otherwise be asked for ever.
+    static let stationPages = 20
+
+    /// The stations of one broadcasting type, in the television's order, read a page at a time: a page of
+    /// fifty rows is followed by the one after it, and a shorter one ends the list.
+    ///
+    /// A page asked for past the end of a list is an empty one: a television answered no rows there. So a
+    /// list whose last page is exactly fifty ends on the empty page after it, as any short page ends one,
+    /// and an error is thrown like any other: none is the end of a list.
+    ///
+    /// Any failure on any page throws, and nothing is handed back of the pages read before it: a list cut
+    /// short would say of every station after the cut that the television does not have it. A list that has
+    /// not ended after `stationPages` is not one that was read, and throws as an answer that cannot be read.
+    func stations(of broadcastingType: Int) async throws -> [TVStation] {
+        var stations: [TVStation] = []
+        var index = 0
+        for _ in 0..<Self.stationPages {
+            let page = try await stationPage(of: broadcastingType, from: index)
+            stations += page.stations
+            guard page.rows >= Self.stationsToAPage else { return stations }
+            index += page.rows
+        }
+        throw ScalarError.unreadable(method: "getContentList")
+    }
+
+    /// One page of the stations of a broadcasting type, from the row at `index`: `avContent.getContentList`
+    /// 1.0 with `{source, stIdx, cnt}`, which a television answers in standby. `rows` is how many it sent,
+    /// which is what says whether a page follows: a row that is no station (`TVStation.init`) is left out of
+    /// `stations` and counted all the same. A type the television has no source for has no stations, and
+    /// nothing is asked.
+    func stationPage(of broadcastingType: Int, from index: Int) async throws -> (stations: [TVStation], rows: Int) {
+        guard let source = TVStation.source(of: broadcastingType) else { return ([], 0) }
+        let asked: [String: Any] = ["source": source, "stIdx": index, "cnt": Self.stationsToAPage]
+        let result = try await authenticated("avContent", "getContentList", version: "1.0", params: [asked])
+        guard let rows = (result as? [Any])?.first as? [Any] else {
+            throw ScalarError.unreadable(method: "getContentList")
+        }
+        let stations = rows.compactMap { row in
+            (row as? [String: Any]).flatMap { TVStation($0, broadcastingType: broadcastingType) }
+        }
+        return (stations, rows.count)
+    }
+
+    /// What the television would stop recording if `body` were reserved on it:
+    /// `recording.getConflictScheduleList` 1.0, which changes nothing there. The rows it names, each read as
+    /// a row of the list is (`TVScheduleRow.init`; one here has seven fields) -- and every one of them,
+    /// whatever its type: only recordings have been seen named, and what a reminder named here means is the
+    /// caller's to say. An empty list is nothing lost. An answer that is no list throws, and so does one with
+    /// a row that cannot be read: left out, it would pass for a reservation that costs nobody anything.
+    func wouldPushOut(_ body: TVReservationBody) async throws -> [TVScheduleRow] {
+        let result = try await authenticated("recording", "getConflictScheduleList", version: "1.0",
+                                             params: [body.asking])
+        guard let named = (result as? [Any])?.first as? [Any] else {
+            throw ScalarError.unreadable(method: "getConflictScheduleList")
+        }
+        return try named.map { row in
+            guard let row = (row as? [String: Any]).flatMap({ TVScheduleRow($0) }) else {
+                throw ScalarError.unreadable(method: "getConflictScheduleList")
+            }
+            return row
+        }
+    }
+
+    /// Reserves `body` on the television: `recording.addSchedule` 1.1, the version that follows a programme
+    /// by its id. The answer names no reservation: what was made is read from the list afterwards. The same
+    /// station, start and programme a second time is answered with error 41222, whatever the repeat. Nothing
+    /// is sent a second time for silence: the first may have arrived.
+    ///
+    /// All the answer says is a number, its `annotation`, and that is what is handed back: nil when the
+    /// answer has none. Every create a television has taken answered 0, the one that cost another
+    /// reservation its recording included, so what another number means is not known, and nothing is made
+    /// to depend on it: it is there for whoever sends a create to see what came back.
+    @discardableResult
+    func addSchedule(_ body: TVReservationBody) async throws -> Int? {
+        let result = try await authenticated("recording", "addSchedule", version: "1.1", params: [body.creating])
+        return (result as? [[String: Any]])?.first?["annotation"] as? Int
+    }
+
     // MARK: - plumbing
 
     private func call(_ service: String, _ method: String, version: String, params: [Any] = [],
@@ -381,9 +463,12 @@ public actor ScalarClient {
         }
         let id = nextID
         nextID += 1
+        // The keys in order, at every depth. A dictionary has no order of its own, so without this the bytes
+        // of one request differ from one launch to the next, and what was tried on a television would not be
+        // what is sent to it afterwards.
         let body = try JSONSerialization.data(
             withJSONObject: ["method": method, "id": id, "params": params, "version": version] as [String: Any],
-            options: [.withoutEscapingSlashes])
+            options: [.withoutEscapingSlashes, .sortedKeys])
         let request = HTTPRequest(url: url, method: "POST", headers: headers, body: body,
                                   timeout: timeout ?? Self.timeout)
         let transport = self.transport

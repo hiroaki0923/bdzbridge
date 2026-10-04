@@ -34,7 +34,9 @@ Android 版はないか、という問い合わせを受けての調査です。
   テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
   `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧と削除も
   `TVDriver` の手順で（1 行の読みと、消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文もそこにある。
-  アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。
+  アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。テレビに予約を入れるための 3 つの要求
+  （局の一覧、録れなくなる予約の問い合わせ、作成）も `ScalarClient` にあり、送る中身のテレビ側の綴りは
+  `TVReservation` にある。アプリからはまだ呼ばない。
 
 ## 比べた案
 
@@ -48,13 +50,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-43 ファイル、7,553 行（空行とコメントを含み、`Package.swift` を除く）。テストは 8,599 行。
+44 ファイル、7,966 行（空行とコメントを含み、`Package.swift` を除く）。テストは 11,989 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 2,848 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule |
+| 入出力を持たないロジック | 2,977 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 3,113 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 3,397 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
