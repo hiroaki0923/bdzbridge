@@ -44,6 +44,57 @@ final class DeviceSeamTests: XCTestCase {
         XCTAssertNil(left.last?.problem)
     }
 
+    /// A device with `create` alone is sent what waits by that one request, and each kind of failure is what the
+    /// queue has always made of it. Silence ends the sending there: the row as it was, in no list, and nothing
+    /// sent after it. What turns the request itself down is written on the row, in the device's words. Anything
+    /// else -- the other failures of a device, and an error that is no device's -- leaves the row as it was to
+    /// go next time. After all but silence the next row is still sent.
+    func testEachKindOfFailureIsWhatTheQueueHasAlwaysMadeOfIt() async throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let refusal = "この局は録画できません"
+        let gone = OtherError(failure: .unknownItem)
+        let kinds: [Kind] = [
+            Kind("made", nil, .sent),
+            Kind("silent", OtherError(failure: .silent), .stopped),
+            Kind("busy", OtherError(failure: .busy), .passedOver),
+            Kind("refused", OtherError(failure: .refused(reason: refusal)), .refused(refusal)),
+            Kind("the device cannot", OtherError(failure: .deviceCannot(reason: "録画先がありません")), .passedOver),
+            Kind("needs pairing", OtherError(failure: .needsPairing), .passedOver),
+            Kind("needs power", OtherError(failure: .needsPower), .passedOver),
+            Kind("no such item", gone, .refused(gone.explanation)),
+            Kind("already there", OtherError(failure: .alreadyThere), .passedOver),
+            Kind("an address nothing is sent to", OtherError(failure: .badAddress), .passedOver),
+            Kind("an answer that says nothing", OtherError(failure: .unexpected("読み取れない応答")), .passedOver),
+            Kind("an error that is no device's", NoDevicesError(), .passedOver),
+        ]
+
+        for kind in kinds {
+            let store = try temporaryStore()
+            for (index, title) in ["最初の番組", "次の番組"].enumerated() {
+                try await store.queue(pending(title, eventID: index + 1,
+                                              start: now.addingTimeInterval(Double(index + 1) * 3600)))
+            }
+            let thrown = kind.thrown
+            let device = OtherDevice(creating: { request in
+                if request.title == "最初の番組", let thrown { throw thrown }
+            })
+
+            let outcome = await PendingQueue.flush(client: device, store: store, now: now)
+
+            let left = try await store.pendingReservations()
+            let came = Came(sent: outcome.sent.map(\.request.title),
+                            refused: outcome.refused.map(\.request.title),
+                            reasons: outcome.refused.map(\.problem),
+                            deferred: outcome.deferred.map(\.request.title),
+                            interrupted: outcome.interrupted,
+                            asked: await device.created.map(\.title),
+                            left: left.map(\.request.title),
+                            written: left.map(\.problem))
+            XCTAssertEqual(came, kind.comes, kind.name)
+            XCTAssertTrue(outcome.expired.isEmpty && outcome.held.isEmpty, kind.name)
+        }
+    }
+
     /// A type the device has nothing for is noted, one that fails is passed over with the device's own words,
     /// and silence ends the refresh there.
     func testTheRefreshReadsTheFailureAndNotTheKindOfError() async throws {
@@ -93,6 +144,47 @@ private struct OtherError: DeviceError, Equatable {
         case .refused(let reason), .deviceCannot(let reason), .unexpected(let reason): reason
         default: "テレビが応答しませんでした"
         }
+    }
+}
+
+/// What a device throws that is none of its own failures.
+private struct NoDevicesError: Error {}
+
+/// What sending two waiting rows came to, the first met by one kind of failure: where the queue's outcome puts
+/// each, what the device was asked for, and what is left in the queue with what written on it.
+private struct Came: Equatable {
+    var sent: [String] = []
+    var refused: [String] = []
+    var reasons: [String?] = []
+    var deferred: [String] = []
+    var interrupted = false
+    var asked = ["最初の番組", "次の番組"]
+    var left: [String] = []
+    var written: [String?] = []
+
+    /// Both made: nothing is left.
+    static let sent = Came(sent: ["最初の番組", "次の番組"])
+    /// The first met silence: it is in no list, the second was never asked for, and both wait as they were.
+    static let stopped = Came(interrupted: true, asked: ["最初の番組"], left: ["最初の番組", "次の番組"],
+                              written: [nil, nil])
+    /// The first left as it was, and the second made.
+    static let passedOver = Came(sent: ["次の番組"], deferred: ["最初の番組"], left: ["最初の番組"], written: [nil])
+    /// The first kept with the reason on it, and the second made.
+    static func refused(_ reason: String) -> Came {
+        Came(sent: ["次の番組"], refused: ["最初の番組"], reasons: [reason], left: ["最初の番組"], written: [reason])
+    }
+}
+
+/// One kind of failure, and what the queue makes of it.
+private struct Kind {
+    var name: String
+    var thrown: (any Error & Sendable)?
+    var comes: Came
+
+    init(_ name: String, _ thrown: (any Error & Sendable)?, _ comes: Came) {
+        self.name = name
+        self.thrown = thrown
+        self.comes = comes
     }
 }
 
