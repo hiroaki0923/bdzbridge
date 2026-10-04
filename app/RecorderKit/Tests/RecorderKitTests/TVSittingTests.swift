@@ -675,11 +675,12 @@ final class TVSittingTests: XCTestCase {
         }
     }
 
-    /// After silence on a create nothing is sent again: the list is read, once, and a row of the check's
-    /// own found there is deleted. Whether the create arrived or not, the check ends and the television is
-    /// as it was. Where the list showed the row, its entry is struck out with its delete; where it showed
-    /// nothing, the entry stays open, since a television may carry out afterwards a create it never
-    /// answered, and the next check makes nothing. In the rounds of the repeats the round after is not begun.
+    /// After silence on a create nothing is sent again: the list is read, once, a row of the check's own
+    /// found there is deleted, and the list is read once more to see it gone. Whether the create arrived or
+    /// not, the check ends and the television is as it was. Where the list showed the row, its entry is
+    /// struck out with its delete; where it showed nothing, the entry stays open, since a television may
+    /// carry out afterwards a create it never answered, and the next check makes nothing. In the rounds of
+    /// the repeats the round after is not begun.
     func testAfterSilenceOnACreateNothingIsSentAgain() async throws {
         let head = ["getPowerStatus", "getStorageList", "getScheduleList", "getContentList", "getConflictScheduleList"]
         let silence = "a create met no answer, and nothing is sent again; rows it made: "
@@ -1043,7 +1044,7 @@ final class TVSittingTests: XCTestCase {
     /// say it made one. After an entry left open the next check makes nothing.
     ///
     /// Each ends with the television asked what it says it is, but for the two whose create met no answer:
-    /// after silence nothing is sent but the list and the delete of the check's own row.
+    /// after silence nothing is sent but the list, the delete of the check's own row and the list once more.
     func testARoundThatGoesWrongLeavesWhatACreateThatFailedLeaves() async throws {
         let elsewhere = Self.owned("recording.46", on: 3, "サンプル名画座", Self.at(7, 21), 5400, programme: 50121)
         let theirs = Self.owned("recording.46", on: 1, "サンプル夜話", Self.at(5, 20), programme: 50110)

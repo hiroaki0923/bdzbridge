@@ -272,8 +272,9 @@ actor TVLine: HTTPTransport {
 /// - **A ledger is one sitting's.** It says when its first entry was written, and beside one begun more than
 ///   a day ago nothing is made. An entry is struck out only while it is in the file as the check wrote it.
 /// - **After silence on a create nothing is sent again.** The list is read, once; a row of the check's own
-///   found there is deleted, and the check ends. With nothing found the entry stays open: a television may
-///   carry a create out after the list was read, and somebody has to look.
+///   found there is deleted, and the list read once more to see it gone; and the check ends. With nothing
+///   found the entry stays open: a television may carry a create out after the list was read, and somebody
+///   has to look.
 /// - **A slot is empty before anything is put in it** (`isFree`): twenty hours or more ahead, and nothing of
 ///   the television's list within three hours either side.
 /// - **Before every create the television is asked what the reservation would stop from recording**, by the
