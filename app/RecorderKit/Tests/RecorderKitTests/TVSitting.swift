@@ -799,24 +799,8 @@ actor TVSitting {
     }
 
     /// One create, sent once, by `sender` or by the sitting's own client, with the leave the question before
-    /// it gave: the ledger first, then the request, then the list, whatever the answer and after none.
-    ///
-    /// The check's own from here on are the recordings whose ids the list read before the create did not
-    /// have and that are on the channel the create was sent for. A recording that is new and on another
-    /// channel was set by somebody else meanwhile, with the remote or from another device: it is not
-    /// touched, the entry is left open so that somebody looks, and the check ends, its own row taken off as
-    /// it does.
-    ///
-    /// A create answered as a reservation already there was measured to make nothing, so no row is the
-    /// check's own after it. A recording that is new then is somebody else's as well, on the channel or off
-    /// it: most likely theirs for the very programme, set a moment before, which is what the television was
-    /// answering about.
-    ///
-    /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
-    /// create was taken and shows nothing in the list is left open, and the check ends: something may be
-    /// there that the list did not show. After silence the check ends as well: nothing is sent again, what
-    /// the list showed of the create is taken off as the check ends, and where it showed nothing the entry
-    /// is left open, since a television may carry out afterwards a create it never answered.
+    /// it gave: the ledger first, then the request, then the list, whatever the answer and after none
+    /// (`made`).
     private func create(_ leave: Leave, of pick: TVPick, by sender: ScalarClient? = nil) async throws -> Created {
         var listed = last
         if listed == nil { listed = try await list() }
@@ -826,41 +810,84 @@ actor TVSitting {
         var annotation: Int?
         sent += 1
         do { annotation = try await (sender ?? client).addSchedule(leave.body) } catch { failure = error }
-        let answer = failure.map(Self.said(_:)) ?? Self.taken(annotation)
+        let kind = (failure as? ScalarError)?.failure
+        let sending = Sending(a: "a create", the: "the create",
+                              answer: failure.map(Self.said(_:)) ?? Self.taken(annotation),
+                              madeNothing: kind == .alreadyThere, mayBeTaken: failure == nil, silent: kind == .silent)
+        let rows = try await made(by: sending, noted: entry, of: pick, before: before)
+        return Created(failure: failure, annotation: annotation, rows: rows)
+    }
+
+    /// Something sent that may have made a reservation, as far as its answer goes: a create, or a round of
+    /// the queue's, which may have sent one. What the list read after it is held against (`made`).
+    private struct Sending {
+        /// What it is called where it is said, with `a` and with `the`: a create, the create.
+        var a: String
+        var the: String
+        /// What it was answered, as that is said.
+        var answer: String
+        /// Whether its answer says that nothing was made for it: a reservation already there.
+        var madeNothing: Bool
+        /// Whether a create may have been taken, as far as its answer says.
+        var mayBeTaken: Bool
+        /// Whether a create met no answer.
+        var silent: Bool
+    }
+
+    /// The list after something was sent that may have made a reservation, read once whatever was answered
+    /// and after no answer, and the rows of it that are the check's own from here on.
+    ///
+    /// Those are the recordings whose ids the list read before did not have (`before`) and that are on the
+    /// channel the reservation was sent for. A recording that is new and on another channel was set by
+    /// somebody else meanwhile, with the remote or from another device: it is not touched, the entry is
+    /// left open so that somebody looks, and the check ends, its own row taken off as it does.
+    ///
+    /// A create answered as a reservation already there was measured to make nothing, so no row is the
+    /// check's own after it. A recording that is new then is somebody else's as well, on the channel or off
+    /// it: most likely theirs for the very programme, set a moment before, which is what the television was
+    /// answering about.
+    ///
+    /// An entry whose create was answered with an error and made nothing is struck out at once. One whose
+    /// create was taken, or may have been, and shows nothing in the list is left open, and the check ends:
+    /// something may be there that the list did not show. After silence the check ends as well: nothing is
+    /// sent again, what the list showed of the create is taken off as the check ends, and where it showed
+    /// nothing the entry is left open, since a television may carry out afterwards a create it never
+    /// answered.
+    private func made(by sending: Sending, noted entry: Int, of pick: TVPick,
+                      before: Set<String>) async throws -> [TVScheduleRow] {
         let after: [TVScheduleRow]
         do {
             after = try await list()
         } catch {
-            throw Stopped(what: "\(Self.told(error)) after a create (\(answer)):"
+            throw Stopped(what: "\(Self.told(error)) after \(sending.a) (\(sending.answer)):"
                           + " what it made is not known, and its entry is left in the ledger")
         }
         let new = after.filter { $0.type == "recording" && !before.contains($0.id) }
-        let madeNothing = (failure as? ScalarError)?.failure == .alreadyThere
-        let rows = madeNothing ? [] : new.filter { row in
+        let rows = sending.madeNothing ? [] : new.filter { row in
             TVScheduleRow.channel(of: row.uri).map { $0 == (pick.broadcastingType, pick.serviceID) } == true
         }
         mine += rows.map { ($0, entry) }
         guard rows.count == new.count else {
             keptOpen.insert(entry)
-            throw Stopped(what: "recordings new in the list that the create did not make: \(new.count - rows.count)."
-                          + " They are on another channel than it was sent for, or it was answered as already"
-                          + " there and made nothing: they are not the check's and are left alone; the create"
-                          + " (\(answer)) made rows of its own: \(rows.count), and its entry is left in the ledger")
+            throw Stopped(what: "recordings new in the list that \(sending.the) did not make:"
+                          + " \(new.count - rows.count). They are on another channel than it was sent for, or it"
+                          + " was answered as already there and made nothing: they are not the check's and are"
+                          + " left alone; \(sending.the) (\(sending.answer)) made rows of its own: \(rows.count),"
+                          + " and its entry is left in the ledger")
         }
-        let silent = (failure as? ScalarError)?.failure == .silent
-        if rows.isEmpty {
-            guard failure != nil else {
-                throw Stopped(what: "a create (\(answer)) shows nothing new in the list: its entry is left in the"
-                              + " ledger")
+        if rows.isEmpty, !sending.silent {
+            guard !sending.mayBeTaken else {
+                throw Stopped(what: "\(sending.a) (\(sending.answer)) shows nothing new in the list: its entry is"
+                              + " left in the ledger")
             }
-            if !silent { try strike(entry) }
+            try strike(entry)
         }
-        if silent {
-            throw Stopped(what: "a create met no answer, and nothing is sent again; rows it made: \(rows.count)"
+        if sending.silent {
+            throw Stopped(what: "\(sending.a) met no answer, and nothing is sent again; rows it made: \(rows.count)"
                           + (rows.isEmpty ? ". The television may yet carry it out: its entry is left in the"
                               + " ledger" : ""))
         }
-        return Created(failure: failure, annotation: annotation, rows: rows)
+        return rows
     }
 
     /// Takes off what the check has made and not yet seen gone: each row as it was last read, each delete
