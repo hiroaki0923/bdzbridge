@@ -548,7 +548,9 @@ extension ScalarClient {
     /// that the television cannot receive it: all that is known is that its list has no such station.
     static let stationNotListed = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
     /// What the reason for a reservation that would stop others from recording begins with, whichever they
-    /// are: a row held for that is known by it, so it is not to change.
+    /// are: a row held for that is known by it, so it is not to change. A reminder to watch named under it
+    /// would read as a reservation that "is not recorded", which a reminder never is: what it would lose is
+    /// the viewing. No television has named one.
     static let wouldStop = "この予約を入れると、次の予約は録画されません"
     /// What that reason ends with: how the reader says to make the reservation all the same.
     static let sendAgainToMakeIt = "「もう一度送る」を選ぶと、それでも予約します。"
@@ -634,9 +636,13 @@ extension ScalarClient {
     }
 
     /// Said when making a reservation left others marked that were not marked before, and that the television
-    /// had not named when it was asked.
+    /// had not named when it was asked. With a recording among them it says what the mark may cost, as
+    /// `madeAndMarked` says of the row made: a recording marked `fullyOverlapped` was seen to be the one
+    /// that loses. With reminders to watch alone it says only that they share their time: a reminder
+    /// records nothing, so no recording is lost with it.
     static func leftMarked(_ title: String, _ rows: [TVScheduleRow]) -> String {
-        "「\(title)」を登録したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と重なりました"
+        let cost = rows.contains { $0.type == "recording" } ? "重なり、録画されないことがあります" : "重なりました"
+        return "「\(title)」を登録したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と\(cost)"
     }
 
     /// What making the reservation titled `title` did beyond its own row, as a sentence for the reader, or

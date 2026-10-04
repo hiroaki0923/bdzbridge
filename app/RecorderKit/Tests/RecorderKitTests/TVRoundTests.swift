@@ -730,8 +730,9 @@ final class TVRoundTests: XCTestCase {
     /// What a create did beyond its own row is read from the list before it and the list after: that the row
     /// made is itself marked as overlapping, whatever the mark; and each row that was not marked before and
     /// is now, by its name -- a reminder as a viewing reservation -- but for the rows the television named
-    /// when it was asked, which the reader consented to. A row marked already, one that was not in the list
-    /// before, and one whose mark has gone say nothing.
+    /// when it was asked, which the reader consented to. With a recording among those rows the sentence says
+    /// that it may not be recorded; with reminders alone, only that they overlap. A row marked already, one
+    /// that was not in the list before, and one whose mark has gone say nothing.
     func testWhatACreateDidBeyondItsRowIsReadFromTheListBeforeAndAfter() {
         func listed(_ id: String, _ title: String, _ overlap: String?, at start: String = "2026-11-01T21:00:00+0900",
                     programme: String? = nil) -> TVScheduleRow {
@@ -746,7 +747,10 @@ final class TVRoundTests: XCTestCase {
             listed("reminder.9", "サンプル音楽館", overlap, at: "2026-11-01T20:59:59+0900")
         }
         let marked = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
-        func cost(_ names: String) -> String { "「サンプル劇場」を登録したため、\(names)がほかの予約と重なりました" }
+        func overlapped(_ names: String) -> String { "「サンプル劇場」を登録したため、\(names)がほかの予約と重なりました" }
+        func mayLose(_ names: String) -> String {
+            "「サンプル劇場」を登録したため、\(names)がほかの予約と重なり、録画されないことがあります"
+        }
         let recording = "「サンプル紀行」（サンプル放送2 11/1 21:00）"
         let viewing = "視聴予約「サンプル音楽館」（サンプル放送2 11/1 21:00）"
 
@@ -755,20 +759,25 @@ final class TVRoundTests: XCTestCase {
             ("the row made, losing", [], [made(lost)], [], marked),
             ("the row made, overlapped in part", [], [made(part)], [], marked),
             ("the row made, saying nothing of its overlap", [], [made(nil)], [], nil),
-            ("a recording marked that was not named", [other(clear)], [made(clear), other(lost)], [], cost(recording)),
+            ("a recording marked that was not named", [other(clear)], [made(clear), other(lost)], [],
+             mayLose(recording)),
             ("a recording marked that said nothing before", [other(nil)], [made(clear), other(lost)], [],
-             cost(recording)),
+             mayLose(recording)),
             ("a recording marked that was named", [other(clear)], [made(clear), other(lost)], [other(clear)], nil),
             ("a recording that was marked already", [other(lost)], [made(clear), other(lost)], [], nil),
             ("a recording that was not in the list before", [], [made(clear), other(lost)], [], nil),
             ("a recording whose mark has gone", [other(lost)], [made(clear), other(clear)], [], nil),
-            ("a reminder marked", [reminder(clear)], [made(clear), reminder(part)], [], cost(viewing)),
-            ("both marked, one of them named", [other(clear), reminder(clear)],
-             [made(clear), other(lost), reminder(part)], [other(clear)], cost(viewing)),
+            ("a reminder marked", [reminder(clear)], [made(clear), reminder(part)], [], overlapped(viewing)),
+            ("both marked, the recording named", [other(clear), reminder(clear)],
+             [made(clear), other(lost), reminder(part)], [other(clear)], overlapped(viewing)),
+            ("both marked, the reminder named", [other(clear), reminder(clear)],
+             [made(clear), other(lost), reminder(part)], [reminder(clear)], mayLose(recording)),
             ("both marked, neither named", [other(clear), reminder(clear)],
-             [made(clear), other(lost), reminder(part)], [], cost(recording + "、" + viewing)),
+             [made(clear), other(lost), reminder(part)], [], mayLose(recording + "、" + viewing)),
+            ("a reminder and then a recording marked", [reminder(clear), other(clear)],
+             [made(clear), reminder(part), other(part)], [], mayLose(viewing + "、" + recording)),
             ("the row made and another", [reminder(clear)], [made(lost), reminder(part)], [],
-             marked + "。" + cost(viewing)),
+             marked + "。" + overlapped(viewing)),
         ]
         for (name, before, after, named, expected) in cases {
             XCTAssertEqual(ScalarClient.remark(on: "サンプル劇場", made: after[0], before: before, after: after,
