@@ -10,6 +10,10 @@ import SwiftUI
 /// delete is sent to the device that holds the row (`Reservation.device`), before anything else is done. So is
 /// a waiting reservation the reader asks to have sent again, to the device it waits for
 /// (`PendingReservation.target`).
+///
+/// Making one is the same from a screen whichever device it is for: where a reservation of a programme can
+/// still go (`destinations(for:)`), and one entry that reserves on the device named and on no other, and
+/// answers in the one value both devices give (`reserve(_:on:quality:repeating:)`).
 extension AppModel {
     func loadReservations() async {
         await start()
@@ -158,6 +162,36 @@ extension AppModel {
         return pendingByProgram[key]
     }
 
+    /// The reservation of `program` waiting for `device`, if there is one. One programme can wait for both
+    /// devices, a row for each: `pending(for:)` stays the first of them, which is all the guide's mark
+    /// needs.
+    func pending(for program: GuideProgramRow, on device: DeviceSlot) -> PendingReservation? {
+        guard let key = Self.key(program) else { return nil }
+        return Self.byProgram(pending.filter { $0.target == device })[key]
+    }
+
+    /// Where a reservation can be made: the recorder alone until a television is saved, which it never is
+    /// in the demo (`makeTVLink`); both with both; and the television alone where a television is saved
+    /// and no recorder is.
+    var destinations: [DeviceSlot] {
+        tv == nil ? [.recorder] : host.isEmpty ? [.tv] : [.recorder, .tv]
+    }
+
+    /// The devices a new reservation of `program` can still go to: each of `destinations` that neither
+    /// holds the programme nor has a reservation of it waiting, where a second would be the same one again
+    /// or replace the row that waits. And a television only while its driver takes the programme
+    /// (`TVDriver.whyNot`): one that has begun is not sent to a television, so a screen that offers what
+    /// is listed here offers nothing `reserve` turns away at the television's door. The recorder is listed
+    /// whatever the programme's time, as it has always been offered one on air; that a programme which is
+    /// over is offered nowhere is the sheet's own check, as it was.
+    func destinations(for program: GuideProgramRow) -> [DeviceSlot] {
+        let holding = reservations(for: program).map(\.device)
+        return destinations.filter { device in
+            !holding.contains(device) && pending(for: program, on: device) == nil
+                && (device != .tv || TVDriver.whyNot(program) == nil)
+        }
+    }
+
     private static func key(_ program: GuideProgramRow) -> String? {
         Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
     }
@@ -202,6 +236,38 @@ extension AppModel {
             return nil
         }
     }
+
+    /// What the programme's sheet asks: a reservation of `program` on `device`, and what it came to, in the
+    /// one value both devices answer with (`Reserved`). It goes to the device named and to no other.
+    ///
+    /// A television's is its host's, and is handed over before anything else: nothing below is for it,
+    /// whatever state the recorder is in. The recorder is asked nothing on its account, not its check,
+    /// and neither `problem` nor `queued` is touched. A television records in its one mode
+    /// (`TVDriver.recordsIn`), so `quality` is not read. With no television in play, as in the demo,
+    /// nothing is kept and nothing sent.
+    ///
+    /// The recorder's is `reserve(_:quality:repeating:)` as it stands. Its answer and its two side channels
+    /// are read here into that value: made; kept, with the sentence for that, and `queued` cleared, which
+    /// is set for a screen to say once that the reservation waits, as the result now has; anything else
+    /// not done, with the recorder's line.
+    func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
+                 repeating: String) async -> Reserved {
+        if device == .tv {
+            await start()
+            return await tvHost?.reserve(program, repeating: repeating) ?? .notDone(TVDriver.notConnected)
+        }
+        guard await reserve(program, quality: quality, repeating: repeating) else {
+            return .notDone(problem ?? "レコーダーがエラーを返しました")
+        }
+        guard let kept = queued else { return .made(saying: nil) }
+        queued = nil
+        // The row as the phone keeps it, to the second: the row that waits, as a television's is handed back.
+        return .waiting(pending.first { $0.id == kept.id } ?? kept, saying: Self.keptForTheRecorder)
+    }
+
+    /// Said of a reservation that went to the queue because the recorder was not there.
+    static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
+        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
 
     /// Writes to the recorder: after this the box really will record the programme.
     ///
@@ -293,6 +359,21 @@ extension AppModel {
     func deleteWaiting(_ waiting: PendingReservation) async {
         guard !(waiting.target == .tv && isBusy(for: .tv)) else { return }
         await removePending(waiting)
+    }
+
+    /// ［キャンセル］ at the question a screen asks before a reservation that would stop others from
+    /// recording is made all the same (`Reserved.wouldStop`). Nothing is made either way, and what becomes
+    /// of the row goes by where the question came from. After a reservation the reader has just asked for
+    /// (`askedForJustNow`) the row is taken off the phone: it is there only because a reservation is kept
+    /// before the television is asked anything, and a no that left it waiting in red would not be a no. A
+    /// row that was waiting before, sent again from where it is shown, is left as it was, with its reason:
+    /// not making it now is not asking for it to be deleted.
+    ///
+    /// Not held back by the television's work, as the tab's delete of a waiting row is (`deleteWaiting`):
+    /// the row carries its reason, and no sending makes such a row without the consent declined here.
+    func decline(_ held: PendingReservation, askedForJustNow: Bool) async {
+        guard askedForJustNow else { return }
+        await removePending(held)
     }
 
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
