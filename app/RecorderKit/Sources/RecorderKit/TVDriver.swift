@@ -23,9 +23,9 @@ public final class TVFacts {
 /// there is one -- and renews the cookie when it is past half its life.
 ///
 /// What is asked of a television after its attach is here as well (`reservations`, `refreshReservations`,
-/// `cancel`, `update`, `sendWhatWaits`, `reserve`): the steps, what each can come to, and the sentence said
-/// for it, through the link this is the driver of and that link's host. It is asked of the driver alone,
-/// which is handed no link: with its link gone nothing is sent. The app keeps what comes back.
+/// `cancel`, `update`, `sendWhatWaits`, `reserve`, `resend`): the steps, what each can come to, and the
+/// sentence said for it, through the link this is the driver of and that link's host. It is asked of the
+/// driver alone, which is handed no link: with its link gone nothing is sent. The app keeps what comes back.
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
@@ -558,6 +558,65 @@ public final class TVDriver: LinkDriver {
             return ScalarClient.shortfall(of: held, for: row.request).map { .notDone($0) } ?? .made(saying: nil)
         }
         return .notDone(row.request.end < now ? Self.programmeIsOver : Self.couldNotBeConfirmed)
+    }
+
+    // MARK: - sending a waiting row again
+
+    /// Sends a row waiting for the television again, as the reader asked on that row. What its round came
+    /// to, for the host to say -- nil when none ran -- and the television's list where one was read
+    /// afterwards, for the caller to keep, as `reserve` hands it back.
+    ///
+    /// A row that is not the television's is refused before anything else, as `cancel` refuses another
+    /// device's reservation: nothing is read, sent, written or said for it. With the link or the cache gone
+    /// any row is refused the same way. Nothing is said at this door: the host is handed no sentence for it
+    /// (`Reserved`).
+    ///
+    /// The row is read again from the queue, since the one handed in is the row as a screen drew it. One
+    /// that has gone is left at that. What becomes of the reason goes by the reason the queue has now:
+    ///
+    /// - The reason for what the reservation would stop from recording stays on the row, and sending the
+    ///   row again is the reader's consent to it: to that sentence. What is handed to the queue is the
+    ///   sentence on the row the reader pressed, which is held there against the reason the row carries in
+    ///   the turn it is sent, and by the television against what it names then (`ScalarClient.send`). Where
+    ///   the queue's reason is already another than the one pressed, nothing is sent and nothing changed:
+    ///   the reader has not seen what they would be consenting to, and the host reads the queue again.
+    /// - Any other reason is taken off, so that the row goes with the rest from now on. No consent is
+    ///   handed in for such a row, whatever a sending writes on it next.
+    ///
+    /// A television that cannot be asked is connected to: the reader asked. That connect's attach sends
+    /// what waits, a row just freed with it, and this ends with the connect, as sending a recorder's row
+    /// again does. An attach sends nothing that is held for what it would stop. Such a row is sent from
+    /// here once the connect has made the television one that can be asked, and otherwise stays held.
+    ///
+    /// A consent is for one round. A row that went in with one and that the round left unsettled -- passed
+    /// over, or the round stopped before the television had answered about it -- has its reason taken off.
+    /// Kept, the reason would hold the row back from every later sending, while what is said of such a row
+    /// is that it goes by itself: after silence at its create, that the next sending looks for it in the
+    /// television's list. It is then asked about afresh, with no consent. A row the round held with a
+    /// reason written anew keeps that reason, and so does one whose consent no longer stood in its turn.
+    public func resend(_ waiting: PendingReservation) async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
+        guard waiting.target == ScalarClient.slot, let link, let store = link.owner?.cache else { return (nil, nil) }
+        guard let row = (try? await store.pendingReservations())?.first(where: { $0.id == waiting.id }) else {
+            return (nil, nil)
+        }
+        var consent: String?
+        if let reason = row.problem, ScalarClient.holdsForWhatItWouldStop(reason) {
+            guard reason == waiting.problem else { return (nil, nil) }
+            // The sentence the reader pressed on, not the one just read: what a consent is to.
+            consent = waiting.problem
+        } else if row.problem != nil {
+            try? await store.setPendingProblem(row.id, nil)
+        }
+        if !canBeAsked(on: link) {
+            await link.connect()
+            guard consent != nil else { return (nil, nil) }
+        }
+        let sent = await sendOne(row, consentingTo: consent, under: Self.sendingLine, on: link, from: store)
+        if consent != nil, let round = sent.round,
+           round.stopped != nil || round.deferred.contains(where: { $0.id == row.id }) {
+            try? await store.setPendingProblem(row.id, nil)
+        }
+        return sent
     }
 
     // MARK: - the check before an operation

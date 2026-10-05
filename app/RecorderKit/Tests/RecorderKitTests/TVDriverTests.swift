@@ -5,7 +5,7 @@ import XCTest
 /// A television on a link: attached without being woken, told from another by the MAC it wakes on, asked for a
 /// registration when it has none that works, and given a new cookie when the one in hand is past half its life.
 /// And what is asked of it after the attach, of its driver alone: its reservations read, one deleted, a change
-/// turned down, the list pulled down, what waits sent, and a programme reserved.
+/// turned down, the list pulled down, what waits sent, a programme reserved, and a waiting row sent again.
 @MainActor
 final class TVDriverTests: XCTestCase {
     /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
@@ -1433,6 +1433,223 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(silent.sendings.came.last??.alreadyThere, kept)
         expectEqual(try await silent.store.pendingReservations(), [])
         expectEqual(await silent.television.schedules.map(\.eventId), [50105])
+    }
+
+    // MARK: - sending a waiting row again
+
+    /// What sending a row again came to and left: the round and the list handed back, the list by its ids;
+    /// what the television was asked for it; what still waits in the queue; what the television holds, each
+    /// by its id and its overlap; the lines put up for it; and the connects made.
+    private struct Resent: Equatable {
+        var round: PendingQueue.Outcome?
+        var listed: [String]?
+        var asked: [String]
+        var left: [PendingReservation]
+        var holds: [String]
+        var lines: [String] = []
+        var connects = 0
+    }
+
+    /// A film's row, and the two recordings a television holds at its time, so that a third there, which
+    /// the row is, would cost the one made first its recording: what the television holds while nothing is
+    /// made, and once the row is. `clashing` is the row held with the reason that names that recording, as
+    /// the television would name it now, and `stale` the row held with a reason that names the other.
+    private struct Clash {
+        let film: PendingReservation, clashing: PendingReservation, stale: PendingReservation
+        let holding: [DemoTV.Schedule]
+        let untouched = ["recording.21 notOverlapped", "recording.22 notOverlapped"]
+        let stopped = ["recording.21 fullyOverlapped", "recording.22 notOverlapped", "recording.23 notOverlapped"]
+        let listed = ["recording.23", "recording.22", "recording.21"]
+    }
+
+    private func clash() -> Clash {
+        let film = waiting("サンプル映画", 50105)
+        let holding = [
+            DemoTV.Schedule(id: "recording.21", serviceID: 1032, station: "サンプル放送", title: "サンプル寄席",
+                            start: film.request.start),
+            DemoTV.Schedule(id: "recording.22", serviceID: 1040, station: "サンプル放送2", title: "サンプル音楽館",
+                            start: film.request.start),
+        ]
+        var clashing = film, stale = film
+        clashing.problem = ScalarClient.wouldStop(naming: [holding[0].row])
+        stale.problem = ScalarClient.wouldStop(naming: [holding[1].row])
+        return Clash(film: film, clashing: clashing, stale: stale, holding: holding)
+    }
+
+    /// Connected to a television that holds `holding`, and then with `rows` waiting: queued once the attach
+    /// is over, whose own sending would have taken them. With `givenUp` it has been silent to a check since,
+    /// so it is given up on, and answers again unless `silent`.
+    private func resendBench(_ rows: [PendingReservation], holding: [DemoTV.Schedule] = [], givenUp: Bool = false,
+                             silent: Bool = false) async throws -> QueueBench {
+        let bench = try await attachedQueueBench()
+        await bench.television.put(holding)
+        for row in rows { try await bench.store.queue(row) }
+        guard givenUp else { return bench }
+        await bench.television.goSilent()
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        await bench.television.goSilent(silent)
+        XCTAssertTrue(bench.link.session.gaveUp)
+        return bench
+    }
+
+    /// Sends `pressed` again on `bench`, and reads what that came to and left. No line is left up by it,
+    /// and no packet is sent for it.
+    private func resend(_ pressed: PendingReservation, on bench: QueueBench) async throws -> Resent {
+        let asked = await bench.gate.asked.count, begun = bench.world.begun.count
+        let tries = bench.link.session.link.tries
+        let (round, list) = await bench.driver.resend(pressed)
+        XCTAssertNil(bench.world.line, "a line was left up")
+        XCTAssertEqual(bench.world.count("packet"), 0, "a packet was sent to a television")
+        return Resent(round: round, listed: list?.map(\.id), asked: Array(await bench.gate.asked.dropFirst(asked)),
+                      left: try await bench.store.pendingReservations(),
+                      holds: await bench.television.schedules.map { "\($0.id) \($0.overlapStatus)" },
+                      lines: Array(bench.world.begun.dropFirst(begun)), connects: bench.link.session.link.tries - tries)
+    }
+
+    /// A row sent again, each on a television of its own.
+    ///
+    /// A row that waits for the recorder is none of this driver's: nothing is asked, read or written for
+    /// it, its reason stays, and the line of what went wrong is as it was. Nor is anything asked for a row
+    /// that is no longer in the queue. A row of the television's with a reason the television gave it has
+    /// the reason taken off and is made by a round for that one row, under the line for what waits: the six
+    /// requests of a round and the read of the list, which is handed back. The rows beside it wait as they
+    /// were, the one with a reason and the one without.
+    ///
+    /// A row held for what it would stop from recording keeps that reason, which is what the reader consents
+    /// to by sending it again. The television is asked the question again, and where it names what the
+    /// reason names the create goes and the recording named loses. Where it names another recording, nothing
+    /// is made: the row is held with the reason that names that one. And where the reason in the queue is no
+    /// longer the one on the row the reader pressed, nothing is asked and nothing changes.
+    ///
+    /// A television given up on is connected to, once. A row whose reason was taken off goes with that
+    /// connect's own sending, and nothing follows the connect -- not where that sending found the row would
+    /// stop a recording and held it for that, which the reader has not been asked about. A row held for
+    /// what it would stop is not sent by an attach: it is sent after the connect, with its consent, when
+    /// the television answers again, and stays held with its reason when it does not.
+    func testWhatSendingARowAgainSendsAndLeaves() async throws {
+        let sending = "テレビに送信待ちの予約を登録中", connecting = TVDriver.connectingLine
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
+        var turnedDown = film
+        turnedDown.problem = "この局は録画できません"
+        let made = ["recording.1 notOverlapped"], question = Array(Self.round.prefix(4))
+
+        let recorders = waiting("サンプル紀行", 50102, reason: turnedDown.problem, for: .recorder)
+        let door = try await resendBench([recorders])
+        door.world.problem = Self.left
+        expectEqual(try await resend(recorders, on: door), Resent(asked: [], left: [recorders], holds: []),
+                    "another device's row")
+        XCTAssertEqual(door.world.problem, Self.left, "something was said for another device's row")
+        expectEqual(try await resend(turnedDown, on: door), Resent(asked: [], left: [recorders], holds: []),
+                    "a row that no longer waits")
+
+        let held = waiting("サンプル劇場", 50101, in: 3, reason: turnedDown.problem)
+        let unmarked = waiting("サンプル天気", 50103, in: 4)
+        let freed = try await resendBench([turnedDown, held, unmarked])
+        expectEqual(try await resend(turnedDown, on: freed),
+                    Resent(round: .init(slot: .tv, sent: [film]), listed: ["recording.1"],
+                           asked: Self.round + [Self.read], left: [held, unmarked], holds: made, lines: [sending]),
+                    "a reason the television gave")
+
+        let consented = try await resendBench([clashing], holding: holding)
+        expectEqual(try await resend(clashing, on: consented),
+                    Resent(round: .init(slot: .tv, sent: [clashing]), listed: clash.listed,
+                           asked: Self.round + [Self.read], left: [], holds: clash.stopped, lines: [sending]),
+                    "held for what the television names now")
+
+        let renamed = try await resendBench([clash.stale], holding: holding)
+        expectEqual(try await resend(clash.stale, on: renamed),
+                    Resent(round: .init(slot: .tv, refused: [clashing]), asked: question, left: [clashing],
+                           holds: clash.untouched, lines: [sending]),
+                    "held for another recording than the television names now")
+
+        let unseen = try await resendBench([clashing], holding: holding)
+        expectEqual(try await resend(clash.stale, on: unseen),
+                    Resent(asked: [], left: [clashing], holds: clash.untouched),
+                    "the reason in the queue is not the one pressed")
+
+        let away = try await resendBench([turnedDown], givenUp: true)
+        expectEqual(try await resend(turnedDown, on: away),
+                    Resent(asked: Self.attaching + Self.round, left: [], holds: made, lines: [connecting, sending],
+                           connects: 1),
+                    "a reason the television gave, the television given up on")
+        XCTAssertEqual(away.sendings.came.last??.sent, [film], "not made by the connect's own sending")
+
+        let back = try await resendBench([clashing], holding: holding, givenUp: true)
+        expectEqual(try await resend(clashing, on: back),
+                    Resent(round: .init(slot: .tv, sent: [clashing]), listed: clash.listed,
+                           asked: Self.attaching + Self.round + [Self.read], left: [], holds: clash.stopped,
+                           lines: [connecting, sending], connects: 1),
+                    "held for what it would stop, the television given up on")
+
+        let silent = try await resendBench([clashing], holding: holding, givenUp: true, silent: true)
+        expectEqual(try await resend(clashing, on: silent),
+                    Resent(asked: [Self.attaching[0]], left: [clashing], holds: clash.untouched, lines: [connecting],
+                           connects: 1),
+                    "held for what it would stop, the television still silent")
+
+        let found = try await resendBench([turnedDown], holding: holding, givenUp: true)
+        expectEqual(try await resend(turnedDown, on: found),
+                    Resent(asked: Self.attaching + question, left: [clashing], holds: clash.untouched,
+                           lines: [connecting, sending], connects: 1),
+                    "a reason the television gave, and the connect's sending finds what the row would stop")
+    }
+
+    /// A consent is to one sentence, and for one round.
+    ///
+    /// Two sendings again begun together on one row, whose reason names a recording the television no
+    /// longer names: both set out with the sentence the reader saw, the second while the first is still
+    /// asking. The first is answered with another name and holds the row with the reason for that. The
+    /// second then finds a reason on the row that is not the one it was handed, and asks nothing: one
+    /// question in all, no create, and the television holds what it held. Nothing is made for a sentence no
+    /// screen has shown.
+    ///
+    /// A row sent with a consent and left unsettled does not keep the reason it was held with, which would
+    /// keep it from every later sending: passed over for an answer that says nothing, it waits with no
+    /// reason. So does one whose create met silence, and what the line then says of it is so: the next
+    /// connect looks for it in the television's list, finds it, and sends no second create.
+    func testAConsentIsToTheSentencePressedAndForOneRound() async throws {
+        let sending = "テレビに送信待ちの予約を登録中"
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
+        let question = Array(Self.round.prefix(4))
+
+        // The first's question is kept from being answered until the second has its line up as well.
+        let twice = try await resendBench([clash.stale], holding: holding)
+        await twice.gate.before(Self.question) { @MainActor in
+            for _ in 0..<100_000 where twice.world.begun.filter({ $0 == sending }).count < 2 { await Task.yield() }
+        }
+        var before = await twice.gate.asked.count
+        let first = Task { await twice.driver.resend(clash.stale) }
+        let second = Task { await twice.driver.resend(clash.stale) }
+        let rounds = [await first.value.round, await second.value.round].compactMap { $0 }
+        expectEqual(Array(await twice.gate.asked.dropFirst(before)), question, "asked again, or a create sent")
+        XCTAssertEqual([rounds.flatMap(\.refused), rounds.flatMap(\.held), rounds.flatMap(\.sent)],
+                       [[clashing], [clashing], []])
+        expectEqual(try await twice.store.pendingReservations(), [clashing])
+        expectEqual(await twice.television.schedules, holding)
+
+        let unsaid = try await resendBench([clashing], holding: holding)
+        await unsaid.gate.answer(Self.question, with: HTTPResponse(
+            statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8)))
+        expectEqual(try await resend(clashing, on: unsaid),
+                    Resent(round: .init(slot: .tv, deferred: [clashing]), asked: question, left: [film],
+                           holds: clash.untouched, lines: [sending]),
+                    "passed over")
+
+        let met = try await resendBench([clashing], holding: holding)
+        await met.television.atTheNextCreate(.carriedOutAndNotAnswered)
+        expectEqual(try await resend(clashing, on: met),
+                    Resent(round: .init(slot: .tv, stopped: .silent(afterSending: true)),
+                           asked: Array(Self.round.dropLast()), left: [film], holds: clash.stopped, lines: [sending]),
+                    "silence at the create")
+        XCTAssertEqual(met.world.problem, Self.metSilence)
+        XCTAssertFalse(met.link.session.connected)
+
+        before = await met.gate.asked.count
+        await met.link.connect()
+        expectEqual(Array(await met.gate.asked.dropFirst(before)), Self.attaching + [Self.disk, Self.read])
+        XCTAssertEqual(met.sendings.came.last??.alreadyThere, [film])
+        expectEqual(try await met.store.pendingReservations(), [])
+        expectEqual(await met.television.schedules.map { "\($0.id) \($0.overlapStatus)" }, clash.stopped)
     }
 }
 

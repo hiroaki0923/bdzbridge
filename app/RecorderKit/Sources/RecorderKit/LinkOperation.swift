@@ -51,8 +51,8 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///   is not its to write over. Reserving a programme is one.
 /// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
 ///   until it too hands back a result with a sentence: a delete, a change.
-/// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
-///   the list.
+/// - One that hands a screen nothing to say says nothing at its door: a waiting row sent again, a sending
+///   of what waits, a read of the list.
 ///
 /// What was sent and failed is written on the line by the link, whichever operation it was
 /// (`DeviceLink.say`), and what the check before an operation writes there is the check's.

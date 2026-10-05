@@ -64,7 +64,8 @@ public enum PendingQueue {
     /// that one. Then it is sent though a reason is on it: the device is told of the consent, and what it
     /// makes of it is the device's. A row whose reason has been written anew since the reader saw it is held
     /// as any row with a reason is, so that two sendings begun on one sentence cannot make what a second
-    /// sentence names. A consented row that is passed over keeps its reason, and waits for the reader again.
+    /// sentence names. A consented row that is passed over keeps its reason here: what becomes of the reason
+    /// once the round is over is for whoever handed the consent in (`TVDriver.resend`).
     ///
     /// `only`: the id of the one row to send, when the reader asked for that reservation and no other. The
     /// round is then for that row alone, and so is the reading of the device for it. Everything else that
