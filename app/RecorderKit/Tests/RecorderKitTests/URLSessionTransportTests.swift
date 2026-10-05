@@ -47,6 +47,31 @@ final class URLSessionTransportTests: XCTestCase {
         XCTAssertEqual(response.header("set-cookie"), "auth=sample; Max-Age=1209600")
         XCTAssertEqual(server.requests, ["POST /sony/system HTTP/1.1"])
     }
+
+    /// A request that fails in transit is kept as the system's own text for the failure, and a search's tally
+    /// reads the system's code back out of that text (`ScanTally`). The wording is the system's, so it is
+    /// looked at with the real session: a connection refused on the loopback, where nothing listens on port 9.
+    func testAFailureInTransitKeepsTheSystemsCodeForASearchsTally() async throws {
+        let server = try await LoopbackServer(answering: LoopbackServer.answer(
+            status: "200 OK", headers: [], body: "{}"))
+        defer { server.stop() }
+        let tally = ScanTally(URLSessionTransport())
+
+        let answered = try await tally.send(HTTPRequest(url: server.url("/description.xml"), timeout: 5))
+        XCTAssertEqual(answered.statusCode, 200)
+        do {
+            let refused = try XCTUnwrap(URL(string: "http://127.0.0.1:9/description.xml"))
+            _ = try await tally.send(HTTPRequest(url: refused, timeout: 5))
+            XCTFail("something on this machine answers on port 9")
+        } catch let error as RecorderError {
+            guard case .transport = error else { return XCTFail("not a failure in transit: \(error)") }
+        }
+
+        let counts = await tally.counts
+        XCTAssertEqual(counts.answered, [200: 1])
+        XCTAssertEqual(counts.failed, [-1004: 1], "the system's code was not read out of its text for the failure")
+        XCTAssertEqual(counts.timedOut + counts.other, 0)
+    }
 }
 
 /// A server on the loopback that answers every request with the same bytes, closes, and keeps the request

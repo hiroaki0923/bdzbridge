@@ -158,6 +158,9 @@ extension AppModel {
     /// whatever it is: once to a press. A scan that found somebody is said at once, as ever. The cost is a
     /// second before nothing found is said, and a second scan for a reader who pulled Control Centre down
     /// during the first.
+    ///
+    /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: why the first one finds
+    /// nobody is still to be seen, and the next first press on a phone is where it will be.
     func scanForRecorders() {
         endScanTask()
         // Read at the press and not in the task, which starts a turn later.
@@ -167,6 +170,7 @@ extension AppModel {
 
     /// Ends a scan wherever it has got to: the wait for the permission and the wait to look once more included.
     func stopScanning() {
+        if scanTask != nil { surroundings.scanLog("stopped") }
         endScanTask()
         scanTask = nil
         scanRun += 1
@@ -195,9 +199,11 @@ extension AppModel {
         let lan = surroundings.lanInterfaces()
         let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
         guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
+            surroundings.scanLog("press: no Wi-Fi to look round")
             report(.noWiFi)
             return
         }
+        surroundings.scanLog("press: \(hosts.count) addresses to ask, the app \(appIsActive ? "active" : "not active")")
         scanning = (0, hosts.count)
         let allowed = await surroundings.waitForLocalNetwork(neighbour) { @MainActor [weak self] in
             guard let self, self.scanRun == run else { return }
@@ -205,30 +211,35 @@ extension AppModel {
         }
         guard scanRun == run, !Task.isCancelled else { return }
         scanBlocked = false
+        surroundings.scanLog("the wait for the permission is over: \(allowed ? "allowed" : "not allowed")")
         // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
         // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
         if !allowed, surroundings.lanInterfaces().isEmpty {
+            surroundings.scanLog("no Wi-Fi left to look round")
             scanning = nil
             report(.noWiFi)
             return
         }
-        guard await look(through: hosts, run: run) else { return }
+        guard await look(through: hosts, run: run, as: "first search") else { return }
         // Once more, and only once: an `if`, with nothing after it but saying what was found.
         if found.isEmpty, await cameBackToBeingActive(since: departures) {
             scanning = (0, hosts.count)
-            guard await look(through: hosts, run: run) else { return }
+            guard await look(through: hosts, run: run, as: "second search") else { return }
         }
         guard scanRun == run, !Task.isCancelled else { return }
         scanning = nil
         scanTask = nil
+        surroundings.scanLog(found.isEmpty ? "said: nothing found" : "said: found \(found.count)")
         report(found.isEmpty ? .nothing : .found(found.count))
     }
 
-    /// One look through the addresses, each asked once. False when the scan was stopped meanwhile.
-    private func look(through hosts: [String], run: Int) async -> Bool {
+    /// One look through the addresses, each asked once. False when the scan was stopped meanwhile. How its
+    /// requests came back, how many recorders that made and how long it took go to the log under `name`.
+    private func look(through hosts: [String], run: Int, as name: String) async -> Bool {
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
-        let transport = surroundings.scanTransport()
+        let transport = ScanTally(surroundings.scanTransport())
+        let began = ContinuousClock.now
         let result = await Discovery.scan(hosts: hosts, transport: transport, progress: { done, total in
             Task { @MainActor in
                 guard self.scanRun == run, self.scanning != nil else { return }
@@ -240,7 +251,12 @@ extension AppModel {
                 if !self.found.contains(where: { $0.host == recorder.host }) { self.found.append(recorder) }
             }
         })
-        guard scanRun == run, !Task.isCancelled else { return false }
+        let seconds = String(format: "%.2f", (ContinuousClock.now - began) / .seconds(1))
+        let counts = await transport.counts
+        let stopped = scanRun != run || Task.isCancelled
+        surroundings.scanLog("\(name): \(counts.summary); recorders \(result.count); \(seconds) s"
+                             + (stopped ? "; stopped" : ""))
+        guard !stopped else { return false }
         // The list stays in the order the recorders answered, which the reader has been looking at while the
         // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
         // under a finger about to tap it. Anything it found whose row has not arrived yet goes at the end.
@@ -256,7 +272,14 @@ extension AppModel {
     /// stopped while it waited; the caller looks.
     private func cameBackToBeingActive(since departures: Int) async -> Bool {
         try? await Task.sleep(for: surroundings.emptyScanHold)
-        guard !Task.isCancelled, timesLeftActive != departures else { return false }
+        guard !Task.isCancelled else { return false }
+        guard timesLeftActive != departures else {
+            surroundings.scanLog("nothing found; the app active since the press; not searched again")
+            return false
+        }
+        surroundings.scanLog("nothing found; the app stopped being active since the press, times: "
+                             + "\(timesLeftActive - departures); \(appIsActive ? "active" : "not active") now; "
+                             + "to be searched once more when active")
         if !appIsActive { await withCheckedContinuation { scanAwaitsActive = $0 } }
         try? await Task.sleep(until: (activeSince ?? .now) + surroundings.scanAgainDelay, clock: .continuous)
         return !Task.isCancelled

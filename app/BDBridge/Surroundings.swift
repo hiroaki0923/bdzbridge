@@ -59,6 +59,9 @@ struct Surroundings {
     /// on either.
     var emptyScanHold: Duration = .seconds(1)
     var scanAgainDelay: Duration = .seconds(1)
+    /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
+    /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
+    var scanLog: @MainActor (String) -> Void = { _ in }
 
     static var app: Surroundings {
         Surroundings(defaults: .standard,
@@ -71,7 +74,8 @@ struct Surroundings {
                      tvCredentials: KeychainTVCredentials(),
                      lanInterfaces: LocalNetwork.lanInterfaces,
                      waitForLocalNetwork: LocalNetwork.waitForAccess(probing:blocked:),
-                     scanTransport: { URLSessionTransport() })
+                     scanTransport: { URLSessionTransport() },
+                     scanLog: { ScanLog.note($0) })
     }
 }
 

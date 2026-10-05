@@ -23,6 +23,9 @@ final class Bench {
     /// two waits lengthens it before making the model.
     var emptyScanHold: Duration = .milliseconds(50)
     var scanAgainDelay: Duration = .zero
+    /// What the searches of the models made here wrote for the log, in order: kept here in place of the
+    /// system's log, for a test to read.
+    private(set) var scanLog: [String] = []
     /// The Wi-Fi the phone is on and who answers on it, once a test has put it on one (`joinWiFi`).
     private var wifi: (interface: LocalNetwork.Interface, subnet: Subnet)?
     private let suite: String
@@ -130,7 +133,8 @@ final class Bench {
             lanInterfaces: { [weak self] in (self?.wifi).map { [$0.interface] } ?? [] },
             scanTransport: { [weak self] in self?.wifi?.subnet ?? Subnet() },
             emptyScanHold: emptyScanHold,
-            scanAgainDelay: scanAgainDelay))
+            scanAgainDelay: scanAgainDelay,
+            scanLog: { [weak self] in self?.scanLog.append($0) }))
     }
 
     /// The database a model made here opens for a real recorder.

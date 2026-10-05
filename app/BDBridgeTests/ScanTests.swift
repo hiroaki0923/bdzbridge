@@ -179,6 +179,47 @@ final class ScanTests: XCTestCase {
         expectEqual(await subnet.asked, addresses, "the search was made again though it had found the recorder")
     }
 
+    // MARK: - what a search leaves in the log
+
+    /// The course of a first press as the log has it, for reading off a phone afterwards: the press, the end of
+    /// the wait for the permission, each search with how its requests came back, each change of the app's
+    /// phase meanwhile, that the search was to be made once more, and what was said. In counts and codes: no
+    /// line has an address in it, nor anything the recorder said of itself.
+    func testASearchWritesItsCourseToTheLogInCountsAndCodes() async throws {
+        let bench = try aBench()
+        bench.emptyScanHold = .milliseconds(500)
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingBack()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the first search never ended") { bench.scanLog.contains { $0.hasPrefix("first search") } }
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        await subnet.letThrough()
+        comeBack(model)
+        try await until("the second search never ended") { model.scanOutcome != nil }
+
+        // How long a search took is the one thing in a line that is not the same at every run.
+        let lines = bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }
+        XCTAssertEqual(lines, [
+            "press: 253 addresses to ask, the app active",
+            "the wait for the permission is over: allowed",
+            "first search: asked 253; answered []; timed out 0; failed []; other 253; recorders 0; some s",
+            "phase: not active",
+            "nothing found; the app stopped being active since the press, times: 1; not active now; "
+                + "to be searched once more when active",
+            "phase: active",
+            "second search: asked 253; answered [200: 1]; timed out 0; failed []; other 252; recorders 1; some s",
+            "said: found 1",
+        ])
+        let recorder = try XCTUnwrap(model.found.first)
+        let itsOwn = ["192.0.2.", recorder.friendlyName, recorder.product, recorder.model, recorder.udn]
+        for line in bench.scanLog {
+            XCTAssertNil(itsOwn.first { !$0.isEmpty && line.contains($0) }, "in the log: \(line)")
+        }
+    }
+
     // MARK: - what the tests do
 
     /// A model at its first launch on the bench, started. Its search is stopped when the test is over, wherever

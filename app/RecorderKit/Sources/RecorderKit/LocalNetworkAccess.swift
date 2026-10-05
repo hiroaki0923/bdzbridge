@@ -42,19 +42,29 @@ extension LocalNetwork {
     /// There is no time limit: the reader may take as long as they like over the question, or go to the
     /// Settings app and back. The probe is replaced every few seconds all the same: nothing documents what a
     /// connection says while the question is still up, and a fresh one reads the path afresh.
+    ///
+    /// What each probe read and what ended the wait go to the log (`ScanLog`): this reading of the path has
+    /// not been seen to work on a phone, and the log is how it is seen.
     public static func waitForAccess(probing host: String,
                                      blocked: @Sendable () async -> Void) async -> Bool {
+        let log = WaitLog()
         while !Task.isCancelled {
-            let probe = AccessProbe(host: host, lifetime: .seconds(3))
+            let probe = AccessProbe(host: host, lifetime: .seconds(3), log: log)
             defer { probe.stop() }
             for await verdict in probe.verdicts {
                 switch verdict {
-                case .allowed: return true
-                case .unavailable: return false
-                case .blocked: await blocked()
+                case .allowed:
+                    log.ended("allowed")
+                    return true
+                case .unavailable:
+                    log.ended("no path, and not for the permission")
+                    return false
+                case .blocked:
+                    await blocked()
                 }
             }
         }
+        log.ended("cancelled")
         return false
     }
 
@@ -74,15 +84,57 @@ extension LocalNetwork {
             return ended ? .unavailable : nil
         }
     }
+
+    /// What a probe read, in the log's words: the path's status, with the reason when it is unsatisfied, how
+    /// the connection stands, with the code of what stopped it, and what the two are taken for. Words of the
+    /// system's and numbers, and nothing of the address the probe was aimed at.
+    static func reading(status: NWPath.Status?, reason: NWPath.UnsatisfiedReason?,
+                        connection: NWConnection.State?, verdict: Access?) -> String {
+        let path = switch status {
+        case .satisfied?: "satisfied"
+        case .unsatisfied?: "unsatisfied (\(reason.map { "\($0)" } ?? "no reason"))"
+        case .requiresConnection?: "requires a connection"
+        case nil: "none yet"
+        default: "unknown"
+        }
+        let state = switch connection {
+        case .setup?: "setup"
+        case .preparing?: "preparing"
+        case .ready?: "ready"
+        case .waiting(let error)?: "waiting (\(code(of: error)))"
+        case .failed(let error)?: "failed (\(code(of: error)))"
+        case .cancelled?: "cancelled"
+        case nil: "gone"
+        default: "unknown"
+        }
+        let taken = switch verdict {
+        case .allowed?: "allowed"
+        case .blocked?: "blocked"
+        case .unavailable?: "unavailable"
+        case nil: "nothing yet"
+        }
+        return "path \(path), connection \(state), taken for \(taken)"
+    }
+
+    /// The number of what stopped a connection, by the kind of error it is. Not the error's own text.
+    private static func code(of error: NWError) -> String {
+        switch error {
+        case .posix(let code): "posix \(code.rawValue)"
+        case .dns(let code): "dns \(code)"
+        case .tls(let status): "tls \(status)"
+        default: "another kind"
+        }
+    }
 }
 
 /// One TCP connection towards the address, watched for what its path says and cancelled after `lifetime`
-/// at the latest. `verdicts` yields each change of verdict and finishes when the connection has gone.
+/// at the latest. `verdicts` yields each change of verdict and finishes when the connection has gone. A wait's
+/// probes write what they read to its `log`; a single look writes nothing.
 private final class AccessProbe: Sendable {
     let verdicts: AsyncStream<LocalNetwork.Access>
     private let connection: NWConnection
 
-    init(host: String, port: UInt16 = 9, lifetime: Duration) {
+    init(host: String, port: UInt16 = 9, lifetime: Duration, log: WaitLog? = nil) {
         // Port 9 is discard, which nothing on a home network is expected to listen on. At most a connection
         // attempt goes out, and it is cancelled as soon as the path has been read.
         let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 9,
@@ -99,20 +151,29 @@ private final class AccessProbe: Sendable {
             last.value = verdict
             continuation.yield(verdict)
         }
-        connection.pathUpdateHandler = { path in
-            report(LocalNetwork.verdict(status: path.status, reason: path.unsatisfiedReason, ended: false))
+        // One reading of the path, beside how the connection stood: written to the wait's log, then reported.
+        typealias Reading = @Sendable (NWPath?, NWConnection.State?, LocalNetwork.Access?) -> Void
+        let read: Reading = { path, state, verdict in
+            log?.read(LocalNetwork.reading(status: path?.status, reason: path?.unsatisfiedReason,
+                                           connection: state, verdict: verdict))
+            report(verdict)
+        }
+        connection.pathUpdateHandler = { [weak connection] path in
+            read(path, connection?.state,
+                 LocalNetwork.verdict(status: path.status, reason: path.unsatisfiedReason, ended: false))
         }
         connection.stateUpdateHandler = { [weak connection] state in
             switch state {
             case .ready:
-                report(.allowed)
+                read(connection?.currentPath, state, .allowed)
             case .preparing, .waiting, .failed:
                 // The path handler is called with the first path before the connection is even preparing;
                 // reading it here as well is for whichever of the two a system version calls first.
                 var ended = false
                 if case .failed = state { ended = true }
                 let path = connection?.currentPath
-                report(LocalNetwork.verdict(status: path?.status, reason: path?.unsatisfiedReason, ended: ended))
+                read(path, state,
+                     LocalNetwork.verdict(status: path?.status, reason: path?.unsatisfiedReason, ended: ended))
             case .cancelled:
                 continuation.finish()
             default:
@@ -136,4 +197,30 @@ private final class AccessProbe: Sendable {
 /// The last verdict a probe reported, so that it reports changes only. Touched on the probe's queue alone.
 private final class LastVerdict: @unchecked Sendable {
     var value: LocalNetwork.Access?
+}
+
+/// What one wait for the permission read, for the log (`ScanLog`): each reading the first time it is read, and
+/// what ended the wait. A wait lasts for as long as the reader leaves the question unanswered, or the answer
+/// at no, with a new probe every few seconds that reads what the last one did: a reading already written is
+/// not written again, so a wait writes a handful of lines however long it lasts. Its probes each have a queue
+/// of their own, and one being replaced can still be reading: so a lock.
+private final class WaitLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var written: Set<String> = []
+    private var readings = 0
+    private let began = ContinuousClock.now
+
+    func read(_ reading: String) {
+        let new = lock.withLock {
+            readings += 1
+            return written.insert(reading).inserted
+        }
+        if new { ScanLog.note("wait: \(reading)") }
+    }
+
+    func ended(_ how: String) {
+        let readings = lock.withLock { self.readings }
+        let seconds = (ContinuousClock.now - began) / .seconds(1)
+        ScanLog.note("wait: ended, \(how), after \(readings) readings in \(String(format: "%.2f", seconds)) s")
+    }
 }
