@@ -46,6 +46,9 @@ Android 版はないか、という問い合わせを受けての調査です。
   （`Reserved.besideItsRow`）。回が見たディスクの状態は、`TVDriver` がテレビについて知っていることに書く。
   画面に何を出すかを選ぶのはアプリのモデルで、帯が出す 1 行も、モデルが値で返す
   （`AppModel.strip(inSheet:)`）。
+  番組の画面がテレビに何を出せるか（録るモード、その番組に送る繰り返し、入れられない番組とその文、録れなくなる
+  予約があるときに聞く文）も `TVDriver` が答える。どの機器に入れられるかと、機器によらない 1 つの入口は、
+  モデルにある（`AppModel.destinations(for:)`、`reserve(_:on:quality:repeating:)`）。
 
 ## 比べた案
 
@@ -59,13 +62,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-44 ファイル、9,230 行（空行とコメントを含み、`Package.swift` を除く）。テストは 16,241 行。
+44 ファイル、9,283 行（空行とコメントを含み、`Package.swift` を除く）。テストは 16,422 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,066 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,002 | GuideStore, Sqlite |
-| 非同期の段取り | 4,566 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 4,619 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -73,10 +76,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（9,203 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（9,463 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,477 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+何を取るか）で、AppModel（9 ファイルで 2,568 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
 BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。RecorderKit だけを共有する案では、どれを
 選んでもこれは Android で書き直します。
 
@@ -173,7 +176,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、138 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、143 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （当時の `AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
@@ -326,6 +329,24 @@ RecorderKit の側に足したのは 4 つです。送り直した行がどう�
 確かめます。機器の文は `TVDriver` に、どの機器のことを言うかを選ぶ文はモデルにあります。レコーダーだけの
 家では、画面も文も一字も変わらず、アプリの既存のテスト（130 件）と RecorderKit の既存のテストは本体を変えずに
 通ります（アプリには 8 件、RecorderKit には 5 件足しました）。テレビ宛の行を作る画面は、まだありません。
+
+そのあと、番組の画面からテレビに予約を入れられるようにしました（規則は `porting.md` の「番組の画面」）。
+テレビ宛の行を作る最初の画面です。RecorderKit の側に足したのは、画面がテレビに何を出せるかを答える関数と、
+放送が始まった番組をテレビに送らない決まりです。テレビが録るモード（`recordsIn`）、その番組にテレビへ送る
+繰り返し（`repeats(for:)`。戸口が断るものと同じ規則）、テレビに入れられない番組とその文（`whyNot`）、
+録れなくなる予約があるときに聞く文（`asks(of:)`）、確認の最後の 1 文（`confirming`）です。放送が始まった
+番組は、戸口と回の両方で止めます。回がいまの時刻を読む時計は、クライアントが持ち、テストは自分の時刻を
+渡します。アプリの側に足したのは、どの機器に入れられるか（`destinations(for:)`）、
+機器によらない 1 つの入口（`reserve(_:on:quality:repeating:)`。レコーダーの予約は前の手順を 1 行も変えず、
+その答えを `Reserved` に読みます）、機器ごとの送信待ちの行（`pending(for:on:)`）、録れなくなる
+予約があるという問いへの「はい」と「いいえ」（`consent`、`decline`）です。問いへの答えをモデルに置いたのは、
+いま入れたばかりの予約と、前から待っていた行とで扱いが違い（帯に出すか、行を消すか）、画面の中の
+条件のままでは、テストから読めないからです。画面（`ProgramSheet`）は、欄がどの機器のものかを決め、
+返ってきた `Reserved` の場合 1 つを、アラートの場合 1 つに読むだけです。レコーダーの予約の
+手順（`AppModel.reserve`、`conflicts`、`queue`）は、まだアプリにあります。ドライバーに移せば、入口の
+読み替えは 1 行になります。レコーダーだけの家では、画面も文も一字も変わらず、アプリの既存の
+テスト（138 件）と RecorderKit の既存のテストは本体を変えずに通ります（アプリには 5 件、RecorderKit
+には 4 件足しました。RecorderKit の回のテストと、席の確認のリハーサルには、時計を渡す行だけを足しています）。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と
