@@ -122,7 +122,7 @@ struct RecorderActivityBar: View {
     /// taking over from another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is
     /// swapped in place, where two sliding past each other would show both for a moment.
     private var showing: Bool {
-        model.busy != nil || saysAnotherTookOver || model.flushReport != nil
+        model.busy != nil || saysAnotherTookOver || model.queueReport != nil
             || (model.demo && DemoData.banner && !inSheet) || model.connectBlocked || model.gaveUp
             || tvNeedsPairing || tvGaveUp
     }
@@ -157,12 +157,12 @@ struct RecorderActivityBar: View {
             report(AppModel.anotherTookOverLine, icon: "arrow.left.arrow.right") {
                 model.anotherTookOver = false
             }
-        } else if let line = model.flushReport {
-            // What became of the reservations that were waiting, whichever screen the app came back to. Ahead
-            // of 再接続 below: a flush the recorder walked out of says which were sent, and the strip goes back
-            // to offering the reconnect once this is closed.
+        } else if let line = model.queueReport {
+            // What became of the reservations that were waiting, for the recorder and then for the television,
+            // whichever screen the app came back to. Ahead of 再接続 below: a flush the recorder walked out of
+            // says which were sent, and the strip goes back to offering the reconnect once this is closed.
             report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
-                model.flushReport = nil
+                model.closeQueueReport()
             }
         } else if model.demo, DemoData.banner, !inSheet {
             // Said on every screen, because everything on them is invented and a reader who forgets that

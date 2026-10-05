@@ -85,7 +85,8 @@ public protocol LinkHost: AnyObject, Sendable {
     func cacheMadeOver() async
     /// Another device answered and the cache could not be made over to it: the app is not connected over it.
     func cacheCouldNotBeMadeOver()
-    /// Sends what waits for this device, and says what became of it.
+    /// Sends what waits for this device, and says what became of it. A driver asks for it from inside its
+    /// attach, and a television's again when its list is pulled down, before the list is read.
     func sendWhatWaits() async
     /// A connect reached the device: the reads that follow one, inside the connect.
     func reached() async

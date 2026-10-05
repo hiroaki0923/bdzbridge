@@ -23,9 +23,9 @@ public final class TVFacts {
 /// there is one -- and renews the cookie when it is past half its life.
 ///
 /// What is asked of a television after its attach is here as well (`reservations`, `refreshReservations`,
-/// `cancel`, `update`): the steps, what each can come to, and the sentence said for it, through the link this
-/// is the driver of and that link's host. It is asked of the driver alone, which is handed no link: with its
-/// link gone nothing is sent. The app keeps what comes back.
+/// `cancel`, `update`, `sendWhatWaits`): the steps, what each can come to, and the sentence said for it,
+/// through the link this is the driver of and that link's host. It is asked of the driver alone, which is
+/// handed no link: with its link gone nothing is sent. The app keeps what comes back.
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
@@ -42,10 +42,11 @@ public final class TVDriver: LinkDriver {
     private let inFront: @MainActor () -> Bool
     /// The read of the reservations that is out, which whoever asks meanwhile waits for.
     private var reading: Task<[Reservation]?, Never>?
-    /// The client whose attach went through: the one that may be asked what needs the registration. Every
-    /// attempt at the television makes a client of its own, which has yet to hear which television answers it
-    /// and whether the cookie is taken; until its attach is through, nothing is asked on the strength of the
-    /// last one's -- and an attempt that fails never becomes this.
+    /// The client that has heard which television answers it and that its cookie is taken: the one that may
+    /// be asked what needs the registration. Every attempt at the television makes a client of its own, and
+    /// until its attach has got that far nothing is asked on the strength of the last one's. An attach that
+    /// got that far and then met silence sending what waits leaves this set, and the television still cannot
+    /// be asked: its session is lost (`canBeAsked`).
     private weak var attachedClient: ScalarClient?
 
     public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool) {
@@ -177,15 +178,22 @@ public final class TVDriver: LinkDriver {
         return await read(link)
     }
 
-    /// What pulling the list down asks for: the list read now, as `reservations` reads it, when the
-    /// television can be asked. When it cannot, the reader has asked for it to be tried again: a connect,
-    /// which tells the host when it reaches the television (`reached`), and nil -- the host reads the list
-    /// from there, inside the connect, and what a connect that got nowhere has to say is on its line.
+    /// What pulling the list down asks for, when the television can be asked: what waits is sent, and then
+    /// the list is read now, as `reservations` reads it, so that what was just made is in it. When it cannot,
+    /// the reader has asked for it to be tried again: a connect, which tells the host when it reaches the
+    /// television (`reached`), and nil -- the host reads the list from there, inside the connect, and what a
+    /// connect that got nowhere has to say is on its line.
     public func refreshReservations() async -> [Reservation]? {
         guard let link else { return nil }
-        if canBeAsked(on: link) { return await read(link) }
-        await link.connect()
-        return nil
+        guard canBeAsked(on: link) else {
+            await link.connect()
+            return nil
+        }
+        // Through the host, as an attach asks for it: the host says what became of it.
+        await link.owner?.sendWhatWaits()
+        // A sending that lost the television, or its registration, has said so: a read would write over that.
+        guard canBeAsked(on: link) else { return nil }
+        return await read(link)
     }
 
     /// One read at a time. The list is asked for when a screen appears, when it is pulled down and when the
@@ -311,6 +319,77 @@ public final class TVDriver: LinkDriver {
         guard reservation.device == .tv else { return (false, nil) }
         link?.owner?.problem = Self.changesNotYet
         return (false, nil)
+    }
+
+    // MARK: - what waits in the queue
+
+    /// The line on screen while what waits for the television is sent.
+    public static let sendingLine = "テレビに送信待ちの予約を登録中"
+    /// Said when the request that makes a waiting reservation met silence: it may have been made all the same,
+    /// so it is not sent again, and the next sending reads the television's list before it sends anything.
+    public static let createMetSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+
+    /// Sends what waits in the phone's queue for the television. What the sending came to, or nil when none
+    /// ran.
+    ///
+    /// A television that cannot be asked is sent nothing, and nothing is read or said: what waits goes with
+    /// the next attach. The queue is looked at before the television is. With nothing in it to send -- no row
+    /// of the television's, or only rows with a reason on them, which wait for the reader -- nothing is asked
+    /// and no line goes up: a row held back would otherwise put the line up at every connect for as long as
+    /// it waited. Rows whose programmes are over are still dropped, which asks the television nothing.
+    ///
+    /// Otherwise the rows go under a line of their own, the television made sure of first -- inside a connect
+    /// that answers at once. No consent is handed in: a row held for what it would stop from recording waits
+    /// for the reader, though the television would give the very same reason now.
+    ///
+    /// Written on the link's parts and not through `DeviceLink.run`, which clears the line of what went
+    /// wrong whenever its work returns. A flush always returns, with a round that stopped as well, and a
+    /// sending leaves that line as it was unless what stopped the round is the link's to say (`say(stopped:on:)`).
+    public func sendWhatWaits() async -> PendingQueue.Outcome? {
+        guard let link, canBeAsked(on: link), let store = link.owner?.cache else { return nil }
+        let now = Date()
+        let rows = ((try? await store.pendingReservations()) ?? []).filter { $0.target == ScalarClient.slot }
+        guard PendingQueue.hasSomethingToSend(rows, for: ScalarClient.slot, now: now) else {
+            guard rows.contains(where: { $0.request.end < now }) else { return nil }
+            return await flush(store, on: link)
+        }
+        return await link.underALine(Self.sendingLine) { _ -> PendingQueue.Outcome? in
+            guard case .up = await link.check() else { return nil }
+            return await self.flush(store, on: link)
+        }
+    }
+
+    /// The flush, on the link's client as it stands now, and what stopped its round said. Whether the
+    /// television can be asked is asked again here, in the turn the client is read: the queue was read since
+    /// the door, and a connect begun meanwhile has put a client of its own in the link, which has yet to hear
+    /// which television answers it. The flush reads the queue afresh once it has its turn, so one that set
+    /// out only to drop what is over can come to send a row the reader has just freed: its stop is said too.
+    private func flush(_ store: GuideStore, on link: DeviceLink) async -> PendingQueue.Outcome? {
+        guard canBeAsked(on: link), let client = link.client as? ScalarClient else { return nil }
+        let outcome = await PendingQueue.flush(client: client, store: store)
+        say(stopped: outcome.stopped, on: link)
+        return outcome
+    }
+
+    /// What a round that stopped is said as, through the link, as any failure after the attach is. Silence at
+    /// the request that makes a reservation has a sentence of its own and is always said, the television
+    /// lost: the reservation may have been made. Silence at one of the round's reads is said as any read's.
+    /// A cookie the television does not take is said in its own words and put down at once (`note`), the
+    /// television kept. A disk that is away and answers that say nothing are no fault of the link's, and
+    /// nothing here has a line for them: neither the link nor the line is touched, and the rows go by
+    /// themselves at a later sending.
+    private func say(stopped stop: SendingStop?, on link: DeviceLink) {
+        switch stop {
+        case .silent(afterSending: true)?:
+            _ = link.say(.silentAfterSending(sentence: Self.createMetSilence))
+        case .silent(afterSending: false)?:
+            _ = link.say(.silentOnARead(sentence: noAnswerLine))
+        case .needsPairing?:
+            note(link.say(.refused(.needsPairing, sentence: ScalarError.notRegistered.explanation)))
+        case .cannotRecord?, .saysNothing?, nil:
+            break
+        }
     }
 
     // MARK: - the check before an operation

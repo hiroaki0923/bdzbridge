@@ -7,8 +7,9 @@ import RecorderKit
 /// It has a link of its own beside the recorder's (`DeviceLink` with a `TVDriver`), told the same things --
 /// the app coming back, the network changing -- and answering to a host of its own (`TVHost`), so that neither
 /// device's silence, problem or wait for the local network permission is the other's. What the television said
-/// is kept by that host too -- its reservations -- and goes when the link is let go of. Not in the demo, whose
-/// recorder is invented: a real television would otherwise answer beside it.
+/// is kept by that host too -- its reservations, and what became of what waited for it -- and goes when the
+/// link is let go of. Not in the demo, whose recorder is invented: a real television would otherwise answer
+/// beside it.
 extension AppModel {
     var tvDriver: TVDriver? { tv?.driver as? TVDriver }
 
@@ -27,6 +28,21 @@ extension AppModel {
     /// screen has nothing to be sent to.
     func isBusy(for device: DeviceSlot) -> Bool {
         device == .tv ? tvHost?.isBusy ?? true : isBusy
+    }
+
+    /// What the strip says became of what was waiting: the recorder's sending and then the television's,
+    /// joined with a full stop as the sentences of one are. Each is kept apart (`flushReport`, the host's
+    /// `report`), so that neither device's sending writes over what the other's said. With no television
+    /// saved it is the recorder's alone, as it has always read.
+    var queueReport: String? {
+        let said = [flushReport, tvHost?.report].compactMap { $0 }
+        return said.isEmpty ? nil : said.joined(separator: "。")
+    }
+
+    /// Both go: the reader closed the line, or left the app.
+    func closeQueueReport() {
+        flushReport = nil
+        tvHost?.report = nil
     }
 
     /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by

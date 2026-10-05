@@ -55,14 +55,24 @@ final class LinkWorld: LinkHost {
     /// What the host does once a connect has reached the device, inside that connect: a read, for a test of one
     /// asked for from there.
     var onReached: (@MainActor () async -> Void)?
+    /// What the host does when it is told to send what waits, as an app's asks its driver: for a test of a
+    /// sending, which keeps what the driver hands back.
+    var onSendWhatWaits: (@MainActor () async -> Void)?
+    /// Every line that was put up, in the order it was asked for: `line` says only what is up now. Beside
+    /// `events` and not among them, which tests compare whole.
+    private(set) var begun: [String] = []
 
-    func beginActivity(_ text: String) -> Activities.Token { lines.begin(text) }
+    func beginActivity(_ text: String) -> Activities.Token {
+        begun.append(text)
+        return lines.begin(text)
+    }
     func updateActivity(_ token: Activities.Token, to text: String) { lines.update(token, to: text) }
     func endActivity(_ token: Activities.Token) { lines.end(token) }
     var isBusy: Bool { false }
     var holdsOffConnect: Bool { false }
     var isDemo: Bool { false }
-    var cache: GuideStore? { nil }
+    /// The phone's cache, for a test of what is sent from it: none unless a test gives one.
+    var cache: GuideStore?
     func cacheForAttempt() async {}
     func keepAddress(_ host: String) { events.append("address \(host)") }
     func keepMAC(_ text: String) { events.append("MAC \(text)") }
@@ -74,7 +84,10 @@ final class LinkWorld: LinkHost {
     func anotherDeviceDescribedItself(wasConnected: Bool) { events.append("another device") }
     func cacheMadeOver() async {}
     func cacheCouldNotBeMadeOver() {}
-    func sendWhatWaits() async { events.append("send what waits") }
+    func sendWhatWaits() async {
+        events.append("send what waits")
+        await onSendWhatWaits?()
+    }
     func reached() async {
         events.append("reached")
         await onReached?()

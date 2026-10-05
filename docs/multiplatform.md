@@ -37,7 +37,8 @@ Android 版はないか、という問い合わせを受けての調査です。
   アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。テレビに予約を入れるための 3 つの要求
   （局の一覧、録れなくなる予約の問い合わせ、作成）も `ScalarClient` にあり、送る中身のテレビ側の綴りは
   `TVReservation` にある。送信待ちの 1 件をテレビに送る手順（`QueueTarget` としての `ScalarClient`）も
-  そこにある。アプリはまだ送信待ちにテレビを渡さない。
+  そこにある。テレビ宛の送信待ちをいつ送り、送っている間に何を出し、回が止まったときに何を言うかは `TVDriver` の
+  手順（`sendWhatWaits`）。アプリのテレビのホストは、それを頼み、結果の文を持つだけ。
 
 ## 比べた案
 
@@ -51,13 +52,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-44 ファイル、8,706 行（空行とコメントを含み、`Package.swift` を除く）。テストは 14,803 行。
+44 ファイル、8,786 行（空行とコメントを含み、`Package.swift` を除く）。テストは 15,183 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,066 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 996 | GuideStore, Sqlite |
-| 非同期の段取り | 4,048 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| 非同期の段取り | 4,128 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
 | OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
 
 本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -65,10 +66,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（8,882 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（8,921 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,339 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+何を取るか）で、AppModel（9 ファイルで 2,360 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
 BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。RecorderKit だけを共有する案では、どれを
 選んでもこれは Android で書き直します。
 
@@ -165,7 +166,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、124 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、128 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （当時の `AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを
@@ -273,8 +274,20 @@ AppModel の中の関数ではなく振る舞いで書き直してあります�
 ディスクと一覧を読み、行ごとに、局の一覧、録れなくなる予約の問い合わせ、作成、一覧の順に送ります。送信待ちの側で
 変えたのは 1 つだけで、機器が「作った」に文を添えられるようにしました（`RowSent.made(saying:)` と、結果の
 `remarks`）。テレビは、作った予約がほかの予約に何をしたかを、作成の答えではなく一覧でしか言わないためです。
-レコーダーは何も添えないので、文は一字も変わりません。アプリはまだ送信待ちにテレビを渡しておらず、アプリの
-テスト（124 件）は本体を変えずに通ります。
+レコーダーは何も添えないので、文は一字も変わりません。この時点では、アプリは送信待ちにテレビを渡しておらず、
+アプリのテスト（124 件）は本体を変えずに通ります。
+
+そのあと、テレビ宛の送信待ちを送るようにしました。テレビに接続できたときと、予約一覧の引き下げ更新のときです。
+送る前に端末の送信待ちを見て、送る行が無ければテレビには何も聞かないこと、送っている間の進行中の行、回が
+止まったときに何を残して何を言うかは、`TVDriver` の手順です（`sendWhatWaits`。規則は `porting.md`）。この手順は
+`DeviceLink.run` を通さず、その部品（進行中の行、操作の前の確認、失敗の伝え方）の上に書いてあります。送信は、回が
+止まっても結果を返して終わるので、`run` を通すと、止まった回が前の失敗の行を消してしまうためです。アプリの側に
+足したのは、テレビのホストがそれを頼んで結果の文を持つこと、帯がレコーダーの文とテレビの文を続けて言うこと、
+レコーダーの送信をレコーダー宛の行があるときだけにすることです（テレビ宛の行しか無いときに、何も送らない
+送信がテレビの回を待たないように）。レコーダーだけの家では、送るものも文も一字も変わらず、アプリの既存の
+テスト（124 件）と RecorderKit の既存のテストは本体を変えずに通ります（アプリには、テレビ宛の行を送る
+テストを 3 件と、テレビの無い家で帯が読む文のテストを 1 件足しました）。テレビ宛の行を作る画面は、
+まだありません。レコーダーの送信の手順（`AppModel.flushPending`）は、まだアプリにあります。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と

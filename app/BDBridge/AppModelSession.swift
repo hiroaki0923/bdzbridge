@@ -122,9 +122,10 @@ extension AppModel {
     /// going anywhere, and reconnecting after each sent a magic packet for a glance at the time.
     func wentToBackground() {
         inBackground = true
-        // The line about the queue was for this visit. Coming back sends the queue again when there is
-        // anything to send, and says what became of that. So was the one about another recorder.
-        flushReport = nil
+        // The line about the queue was for this visit, the television's half of it with the recorder's. Coming
+        // back sends the queue again when there is anything to send, and says what became of that. So was the
+        // one about another recorder.
+        closeQueueReport()
         anotherTookOver = false
     }
 

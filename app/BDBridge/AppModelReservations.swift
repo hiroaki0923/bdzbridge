@@ -307,11 +307,15 @@ extension AppModel {
     ///
     /// Only to a recorder that has described itself: whatever answers a connect some other way -- a 503, or as
     /// something that is no recorder -- must not be handed what was waiting for the last recorder.
+    ///
+    /// And only when a row waits for the recorder. What waits for the television is its own host's to send
+    /// (`TVHost.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
+    /// sends nothing, and that flush would wait its turn behind a television's sending that is out.
     @discardableResult
     func flushPending() async -> Int {
         guard let client, let store, connected else { return 0 }
         await loadPending()
-        guard !pending.isEmpty, !unreachable else { return 0 }
+        guard pending.contains(where: { $0.target == .recorder }), !unreachable else { return 0 }
         let activity = activities.begin("送信待ちの予約を登録中")
         let outcome = await PendingQueue.flush(client: client, store: store)
         activities.end(activity)
