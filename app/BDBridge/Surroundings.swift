@@ -53,6 +53,12 @@ struct Surroundings {
     /// What one search sends its requests through, to every address of the subnet: made anew for each search,
     /// as the app's session is. Nobody answers unless a test says otherwise.
     var scanTransport: () -> any HTTPTransport = { NoRecorderAnywhere() }
+    /// How long a search that found nobody holds that back before saying it, which is the time a question of
+    /// the system's raised by the press has to take the app out of being active; and how long after the app is
+    /// active again the search is made once more (`AppModel.scanForRecorders`). A test has no seconds to spend
+    /// on either.
+    var emptyScanHold: Duration = .seconds(1)
+    var scanAgainDelay: Duration = .seconds(1)
 
     static var app: Surroundings {
         Surroundings(defaults: .standard,

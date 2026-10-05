@@ -18,6 +18,11 @@ final class Bench {
     var storeBusyTimeoutMilliseconds: Int32 = 5000
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
+    /// How long a search that found nobody holds that back, and how long after the app is active again it is
+    /// made once more: a second each in the app, next to nothing here, unless a test that looks at one of the
+    /// two waits lengthens it before making the model.
+    var emptyScanHold: Duration = .milliseconds(50)
+    var scanAgainDelay: Duration = .zero
     /// The Wi-Fi the phone is on and who answers on it, once a test has put it on one (`joinWiFi`).
     private var wifi: (interface: LocalNetwork.Interface, subnet: Subnet)?
     private let suite: String
@@ -123,7 +128,9 @@ final class Bench {
             tvCredentials: tvCredentials,
             // The wait for the local network permission is left as the surroundings have it: given at once.
             lanInterfaces: { [weak self] in (self?.wifi).map { [$0.interface] } ?? [] },
-            scanTransport: { [weak self] in self?.wifi?.subnet ?? Subnet() }))
+            scanTransport: { [weak self] in self?.wifi?.subnet ?? Subnet() },
+            emptyScanHold: emptyScanHold,
+            scanAgainDelay: scanAgainDelay))
     }
 
     /// The database a model made here opens for a real recorder.
@@ -176,18 +183,28 @@ actor SilentRecorder: HTTPTransport {
 /// The subnet of a Wi-Fi a test has put the phone on (`Bench.joinWiFi`), as a search for a recorder meets it:
 /// what is sent to an address goes to the recorder the test put there, and at any other nobody answers -- at
 /// once, where a real address is silent for as long as the request waits. `asked` counts the requests, which
-/// is one to an address for each search.
+/// is one to an address for each search. `turnEverythingBack` has every request fail before it gets anywhere,
+/// the recorder's too, as when the system lets nothing of the app's out; `letThrough` ends that.
 actor Subnet: HTTPTransport {
     private let recorders: [String: any HTTPTransport]
+    private var turningBack = false
     private(set) var asked = 0
 
     init(_ recorders: [String: any HTTPTransport] = [:]) {
         self.recorders = recorders
     }
 
+    func turnEverythingBack() {
+        turningBack = true
+    }
+
+    func letThrough() {
+        turningBack = false
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         asked += 1
-        guard let recorder = recorders[request.url.host() ?? ""] else {
+        guard !turningBack, let recorder = recorders[request.url.host() ?? ""] else {
             throw RecorderError.transport("Nobody here.")
         }
         return try await recorder.send(request)

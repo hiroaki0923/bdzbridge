@@ -124,6 +124,9 @@ final class AppModel: LinkHost {
     var scanTask: Task<Void, Never>?
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0
+    /// A scan that found nobody, waiting for the app to be active again before it looks once more (`scan`).
+    /// Let go of when the app is (`activeChanged`), and when the scan is stopped.
+    var scanAwaitsActive: CheckedContinuation<Void, Never>?
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     var accessWatch: Task<Void, Never>?
@@ -171,6 +174,14 @@ final class AppModel: LinkHost {
     var connecting: Bool { session.connecting }
     /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
     var inBackground = false
+    /// Whether the app is the one in front and taking touches (`ScenePhase.active`), as the first screen tells
+    /// it at each change (`activeChanged`). Not the same as being out of the background: a question of the
+    /// system's, Control Centre and the app switcher take the app out of it without its going anywhere.
+    var appIsActive = true
+    /// How often the app has stopped being active, and when it last became active again: what a scan that
+    /// found nobody goes by (`scan`).
+    var timesLeftActive = 0
+    var activeSince: ContinuousClock.Instant?
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
     var backInFront: CheckedContinuation<Void, Never>?
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.

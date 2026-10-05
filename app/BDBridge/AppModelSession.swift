@@ -117,6 +117,23 @@ extension AppModel {
         defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
     }
 
+    /// The app has stopped being active, or is active again (`ScenePhase`): told at each change, in the turn
+    /// it happens and so in order. Only a scan for a recorder goes by it (`scan`). The system's question about
+    /// the local network takes the app out of being active for as long as it is up, and that is the one thing
+    /// about the question the app is told without asking the system anything. What coming back from the
+    /// background is worth is `returnedToForeground`'s to say, as before.
+    func activeChanged(to active: Bool) {
+        guard active != appIsActive else { return }
+        appIsActive = active
+        guard active else {
+            timesLeftActive += 1
+            return
+        }
+        activeSince = .now
+        scanAwaitsActive?.resume()
+        scanAwaitsActive = nil
+    }
+
     /// The app has gone to the background, which is what makes coming back worth a reconnect. Only this
     /// counts: Control Centre, the app switcher or a system alert take the app out of `.active` without it
     /// going anywhere, and reconnecting after each sent a magic packet for a glance at the time.
