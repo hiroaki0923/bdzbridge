@@ -17,7 +17,10 @@
   `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading and deleting them are the driver's
   steps, and `AppModelReservations` only puts the two devices' lists together for the screens and sends a
-  change or a delete to the device that holds the row. What the app knows of the recorder and of the link to
+  change or a delete to the device that holds the row. Sending what waits in the phone's queue for the
+  television is the driver's too (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and
+  keeps what it came to for the strip, which says it after what the recorder's sending came to
+  (`AppModel.queueReport`). What the app knows of the recorder and of the link to
   it -- described, unreachable, given up on, being woken -- is `SessionState`, which changes only by what
   happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
@@ -133,10 +136,15 @@ RecorderKit (`LinkPartsTests`), and that the app still does the same with them i
 has the sending of the queue: its loop asks the device to send a row (`QueueTarget`) and its sentences are
 beside its outcome, both tried in RecorderKit (`QueueTargetTests`, `QueueSentenceTests`, `DeviceSeamTests`).
 
-`QueueWithATelevisionTests` holds the one thing a television being saved changes about the queue so far,
-which is its words: each sentence then says that it was the recorder the reservations went to, on the strip
-and in the Shortcuts action's answer. `Said`'s sentences take the device's word for that, and with none they
-are the ones the gates compare with.
+`QueueWithATelevisionTests` holds what a television being saved changes about the queue. Its words: each
+sentence then says which device the reservations went to, on the strip and in the Shortcuts action's answer.
+`Said`'s sentences take the device's word for that, and with none they are the ones the gates compare with.
+And the sending: a reservation waiting for the television goes when the app connects to it, as the
+television's work and none of the recorder's, in a home whose recorder never answers as well; the strip says
+what became of each device's reservations in one line, neither sending writes over what the other's said,
+and one close takes both, as leaving the app does; and with only the television's waiting, the recorder's
+sending puts up no line and waits for nothing. How a sending to a television goes step by step, and what each
+way it can stop leaves and says, is tried in RecorderKit (`TVDriverTests`).
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
@@ -217,7 +225,8 @@ what to look at for each. One more is for a television that is switched off. It 
 reservation the way the app is to send what waits for a television -- through the queue's own flush and the
 round the package has for it (`ScalarClient` as a `QueueTarget`, tried in `TVRoundTests`) -- then flushes the
 same reservation a second time, which is to find it on the television and send no create, and takes it off.
-Nothing in the app hands the queue a television yet, so nothing in the app sends those three requests.
+The app sends those three requests in that round and nowhere else: when a reservation waits in the phone's
+queue for the television (below, under the reservations made away from home), which no screen makes yet.
 
 That check asks for no length of time off, and is one short sitting at any time of day. A television was
 seen to answer alike minutes after it was switched off (a script made and deleted reservations on it and
@@ -650,15 +659,33 @@ on the programme's sheet; a 503 or an answer with no code says nothing about the
 is simply sent again next time. (The client itself sends a request answered 503 twice more, half a second to
 a second apart, before it gives up on it.) Only one flush runs at a time in the app, whoever asks, so the
 screens and the overnight run cannot both send the same reservation. Each row says which device it waits
-for -- the recorder, the only one anything is sent to so far -- and a device is sent only its own: whose
-rows a client takes is said by its kind (`QueueTarget.slot`). The guide, the
-search results and the programme's sheet mark a waiting reservation 送信待ち, and the
+for, and a device is sent only its own: whose rows a client takes is said by its kind (`QueueTarget.slot`).
+The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
 sheet offers to send it again or delete it rather than the reservation form. What became of the queue is
 said in one line at the top of the screen when the app sent it, and in a notification when the overnight
 run did. The sentences are beside the queue's outcome (`PendingQueue.Outcome.summary`, `says(naming:)`). In
 a home with a recorder alone they name no device. With a television saved the reader has two, and the app
 has each sentence say which device the reservations went to (`said(withATelevisionSaved:)`): on the strip,
 in the notification and in the Shortcuts action's answer.
+
+A reservation waiting for a television is sent by the television's driver (`TVDriver.sendWhatWaits`), in the
+round RecorderKit has for it: when a connect has reached the television, in the background as well, and
+when the reservations are pulled down, before the list is read. The phone's queue is looked at first. With
+no row to go the television is asked nothing and no line goes up: a row with a reason on it waits for the
+reader, and one whose programme is over is dropped unasked. While rows are sent the strip reads
+テレビに送信待ちの予約を登録中, which holds back the television's buttons and not the recorder's. A round
+that stopped is said on the television's own line where it is the link's to say. Silence loses the
+television, and at the request that makes a reservation it has a sentence of its own, since the reservation
+may have been made: it is not sent again, and the next sending reads the television's list before it sends
+anything. A television that no longer takes the app's registration is said to need one at once, and is not
+lost. A disk that is away, and answers that say nothing, leave the link and the line alone, and the
+reservations go by themselves later.
+What became of the television's reservations is kept by its host and said on the strip after what the
+recorder's sending said, each sentence naming its device; closing the line takes both, and so does leaving
+the app. The recorder's sending leaves a television's rows alone, and with none of its own waiting it does
+nothing, so that it does not wait its turn behind a television's round. No screen makes a row for a
+television yet. もう一度送る, the overnight run and the Shortcuts action do not know one either: the first
+clears its reason and goes on to the recorder's sending, and the other two send the recorder's rows only.
 
 Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
 Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
