@@ -180,10 +180,10 @@ extension AppModel {
     /// The devices a new reservation of `program` can still go to: each of `destinations` that neither
     /// holds the programme nor has a reservation of it waiting, where a second would be the same one again
     /// or replace the row that waits. And a television only while its driver takes the programme
-    /// (`TVDriver.whyNot`): one that has begun is not sent to a television, so a screen that offers what
-    /// is listed here offers nothing `reserve` turns away at the television's door. The recorder is listed
-    /// whatever the programme's time, as it has always been offered one on air; that a programme which is
-    /// over is offered nowhere is the sheet's own check, as it was.
+    /// (`TVDriver.whyNot`), which it does until the programme is over: one that has begun is offered a
+    /// television as it is the recorder, and a screen that offers what is listed here offers nothing
+    /// `reserve` turns away at the television's door. The recorder is listed whatever the programme's
+    /// time; that a programme which is over is offered nowhere is the sheet's own check, as it was.
     func destinations(for program: GuideProgramRow) -> [DeviceSlot] {
         let holding = reservations(for: program).map(\.device)
         return destinations.filter { device in
