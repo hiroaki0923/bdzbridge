@@ -142,8 +142,10 @@ extension AppModel {
 
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
-    /// reach the local network. The scan waits for that answer before it starts: behind the question every
-    /// request fails at once, and the scan would come back with nothing.
+    /// reach the local network. The scan waits for that answer before it starts: one made behind the question
+    /// came back with nothing on a phone, in the version that did not wait. That every request fails at once
+    /// there is what the wait is built on, and has not been seen on one (`docs/porting.md`,
+    /// ローカルネットワークの許可).
     ///
     /// That wait reads a signal of the system's which has not been seen to work on a phone, and the scan begun
     /// by the press that raised the question has come back with nothing after the reader allowed it. So a scan
@@ -155,9 +157,19 @@ extension AppModel {
     /// in hundredths of a second, which can be before the question is up. If by then the app has not stopped
     /// being active since the press, it is said as it stands. If it has, the scan is made again a second after
     /// the app is active, the screen showing it as still going meanwhile, and what that one comes to is said
-    /// whatever it is: once to a press. A scan that found somebody is said at once, as ever. The cost is a
-    /// second before nothing found is said, and a second scan for a reader who pulled Control Centre down
-    /// during the first.
+    /// whatever it is: once to a press. A scan that found somebody is said at once, as ever.
+    ///
+    /// The press is carried across the question and across nothing else. The question never sends the app to
+    /// the background, so a visit there since the press ends the carrying: nothing found is said as the
+    /// press's own scan left it, and what the app comes back to, at any time and on any network, is not looked
+    /// through. And before the second scan the interfaces are read again, as after the wait: with none it
+    /// says there is no Wi-Fi, and with other addresses than the press's it says what the press's own scan
+    /// came to.
+    ///
+    /// The cost is a second before nothing found is said, a second scan for a reader who pulled Control Centre
+    /// down during one that finds nobody, and, the largest, the first press itself: one that raised the
+    /// question and truly finds nobody is scanned twice, about fourteen seconds before it says so where it was
+    /// about six.
     ///
     /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: why the first one finds
     /// nobody is still to be seen, and the next first press on a phone is where it will be.
@@ -165,7 +177,8 @@ extension AppModel {
         endScanTask()
         // Read at the press and not in the task, which starts a turn later.
         let departures = timesLeftActive
-        scanTask = Task { await scan(pressedAfter: departures) }
+        let visits = timesInBackground
+        scanTask = Task { await scan(pressedAfter: departures, visits) }
     }
 
     /// Ends a scan wherever it has got to: the wait for the permission and the wait to look once more included.
@@ -186,8 +199,9 @@ extension AppModel {
         scanAwaitsActive = nil
     }
 
-    /// One press's scan. `departures` is how often the app had stopped being active when the button was pressed.
-    private func scan(pressedAfter departures: Int) async {
+    /// One press's scan. `departures` is how often the app had stopped being active when the button was
+    /// pressed, and `visits` how often it had gone to the background.
+    private func scan(pressedAfter departures: Int, _ visits: Int) async {
         scanRun += 1
         let run = scanRun
         // whatever the last attempt left on screen is not about this one
@@ -200,6 +214,9 @@ extension AppModel {
         let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
         guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
             surroundings.scanLog("press: no Wi-Fi to look round")
+            // No scan is under way once this is said, here and where it is said below: the log is not to go
+            // on writing the app's phases, and a stop, for one.
+            scanTask = nil
             report(.noWiFi)
             return
         }
@@ -217,14 +234,30 @@ extension AppModel {
         if !allowed, surroundings.lanInterfaces().isEmpty {
             surroundings.scanLog("no Wi-Fi left to look round")
             scanning = nil
+            scanTask = nil
             report(.noWiFi)
             return
         }
         guard await look(through: hosts, run: run, as: "first search") else { return }
-        // Once more, and only once: an `if`, with nothing after it but saying what was found.
-        if found.isEmpty, await cameBackToBeingActive(since: departures) {
-            scanning = (0, hosts.count)
-            guard await look(through: hosts, run: run, as: "second search") else { return }
+        // Once more, and only once: an `if` with one look in it, and nothing after it but saying what was found.
+        if found.isEmpty, await cameBackToBeingActive(since: departures, visits) {
+            // The interfaces again, as after the wait above: the app was not active meanwhile, and the Wi-Fi
+            // can be turned off or changed from Control Centre without the app going to the background. Other
+            // addresses than the press's are another network's, which nobody asked to have looked through.
+            let lanNow = surroundings.lanInterfaces()
+            if lanNow.isEmpty {
+                surroundings.scanLog("no Wi-Fi left to look round")
+                scanning = nil
+                scanTask = nil
+                report(.noWiFi)
+                return
+            }
+            if lanNow.flatMap({ LocalNetwork.hosts(around: $0) }) == hosts {
+                scanning = (0, hosts.count)
+                guard await look(through: hosts, run: run, as: "second search") else { return }
+            } else {
+                surroundings.scanLog("other addresses than at the press; not searched again")
+            }
         }
         guard scanRun == run, !Task.isCancelled else { return }
         scanning = nil
@@ -267,22 +300,35 @@ extension AppModel {
     }
 
     /// Holds nothing found for a moment, then says whether the scan is to be made once more: whether the app
-    /// has stopped being active since the press, which is `departures` gone up. If it has, this comes back when
-    /// the app is active again and a second has gone by since it became so. False as well when the scan was
-    /// stopped while it waited; the caller looks.
-    private func cameBackToBeingActive(since departures: Int) async -> Bool {
+    /// has stopped being active since the press, which is `departures` gone up, without going to the
+    /// background, which is `visits` gone up. If so, this comes back when the app is active again and a second
+    /// has gone by since it became so. A visit to the background at any point of that ends it, at once where
+    /// it waits for the app to be active (`wentToBackground`). False as well when the scan was stopped while
+    /// it waited; the caller looks.
+    private func cameBackToBeingActive(since departures: Int, _ visits: Int) async -> Bool {
         try? await Task.sleep(for: surroundings.emptyScanHold)
         guard !Task.isCancelled else { return false }
         guard timesLeftActive != departures else {
             surroundings.scanLog("nothing found; the app active since the press; not searched again")
             return false
         }
+        guard stillCarried(since: visits) else { return false }
         surroundings.scanLog("nothing found; the app stopped being active since the press, times: "
                              + "\(timesLeftActive - departures); \(appIsActive ? "active" : "not active") now; "
                              + "to be searched once more when active")
         if !appIsActive { await withCheckedContinuation { scanAwaitsActive = $0 } }
+        guard !Task.isCancelled, stillCarried(since: visits) else { return false }
         try? await Task.sleep(until: (activeSince ?? .now) + surroundings.scanAgainDelay, clock: .continuous)
-        return !Task.isCancelled
+        return !Task.isCancelled && stillCarried(since: visits)
+    }
+
+    /// Whether a press is still carried across what took the app out of being active: not once the app has
+    /// gone to the background since it, `visits` being how often it had when the button was pressed. That it
+    /// is not goes to the log.
+    private func stillCarried(since visits: Int) -> Bool {
+        guard timesInBackground != visits else { return true }
+        surroundings.scanLog("nothing found; the app went to the background since the press; not searched again")
+        return false
     }
 
     /// Whether a recorder a scan found is the one the app is set to. By its UDN as well as its address, so

@@ -26,8 +26,15 @@ final class Bench {
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
     /// system's log, for a test to read.
     private(set) var scanLog: [String] = []
-    /// The Wi-Fi the phone is on and who answers on it, once a test has put it on one (`joinWiFi`).
-    private var wifi: (interface: LocalNetwork.Interface, subnet: Subnet)?
+    /// The Wi-Fi the phone is on, once a test has put it on one (`joinWiFi`) and until it takes it off
+    /// (`leaveWiFi`), and who answers a search: the subnet of the Wi-Fi the phone was last put on.
+    private var wifi: LocalNetwork.Interface?
+    private var subnet: Subnet?
+    /// Whether the wait for the local network permission is held for the searches of the models made here
+    /// (`holdThePermission`), the searches waiting in it, and what it gives them when it is let go.
+    private var permissionHeld = false
+    private var awaitingPermission: [CheckedContinuation<Void, Never>] = []
+    private var permissionGiven = true
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -92,16 +99,53 @@ final class Bench {
     /// The phone's own address on a Wi-Fi a test puts it on, reserved for documentation like the others.
     static let phone = "192.0.2.20"
 
+    /// The phone's address on another Wi-Fi, for a test that moves it there: of the second range reserved
+    /// for documentation (RFC 5737), so that none of that Wi-Fi's addresses is one of the first's.
+    static let phoneElsewhere = "198.51.100.20"
+
     /// Puts the phone on a Wi-Fi for a search for a recorder to look round, before or after the model is
     /// made: a /24 as a home's is, so 253 addresses, with `recorders` at theirs and nobody at the rest. The
     /// search's requests go to the subnet handed back and nowhere else. Until a test calls this the phone is
-    /// on no Wi-Fi, and a search by a model made here says so and asks nobody.
+    /// on no Wi-Fi, and a search by a model made here says so and asks nobody. Called again with another
+    /// address for the phone (`phoneElsewhere`), it moves the phone to another Wi-Fi: other addresses, and
+    /// what is sent from then on goes to that Wi-Fi's subnet.
     @discardableResult
-    func joinWiFi(with recorders: [String: any HTTPTransport] = [:]) -> Subnet {
+    func joinWiFi(with recorders: [String: any HTTPTransport] = [:], as phone: String = Bench.phone) -> Subnet {
         let subnet = Subnet(recorders)
-        wifi = (LocalNetwork.Interface(name: "en0", address: Bench.phone, netmask: "255.255.255.0",
-                                       broadcasts: true), subnet)
+        wifi = LocalNetwork.Interface(name: "en0", address: phone, netmask: "255.255.255.0", broadcasts: true)
+        self.subnet = subnet
         return subnet
+    }
+
+    /// Takes the phone off its Wi-Fi: a search finds no interface to look round. What one sent all the same
+    /// would still go to the subnet of the Wi-Fi the phone was on, and be counted there.
+    func leaveWiFi() {
+        wifi = nil
+    }
+
+    /// Holds the wait for the local network permission, as the system's question does while it is up: a
+    /// search by a model made here is told the permission is in the way, as the app's own wait tells it, and
+    /// waits there until `letThePermissionGo`. Unless a test calls this the permission is given at once.
+    func holdThePermission() {
+        permissionHeld = true
+    }
+
+    /// Ends the wait: with `allowed` as it ends when the reader allows the local network, and without as it
+    /// ends when the path has gone for another reason than the permission, the Wi-Fi itself above all.
+    func letThePermissionGo(allowed: Bool) {
+        permissionHeld = false
+        permissionGiven = allowed
+        for search in awaitingPermission { search.resume() }
+        awaitingPermission = []
+    }
+
+    /// The wait a search of a model made here is in before it asks anybody.
+    private func waitForThePermission(_ blocked: @Sendable () async -> Void) async -> Bool {
+        guard permissionHeld else { return true }
+        await blocked()
+        // Looked at again, with nothing awaited between this and the wait: it may have been let go meanwhile.
+        if permissionHeld { await withCheckedContinuation { awaitingPermission.append($0) } }
+        return permissionGiven
     }
 
     private func model(saved: String? = Bench.host,
@@ -129,9 +173,9 @@ final class Bench {
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             tvTransport: tvTransport,
             tvCredentials: tvCredentials,
-            // The wait for the local network permission is left as the surroundings have it: given at once.
-            lanInterfaces: { [weak self] in (self?.wifi).map { [$0.interface] } ?? [] },
-            scanTransport: { [weak self] in self?.wifi?.subnet ?? Subnet() },
+            lanInterfaces: { [weak self] in (self?.wifi).map { [$0] } ?? [] },
+            waitForLocalNetwork: { [weak self] _, blocked in await self?.waitForThePermission(blocked) ?? true },
+            scanTransport: { [weak self] in self?.subnet ?? Subnet() },
             emptyScanHold: emptyScanHold,
             scanAgainDelay: scanAgainDelay,
             scanLog: { [weak self] in self?.scanLog.append($0) }))
@@ -154,6 +198,8 @@ final class Bench {
     }
 
     func throwAway() {
+        // A search still held in the wait for the permission would wait for good.
+        letThePermissionGo(allowed: false)
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
     }

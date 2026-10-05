@@ -12,8 +12,10 @@ import XCTest
 /// it has come back with nothing after the reader allowed it. Why is not known, so the rule held here reads
 /// nothing of the system's: a search that found nobody is made once more when the app has stopped being
 /// active since the press and is active again, as it is once the question has gone -- once to a press, and
-/// not at all for a search that found somebody or for an app that was active throughout. The tests tell the
-/// model its phase as the first screen does.
+/// not at all for a search that found somebody or for an app that was active throughout. The press is carried
+/// across the question and across nothing else: not across a visit to the background, where the question
+/// never sends the app, and not to a Wi-Fi of other addresses than the press's. The tests tell the model its
+/// phase as the first screen does.
 @MainActor
 final class ScanTests: XCTestCase {
     /// The addresses of the Wi-Fi a bench's phone is put on: a /24 without the network's own, the broadcast
@@ -51,6 +53,24 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(model.found, [])
         XCTAssertNil(model.scanning, "the button was left held back after the search")
         expectEqual(await subnet.asked, addresses, "each address of the subnet is asked once")
+    }
+
+    /// On no Wi-Fi a press says so and asks nobody, and that is the end of it: no search is under way
+    /// afterwards.
+    func testAPressWithNoWiFiSaysSoAndIsOver() async throws {
+        let bench = try aBench()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        bench.leaveWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the press never said anything") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .noWiFi)
+        XCTAssertNil(model.scanning, "the button was held back with nothing to look round")
+        expectEqual(await subnet.asked, 0, "the addresses of a Wi-Fi the phone has left were asked")
+        XCTAssertEqual(bench.scanLog, ["press: no Wi-Fi to look round"])
+        expectNoSearchUnderWay(model, on: bench)
     }
 
     // MARK: - once more, when the app has come back to being active since the press
@@ -179,6 +199,163 @@ final class ScanTests: XCTestCase {
         expectEqual(await subnet.asked, addresses, "the search was made again though it had found the recorder")
     }
 
+    // MARK: - carried across the system's question, and across nothing else
+
+    /// The app goes to the background while a search waits for it to be active: the home screen, with the
+    /// question still up or after it. The question never sends the app there, and what the app comes back to
+    /// from there can be another network at any time, so the press is not carried across it. Nothing found is
+    /// said there and then, as the press's own search left it, without the wait there would be after the app
+    /// became active -- half a minute here, which the test does not wait out.
+    func testAVisitToTheBackgroundEndsASearchWaitingToBeMadeOnceMore() async throws {
+        let bench = try aBench()
+        bench.scanAgainDelay = .seconds(30)
+        let subnet = bench.joinWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        goToTheBackground(model)
+        try await until("nothing found was not said when the app went to the background", within: 3) {
+            model.scanOutcome != nil
+        }
+
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        XCTAssertNil(model.scanAwaitsActive, "the search was left waiting for the app to be active")
+        expectEqual(await subnet.asked, addresses, "the search was made again after a visit to the background")
+        XCTAssertEqual(bench.scanLog.suffix(3), [
+            "phase: background",
+            "nothing found; the app went to the background since the press; not searched again",
+            "said: nothing found",
+        ])
+    }
+
+    /// The same while nothing found is still being held: it is said when that moment is over, with the app
+    /// still in the background, and not kept for the app to be active again. Nor is the search made again
+    /// once it is.
+    func testAVisitToTheBackgroundWhileNothingFoundIsHeldEndsTheCarryingToo() async throws {
+        let bench = try aBench()
+        bench.emptyScanHold = .milliseconds(300)
+        let subnet = bench.joinWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the first search never ended") { await subnet.asked == addresses }
+        goToTheBackground(model)
+        try await until("nothing found was not said with the app in the background", within: 3) {
+            model.scanOutcome != nil
+        }
+
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        XCTAssertNil(model.scanAwaitsActive, "the search was left waiting for the app to be active")
+        comeBack(model)
+        try await Task.sleep(for: .milliseconds(300))
+        expectEqual(await subnet.asked, addresses, "the search was made again after a visit to the background")
+    }
+
+    /// And the same in the wait after the app is active again: the question answered, and the home screen
+    /// within the second. The search is not made in the background, nor when the app comes back from it,
+    /// though the recorder would answer now.
+    func testAVisitToTheBackgroundOnceTheAppIsActiveAgainEndsTheCarryingToo() async throws {
+        let bench = try aBench()
+        bench.scanAgainDelay = .seconds(1)
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingBack()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        await subnet.letThrough()
+        comeBack(model)
+        // Into the wait after the app is active, and well short of its end.
+        try await Task.sleep(for: .milliseconds(100))
+        goToTheBackground(model)
+        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .nothing, "the search was made again after a visit to the background")
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        comeBack(model)
+        try await Task.sleep(for: .milliseconds(300))
+        expectEqual(await subnet.asked, addresses, "the search was made again after a visit to the background")
+    }
+
+    /// The phone has left its Wi-Fi by the time the search is to be made once more. The interfaces are read
+    /// again before it, as they are after the wait for the permission: with none, it says there is no Wi-Fi
+    /// rather than ask the addresses of the press, and no search is under way afterwards.
+    func testASearchIsNotMadeOnceMoreWithTheWiFiGone() async throws {
+        let bench = try aBench()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingBack()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        await subnet.letThrough()
+        bench.leaveWiFi()
+        comeBack(model)
+        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .noWiFi)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await subnet.asked, addresses, "the addresses of a Wi-Fi the phone has left were asked")
+        XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round")
+        expectNoSearchUnderWay(model, on: bench)
+    }
+
+    /// The phone is on another Wi-Fi by then, of other addresses, as after a change made in Control Centre,
+    /// which leaves the app where it is. The addresses of the press are another network's now and are not
+    /// asked there: what the press's own search came to is said.
+    func testASearchIsNotMadeOnceMoreOnAnotherWiFi() async throws {
+        let bench = try aBench()
+        let home = bench.joinWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        let elsewhere = bench.joinWiFi(as: Bench.phoneElsewhere)
+        comeBack(model)
+        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await home.asked, addresses, "each address of the press's Wi-Fi is asked once")
+        expectEqual(await elsewhere.asked, 0, "the addresses of the press were asked on another Wi-Fi")
+        XCTAssertEqual(bench.scanLog.suffix(2), [
+            "other addresses than at the press; not searched again",
+            "said: nothing found",
+        ])
+    }
+
+    // MARK: - the wait for the local network permission
+
+    /// The wait ends without the permission, and the Wi-Fi has gone meanwhile: that is what is said, rather
+    /// than look through its addresses and say nobody was found. Nobody is asked, and no search is under way
+    /// afterwards.
+    func testAWaitThatEndsWithTheWiFiGoneSaysThereIsNoWiFi() async throws {
+        let bench = try aBench()
+        bench.holdThePermission()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        bench.leaveWiFi()
+        bench.letThePermissionGo(allowed: false)
+        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .noWiFi)
+        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await subnet.asked, 0, "the addresses of a Wi-Fi the phone has left were asked")
+        XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round")
+        expectNoSearchUnderWay(model, on: bench)
+    }
+
     // MARK: - what a search leaves in the log
 
     /// The course of a first press as the log has it, for reading off a phone afterwards: the press, the end of
@@ -239,5 +416,23 @@ final class ScanTests: XCTestCase {
     /// The app is active again.
     private func comeBack(_ model: AppModel) {
         model.activeChanged(to: true)
+    }
+
+    /// The app goes to the background, as it does for the home screen or another app and never for a question
+    /// of the system's: it stops being active on the way there, if it had not already.
+    private func goToTheBackground(_ model: AppModel) {
+        model.activeChanged(to: false)
+        model.wentToBackground()
+    }
+
+    /// Holds that the model has no search under way, by what it writes for the log: the app's phase changing
+    /// and the screen going away are written for a search under way, and here write nothing.
+    private func expectNoSearchUnderWay(_ model: AppModel, on bench: Bench,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let written = bench.scanLog
+        goToTheBackground(model)
+        comeBack(model)
+        model.stopScanning()
+        XCTAssertEqual(bench.scanLog, written, "written to the log with no search under way", file: file, line: line)
     }
 }

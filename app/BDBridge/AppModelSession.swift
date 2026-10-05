@@ -138,9 +138,17 @@ extension AppModel {
     /// The app has gone to the background, which is what makes coming back worth a reconnect. Only this
     /// counts: Control Centre, the app switcher or a system alert take the app out of `.active` without it
     /// going anywhere, and reconnecting after each sent a magic packet for a glance at the time.
+    ///
+    /// It is also where a scan's press stops being carried (`scan`): a scan that found nobody is made once
+    /// more across the system's question, which never sends the app here, and what the app comes back to from
+    /// here can be another network at any time. One waiting for the app to be active is let go of, to say
+    /// what its own search came to.
     func wentToBackground() {
         inBackground = true
         if scanTask != nil { surroundings.scanLog("phase: background") }
+        timesInBackground += 1
+        scanAwaitsActive?.resume()
+        scanAwaitsActive = nil
         // The line about the queue was for this visit, the television's half of it with the recorder's. Coming
         // back sends the queue again when there is anything to send, and says what became of that. So was the
         // one about another recorder.

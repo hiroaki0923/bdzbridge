@@ -125,7 +125,8 @@ final class AppModel: LinkHost {
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0
     /// A scan that found nobody, waiting for the app to be active again before it looks once more (`scan`).
-    /// Let go of when the app is (`activeChanged`), and when the scan is stopped.
+    /// Let go of when the app is (`activeChanged`), when it goes to the background instead
+    /// (`wentToBackground`), and when the scan is stopped.
     var scanAwaitsActive: CheckedContinuation<Void, Never>?
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
@@ -182,6 +183,9 @@ final class AppModel: LinkHost {
     /// found nobody goes by (`scan`).
     var timesLeftActive = 0
     var activeSince: ContinuousClock.Instant?
+    /// How often the app has gone to the background. A scan's press is carried across a question of the
+    /// system's, which never sends the app there, and not across a visit there (`scan`).
+    var timesInBackground = 0
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
     var backInFront: CheckedContinuation<Void, Never>?
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
