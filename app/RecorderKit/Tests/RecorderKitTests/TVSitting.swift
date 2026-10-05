@@ -138,9 +138,9 @@ struct TVLedger: Codable, Equatable {
     /// The television's list as it counted before the first create of the sitting, the household's viewing
     /// reservation for the sitting in it: what the list is to count as again when everything is taken off.
     var before: Counts?
-    /// When the first entry was written down, which is what says whose ledger this is. A sitting is one
-    /// evening: a file begun more than a day ago is an earlier sitting's, named again by mistake, and its
-    /// count is of another day's list.
+    /// When the first entry was written down, which is what says whose ledger this is. A sitting is over
+    /// the day it began: a file begun more than a day ago is an earlier sitting's, named again by mistake,
+    /// and its count is of another day's list.
     var begun: Date?
 
     var open: Int { entries.filter { !$0.struck }.count }
@@ -252,7 +252,7 @@ actor TVLine: HTTPTransport {
 /// A mistake in a check leaves a reservation on somebody's television, or deletes one of theirs. So:
 ///
 /// - **Nothing is made unless the sitting may write**, and the television says it is `active`: the sitting
-///   is held with it on. One check is for a television left in standby, and makes nothing unless it says
+///   is held with it on. One check is for a television that is off, and makes nothing unless it says
 ///   `standby`. Nor is anything made while the ledger holds an entry not struck out: something of an earlier
 ///   check may still be on the television, and a check that finds one fails and says so.
 /// - **What a check deletes is only what it made.** The list is read before each create, and the check's own
@@ -741,13 +741,16 @@ actor TVSitting {
         }
     }
 
-    /// One waiting reservation, sent as the app sends what waits for a television, to a television left in
-    /// standby. It is queued in a store of the check's own, kept in memory so that nothing of it is on a
-    /// disk at any time, and sent by the queue's own flush with the sitting's client: the round the app
-    /// ships -- the disk, the list, the stations, the question, the create, the list. Then the same
-    /// reservation is queued and flushed a second time, which is to find it on the television and send no
-    /// create; and the row is taken off. Whether a write goes through hours into standby, and what the
-    /// panel, the lamp and the disk do meanwhile, is what it is run to see.
+    /// One waiting reservation, sent as the app sends what waits for a television, to a television that is
+    /// off. It is queued in a store of the check's own, kept in memory so that nothing of it is on a disk
+    /// at any time, and sent by the queue's own flush with the sitting's client: the round the app ships --
+    /// the disk, the list, the stations, the question, the create, the list. Then the same reservation is
+    /// queued and flushed a second time, which is to find it on the television and send no create; and the
+    /// row is taken off. Whether the round that ships goes through on a real television that is off, sent
+    /// by the app's own client and transport, and what the panel, the lamp and the disk do meanwhile, is
+    /// what it is run to see. How long the television has been off it does not ask. Run about a minute after
+    /// one was switched off, it went through as written here: the stations read, one row made and read back
+    /// as sent, no create in the second flush, and nothing seen to change on the television.
     ///
     /// It makes nothing unless the television says `standby`, and is not begun on one whose disk is not
     /// there. The programme is the first among the picks with an empty slot that does not start in the small
@@ -819,10 +822,10 @@ actor TVSitting {
     }
 
     /// Whether a programme starts in the small hours in Japan: from midnight until five in the morning. The
-    /// check for a television in standby reserves none that does. It is run in the morning, and twenty hours
-    /// ahead of a morning falls there. A station may be off the air then, a guide lists that as a programme
-    /// like any other, and what a television answers a create for one has not been seen: a create turned
-    /// down for it would say nothing of standby, and the one night the check has is not for finding it out.
+    /// check for a television in standby reserves none that does. Run early in the day, twenty hours ahead
+    /// falls there. A station may be off the air then, a guide lists that as a programme like any other, and
+    /// what a television answers a create for one has not been seen: a create turned down for it would say
+    /// nothing of standby, and the check is not for finding it out.
     static func startsInTheSmallHours(_ start: Date) -> Bool {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
@@ -832,7 +835,7 @@ actor TVSitting {
     /// What the television says it is, asked once more as the check for one in standby ends, and said. The
     /// check asked at its beginning, and afterwards the eye cannot tell: `active` is not a lit panel, and a
     /// television that a write brought on with its panel dark would pass for one that stayed in standby. It
-    /// fails nothing, whatever is said: it is part of what the night measured. A read that fails is said by
+    /// fails nothing, whatever is said: it is part of what the check measured. A read that fails is said by
     /// its kind and not thrown.
     ///
     /// Not asked when anything sent since `from` met no answer, the check's own or the round's: after
@@ -1152,14 +1155,14 @@ actor TVSitting {
     /// Nothing was made, whatever is new in the list, by a flush that sent no create or took none. That it
     /// sent none the line says: no `addSchedule` went over it. What the queue says cannot say as much: a row
     /// the round passed over reads the same there whether its create was answered with something that
-    /// cannot be read or its question was answered with an error code and no create followed, which is the
-    /// likeliest thing a television in standby does. That a create it sent was not taken is what the queue
-    /// says shows (`tookNoCreate`): one answered as held already, which was measured to make nothing, or
-    /// turned down with a code. A recording that is new then is somebody else's, on the pick's own station
-    /// and of the pick's own programme as well. Otherwise a create may have been taken, and a row of the
-    /// check's own carries the pick's programme: the round finds its row by that id, and a television
-    /// listed a reservation made once with the id it was sent. Silence that a create may have met is the
-    /// round's stop for it. The question before the create is the round's own.
+    /// cannot be read or its question was answered with an error code and no create followed, which a
+    /// television in standby might do: the one that was asked answered the question. That a create it sent
+    /// was not taken is what the queue says shows (`tookNoCreate`): one answered as held already, which was
+    /// measured to make nothing, or turned down with a code. A recording that is new then is somebody else's,
+    /// on the pick's own station and of the pick's own programme as well. Otherwise a create may have been
+    /// taken, and a row of the check's own carries the pick's programme: the round finds its row by that id,
+    /// and a television listed a reservation made once with the id it was sent. Silence that a create may
+    /// have met is the round's stop for it. The question before the create is the round's own.
     private func flush(_ waiting: PendingReservation, of pick: TVPick, repeating repeatType: String,
                        through store: GuideStore, _ name: String) async throws -> Flushed {
         var listed = last

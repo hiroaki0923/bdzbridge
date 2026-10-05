@@ -8,8 +8,8 @@ import XCTest
 /// once; and nothing said that names a programme, a station or a row. Then what a check does when something
 /// goes wrong on the way, which no sitting can be made to show, and what the sitting is given before it
 /// begins: its leave to write, its viewing reservation, where its files may be kept. The check for a
-/// television left in standby is rehearsed by itself, on an invented television that is in standby: it is no
-/// part of a sitting held with the television on, and does not run there.
+/// television in standby is rehearsed by itself, on an invented television that is in standby: it is no part
+/// of a sitting held with the television on, and does not run there.
 ///
 /// The household's rows are put beside the slots the checks use and on the programmes they reserve, so that a
 /// check that took a slot too near one, or deleted by its programme, would be caught here and not on
@@ -927,9 +927,9 @@ final class TVSittingTests: XCTestCase {
             + " entry is left in the ledger"
     }
 
-    /// The check for a television left in standby, on the invented one in standby with the household's rows
-    /// in place. One waiting row goes through the queue's own flush: the round's six requests, the question
-    /// in front of the create. The same row flushed again is found on the television, with the disk and the
+    /// The check for a television in standby, on the invented one in standby with the household's rows in
+    /// place. One waiting row goes through the queue's own flush: the round's six requests, the question in
+    /// front of the create. The same row flushed again is found on the television, with the disk and the
     /// list asked and nothing else. One create went in all, its entry in the ledger before it. What each
     /// flush sent is said, a request at a time, and at the end what the television says it is.
     ///

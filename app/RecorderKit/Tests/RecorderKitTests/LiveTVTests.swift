@@ -46,8 +46,8 @@ import XCTest
 /// file: what a reservation is made of, with no title and no station's name. This sends the television
 /// nothing, and the checks send the recorder nothing. With the television on it can be done a minute before
 /// the first check. Only a sitting that watches a television in standby has it done before the television is
-/// left to go to standby: the recorder is not to be asked anything while that is watched, since what waking
-/// a recorder does to a television it is wired to was never measured.
+/// switched off: the recorder is not to be asked anything while that is watched, since what waking a
+/// recorder does to a television it is wired to was never measured.
 ///
 ///     RECORDER_HOST=… TV_PICKS=<repository>/notes/<a file> \
 ///         swift test --filter LiveTVTests/testWritingThePicks
@@ -85,8 +85,8 @@ import XCTest
 /// - `TV_WRITE` is leave to make something, and is **the name of the test being run**, as in
 ///   `TV_WRITE=testTheSameProgrammeTwice`. Set to anything else, the test is skipped with nothing sent;
 ///   without it, or while the television says `standby`, a check that makes something is skipped with
-///   nothing made. The one check for a television left in standby, further down, is skipped unless it says
-///   just that.
+///   nothing made. The one check for a television in standby, further down, is skipped unless it says just
+///   that.
 /// - **Every command that carries `TV_WRITE` is given ten minutes** by whatever runs it, and is not
 ///   interrupted. Cut off between a create and its delete, any of them leaves a reservation on the
 ///   television and its entry open in the ledger.
@@ -149,41 +149,69 @@ import XCTest
 ///
 /// ## The sitting at a television in standby
 ///
-/// One check is for a television that was switched off and left alone for hours, a night best:
-/// `testAWaitingRowSentInStandby`. It sends one waiting reservation as the app sends what waits for a
-/// television with nobody at it: queued in a store of the check's own and sent by the queue's own flush,
-/// through the round the app ships. Then it queues and flushes the same reservation a second time, which is
-/// to find it on the television and send no create, and takes the row off. It is skipped, with nothing made,
-/// unless the television says `standby`. Everything said above of a command holds for it: its variables on
-/// the command line, one test to a command, never two at once, its files where git does not track them, the
-/// tests built first.
+/// One check is for a television that is switched off and says `standby`: `testAWaitingRowSentInStandby`.
+/// It sends one waiting reservation as the app sends what waits for a television with nobody at it: queued
+/// in a store of the check's own and sent by the queue's own flush, through the round the app ships. Then
+/// it queues and flushes the same reservation a second time, which is to find it on the television and send
+/// no create, and takes the row off. It is skipped, with nothing made, unless the television says
+/// `standby`. Everything said above of a command holds for it: its variables on the command line, one test
+/// to a command, never two at once, its files where git does not track them, the tests built first.
+///
+/// What it is run to see is the round the app ships -- `PendingQueue.flush` over `ScalarClient` as a
+/// `QueueTarget` -- sent to a real television that is off, by the app's own client and transport, and what
+/// the panel, the lamp and the disk do meanwhile. How long the television has been off is no part of it. A
+/// television was seen to answer alike minutes after it was switched off, when a script made and deleted
+/// reservations on it and read its stations, and more than five hours after, when this client read what
+/// needs no registration, the disk and the list, and renewed its registration; and the app deleted a
+/// reservation on one that was off. So it is one short sitting, at any time of day. Held about a minute
+/// after a television was switched off, it passed in seconds, and the owner saw nothing change.
 ///
 /// The programme it reserves is the first among the picks with an empty slot, twenty hours or more ahead,
-/// that does not start between midnight and five in the morning in Japan. Run in the morning, twenty hours
-/// ahead falls in those hours. A station may be off the air then, the guide lists that as a programme like
-/// any other, and what a television answers a create for one has not been seen: the night is not for
+/// that does not start between midnight and five in the morning in Japan. Run early in the day, twenty
+/// hours ahead falls in those hours. A station may be off the air then, the guide lists that as a programme
+/// like any other, and what a television answers a create for one has not been seen: the check is not for
 /// finding that out.
 ///
-/// **The evening before, before the television is left to go to standby**, the picks are written
-/// (`testWritingThePicks`, above), the tests are built, and the registration is in the jar:
-/// `testReadingWhatNeedsTheRegistration` passes with it while the television is still on. Two of the
-/// morning's three commands send with that registration, and registering takes a television that is on and
-/// showing a broadcast: a jar found wanting in the morning has cost the night. The recorder is asked nothing
-/// after its guide was read for the picks until the check has ended, and not by these commands alone:
-/// **for the night, whatever else asks the recorder or the television is stopped as well** -- a server that
-/// refreshes its guide from the recorder, the app on every phone, closed and with its background refresh
-/// off. What waking a recorder does to a television it is wired to was never measured, and a television
-/// that something else asked during the night is not one that was left alone. Then the television is
-/// switched off with its remote, its USB disk connected, and nobody touches it or its remote again until
-/// the check has ended.
+/// **With the television still on**, three things are done first.
 ///
-/// **In the morning**, with nobody having touched the television, three commands in this order. From the
-/// first to the end of the third the owner is at the television and looks at its panel, which is to stay
-/// dark; at its lamp; and at the disk, by its own lamp or its sound.
+/// 1. The picks are written (`testWritingThePicks`, above):
 ///
-/// 1. `testWhatIsAtTheAddress`, with `TV_HOST` alone. It is to say a television, in standby. With nothing at
-///    the address the sitting ends there: there is nothing to send a reservation to.
-/// 2. `testReadingWhatNeedsTheRegistration`, with `TV_HOST` and `TV_JAR`. The disk is to read as mounted.
+///        RECORDER_HOST=… TV_PICKS=<repository>/notes/<a file> \
+///            swift test --filter LiveTVTests/testWritingThePicks
+///
+/// 2. The tests are built, with none of these variables set:
+///
+///        swift build --build-tests
+///
+/// 3. The registration is in the jar, and the television takes it:
+///
+///        TV_HOST=… TV_JAR=… swift test --filter LiveTVTests/testReadingWhatNeedsTheRegistration
+///
+///    Two of the three commands sent once the television is off send with that registration, and
+///    registering takes a television that is on and showing a broadcast: a jar found wanting once it is off
+///    means switching it on and beginning again.
+///
+/// **Then the television is switched off** with its remote, its USB disk connected, and nobody touches it or
+/// its remote again until the check has ended. The recorder is asked nothing after its guide was read for
+/// the picks until the check has ended, and not by these commands alone: **from the moment the television
+/// is off until the check has ended, whatever else asks the recorder or the television is stopped as well**
+/// -- a server that refreshes its guide from the recorder, the app on every phone, closed and with its
+/// background refresh off. What waking a recorder does to a television it is wired to was never measured,
+/// and what a television does that something else asked meanwhile cannot be put down to the check.
+///
+/// **Then three commands in this order**, however long the television has been off by then. From the first
+/// to the end of the third the owner is at the television and looks at its panel, which is to stay dark; at
+/// its lamp; and at the disk, by its own lamp or its sound.
+///
+/// 1. What is at the address. It is to say a television, in standby. With nothing at the address the
+///    sitting ends there: there is nothing to send a reservation to.
+///
+///        TV_HOST=… swift test --filter LiveTVTests/testWhatIsAtTheAddress
+///
+/// 2. What needs the registration. The disk is to read as mounted.
+///
+///        TV_HOST=… TV_JAR=… swift test --filter LiveTVTests/testReadingWhatNeedsTheRegistration
+///
 /// 3. The check itself:
 ///
 ///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testAWaitingRowSentInStandby \
@@ -216,6 +244,9 @@ import XCTest
 /// check, it is skipped, and a skip looked at nothing. The owner looks at the television's own list:
 /// nothing on it is the sitting's. Where the check failed or was cut off, the television is switched on and
 /// its list looked at before anything else is run, as after any check that fails.
+///
+/// **How long the television had been off** when the check was run is written down with what was seen of
+/// the panel, the lamp and the disk: the check asks for no length of time, and does not say it.
 ///
 /// **When the last sitting is over**, the owner takes the clients that were registered for the checks off
 /// the television's list of registered devices -- the one `testRegistering` made, under its nickname, and
@@ -371,8 +402,8 @@ final class LiveTVTests: XCTestCase {
         try await sitting { try await $0.theStationsNamed() }
     }
 
-    /// The one check for a television left in standby (`TVSitting.aWaitingRowInStandby`): on one that says
-    /// it is on, it is skipped with nothing made.
+    /// The one check for a television in standby (`TVSitting.aWaitingRowInStandby`): on one that says it is
+    /// on, it is skipped with nothing made.
     func testAWaitingRowSentInStandby() async throws {
         try await sitting { try await $0.aWaitingRowInStandby() }
     }
