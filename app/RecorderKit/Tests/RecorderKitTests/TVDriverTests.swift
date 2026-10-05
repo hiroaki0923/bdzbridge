@@ -1617,8 +1617,14 @@ final class TVDriverTests: XCTestCase {
     /// other is turned away there for its repeat, and none of these is. With no cache to keep a row in they
     /// get as far as that and no further, so nothing is kept or sent.
     ///
-    /// Each programme is the next of its weekday from tomorrow on by the real clock, which is the door's: a
-    /// start fixed here would one day be over, and the door would then say that of every repeat it is sent.
+    /// Each of those four is the next of its weekday from tomorrow on by the real clock, which is the door's:
+    /// a start fixed here would one day be over, and the door would then say that of every repeat it is sent.
+    ///
+    /// That a programme has begun takes nothing from what is offered for it, nor from what the door lets
+    /// through: a sheet opened on a programme on air lists its repeats from here, and the reservation is sent
+    /// as one for a programme still ahead is. So one on air by the real clock -- begun a quarter of an hour
+    /// ago, with as long to go -- is offered what the same programme a week later is, which starts at the
+    /// same hour of the same weekday in Japan and is still ahead, and the door lets exactly those through.
     func testATelevisionIsOfferedTheRepeatsItIsSentForAProgrammeAndDR() async throws {
         XCTAssertEqual(TVDriver.recordsIn, "DR")
         XCTAssertEqual(Codes.qualityLabel[TVDriver.recordsIn], "DR(高画質)")
@@ -1632,11 +1638,16 @@ final class TVDriverTests: XCTestCase {
                                          matching: DateComponents(hour: hour, weekday: weekday),
                                          matchingPolicy: .nextTime))
         }
+        // The two differ in nothing but that the first has begun. No clock is handed in with the question of
+        // what is offered, so only a start set against the real one can show that the real one is not read.
+        let onAir = programme("サンプル劇場", 50101, in: -0.25).start
+        let aWeekLater = programme("サンプル劇場", 50101, at: onAir.addingTimeInterval(7 * 86_400))
         let offered: [(name: String, start: Date, repeats: [String])] = [
             ("a Monday evening's", try next(2, at: 21), ["none", "title", "daily", "mon", "mon-fri", "mon-sat"]),
             ("a Saturday evening's", try next(7, at: 21), ["none", "title", "daily", "sat", "mon-sat"]),
             ("a Sunday evening's", try next(1, at: 21), ["none", "title", "daily", "sun"]),
             ("one at two on a Monday morning", try next(2, at: 2), ["none", "title", "daily"]),
+            ("one on air, as the same a week later", onAir, TVDriver.repeats(for: aWeekLater)),
         ]
         let bench = try await attachedQueueBench()
         bench.world.cache = nil
@@ -1662,7 +1673,9 @@ final class TVDriverTests: XCTestCase {
     /// gone from the queue. Made is said only where the television's list has a recording of the programme
     /// that is all the row asks for; where what it has falls short of the repeat asked, the reason for that
     /// is said; and with nothing of it listed, or no list read, nothing is known to have been made -- or,
-    /// its programme being over by then, that is what is said.
+    /// its programme being over by then, that is what is said. Over is said once the programme's end has
+    /// passed and not before: while it is on air, which a programme reserved after it began is from the
+    /// first, and at its end, the answer is still that nothing is known to have been made.
     func testWhatARoundForOneRowCameToIsReadAsWhatTheReservationCameTo() {
         let driver = TVDriver(credentials: MemoryTVCredentials(), nickname: "BD Bridge", inFront: { true })
         let row = waiting("サンプル劇場", 50101), other = waiting("サンプル紀行", 50102, in: 3)
@@ -1720,6 +1733,11 @@ final class TVDriverTests: XCTestCase {
         ]
         for (name, row, round, list, comes) in cases {
             XCTAssertEqual(driver.reserved(row, by: round, listing: list), comes, name)
+        }
+        for (name, now) in [("a second after its start", row.request.start.addingTimeInterval(1)),
+                            ("at its end", row.request.end)] {
+            XCTAssertEqual(driver.reserved(row, by: round(), listing: without, now: now), .notDone(unconfirmed),
+                           "gone, and not listed, \(name)")
         }
         XCTAssertEqual(driver.reserved(row, by: round(), listing: without, now: row.request.end.addingTimeInterval(1)),
                        .notDone(Self.programmeIsOver), "gone, and over by then")
