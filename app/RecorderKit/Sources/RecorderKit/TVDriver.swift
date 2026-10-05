@@ -36,8 +36,9 @@ public final class TVDriver: LinkDriver {
     /// What the television lists the app as, among the devices registered with it.
     private let nickname: String
     /// Whether the app is in front, the only place a renewal is asked for. A television that no longer lists
-    /// the app turns one down in standby and shows nothing (error 40005), but with its display on it puts a PIN
-    /// on the screen; and none has been tried on a television hours into standby. So the reader is to be there.
+    /// the app turns one down in standby and shows nothing (error 40005, seen minutes after it was switched
+    /// off), but with its display on it puts a PIN on the screen. So the reader is to be there. One that lists
+    /// the app renewed in standby with nothing shown, more than five hours after it was switched off as well.
     private let inFront: @MainActor () -> Bool
     /// The read of the reservations that is out, which whoever asks meanwhile waits for.
     private var reading: Task<[Reservation]?, Never>?

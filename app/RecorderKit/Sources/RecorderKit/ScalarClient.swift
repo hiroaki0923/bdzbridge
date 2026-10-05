@@ -878,8 +878,9 @@ extension ScalarClient: QueueTarget {
     /// something that passes. It leaves the kind unread, as any other failure does, on that page or a later
     /// one: a list cut short would say of every station after the cut that the television does not have it.
     ///
-    /// Both readings are taken, not seen: no television was asked for its stations hours into standby, and
-    /// none was asked for a kind it lacks.
+    /// Both readings are taken, not seen. The list was read from a television in standby by this client, in
+    /// the round, about a minute after it was switched off: it answered with its stations. No television
+    /// has been seen to answer the list with 40005 or with 7, and none was asked for a kind it lacks.
     private func stations(for broadcastingType: Int, in round: TVRound) async -> StationsRead {
         if let read = round.stations[broadcastingType] { return .read(read) }
         if round.unread.contains(broadcastingType) { return .unread }
