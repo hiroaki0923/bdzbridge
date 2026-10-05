@@ -3,8 +3,16 @@ import SwiftUI
 
 /// One programme: what it is, whether the recorder is already set to record it -- or will be, once a
 /// reservation waiting on this phone reaches it -- and the two choices that go with a new reservation.
-/// Whether the television is set to record it is said beside that, and is no part of it: a reservation is
-/// made on the recorder, and what the television holds neither stands in for one nor is in the way of one.
+///
+/// With a television saved the same is said of the television beside that, each device under its own name,
+/// and a new reservation says where it goes (予約先): to a device that neither holds the programme nor has
+/// it waiting (`AppModel.destinations(for:)`), so what one device holds neither stands in for a reservation
+/// on the other nor is in the way of one. What is offered under it is the chosen device's: the recorder's
+/// modes, repeats and what it would clash with, or the one mode and the repeats a television is sent
+/// (`TVDriver`). The television is asked nothing until the reader reserves, and what that came to is said
+/// in the one alert, a case of the result to a case of it (`say`).
+///
+/// With the recorder alone none of that is drawn, and the sheet is the one it has always been.
 struct ProgramSheet: View {
     let program: GuideProgramRow
     @Environment(AppModel.self) private var model
@@ -18,12 +26,20 @@ struct ProgramSheet: View {
     /// What the one alert is for: SwiftUI does not promise to honour two on one view, and asking and reporting
     /// never happen at once. Reporting is here because the red line at the sheet's foot is below the fold.
     private enum Ask {
-        case reserve
+        /// A reservation on the device 録画予約 was for as its button was pressed. The question keeps that
+        /// device, and its words and its button use no other: the lists can be read again while it is up.
+        case reserve(DeviceSlot)
         case cancel(Reservation)
         case cancelPending(PendingReservation)
         case failed(String)
-        /// The recorder was not there, so the reservation is waiting instead of made.
-        case queued
+        /// The reservation is waiting instead of made, and the sentence for why. `stays`: the sheet is left
+        /// open on the row, which waited before or does not go by itself.
+        case kept(String, stays: Bool)
+        /// Made, and what the television had to say of it.
+        case said(String)
+        /// Making it would stop others from recording, which the row's reason names: whether to make it
+        /// all the same. `fresh`: it was asked for just now, so a no takes the row off again.
+        case wouldStop(PendingReservation, fresh: Bool)
 
         var isFailure: Bool {
             if case .failed = self { return true }
@@ -38,14 +54,33 @@ struct ProgramSheet: View {
     /// asked what the reservation would clash with there; `checks` is what has it asked.
     @State private var lastRecorderGone = false
     @State private var checks = 0
+    /// The device the reader picked under 予約先, for as long as it is free for the programme.
+    @State private var chosen: DeviceSlot?
+    /// The device a reservation asked for here is for, from 録画予約する until what it came to has been said
+    /// and closed: see `device`.
+    @State private var turn: DeviceSlot?
+    /// The line of a request of this sheet's own to the television, while it is out. Nothing on the sheet
+    /// can be pressed under it and the sheet cannot be closed: what the request came to is said here, in
+    /// the alert, and a sheet that had gone would say it nowhere. Never set for the recorder.
+    @State private var asking: String?
 
-    /// The recorder's reservation of this programme, and the television's, held apart. Everything about
-    /// making one reads the recorder's alone: a programme only the television is set to record can still be
-    /// reserved on the recorder.
+    /// The recorder's reservation of this programme, and the television's, held apart.
     private var reservation: Reservation? { model.reservations(for: program).first { $0.device == .recorder } }
     private var televisions: Reservation? { model.reservations(for: program).first { $0.device == .tv } }
-    private var waiting: PendingReservation? { model.pending(for: program) }
     private var past: Bool { program.end <= Date() }
+
+    /// The device 録画予約 is for, or nil when no device is free for the programme: the one the reader
+    /// picked while it is free, and otherwise the first that is, the recorder before the television.
+    ///
+    /// In a home with two it is not read afresh in the middle of a reservation (`turn`). A television's
+    /// leaves the television no longer free -- the row waits, or was made -- and falling back to the
+    /// recorder there would change the section under the question or the answer, and have the recorder
+    /// asked what a reservation would clash with (`check`) on account of one that was the television's.
+    private var device: DeviceSlot? {
+        if let turn, model.destinations.count > 1 { return turn }
+        let free = model.destinations(for: program)
+        return chosen.flatMap { free.contains($0) ? $0 : nil } ?? free.first
+    }
 
     /// A weekly repeat has to fall on the programme's own weekday, so only that one is offered.
     private var repeatOptions: [String] {
@@ -84,12 +119,24 @@ struct ProgramSheet: View {
                 if let televisions {
                     televisionSection(televisions)
                 }
-                if let waiting {
+                if let waiting = model.pending(for: program, on: .recorder) {
                     pendingSection(waiting)
                 }
+                if let waiting = model.pending(for: program, on: .tv) {
+                    pendingSection(waiting)
+                }
+                if let asking {
+                    Section {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(asking).font(.callout)
+                        }
+                    }
+                }
                 // Not for a programme already waiting: a second reservation would only replace it in the queue.
-                if reservation == nil, waiting == nil, !past {
-                    Section(heading("録画予約")) {
+                if device == .recorder, !past {
+                    Section("録画予約") {
+                        destinationRow(.recorder)
                         Picker("録画モード", selection: $quality) {
                             ForEach(Codes.qualityOrder, id: \.self) { code in
                                 Text(Codes.qualityLabel[code] ?? code).tag(code)
@@ -103,9 +150,11 @@ struct ProgramSheet: View {
                         conflictRow
                         // Alive even while the recorder is being woken or cannot be reached at all: a
                         // reservation made now goes to the queue and is sent when the recorder next answers.
-                        Button("録画予約する") { ask = .reserve }
+                        Button("録画予約する") { (turn, ask) = (.recorder, .reserve(.recorder)) }
                             .disabled(model.working)
                     }
+                } else if device == .tv, !past {
+                    televisionOffer
                 }
 
                 if !program.summary.isEmpty {
@@ -118,17 +167,28 @@ struct ProgramSheet: View {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }
+            .disabled(asking != nil)
             .navigationTitle("番組")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { SheetCloseButton() }
+            .toolbar { SheetCloseButton().disabled(asking != nil) }
+            .interactiveDismissDisabled(asking != nil)
             .task(id: taskKey) { await check() }
+            // The queue on screen is otherwise read when the reservations tab has been opened or a device
+            // was connected to, and a programme that waits for the television unread would be offered here
+            // as one it can still be reserved on. With the recorder alone the sheet reads what it always has.
+            .task { if model.tv != nil { await model.loadPending() } }
+            // A repeat picked under the recorder is not carried to the television, which is not sent all of
+            // them: whenever 録画予約 becomes the television's, by the reader's choice or by the recorder
+            // turning out to hold the programme, it starts from none.
+            .onChange(of: device) { if $1 == .tv { repeating = "none" } }
             .sheet(item: $editing) { ReservationSheet(reservation: $0) }
             // The programme is the broadcast's, and this sheet stays when the recorder's lists are let go of
             // (`AppModel.timesForgotten`). What it holds of that recorder goes: the reservation picked for
             // deletion, whose number would go to the next recorder, and the clashes that recorder named, which
             // the next one attached is asked for. A reservation's sheet open over this one closes itself.
             // A television's reservation picked for deletion is not the recorder's to take, and goes with
-            // the television's lists instead (`AppModel.tvTimesForgotten`).
+            // the television's lists instead (`AppModel.tvTimesForgotten`). So does the question whether to
+            // make a reservation that would stop others there: the names in it are that television's.
             .onChange(of: model.timesForgotten) {
                 if case .cancel(let picked) = ask, picked.device == .recorder { ask = nil }
                 conflicts = nil
@@ -136,6 +196,7 @@ struct ProgramSheet: View {
             }
             .onChange(of: model.tvTimesForgotten) {
                 if case .cancel(let picked) = ask, picked.device == .tv { ask = nil }
+                if case .wouldStop = ask { (ask, turn) = (nil, nil) }
             }
             .onChange(of: model.timesAttached) {
                 guard lastRecorderGone else { return }
@@ -146,18 +207,12 @@ struct ProgramSheet: View {
                                                   set: { if !$0 { ask = nil } }),
                    presenting: ask) { asked in
                 switch asked {
-                case .reserve:
+                case .reserve(let device):
                     Button("予約する") {
-                        Task {
-                            let ok = await model.reserve(program, quality: quality, repeating: repeating)
-                            if !ok {
-                                ask = .failed(model.problem ?? "レコーダーがエラーを返しました")
-                            } else if model.queued != nil {
-                                model.queued = nil
-                                ask = .queued          // kept, not made: say so before the sheet closes
-                            } else {
-                                done = true
-                            }
+                        // Read now, as the question showed them, and not when the request sets out.
+                        let (quality, repeating) = (quality, repeating)
+                        request(under: device == .tv ? TVDriver.reservingLine : nil, fresh: true) {
+                            await model.reserve(program, on: device, quality: quality, repeating: repeating)
                         }
                     }
                 case .cancel(let reservation):
@@ -173,25 +228,45 @@ struct ProgramSheet: View {
                 case .cancelPending(let waiting):
                     Button("削除する", role: .destructive) {
                         Task {
-                            await model.removePending(waiting)
-                            done = true
+                            // A television's row is not deleted while the television works, and stays on
+                            // the sheet then: a sending begun under the question may have it in hand.
+                            await model.deleteWaiting(waiting)
+                            done = waiting.target != .tv || model.pending(for: program, on: .tv) == nil
                         }
                     }
-                case .failed, .queued:
+                case .wouldStop(let held, let fresh):
+                    Button("それでも予約") {
+                        request(under: TVDriver.sendingLine, fresh: fresh) {
+                            await model.consent(to: held, askedForJustNow: fresh)
+                        }
+                    }
+                case .failed, .kept, .said:
                     EmptyView()
                 }
-                if case .queued = asked {
+                switch asked {
+                case .kept(_, let stays):
+                    Button("OK", role: .cancel) { if stays { turn = nil } else { done = true } }
+                case .said:
                     Button("OK", role: .cancel) { done = true }
-                } else {
-                    Button(asked.isFailure ? "OK" : "キャンセル", role: .cancel) {}
+                case .wouldStop(let held, let fresh):
+                    Button("キャンセル", role: .cancel) {
+                        Task {
+                            await model.decline(held, askedForJustNow: fresh)
+                            turn = nil
+                        }
+                    }
+                case .reserve, .cancel, .cancelPending, .failed:
+                    Button(asked.isFailure ? "OK" : "キャンセル", role: .cancel) { turn = nil }
                 }
             } message: { asked in
                 switch asked {
-                case .reserve:
+                case .reserve(let device):
+                    let mode = device == .tv ? TVDriver.recordsIn : quality
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
-                         + "\(Codes.qualityLabel[quality] ?? quality) · "
+                         + "\(Codes.qualityLabel[mode] ?? mode) · "
                          + "\(Codes.repeatLabel[repeating] ?? repeating)\n"
-                         + (model.offline
+                         + (device == .tv ? TVDriver.confirming
+                            : model.offline
                             ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
                             : "レコーダーに予約を登録します。"))
                 case .cancel(let reservation):
@@ -199,13 +274,15 @@ struct ProgramSheet: View {
                          + "\(reservation.device.label)から削除されます。")
                 case .cancelPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、レコーダーには送りません。")
-                case .failed(let reason):
-                    Text(reason)
-                case .queued:
-                    Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
-                         + "レコーダーに届かなかったので、予約を端末に保存しました。"
-                         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。")
+                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                case .failed(let said), .said(let said):
+                    Text(said)
+                case .kept(let why, _):
+                    Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n" + why)
+                case .wouldStop(let held, _):
+                    // The reason without the sentence about a button this alert does not have. The consent
+                    // is to the reason whole, as it stands on the row.
+                    Text(TVDriver.asks(of: held) ?? held.problem ?? "")
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
@@ -218,13 +295,89 @@ struct ProgramSheet: View {
         case .cancel: "この予約を削除しますか？"
         case .cancelPending: "送信待ちの予約を削除しますか？"
         case .failed: "エラー"
-        case .queued: "送信待ちにしました"
-        case .reserve: model.offline ? "この番組を送信待ちにしますか？" : "この番組を録画予約しますか？"
-        case nil: "この番組を録画予約しますか？"
+        case .kept(_, let stays): stays ? "送信待ちのままです" : "送信待ちにしました"
+        case .said: "テレビの予約"
+        case .wouldStop: "それでも予約しますか？"
+        case .reserve(.recorder) where model.offline: "この番組を送信待ちにしますか？"
+        case .reserve, nil: "この番組を録画予約しますか？"
         }
     }
 
-    private var taskKey: String { "\(program.id)-\(quality)-\(repeating)-\(checks)" }
+    /// What has the recorder asked again what a reservation would clash with. It says whether 録画予約 is
+    /// the television's, so that the recorder is asked when the section becomes its own again, and only
+    /// that of the device: with the recorder alone it is what it was.
+    private var taskKey: String {
+        "\(program.id)-\(quality)-\(repeating)-\(checks)" + (device == .tv ? "-tv" : "")
+    }
+
+    /// What this sheet asks for a reservation: one on a device, a waiting row sent again, or the yes to
+    /// making one all the same. What it came to is said (`say`), and with nothing put up and the sheet
+    /// staying, 録画予約 is read afresh. `line` is for a request to the television, and is up for as long
+    /// as that is out (`asking`).
+    private func request(under line: String? = nil, fresh: Bool,
+                         _ work: @escaping @MainActor () async -> Reserved?) {
+        asking = line
+        Task {
+            let came = await work()
+            asking = nil
+            say(came, fresh: fresh)
+            if ask == nil, !done { turn = nil }
+        }
+    }
+
+    /// What a reservation, or a waiting row sent again, came to, as this sheet says it and what it does
+    /// then: a case of the result to a case of the alert. `fresh` is a reservation asked for just now, on
+    /// this sheet, and not a row that was waiting before: it travels with the question whether to make it
+    /// all the same, however often that is asked again.
+    ///
+    /// Made closes the sheet, after what there is to say of it. Kept closes it too, the row then being on
+    /// the reservations tab -- but not over a row that was waiting before, nor over one that carries a
+    /// reason which is not what is being said: that row was not sent at all, and waits for the reader
+    /// whatever its device does next, so the sheet is left open on its section. Nil is nothing to say:
+    /// the sections say what became of the row.
+    private func say(_ came: Reserved?, fresh: Bool) {
+        switch came {
+        case nil: break
+        case .made(nil): done = true
+        case .made(let more?): ask = .said(more)
+        case .wouldStop(let held): ask = .wouldStop(held, fresh: fresh)
+        case .waiting(let row, let why):
+            ask = .kept(why, stays: !fresh || (row.problem != nil && row.problem != why))
+        case .notDone(let why): ask = .failed(why)
+        }
+    }
+
+    /// 録画予約 for the television: the one mode it records in and the repeats it is sent for this
+    /// programme. Nothing is said of what the reservation would stop, which the television is asked when
+    /// the reader reserves and not before. Held back by the television's work, and never the recorder's.
+    private var televisionOffer: some View {
+        Section("録画予約") {
+            destinationRow(.tv)
+            LabeledContent("録画モード", value: Codes.qualityLabel[TVDriver.recordsIn] ?? TVDriver.recordsIn)
+            Picker("毎回録画", selection: $repeating) {
+                ForEach(TVDriver.repeats(for: program), id: \.self) { key in
+                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                }
+            }
+            Button("録画予約する") { (turn, ask) = (.tv, .reserve(.tv)) }
+                .disabled(model.isBusy(for: .tv))
+        }
+    }
+
+    /// 予約先: where a new reservation goes, among the devices free for the programme. A choice with both
+    /// free; one fixed line where a home's other device holds the programme or has it waiting; and nothing
+    /// in a home with one device, where there is nothing to say.
+    @ViewBuilder
+    private func destinationRow(_ device: DeviceSlot) -> some View {
+        let free = model.destinations(for: program)
+        if free.count > 1 {
+            Picker("予約先", selection: Binding(get: { device }, set: { chosen = $0 })) {
+                ForEach(free, id: \.self) { Text($0.label).tag($0) }
+            }
+        } else if model.destinations.count > 1 {
+            LabeledContent("予約先", value: device.label)
+        }
+    }
 
     /// The heading of a section that is about the recorder. With a television registered the sections are
     /// named for the device each is about -- レコーダー here, テレビ over the television's -- and what is in a
@@ -250,10 +403,14 @@ struct ProgramSheet: View {
         }
     }
 
-    /// A reservation made while the recorder could not be reached. It shows what was asked for, since the
-    /// recorder has not made anything of it yet, and what the recorder said if it refused.
+    /// A reservation made while its device could not be reached. It shows what was asked for, since the
+    /// device has not made anything of it yet, and what the device said if it refused. With a television
+    /// saved there can be one for each device, each under its device's name, and what is said and held
+    /// back in one goes by its own device: a television's row is neither sent again nor deleted while the
+    /// television works, since a sending that is out may have it in hand.
     private func pendingSection(_ waiting: PendingReservation) -> some View {
-        Section("この番組は送信待ちです") {
+        let device = waiting.target
+        return Section(model.tv != nil ? "\(device.label)・送信待ち" : "この番組は送信待ちです") {
             LabeledContent("録画モード",
                            value: Codes.quality(code: waiting.request.qualityCode)
                                .map { Codes.qualityLabel[$0] ?? $0 } ?? "-")
@@ -264,14 +421,19 @@ struct ProgramSheet: View {
                 // Refused, and not sent again by itself: asking again gets the same answer until whatever
                 // it names has changed, which only the reader can know.
                 Text(problem).foregroundStyle(.red).font(.callout)
-                Button("もう一度送る") { Task { await model.resend(waiting) } }
-                    .disabled(model.working)
+                Button("もう一度送る") {
+                    request(under: device == .tv ? TVDriver.sendingLine : nil, fresh: false) {
+                        await model.sendAgain(waiting)
+                    }
+                }
+                .disabled(device == .tv ? model.isBusy(for: .tv) : model.working)
             } else {
-                Text("レコーダーに届いていない予約です。次にレコーダーにつながったときに登録します。")
+                Text("\(device.label)に届いていない予約です。次に\(device.label)につながったときに登録します。")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }
             Button("送信待ちの予約を削除", role: .destructive) { ask = .cancelPending(waiting) }
+                .disabled(device == .tv && model.isBusy(for: .tv))
         }
     }
 
@@ -305,8 +467,10 @@ struct ProgramSheet: View {
         }
     }
 
+    /// Only where 録画予約 is the recorder's: nothing is asked of the recorder on account of a reservation
+    /// that goes to the television.
     private func check() async {
-        guard reservation == nil, waiting == nil, !past, model.connected else { return }
+        guard device == .recorder, !past, model.connected else { return }
         checking = true
         conflicts = await model.conflicts(for: program, quality: quality, repeating: repeating)
         checking = false

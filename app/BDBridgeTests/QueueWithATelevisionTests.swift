@@ -21,7 +21,7 @@ import XCTest
 ///
 /// So is what a programme's sheet asks of the model: where a reservation can go, by the devices saved and
 /// by what each holds or has waiting; the one entry that reserves on the device named and on no other, the
-/// recorder's being the reservation it has always been; and what a no does with the row, at the question
+/// recorder's being the reservation it has always been; and what a yes and a no each do, at the question
 /// before a reservation that would stop another from recording.
 ///
 /// Which of its lines the strip shows is held here last, a state at a time: in the home with a recorder
@@ -619,6 +619,89 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(await television.schedules, holding, "something was made, or marked, after a no")
         XCTAssertNil(model.queueReport, "a reservation the reader said no to is said on the strip")
         XCTAssertEqual(model.destinations(for: wanted), [.recorder, .tv])
+    }
+
+    /// ［それでも予約］ at that question is the held row sent again: the reader's consent to what the
+    /// question named, and to nothing else. The television holds two recordings at a programme's time, so
+    /// a reservation of it there makes nothing and comes back as the question, which is put as the row's
+    /// reason without the sentence about a button the question does not have, and names the recording
+    /// made first.
+    ///
+    /// By the time of the yes the television holds another pair, and would stop another recording: the
+    /// yes makes nothing, and what comes back is the question again, about the recording named now, on
+    /// the row as it waits. A yes to that makes the reservation: it is on the television and in its
+    /// host's list, the recording consented to is the one marked, and nothing waits, on the phone or on
+    /// screen. The recorder is asked nothing at any of it. And the strip says nothing throughout: the
+    /// reservation was asked for a moment ago, and never waited.
+    ///
+    /// A row that was waiting before says what any row sent again says on the strip: that it was
+    /// registered on the television.
+    func testAYesAtTheQuestionIsTheConsentToWhatItNamesAndIsAnsweredWhereItWasAsked() async throws {
+        let recorder = NamedRecorder(1)
+        func clashingHome(with recorder: NamedRecorder) async throws -> (Home, GuideProgramRow, [DemoTV.Schedule]) {
+            let home = try await launch(with: recorder)
+            try await untilConnected(home.model)
+            try await untilTheTelevisionIsConnected(home.model)
+            let wanted = try await programmesNotReserved(home.model, 1)[0]
+            await home.television.receives([station(of: wanted)])
+            let holding = [("サンプル寄席", 1032, "サンプル放送"), ("サンプル音楽館", 1040, "サンプル放送2"),
+                           ("サンプル名画座", 1048, "サンプル放送3")].enumerated().map { number, its in
+                DemoTV.Schedule(id: "recording.\(21 + number)", serviceID: its.1, station: its.2, title: its.0,
+                                start: wanted.start)
+            }
+            await home.television.put(Array(holding.prefix(2)))
+            return (home, wanted, holding)
+        }
+        func marks(_ television: DemoTV) async -> [String] {
+            await television.schedules.map { "\($0.id) \($0.overlapStatus)" }
+        }
+        let (home, wanted, holding) = try await clashingHome(with: recorder)
+        let (model, television, store) = (home.model, home.television, home.store)
+        let heard = await recorder.heard.count
+        var japan = Calendar(identifier: .gregorian)
+        japan.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let at = japan.dateComponents([.month, .day, .hour, .minute], from: wanted.start)
+        let start = "\(at.month ?? 0)/\(at.day ?? 0) " + String(format: "%02d:%02d", at.hour ?? 0, at.minute ?? 0)
+        let asksOfTheFirst = "この予約を入れると、次の予約は録画されません: 「サンプル寄席」（サンプル放送 \(start)）。"
+        let asksOfTheSecond = "この予約を入れると、次の予約は録画されません: 「サンプル音楽館」（サンプル放送2 \(start)）。"
+        let tail = "「もう一度送る」を選ぶと、それでも予約します。"
+
+        let asked = await model.reserve(wanted, on: .tv, quality: "DR", repeating: "none")
+
+        var onThePhone = try await store.pendingReservations()
+        let held = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
+        XCTAssertEqual(asked, .wouldStop(held))
+        XCTAssertEqual(held.problem, asksOfTheFirst + tail)
+        XCTAssertEqual(TVDriver.asks(of: held), asksOfTheFirst)
+        expectEqual(await marks(television), ["recording.21 notOverlapped", "recording.22 notOverlapped"])
+
+        await television.put(Array(holding.suffix(2)))
+        let again = await model.consent(to: held, askedForJustNow: true)
+
+        onThePhone = try await store.pendingReservations()
+        let named = try XCTUnwrap(onThePhone.first, "the reservation no longer waits")
+        XCTAssertEqual(again, .wouldStop(named), "a yes to one recording was not answered with the one named now")
+        XCTAssertEqual(TVDriver.asks(of: named), asksOfTheSecond)
+        XCTAssertEqual(model.pending, [named], "the row on screen is not the row as it waits")
+        expectEqual(await marks(television), ["recording.22 notOverlapped", "recording.23 notOverlapped"],
+                    "a yes to one recording stopped another")
+
+        expectEqual(await model.consent(to: named, askedForJustNow: true), .made(saying: nil))
+
+        expectEqual(await marks(television), ["recording.22 fullyOverlapped", "recording.23 notOverlapped",
+                                              "recording.24 notOverlapped"])
+        expectEqual(await television.schedules.last?.eventId, wanted.eventID)
+        XCTAssertEqual(model.reservations(for: wanted).map(\.device), [.tv], "the list read after it was not kept")
+        expectEqual(try await store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty, "what was made is still shown as waiting")
+        XCTAssertNil(model.queueReport, "a reservation asked for just now is said on the strip as one that waited")
+        expectEqual(await recorder.heard(since: heard), [], "the television's question asked the recorder")
+
+        let (before, waited, _) = try await clashingHome(with: NamedRecorder(1))
+        let first = await before.model.reserve(waited, on: .tv, quality: "DR", repeating: "none")
+        guard case .wouldStop(let row) = first else { return XCTFail("the reservation was not held: \(first)") }
+        expectEqual(await before.model.consent(to: row, askedForJustNow: false), .made(saying: nil))
+        XCTAssertEqual(before.model.queueReport, Said.sent(waited.title, naming: "テレビ"))
     }
 
     // MARK: - what the reservations tab says of what waits

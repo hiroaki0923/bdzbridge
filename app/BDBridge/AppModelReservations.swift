@@ -361,8 +361,18 @@ extension AppModel {
         await removePending(waiting)
     }
 
-    /// ［キャンセル］ at the question a screen asks before a reservation that would stop others from
-    /// recording is made all the same (`Reserved.wouldStop`). Nothing is made either way, and what becomes
+    /// ［それでも予約］ at the question a screen asks before a reservation that would stop others from
+    /// recording is made all the same (`Reserved.wouldStop`): the held row sent again, which is the
+    /// reader's consent to the reason on it, as the question showed it, and to no other. What that came to
+    /// is handed back for the screen to say, and can be the same question again, about what the television
+    /// names by then. After a reservation the reader has just asked for (`askedForJustNow`) nothing of it
+    /// goes on the strip: the row never waited, and is said as the reservation it is. A row that was
+    /// waiting before is said there as any row sent again is (`sendAgain`).
+    func consent(to held: PendingReservation, askedForJustNow: Bool) async -> Reserved? {
+        await tvHost?.resend(held, neverWaited: askedForJustNow)
+    }
+
+    /// ［キャンセル］ at that question. Nothing is made either way, and what becomes
     /// of the row goes by where the question came from. After a reservation the reader has just asked for
     /// (`askedForJustNow`) the row is taken off the phone: it is there only because a reservation is kept
     /// before the television is asked anything, and a no that left it waiting in red would not be a no. A

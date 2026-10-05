@@ -120,12 +120,17 @@ final class TVHost: LinkHost {
     /// of it. What the row came to is handed back beside that, for the screen the reader asked on to say
     /// what the strip does not: nil where there is nothing to say of the row, and from a host the app has
     /// let go of.
+    ///
+    /// `neverWaited` is for the row of a reservation the reader asked for a moment ago, sent again on the
+    /// screen that asked because it would stop others from recording and the reader said to make it all
+    /// the same. It is still that reservation, said by its result alone as `reserve` is: on the strip it
+    /// would read as one that had been waiting.
     @discardableResult
-    func resend(_ waiting: PendingReservation) async -> Reserved? {
+    func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async -> Reserved? {
         guard let driver else { return nil }
         let (round, list, came) = await driver.resend(waiting)
         if let list { keep(list) }
-        await tell(round)
+        await tell(neverWaited ? nil : round)
         return came
     }
 
