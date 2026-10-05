@@ -88,6 +88,9 @@ final class TVRoundTests: XCTestCase {
     /// there already.
     private func open(_ bench: Bench, for waiting: [PendingReservation] = [], file: StaticString = #filePath,
                       line: UInt = #line) async throws -> (round: TVRound, there: Set<String>) {
+        // The client goes by the day before the start, as the flushes here are handed it, and never by the
+        // day this is run on: a row whose programme has begun by the client's clock is held.
+        await bench.tv.goes(by: { Self.start - 86_400 })
         guard case .open(let round, let there) = await bench.tv.openRound(for: waiting) else {
             XCTFail("the round did not open", file: file, line: line)
             throw NotOpened()
@@ -250,6 +253,59 @@ final class TVRoundTests: XCTestCase {
         expectEqual(await bench.television.schedules.map(\.repeatType), ["w7"])
     }
 
+    /// A row whose programme has begun, by the clock the client is handed, is held with the reason for that
+    /// and nothing is asked about it: not the stations, not what it would stop, and no create. At its start
+    /// a programme has begun; a second before, the row is made. The reader's consent to what the reservation
+    /// would stop changes nothing: a second before the start it makes the reservation, and from the start on
+    /// the row is held all the same, with nothing asked and the household's recordings as they were.
+    ///
+    /// Sent by the queue beside a row that is ahead, such a row costs the round's opening and nothing more:
+    /// the reason is written on it, the stations of its kind of broadcast are never read, and the row ahead
+    /// is asked about and made.
+    func testARowWhoseProgrammeHasBegunIsHeldAndNothingIsAskedAboutIt() async throws {
+        let begun = "放送が始まった番組は、テレビには予約できません。"
+        let household = [owned("recording.21", on: 1, "サンプル紀行"), owned("recording.22", on: 2, "サンプル討論")]
+        let consentedTo = ScalarClient.wouldStop(naming: [household[0].row])
+        let whole = [Self.kind, Self.question, Self.create, Self.list]
+        let untouched = ["recording.21 notOverlapped", "recording.22 notOverlapped"]
+        let cases: [(name: String, after: TimeInterval, consent: Bool, comes: Came, holds: [String])] = [
+            ("a second before its start", -1, false, Came(.made(saying: nil), asked: whole),
+             ["recording.1 notOverlapped"]),
+            ("at its start", 0, false, Came(.refused(reason: begun), asked: []), []),
+            ("a minute after its start", 60, false, Came(.refused(reason: begun), asked: []), []),
+            ("a second before its start, with consent", -1, true, Came(.made(saying: nil), asked: whole),
+             ["recording.21 fullyOverlapped", "recording.22 notOverlapped", "recording.23 notOverlapped"]),
+            ("at its start, with consent", 0, true, Came(.refused(reason: begun), asked: []), untouched),
+        ]
+        for (name, after, consent, comes, holds) in cases {
+            let bench = await bench(holding: consent ? household : [])
+            var round = try await open(bench).round
+            let moment = Self.start + after
+            await bench.tv.goes(by: { moment })
+
+            expectEqual(await send(row("サンプル劇場", 50101, on: 0, reason: consent ? consentedTo : nil),
+                                   consented: consent, in: &round, on: bench), comes, name)
+            expectEqual(await held(bench), holds, name)
+        }
+
+        let queued = await self.bench()
+        let store = try temporaryStore()
+        for waiting in [row("サンプル映画", 50103, on: 4), row("サンプル紀行", 50102, on: 1, at: 7200)] {
+            try await store.queue(waiting)
+        }
+        let now = Self.start + 60
+        await queued.tv.goes(by: { now })
+
+        let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: now)
+
+        XCTAssertEqual(outcome.refused.map(\.request.title), ["サンプル映画"])
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["サンプル紀行"])
+        expectEqual(await queued.line.sent, [Self.disk, Self.list] + whole)
+        expectEqual(await sources(asked: queued), ["tv:isdbt"], "the stations were read for a row that has begun")
+        expectEqual(try await store.pendingReservations().map(\.problem), [begun])
+        expectEqual(await queued.television.schedules.map(\.eventId), [50102])
+    }
+
     /// The create's answer alone settles nothing: the list does. Answered as held already (41222), the row is
     /// found there when the list has a recording of its programme, and held when it has none -- or has only
     /// a reminder to watch it. Either way the list is read, and nothing is sent a second time.
@@ -330,6 +386,7 @@ final class TVRoundTests: XCTestCase {
         let queued = await self.bench(holding: household)
         let store = try temporaryStore()
         for row in waiting { try await store.queue(row) }
+        await queued.tv.goes(by: { Self.start - 86_400 })
         let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: Self.start - 86_400)
         XCTAssertEqual(outcome.alreadyThere.map(\.id), there.map { waiting[$0].id })
         XCTAssertEqual(outcome.refused.map(\.id), short.map { waiting[$0].id })
@@ -510,6 +567,7 @@ final class TVRoundTests: XCTestCase {
             try await store.queue(waiting)
         }
         let now = Self.start - 86_400
+        await bench.tv.goes(by: { now })
         await bench.television.atTheNextCreate(.carriedOutAndNotAnswered)
 
         let met = await PendingQueue.flush(client: bench.tv, store: store, now: now)
@@ -585,6 +643,7 @@ final class TVRoundTests: XCTestCase {
                 try await store.queue(waiting)
             }
             let now = Self.start - 86_400
+            await bench.tv.goes(by: { now })
 
             let met = await PendingQueue.flush(client: bench.tv, store: store, now: now)
 
@@ -858,6 +917,7 @@ final class TVRoundTests: XCTestCase {
         let queued = await bench(holding: [reminder])
         let store = try temporaryStore()
         try await store.queue(waiting)
+        await queued.tv.goes(by: { Self.start - 86_400 })
         let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: Self.start - 86_400)
         XCTAssertEqual(outcome.remarks, [cost])
         XCTAssertEqual(outcome.says(naming: "テレビ"), "送信待ちだった「サンプル劇場」をテレビに登録しました。" + cost)

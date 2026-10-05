@@ -232,6 +232,9 @@ final class TVSittingTests: XCTestCase {
                          credentials: MemoryTVCredentials(TVCredentials(clientID: Self.clientID, cookie: cookie)))
         }
         let own = client(Self.cookie, on: kept)
+        // The client goes by the sitting's clock, as the flush the sitting sends is handed it, and never by
+        // the day this is run on: a row whose programme has begun by the client's clock is held.
+        await own.goes(by: { now })
         let sitting = TVSitting(client: own, line: kept, picks: Self.picks, ledger: ledger, mayWrite: mayWrite,
                                 reminder: reminder, now: { now }, say: { said.add($0) })
         return World(television: television, line: line, kept: kept, sitting: sitting, client: own,

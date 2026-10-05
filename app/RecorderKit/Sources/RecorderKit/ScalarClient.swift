@@ -156,6 +156,9 @@ public actor ScalarClient {
     private let credentials: any TVCredentialStore
     private let queue = SerialQueue()
     private var nextID = 1
+    /// The moment it is, for the one rule here that goes by it: a programme that has begun is not sent
+    /// (`send`). The real clock, unless the client is handed another (`goes(by:)`).
+    private var now: @Sendable () -> Date = { Date() }
     /// For a request with no timeout of its own. The television answers in a fraction of a second, in standby
     /// as well, so this is generous.
     static let timeout: TimeInterval = 10
@@ -164,6 +167,12 @@ public actor ScalarClient {
         self.host = host
         self.transport = transport
         self.credentials = credentials
+    }
+
+    /// Hands the client the clock it goes by from here on. For whoever sends rows whose starts are fixed
+    /// moments, as a test does: by the real clock such a row would one day have begun, and then be held.
+    func goes(by clock: @escaping @Sendable () -> Date) {
+        now = clock
     }
 
     // MARK: - what needs no registration
@@ -566,6 +575,10 @@ extension ScalarClient {
     /// Written on a reservation whose repeat a television is not sent for its programme
     /// (`TVReservationBody.repeatType`).
     static let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+    /// Written on a reservation whose programme has begun, and said where one is asked for. A television
+    /// sent a create whose start has passed would have to begin recording there and then, and what one that
+    /// is off does with such a create has not been seen: nothing is sent that might light its panel unasked.
+    static let startedAlready = "放送が始まった番組は、テレビには予約できません。"
     /// Written on a reservation that asks for a repeat, when the television holds a recording of its
     /// programme once (`TVScheduleRow.fallsShort`). It is not taken for there already: the programmes after
     /// this one would go unreserved with nothing said. Nor can it be made beside the one held, which a
@@ -735,7 +748,8 @@ extension ScalarClient: QueueTarget {
     /// One waiting reservation, in this order, each request once:
     ///
     ///  1. What a television is not sent is held with its reason, and nothing is asked: a reservation with
-    ///     no programme id, and a repeat that is not sent for its programme. So is a repeat whose programme
+    ///     no programme id, a repeat that is not sent for its programme, and a programme that has begun by
+    ///     the client's clock (`startedAlready`), whoever consented to what. So is a repeat whose programme
     ///     the round's list has a recording of that falls short of it, once or on fewer days
     ///     (`shortfall`): its create would be answered as held already, and what is held is less than it
     ///     asks for.
@@ -786,6 +800,9 @@ extension ScalarClient: QueueTarget {
         guard TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
             return (.refused(reason: Self.repeatNotTaken), round)
         }
+        // Before what the television holds is looked at: the reason for a recording that falls short tells
+        // the reader to delete it and send again, which would end a recording under way and send nothing.
+        guard request.start > now() else { return (.refused(reason: Self.startedAlready), round) }
         // Found by the round's list as it stands now, which a create earlier in the round may have read
         // again: the opening left such a row in the queue, and so does this.
         if let reason = round.listed.holding(request).flatMap({ Self.shortfall(of: $0, for: request) }) {
