@@ -162,7 +162,7 @@ struct ReservationsScreen: View {
                     Button("キャンセル", role: .cancel) {}
                 case .confirmPending(let waiting):
                     Button("削除する", role: .destructive) {
-                        Task { await model.removePending(waiting) }
+                        Task { await model.deleteWaiting(waiting) }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed, .said:
@@ -251,10 +251,15 @@ struct ReservationsScreen: View {
                             // the reader is the one who knows when whatever it names has changed. What it
                             // came to is said here where the row does not say it; a recorder's row says
                             // what it sent on the strip, as it has, and hands nothing back to say.
+                            // Nothing to say is not kept: it would take down what another row's sending
+                            // put up meanwhile -- a recorder's can be out for as long as a waking takes,
+                            // and a television's row sent after it is answered first -- before it was read.
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if waiting.problem != nil {
                                     Button("もう一度送る") {
-                                        Task { said = await model.sendAgain(waiting)?.besideItsRow }
+                                        Task {
+                                            if let more = await model.sendAgain(waiting)?.besideItsRow { said = more }
+                                        }
                                     }
                                     .tint(.blue)
                                     .disabled(heldBack)

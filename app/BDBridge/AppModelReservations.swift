@@ -283,6 +283,18 @@ extension AppModel {
         await loadPending()
     }
 
+    /// 削除する as the reservations tab's question about a waiting row asks for it: the row is taken off the
+    /// phone, unsent (`removePending`). For a television's row nothing is done while the television works.
+    /// Its swipe is held back by the same, but the question was up for as long as the reader took, and a
+    /// sending begun meanwhile has the row in hand and would go on to make it, after the reader was told
+    /// that it is not sent. Taking the television away does nothing then either (`takeTheTelevisionAway`).
+    /// Never for the recorder's work, and a recorder's row is deleted whatever is under way, as it always
+    /// has been.
+    func deleteWaiting(_ waiting: PendingReservation) async {
+        guard !(waiting.target == .tv && isBusy(for: .tv)) else { return }
+        await removePending(waiting)
+    }
+
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is

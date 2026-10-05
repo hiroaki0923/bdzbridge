@@ -499,6 +499,25 @@ final class Writer {
     deinit { sqlite3_close(connection) }
 }
 
+/// Another connection that has put the queue's table out of the app's reach, until it puts it back: whatever
+/// the app asks of its queue meanwhile fails at once, a read as well, which a writer's lock does not stop.
+final class QueueOutOfReach {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(run("ALTER TABLE pending_reservations RENAME TO out_of_reach"), SQLITE_OK)
+    }
+
+    func putBack() {
+        XCTAssertEqual(run("ALTER TABLE out_of_reach RENAME TO pending_reservations"), SQLITE_OK)
+    }
+
+    private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
+
+    deinit { sqlite3_close(connection) }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 
