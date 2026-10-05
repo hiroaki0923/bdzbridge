@@ -20,8 +20,9 @@ import RecorderKit
 /// this asks for them when the link says to and keeps what the sending came to, for the strip (`report`).
 /// So with the two things a reader asks for about a reservation the television does not hold yet: reserving
 /// a programme on it (`reserve`), whose result is handed on to whoever asked, and sending a waiting row
-/// again (`resend`), which is said on the strip as a sending is. After either the list the driver read back
-/// is kept, and the queue on screen is read again.
+/// again (`resend`), which is said on the strip as a sending is and whose result is handed on beside that,
+/// for what the strip does not say. After either the list the driver read back is kept, and the queue on
+/// screen is read again.
 ///
 /// Most of what a link can tell its host is about a recorder -- its cache, its MAC and where it was read,
 /// another recorder taking its place -- and is nothing to a television: those are left empty.
@@ -40,8 +41,9 @@ final class TVHost: LinkHost {
     /// When the list was last read from the television, or nil when it has not been: a television that cannot
     /// be asked leaves the last list standing, and this says how old it is.
     private(set) var reservationsRead: Date?
-    /// What the last sending to the television came to, for the strip, until the reader closes it or leaves
-    /// the app (`AppModel.queueReport`). It goes with the host, as the television's list does.
+    /// What the sendings to the television came to, for the strip, each added to what the one before said
+    /// (`tell`) until the reader closes it or leaves the app (`AppModel.queueReport`). It goes with the
+    /// host, as the television's list does.
     var report: String?
     @ObservationIgnored private weak var model: AppModel?
     /// The link this answers for, set once the link is made.
@@ -114,13 +116,17 @@ final class TVHost: LinkHost {
 
     /// Sends a row waiting for the television again, as the reader asked on that row. The list read after
     /// a row that was made is kept, and what the round came to is told as any sending's is (`tell`) -- with
-    /// no round as well. Nothing is handed back: what there is to say of it is on the strip, and a sending
-    /// again with nothing to say says nothing anywhere.
-    func resend(_ waiting: PendingReservation) async {
-        guard let driver else { return }
-        let (round, list, _) = await driver.resend(waiting)
+    /// no round as well: the row had been waiting, and the strip may be saying what an earlier sending made
+    /// of it. What the row came to is handed back beside that, for the screen the reader asked on to say
+    /// what the strip does not: nil where there is nothing to say of the row, and from a host the app has
+    /// let go of.
+    @discardableResult
+    func resend(_ waiting: PendingReservation) async -> Reserved? {
+        guard let driver else { return nil }
+        let (round, list, came) = await driver.resend(waiting)
         if let list { keep(list) }
         await tell(round)
+        return came
     }
 
     private func keep(_ list: [Reservation]) {
@@ -218,12 +224,33 @@ final class TVHost: LinkHost {
     /// Keeps what a sending to the television came to, for a sending of what waits and for a row sent again
     /// alike. The queue on screen is read again, always: with no round too, since a row sent again may have
     /// had its reason taken off before the television could be asked. What the round has to say goes on the
-    /// strip, naming the television; one with nothing to say, and no round, leave the last report where it
-    /// was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
+    /// strip, naming the television, after what is there unread: the next sending is not to take what this
+    /// one said, which can end with what making a reservation did to another. A sentence the unread report
+    /// holds already is not said a second time: a row passed over at every sending would add its own at
+    /// each connect and each pull-down. A round with nothing to say, and no round, leave the report where
+    /// it was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
     /// `AppModel.start()`.
     private func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
-        if let said = round?.said(withATelevisionSaved: true) { report = said }
+        guard let said = round?.said(withATelevisionSaved: true) else { return }
+        let unread = report.map(Self.sentences) ?? []
+        let new = Self.sentences(said).filter { !unread.contains($0) }
+        if !new.isEmpty { report = ([report].compactMap { $0 } + new).joined(separator: "。") }
+    }
+
+    /// The sentences of what a sending said, which joins them with a full stop. Cut at each full stop that
+    /// is not inside a title's brackets: a programme's title can have one of its own.
+    private static func sentences(_ said: String) -> [String] {
+        var sentences = [""], depth = 0
+        for character in said {
+            if character == "「" { depth += 1 } else if character == "」" { depth = max(depth - 1, 0) }
+            if character == "。", depth == 0 {
+                sentences.append("")
+            } else {
+                sentences[sentences.count - 1].append(character)
+            }
+        }
+        return sentences.filter { !$0.isEmpty }
     }
 
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect

@@ -312,6 +312,40 @@ extension AppModel {
         await flushPending()
     }
 
+    /// 「もう一度送る」 as a screen asks for it: the row is sent again (`resend`), and what it came to is
+    /// handed back for that screen to say what the strip does not. A television's row is answered by its
+    /// host. A recorder's is sent as it has always been, and says what it sent on the strip and nowhere
+    /// else: nothing comes back for it.
+    func sendAgain(_ waiting: PendingReservation) async -> Reserved? {
+        if waiting.target == .tv { return await tvHost?.resend(waiting) }
+        await resend(waiting)
+        return nil
+    }
+
+    /// The word for the device a waiting row is for, where a row has to say it: with a television saved, or
+    /// for a row that is not the recorder's. Nil in a home with a recorder alone, whose rows read as they
+    /// always have.
+    func deviceSaid(for waiting: PendingReservation) -> String? {
+        tv != nil || waiting.target != .recorder ? waiting.target.label : nil
+    }
+
+    /// What the reservations tab says under what waits: by the devices its rows wait for and not by the
+    /// devices saved, so that the recorder's rows alone are said as they always have been, a television
+    /// saved or not. Then how a row with a reason is sent again, while any has one.
+    var whatWaitsSays: String {
+        let devices = Set(pending.map(\.target))
+        let waits = devices == [.tv] ? Self.notYetAtTheTelevision
+            : devices.contains(.tv) ? Self.notYetAtEither : Self.notYetAtTheRecorder
+        return waits + (pending.contains { $0.problem != nil } ? Self.reasonsWaitForTheReader : "")
+    }
+
+    private static let notYetAtTheRecorder = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
+    private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+    private static let notYetAtEither = "レコーダーやテレビにまだ届いていない予約です。"
+        + "それぞれ、次につながったときに登録します。"
+    private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
+        + "右にスワイプすると、もう一度送れます。"
+
     /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
     /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
     /// await `start()`.

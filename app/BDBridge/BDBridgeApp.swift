@@ -161,7 +161,9 @@ struct RecorderActivityBar: View {
             // What became of the reservations that were waiting, for the recorder and then for the television,
             // whichever screen the app came back to. Ahead of 再接続 below: a flush the recorder walked out of
             // says which were sent, and the strip goes back to offering the reconnect once this is closed.
-            report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+            // In full with a television saved: what a sending to one says can end with what making a
+            // reservation did to another, which is the last thing a cut would leave.
+            report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90", inFull: model.tv != nil) {
                 model.closeQueueReport()
             }
         } else if model.demo, DemoData.banner, !inSheet {
@@ -244,11 +246,12 @@ struct RecorderActivityBar: View {
     /// the demo without a question, or wake a recorder the app had given up on.
     private static let rim: CGFloat = 8
 
-    /// A line that stays until the reader closes it.
-    private func report(_ text: String, icon: String, close: @escaping () -> Void) -> some View {
+    /// A line that stays until the reader closes it: cut at three lines, unless it is to be read `inFull`.
+    private func report(_ text: String, icon: String, inFull: Bool = false,
+                        close: @escaping () -> Void) -> some View {
         strip {
             Image(systemName: icon).font(.footnote)
-            Text(text).font(.footnote).lineLimit(3)
+            Text(text).font(.footnote).lineLimit(inFull ? nil : 3)
             Spacer(minLength: 0)
             Button(action: close) {
                 Image(systemName: "xmark").font(.caption.weight(.semibold))
