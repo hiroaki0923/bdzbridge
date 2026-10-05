@@ -165,14 +165,16 @@ extension AppModel {
         problem = nil
         scanOutcome = nil
         found = []
-        let lan = LocalNetwork.lanInterfaces()
+        // The interfaces, the wait and the transport are the surroundings' (`Surroundings`), the device's own
+        // in the app: a test presses the button on a Wi-Fi it has invented.
+        let lan = surroundings.lanInterfaces()
         let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
         guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
             report(.noWiFi)
             return
         }
         scanning = (0, hosts.count)
-        let allowed = await LocalNetwork.waitForAccess(probing: neighbour) { @MainActor [weak self] in
+        let allowed = await surroundings.waitForLocalNetwork(neighbour) { @MainActor [weak self] in
             guard let self, self.scanRun == run else { return }
             self.scanBlocked = true
         }
@@ -180,14 +182,15 @@ extension AppModel {
         scanBlocked = false
         // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
         // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
-        if !allowed, LocalNetwork.lanInterfaces().isEmpty {
+        if !allowed, surroundings.lanInterfaces().isEmpty {
             scanning = nil
             report(.noWiFi)
             return
         }
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
-        let result = await Discovery.scan(hosts: hosts, progress: { done, total in
+        let transport = surroundings.scanTransport()
+        let result = await Discovery.scan(hosts: hosts, transport: transport, progress: { done, total in
             Task { @MainActor in
                 guard self.scanRun == run, self.scanning != nil else { return }
                 self.scanning = (done, total)

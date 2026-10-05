@@ -14,6 +14,15 @@ public enum LocalNetwork {
         /// (`pdp_ip`) and VPN tunnels (`utun`) are point-to-point links and do not.
         public var broadcasts: Bool
 
+        /// For whoever hands the app its interfaces from somewhere other than this device: a test of the app's
+        /// search, which looks round an invented Wi-Fi.
+        public init(name: String, address: String, netmask: String, broadcasts: Bool) {
+            self.name = name
+            self.address = address
+            self.netmask = netmask
+            self.broadcasts = broadcasts
+        }
+
         /// True for a network the recorder could be sitting on beside this device. Cellular and VPN tunnels
         /// are left out by name as well as by the flag, because what they would add is worse than nothing:
         /// a /32 on `pdp_ip` put this device's own address among the places to broadcast to, and the

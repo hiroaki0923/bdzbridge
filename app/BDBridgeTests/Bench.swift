@@ -18,6 +18,8 @@ final class Bench {
     var storeBusyTimeoutMilliseconds: Int32 = 5000
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
+    /// The Wi-Fi the phone is on and who answers on it, once a test has put it on one (`joinWiFi`).
+    private var wifi: (interface: LocalNetwork.Interface, subnet: Subnet)?
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -79,6 +81,21 @@ final class Bench {
                      tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() }, tvCredentials: credentials)
     }
 
+    /// The phone's own address on a Wi-Fi a test puts it on, reserved for documentation like the others.
+    static let phone = "192.0.2.20"
+
+    /// Puts the phone on a Wi-Fi for a search for a recorder to look round, before or after the model is
+    /// made: a /24 as a home's is, so 253 addresses, with `recorders` at theirs and nobody at the rest. The
+    /// search's requests go to the subnet handed back and nowhere else. Until a test calls this the phone is
+    /// on no Wi-Fi, and a search by a model made here says so and asks nobody.
+    @discardableResult
+    func joinWiFi(with recorders: [String: any HTTPTransport] = [:]) -> Subnet {
+        let subnet = Subnet(recorders)
+        wifi = (LocalNetwork.Interface(name: "en0", address: Bench.phone, netmask: "255.255.255.0",
+                                       broadcasts: true), subnet)
+        return subnet
+    }
+
     private func model(saved: String? = Bench.host,
                        transport: @escaping (String) -> any HTTPTransport,
                        tvTransport: @escaping (String) -> any HTTPTransport = { _ in NoTelevision() },
@@ -103,7 +120,10 @@ final class Bench {
             busyRetryDelay: 0...0,
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             tvTransport: tvTransport,
-            tvCredentials: tvCredentials))
+            tvCredentials: tvCredentials,
+            // The wait for the local network permission is left as the surroundings have it: given at once.
+            lanInterfaces: { [weak self] in (self?.wifi).map { [$0.interface] } ?? [] },
+            scanTransport: { [weak self] in self?.wifi?.subnet ?? Subnet() }))
     }
 
     /// The database a model made here opens for a real recorder.
@@ -150,6 +170,27 @@ actor SilentRecorder: HTTPTransport {
         holding = false
         for request in held { request.resume() }
         held = []
+    }
+}
+
+/// The subnet of a Wi-Fi a test has put the phone on (`Bench.joinWiFi`), as a search for a recorder meets it:
+/// what is sent to an address goes to the recorder the test put there, and at any other nobody answers -- at
+/// once, where a real address is silent for as long as the request waits. `asked` counts the requests, which
+/// is one to an address for each search.
+actor Subnet: HTTPTransport {
+    private let recorders: [String: any HTTPTransport]
+    private(set) var asked = 0
+
+    init(_ recorders: [String: any HTTPTransport] = [:]) {
+        self.recorders = recorders
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        asked += 1
+        guard let recorder = recorders[request.url.host() ?? ""] else {
+            throw RecorderError.transport("Nobody here.")
+        }
+        return try await recorder.send(request)
     }
 }
 
