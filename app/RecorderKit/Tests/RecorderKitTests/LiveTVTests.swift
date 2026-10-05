@@ -191,13 +191,13 @@ import XCTest
 ///    registering takes a television that is on and showing a broadcast: a jar found wanting once it is off
 ///    means switching it on and beginning again.
 ///
-/// **Then the television is switched off** with its remote, its USB disk connected, and nobody touches it or
-/// its remote again until the check has ended. The recorder is asked nothing after its guide was read for
-/// the picks until the check has ended, and not by these commands alone: **from the moment the television
-/// is off until the check has ended, whatever else asks the recorder or the television is stopped as well**
-/// -- a server that refreshes its guide from the recorder, the app on every phone, closed and with its
-/// background refresh off. What waking a recorder does to a television it is wired to was never measured,
-/// and what a television does that something else asked meanwhile cannot be put down to the check.
+/// **Then whatever else asks the recorder or the television is stopped**, and stays stopped until the check
+/// has ended -- a server that refreshes its guide from the recorder, the app on every phone, closed and with
+/// its background refresh off -- **and the television is switched off** with its remote, its USB disk
+/// connected. Nobody touches it or its remote again until the check has ended, and the recorder is asked
+/// nothing after its guide was read for the picks. What waking a recorder does to a television it is wired
+/// to was never measured, and what a television does that something else asked meanwhile cannot be put down
+/// to the check.
 ///
 /// **Then three commands in this order**, however long the television has been off by then. From the first
 /// to the end of the third the owner is at the television and looks at its panel, which is to stay dark; at
