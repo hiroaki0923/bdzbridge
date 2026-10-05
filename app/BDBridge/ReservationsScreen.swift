@@ -16,6 +16,8 @@ struct ReservationsScreen: View {
     /// The same for a reservation waiting to be sent, read back out of the queue.
     @State private var removingPending: String?
     @State private var failure: String?
+    /// What a waiting reservation sent again came to, where its row does not say it: said once, in the alert.
+    @State private var said: String?
     @State private var opened: Reservation?
 
     private struct Picked {
@@ -24,15 +26,18 @@ struct ReservationsScreen: View {
     }
 
     /// One alert does every job, because two on the same view is not something SwiftUI promises to honour.
-    /// A failure wins: it is the answer to what was just asked.
+    /// A failure wins: it is the answer to what was just asked. So is what a waiting reservation sent again
+    /// came to.
     private enum Shown {
         case confirm(Reservation)
         case confirmPending(PendingReservation)
         case failed(String)
+        case said(String)
     }
 
     private var shown: Shown? {
         if let failure { return .failed(failure) }
+        if let said { return .said(said) }
         if let removing, let reservation = model.reservation(listKey: removing.listKey) {
             return .confirm(reservation)
         }
@@ -45,6 +50,7 @@ struct ReservationsScreen: View {
     private var alertTitle: String {
         switch shown {
         case .failed: "エラー"
+        case .said: "送信待ちの予約"
         case .confirmPending: "送信待ちの予約を削除しますか？"
         case .confirm, nil: "この予約を削除しますか？"
         }
@@ -141,8 +147,7 @@ struct ReservationsScreen: View {
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
             .alert(alertTitle,
-                   isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { removing = nil; removingPending = nil; failure = nil } }),
+                   isPresented: Binding(get: { shown != nil }, set: { if !$0 { closeAlert() } }),
                    presenting: shown) { shown in
                 switch shown {
                 case .confirm(let reservation):
@@ -157,10 +162,10 @@ struct ReservationsScreen: View {
                     Button("キャンセル", role: .cancel) {}
                 case .confirmPending(let waiting):
                     Button("削除する", role: .destructive) {
-                        Task { await model.removePending(waiting) }
+                        Task { await model.deleteWaiting(waiting) }
                     }
                     Button("キャンセル", role: .cancel) {}
-                case .failed:
+                case .failed, .said:
                     Button("OK", role: .cancel) {}
                 }
             } message: { shown in
@@ -173,8 +178,8 @@ struct ReservationsScreen: View {
                             : ""))
                 case .confirmPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、レコーダーには送りません。")
-                case .failed(let reason):
+                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                case .failed(let reason), .said(let reason):
                     Text(reason)
                 }
             }
@@ -197,6 +202,11 @@ struct ReservationsScreen: View {
                 }
             }
         }
+    }
+
+    /// Lets go of whatever the alert was up for, as it closes.
+    private func closeAlert() {
+        (removing, removingPending, failure, said) = (nil, nil, nil, nil)
     }
 
     private var subtitle: String {
@@ -228,27 +238,38 @@ struct ReservationsScreen: View {
             if !model.pending.isEmpty {
                 Section {
                     ForEach(model.pending) { waiting in
-                        PendingRowView(waiting: waiting)
+                        // A television's row is held back while the television works, as its reservations
+                        // below are: a sending that is out may have this row in hand. Never by the
+                        // recorder's work, and a recorder's row is held back by nothing, as it never was.
+                        let heldBack = waiting.target == .tv && model.isBusy(for: .tv)
+                        PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting))
                             // 削除, as on the reservations below it, and asked first like every other delete.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("削除") { removingPending = waiting.id }.tint(.red)
+                                Button("削除") { removingPending = waiting.id }.tint(.red).disabled(heldBack)
                             }
                             // A refused one is not sent again by itself, since the answer would be the same;
-                            // the reader is the one who knows when whatever it names has changed.
+                            // the reader is the one who knows when whatever it names has changed. What it
+                            // came to is said here where the row does not say it; a recorder's row says
+                            // what it sent on the strip, as it has, and hands nothing back to say.
+                            // Nothing to say is not kept: it would take down what another row's sending
+                            // put up meanwhile -- a recorder's can be out for as long as a waking takes,
+                            // and a television's row sent after it is answered first -- before it was read.
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if waiting.problem != nil {
-                                    Button("もう一度送る") { Task { await model.resend(waiting) } }
-                                        .tint(.blue)
+                                    Button("もう一度送る") {
+                                        Task {
+                                            if let more = await model.sendAgain(waiting)?.besideItsRow { said = more }
+                                        }
+                                    }
+                                    .tint(.blue)
+                                    .disabled(heldBack)
                                 }
                             }
                     }
                 } header: {
                     Text("送信待ち \(model.pending.count) 件")
                 } footer: {
-                    Text("レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
-                         + (model.pending.contains { $0.problem != nil }
-                            ? "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
-                            : ""))
+                    Text(model.whatWaitsSays)
                 }
             }
             ForEach(model.reservationSections) { section in
@@ -361,6 +382,9 @@ struct ReservationRowView: View {
 /// it, because the recorder has not made anything of it.
 struct PendingRowView: View {
     let waiting: PendingReservation
+    /// The word for the device it waits for, said first on the row's second line. Nil where there is one
+    /// device and nothing to tell apart (`AppModel.deviceSaid`), and the row is then drawn without it.
+    var device: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -381,7 +405,8 @@ struct PendingRowView: View {
     }
 
     private var details: String {
-        var parts = [Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
+        var parts = [device, Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
+            .compactMap { $0 }
         if let quality = Codes.quality(code: waiting.request.qualityCode) {
             parts.append(Codes.qualityLabel[quality] ?? quality)
         }

@@ -45,6 +45,15 @@ extension AppModel {
         tvHost?.report = nil
     }
 
+    /// Whether the television's disk is away and a reservation is waiting for it to come back: what the
+    /// strip and the reservations tab say the disk for (`TVDriver.diskNotFound`). The disk is as the driver
+    /// last knew it, from an attach or from a sending since. Only a row with no reason on it waits for the
+    /// disk: one with a reason waits for the reader, and is not sent when the disk is back either.
+    var tvWaitsForItsDisk: Bool {
+        tvDriver?.facts.storage?.mounted == false
+            && pending.contains { $0.target == .tv && $0.problem == nil }
+    }
+
     /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
     /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
     /// Connects nothing.
@@ -150,4 +159,50 @@ extension AppModel {
         defaults.removeObject(forKey: DefaultsKey.tvMac)
         tvClientID = nil
     }
+
+    /// How many reservations wait for the television, for the question before it is taken away. Read from
+    /// the phone and not from the queue on screen, which is read only once the reservations tab has been
+    /// opened. Nil when the phone's queue cannot be read, which is not none: the question then gives no
+    /// count, where none would have it say nothing of reservations that 外す goes on to delete.
+    func waitingForTheTelevision() async -> Int? {
+        guard let store, let rows = try? await store.pendingReservations() else { return nil }
+        return rows.filter { $0.target == .tv }.count
+    }
+
+    /// What the settings' 外す asks: what waits for the television goes with it, unsent, and then the
+    /// television (`removeTV`). Whether it was taken away. `counted` is what the question said waits for
+    /// it, as `waitingForTheTelevision` gave it.
+    ///
+    /// Nothing is done while the television is busy, which is asked again here as the first step. The
+    /// button is held back by the same, but the question was up for as long as the reader took, and a
+    /// sending begun meanwhile has a row in hand that it would go on to make, after the reader was told
+    /// that it is not sent.
+    ///
+    /// Nor is anything done when what waits is no longer what the question counted. A sending that began
+    /// and ended while the question was up is over by now, and may have made the very reservations the
+    /// reader was told are deleted unsent: taken away then, the television would hold them where the app
+    /// no longer shows it, and what the strip said of them would go with its host. The television stays
+    /// and nothing is said; asked again, the question counts what waits by then. A question that could give
+    /// no count is acted on only while there is still none to hold against it.
+    ///
+    /// When what waits cannot be deleted -- the phone's cache busy past its timeout, or not open -- the
+    /// television stays and nothing is deleted, and its line says why. A television taken away over rows
+    /// that stayed would leave them with nobody to send them and nobody to drop them once their programmes
+    /// are over, which is what the question is there to prevent.
+    func takeTheTelevisionAway(counted: Int?) async -> Bool {
+        guard !isBusy(for: .tv) else { return false }
+        guard await waitingForTheTelevision() == counted else { return false }
+        guard let store, (try? await store.removePending(waitingFor: .tv)) != nil else {
+            tvHost?.problem = Self.rowsNotTakenAway
+            return false
+        }
+        removeTV()
+        await loadPending()
+        return true
+    }
+
+    /// Said on the television's line when it was not taken away because what waits for it could not be
+    /// deleted.
+    static let rowsNotTakenAway = "送信待ちの予約を削除できなかったため、テレビを外していません。"
+        + "少し待ってから、もう一度お試しください。"
 }

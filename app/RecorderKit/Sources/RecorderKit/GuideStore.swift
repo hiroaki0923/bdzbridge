@@ -624,6 +624,12 @@ public actor GuideStore {
         try db.run("DELETE FROM pending_reservations WHERE id = ?", [.text(id)])
     }
 
+    /// Takes out of the queue everything that waits for `slot`: for a device the reader takes away, whose rows
+    /// would otherwise have nobody to send them and nobody to drop them once their programmes are over.
+    public func removePending(waitingFor slot: DeviceSlot) throws {
+        try db.run("DELETE FROM pending_reservations WHERE target = ?", [.text(slot.rawValue)])
+    }
+
     /// Records why the recorder refused, so the row can say so instead of silently waiting for ever, and so
     /// that it is not sent again until the reader asks. nil clears it, which is that ask.
     public func setPendingProblem(_ id: String, _ problem: String?) throws {

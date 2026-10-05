@@ -7,6 +7,9 @@ struct TVSection: View {
     @Environment(AppModel.self) private var model
     @State private var registering = false
     @State private var removing = false
+    /// How many reservations wait for the television, read as the question goes up, for it to say and for
+    /// 外す to be held to. Nil when they could not be counted.
+    @State private var waiting: Int?
 
     var body: some View {
         Group {
@@ -26,17 +29,29 @@ struct TVSection: View {
                         Button("再接続") { Task { await tv.connect() } }
                             .disabled(tv.session.connecting)
                     }
-                    Button("テレビを外す", role: .destructive) { removing = true }
+                    // Not while the television works: a sending that is out may be making a reservation
+                    // that the question would say is deleted unsent.
+                    Button("テレビを外す", role: .destructive) {
+                        Task {
+                            waiting = await model.waitingForTheTelevision()
+                            removing = true
+                        }
+                    }
+                    .disabled(model.isBusy(for: .tv))
                 } header: {
                     Text("テレビ")
                 } footer: {
                     if let problem = model.tvHost?.problem { Text(problem) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
-                    Button("外す", role: .destructive) { model.removeTV() }
+                    // What could not be taken away is said in the footer above, which reads the television's
+                    // line. Handed the count the message below gave: nothing is taken away over another.
+                    Button("外す", role: .destructive) {
+                        Task { await model.takeTheTelevisionAway(counted: waiting) }
+                    }
                 } message: {
                     Text("この iPhone から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
-                         + "テレビの設定から消してください。")
+                         + "テレビの設定から消してください。" + whatGoesWithIt)
                 }
             } else if !model.demo {
                 Section {
@@ -49,6 +64,14 @@ struct TVSection: View {
             }
         }
         .sheet(isPresented: $registering) { TVRegisterSheet(host: model.tv?.host ?? "") }
+    }
+
+    /// What the question adds about the reservations waiting for the television: how many are deleted
+    /// unsent, and nothing with none. With no count to give it says as much without one, and not nothing:
+    /// there may be some, and 外す deletes them if they can be deleted by then.
+    private var whatGoesWithIt: String {
+        guard let waiting else { return "\nこのテレビ宛の送信待ちの予約は、送らずに削除します。" }
+        return waiting > 0 ? "\nこのテレビ宛の送信待ちの予約 \(waiting) 件は、送らずに削除します。" : ""
     }
 
     private func state(of tv: DeviceLink) -> String {

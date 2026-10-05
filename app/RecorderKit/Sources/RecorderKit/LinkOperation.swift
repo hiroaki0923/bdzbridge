@@ -48,11 +48,14 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///
 /// - One whose result carries a sentence says in that result what its door turned away, and leaves the
 ///   device's line of what went wrong as it was: nothing was sent, and the line an earlier operation left
-///   is not its to write over. Reserving a programme is one.
+///   is not its to write over. Reserving a programme is one. A waiting row sent again is another: what it
+///   came to is handed back for the screen the reader asked on, and is nil where there is nothing to say
+///   of the row -- one that is another device's, which its driver refuses as it refuses a delete of
+///   another's reservation, and one that no longer waits.
 /// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
 ///   until it too hands back a result with a sentence: a delete, a change.
-/// - One that hands a screen nothing to say says nothing at its door: a waiting row sent again, a sending
-///   of what waits, a read of the list.
+/// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
+///   the list.
 ///
 /// What was sent and failed is written on the line by the link, whichever operation it was
 /// (`DeviceLink.say`), and what the check before an operation writes there is the check's.
@@ -66,11 +69,31 @@ public enum Reserved: Sendable, Equatable {
     /// which sending the row again is: the consent is to the reason as it stands on this row.
     case wouldStop(PendingReservation)
     /// Kept on the phone and not on the device: the row as it waits now, and what to say of it. With a reason
-    /// on the row the device turned it down -- `saying` is that reason -- and it waits for the reader; with
-    /// none it goes by itself the next time what waits is sent.
+    /// on the row it waits for the reader, and `saying` is that reason, which the device turned it down
+    /// with -- or, where the row was sent again and nothing could be asked about it, why it was not sent.
+    /// With none it goes by itself the next time what waits is sent.
     case waiting(PendingReservation, saying: String)
     /// Not kept, and not known to have been made, and why.
     case notDone(String)
+}
+
+public extension Reserved {
+    /// What is left to say of it on a screen that shows the waiting row itself, its reason with it, once the
+    /// row has been sent again there: the reservations tab says this. Nil where the screen says it all.
+    ///
+    /// A row that was made has left what waits, and what there is to say of it is the sending's to say, as
+    /// of any row that had been waiting. A row held for what it would stop from recording is said by its
+    /// reason, whole: on that screen the answer only ever comes with names the reader did not press on, and
+    /// sending the row once more is the consent to them. A row that waits says its own reason, so only
+    /// another sentence is left to say: why it was not sent, or how it goes by itself.
+    var besideItsRow: String? {
+        switch self {
+        case .made: nil
+        case .wouldStop(let row): row.problem
+        case .waiting(let row, let saying): saying == row.problem ? nil : saying
+        case .notDone(let why): why
+        }
+    }
 }
 
 /// What an operation asked of a device is made of, whichever device it is, beside the check before it (`check`)

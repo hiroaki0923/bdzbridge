@@ -12,6 +12,16 @@ import XCTest
 /// asked, what the television's host keeps of what came back, and what the strip says and does not say.
 /// How a reservation or a sending to a television goes, step by step, and what each way it can stop leaves
 /// and says, is RecorderKit's to hold (`TVDriverTests`).
+///
+/// What the reservations tab needs of the model once a row can wait for the television is held here as
+/// well: what a row sent again from it came to, the device each waiting row says, what is said under
+/// them, and that a television's row is not deleted while the television works. And so is what the
+/// settings need: a television is taken away together with what waits for it, and only while that is what
+/// its question counted.
+///
+/// Which of its lines the strip shows is held here last, a state at a time: in the home with a recorder
+/// alone, where the order is the one it has always had, and with a television saved, whose disk has a line
+/// there, and a sentence on the reservations tab, while a reservation waits for it to come back.
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -391,6 +401,467 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(model.queueReport, said, "a sending again with nothing to say changed the strip")
     }
 
+    // MARK: - what the reservations tab says of what waits
+
+    /// 「もう一度送る」 as a screen asks for it hands back what the row came to, for that screen to say, and
+    /// goes on telling the strip what any sending tells. A television's row that is turned down again is
+    /// answered with the row and its reason, which the row says for itself, so nothing is left to say
+    /// beside it; one that is made, as made; and a recorder's row hands nothing back, and says what it
+    /// sent on the strip as it always has.
+    ///
+    /// What the television's sendings say is added to what the strip has unread, and no sentence is said
+    /// twice. The row turned down again adds nothing to the sentence that sent the reader to it, the row
+    /// made is said after that sentence, and another row turned down adds only that it was: where the
+    /// reasons are has been said. A full stop in a title ends no sentence.
+    ///
+    /// With the television given up on and still silent no round runs, and the answer says which row goes
+    /// by itself and which does not. One freed of a plain reason is handed back with none, to go when the
+    /// television next answers. One held for what it would stop from recording keeps its reason and is
+    /// said not to have been sent. Neither says anything on the strip.
+    func testARowSentAgainIsAnsweredWhereItWasAskedAndGoesOnTellingTheStrip() async throws {
+        let recorder = NamedRecorder(1)
+        let reason = "前に断られた理由"
+        let first = turnedDown(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)), for: reason)
+        let home = try await launch(with: recorder, waiting: [first, notListed("サンプル。紀行", programme: 4402)])
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let turnedAway = Said.refused("サンプル。紀行", naming: "テレビ")
+        XCTAssertEqual(model.queueReport, turnedAway, "the connect's sending did not say what it turned down")
+        // As the reservations tab reads the queue when it appears: in the order the programmes start.
+        await model.loadPending()
+        let (held, away) = (try XCTUnwrap(model.pending.first), try XCTUnwrap(model.pending.last))
+
+        let again = await model.sendAgain(away)
+
+        XCTAssertEqual(again, .waiting(away, saying: "テレビのチャンネル一覧にこの局が見つかりませんでした。"))
+        XCTAssertNil(again?.besideItsRow, "the reason the row says for itself is to be said beside it too")
+        XCTAssertEqual(model.queueReport, turnedAway, "a sentence the strip had unread was said a second time")
+
+        expectEqual(await model.sendAgain(held), .made(saying: nil))
+
+        XCTAssertEqual(host.reservations.map(\.eventID), [4401], "the list read after it was not kept")
+        let made = turnedAway + "。" + Said.sent("サンプル劇場", naming: "テレビ")
+        XCTAssertEqual(model.queueReport, made, "a row sent again took what the strip had unread, or said nothing")
+
+        try await store.queue(notListed("サンプル。天気", programme: 4405))
+        await host.refreshReservations()
+        XCTAssertEqual(model.queueReport, made + "。「サンプル。天気」はテレビに登録できませんでした")
+
+        let theirs = turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: reason)
+        try await store.queue(theirs)
+        let asked = await recorder.asked
+
+        expectNil(await model.sendAgain(theirs), "a recorder's row handed a screen something to say")
+
+        expectEqual(await recorder.asked(Self.create, since: asked), 1, "the recorder's row did not go to it once")
+        XCTAssertEqual(model.flushReport, Said.sent("朝の番組", naming: "レコーダー"))
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp)
+        let freed = turnedDown(forTheTelevision(waiting("サンプル天気", startingIn: 181, programme: 4403)), for: reason)
+        let stopping = turnedDown(forTheTelevision(waiting("サンプル音楽", startingIn: 182, programme: 4404)),
+                                  for: Self.wouldStop)
+        for row in [freed, stopping] { try await store.queue(row) }
+        let strip = model.queueReport
+
+        let goes = await model.sendAgain(freed), stays = await model.sendAgain(stopping)
+
+        let onThePhone = try await store.pendingReservations()
+        let (free, stopped) = (try XCTUnwrap(onThePhone.first { $0.id == freed.id }),
+                               try XCTUnwrap(onThePhone.first { $0.id == stopping.id }))
+        XCTAssertEqual([free.problem, stopped.problem], [nil, Self.wouldStop], "a reason stayed that goes, or went")
+        XCTAssertEqual(goes, .waiting(free, saying: "テレビに接続していないため、予約を端末に保存しました。"
+                                      + "次にテレビが答えたときに登録します。予約タブで削除できます。"))
+        XCTAssertEqual(stays, .waiting(stopped, saying: "テレビに接続していません。"
+                                       + "テレビの電源とネットワーク接続を確認してください。"))
+        XCTAssertEqual(model.queueReport, strip, "a row that was not sent said something on the strip")
+    }
+
+    /// A waiting row says its device where there are two to tell apart, or where the row is not the
+    /// recorder's, and nowhere else. What the tab says under what waits goes by the devices its rows wait
+    /// for, and not by the devices saved. So in a home with a recorder alone no row of the recorder's says
+    /// a device, and the footer is the two sentences it has always been, letter for letter; and with a
+    /// television saved the recorder's rows alone are still said so. Nothing is asked of any device.
+    func testAWaitingRowSaysItsDeviceAndTheFooterNamesTheDevicesWaitedFor() throws {
+        let theirs = waiting("朝の番組", startingIn: 120, programme: 4321)
+        let its = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        let reason = "前に断られた理由"
+        let recorders = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
+        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに登録します。"
+        let reasons = "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+        // As the tab reads it: from the rows on screen.
+        func footer(of model: AppModel, over rows: [PendingReservation]) -> String {
+            model.pending = rows
+            return model.whatWaitsSays
+        }
+
+        let alone = try aBench().model(recorder: SilentRecorder())
+        XCTAssertNil(alone.deviceSaid(for: theirs), "a row says its device in a home with one device")
+        XCTAssertEqual(alone.deviceSaid(for: its), "テレビ", "a row that is not the recorder's does not say so")
+        XCTAssertEqual(footer(of: alone, over: [theirs]), recorders)
+        XCTAssertEqual(footer(of: alone, over: [turnedDown(theirs, for: reason)]), recorders + reasons)
+
+        let two = try aBench().model(recorder: SilentRecorder(), television: NoTelevision(),
+                                     credentials: MemoryTVCredentials())
+        XCTAssertEqual([theirs, its].map { two.deviceSaid(for: $0) }, ["レコーダー", "テレビ"])
+        XCTAssertEqual(footer(of: two, over: [theirs]), recorders, "said by the devices saved, not the rows")
+        XCTAssertEqual(footer(of: two, over: [its]), televisions)
+        XCTAssertEqual(footer(of: two, over: [theirs, its]), both)
+        XCTAssertEqual(footer(of: two, over: [theirs, turnedDown(its, for: reason)]), both + reasons)
+
+        let noRecorder = try aBench().modelWithNoRecorder(television: NoTelevision(),
+                                                          credentials: MemoryTVCredentials())
+        XCTAssertEqual(noRecorder.deviceSaid(for: its), "テレビ")
+        XCTAssertEqual(footer(of: noRecorder, over: [its]), televisions)
+    }
+
+    /// 削除する at the tab's question takes a waiting row off the phone, and for a television's row does
+    /// nothing while the television works -- here with a read of its list. The row's swipe is held back by
+    /// the same, and this is for work begun while the question was up: a sending would go on to make the
+    /// row after the reader was told that it is not sent. The row stays, on the phone and on screen.
+    ///
+    /// A recorder's row is held back by nothing, as it never was: it is deleted under the television's
+    /// work, and under the recorder's own. Nor does the recorder's work hold a television's row back.
+    func testAWaitingRowIsNotDeletedWhileTheTelevisionItWaitsForWorks() async throws {
+        let recorder = NamedRecorder(1)
+        let home = try await launch(with: recorder)
+        let (model, store, door) = (home.model, home.store, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        // Each with a reason on it, so that no sending takes one meanwhile. Read in the order they start.
+        let reason = "前に断られた理由"
+        let morning = turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: reason)
+        let noon = turnedDown(waiting("昼の番組", startingIn: 121, programme: 4322), for: reason)
+        let its = turnedDown(forTheTelevision(waiting("サンプル劇場", startingIn: 122, programme: 4401)), for: reason)
+        let another = turnedDown(forTheTelevision(waiting("サンプル紀行", startingIn: 123, programme: 4402)), for: reason)
+        for row in [morning, noon, its, another] { try await store.queue(row) }
+        // As the reservations tab reads the queue when it appears.
+        await model.loadPending()
+
+        await door.hold(only: "getScheduleList")
+        let reading = Task { await host.loadReservations() }
+        try await until("the read of the television's list was never out") { await door.isHolding }
+        await model.deleteWaiting(its)
+        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4321, 4322, 4401, 4402],
+                    "a television's row was deleted while the television was busy")
+        await model.deleteWaiting(morning)
+        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4322, 4401, 4402],
+                    "the television's work held a row of the recorder's back")
+        XCTAssertEqual(model.pending.map(\.request.eventID), [4322, 4401, 4402])
+        await door.letGo()
+        await reading.value
+
+        await recorder.hold(only: Self.list)
+        let listing = Task { await model.loadReservations() }
+        try await until("the recorder's list was never being read") { model.busy == "予約一覧を取得中" }
+        await model.deleteWaiting(noon)
+        await model.deleteWaiting(its)
+        await recorder.letGo()
+        await listing.value
+        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4402],
+                    "the recorder's work held a row back, its own or the television's")
+        XCTAssertEqual(model.pending.map(\.request.eventID), [4402])
+    }
+
+    // MARK: - taking the television away
+
+    /// Taking the television away takes what waits for it as well, unsent, and nothing else. The question
+    /// before it says how many reservations that is, counted on the phone: the queue on screen is read only
+    /// once the reservations tab has been opened. Taken away, the television's reservation is gone from the
+    /// phone and from the screen, the recorder's waits as it did with its reason, the television's address
+    /// and registration are forgotten, and the television was asked nothing.
+    ///
+    /// Before that, twice, nothing is taken away. While the television is busy -- here with a read of its
+    /// list -- nothing is done and nothing said: the button is held back by the same, and this is for a
+    /// sending begun while the question was up. And when what waits cannot be deleted, the phone's cache
+    /// being busy with another writer for longer than the app waits, the television stays with its
+    /// registration, every reservation waits as it did, and the television's line says why.
+    func testTakingTheTelevisionAwayTakesWhatWaitsForItAndNothingElse() async throws {
+        let home = try await launch(with: NamedRecorder(1), busyTimeout: 200)
+        let (model, television, store, door) = (home.model, home.television, home.store, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        for row in [turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: "前に断られた理由"),
+                    forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))] {
+            try await store.queue(row)
+        }
+        let both = try await store.pendingReservations()
+        XCTAssertTrue(model.pending.isEmpty, "the queue on screen was read: the count could be taken from it")
+
+        expectEqual(await model.waitingForTheTelevision(), 1, "what waits was not counted on the phone")
+
+        // As the reservations tab reads the queue when it appears.
+        await model.loadPending()
+        await door.hold(only: "getScheduleList")
+        let reading = Task { await host.loadReservations() }
+        try await until("the read of the television's list was never out") { await door.isHolding }
+        expectFalse(await model.takeTheTelevisionAway(counted: 1), "a television that was busy was taken away")
+        XCTAssertTrue(model.tvHost === host, "a television that was busy was let go of")
+        XCTAssertNil(host.problem, "something was said of a television that was only busy")
+        expectEqual(try await store.pendingReservations(), both, "a reservation went while the television was busy")
+        await door.letGo()
+        await reading.value
+        let calls = await television.calls
+
+        let writer = Writer(to: try model.guidePath())
+        expectFalse(await model.takeTheTelevisionAway(counted: 1), "taken away though what waits could not be deleted")
+        writer.letGo()
+        XCTAssertTrue(model.tvHost === host, "the television was taken away over reservations that stayed")
+        XCTAssertNotNil(model.surroundings.tvCredentials.load(), "its registration went all the same")
+        XCTAssertEqual(host.problem, "送信待ちの予約を削除できなかったため、テレビを外していません。"
+                       + "少し待ってから、もう一度お試しください。")
+        expectEqual(try await store.pendingReservations(), both)
+        XCTAssertEqual(model.pending, both)
+
+        expectTrue(await model.takeTheTelevisionAway(counted: 1), "a television at rest was not taken away")
+
+        let left = both.filter { $0.target == .recorder }
+        XCTAssertEqual(left.map(\.problem), ["前に断られた理由"])
+        expectEqual(try await store.pendingReservations(), left, "the television's stayed, or the recorder's went")
+        XCTAssertEqual(model.pending, left, "the queue on screen still shows what waited for the television")
+        XCTAssertNil(model.tv)
+        XCTAssertNil(model.tvHost)
+        XCTAssertNil(model.surroundings.tvCredentials.load(), "the registration was kept")
+        XCTAssertNil(model.defaults.string(forKey: DefaultsKey.tvHost), "the address was kept")
+        expectEqual(await television.calls, calls, "the television was asked something as it was taken away")
+    }
+
+    /// 外す is held to the count its question gave. A sending that began and ended while the question was
+    /// up is over by the time 外す is pressed, and nothing shows it but what waits. Here the question said
+    /// two, and a pull-down has made both on the television since. Nothing is taken away and nothing said:
+    /// the television stays with its registration, and with what its sending said on the strip, which is
+    /// where the two are said to have gone. Asked again the question counts none, and then the television
+    /// is taken away.
+    ///
+    /// A queue that cannot be read is not counted as empty: there is no count, for a question that gives
+    /// none. After a question that said two, 外す then does nothing. After one that gave no count it goes on
+    /// to delete what waits, which fails: the television stays, and its line says why.
+    func testTheTelevisionIsNotTakenAwayOverACountItsQuestionDidNotGive() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        for row in [forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)),
+                    forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402))] {
+            try await store.queue(row)
+        }
+        let said = await model.waitingForTheTelevision()
+        XCTAssertEqual(said, 2)
+
+        let outOfReach = QueueOutOfReach(in: try model.guidePath())
+        expectNil(await model.waitingForTheTelevision(), "a queue that could not be read was counted as empty")
+        expectFalse(await model.takeTheTelevisionAway(counted: said), "taken away with nothing to hold its count to")
+        XCTAssertNil(host.problem, "a count that no longer holds went as far as the delete")
+        expectFalse(await model.takeTheTelevisionAway(counted: nil), "taken away over a queue it could not delete from")
+        XCTAssertEqual(host.problem, "送信待ちの予約を削除できなかったため、テレビを外していません。"
+                       + "少し待ってから、もう一度お試しください。", "a question that gave no count was not acted on")
+        outOfReach.putBack()
+        XCTAssertTrue(model.tvHost === host, "the television was taken away over a queue that could not be read")
+        expectEqual(await model.waitingForTheTelevision(), said)
+
+        await host.refreshReservations()
+        expectEqual(await television.schedules.map(\.eventId), [4401, 4402], "the sending did not make both")
+        let registered = Said.sent("サンプル劇場", andOthers: 1, naming: "テレビ")
+        XCTAssertEqual(model.queueReport, registered)
+        expectFalse(await model.takeTheTelevisionAway(counted: said), "taken away over reservations made since")
+        XCTAssertTrue(model.tvHost === host, "the television holds two reservations the app no longer shows")
+        XCTAssertNotNil(model.surroundings.tvCredentials.load(), "its registration went all the same")
+        XCTAssertNil(host.problem, "something was said of a count that no longer held")
+        XCTAssertEqual(model.queueReport, registered, "what the strip said of the two went with the television")
+
+        expectEqual(await model.waitingForTheTelevision(), 0)
+        expectTrue(await model.takeTheTelevisionAway(counted: 0), "with nothing waiting, it was not taken away")
+        XCTAssertNil(model.tv)
+        XCTAssertNil(model.surroundings.tvCredentials.load(), "the registration was kept")
+    }
+
+    // MARK: - which line the strip shows
+
+    /// The strip says one thing at a time, and which is the model's to choose (`AppModel.strip`). In a
+    /// home with a recorder alone the order is the one it has always had: work under way; that another
+    /// recorder took over, while the app is connected; what became of what was waiting, cut at three
+    /// lines; that the data is invented, but not at the top of a sheet; the permission for the local
+    /// network; the recorder given up on. Each is looked at while the one behind it holds as well.
+    ///
+    /// A reservation waits as another recorder answers at the address, and is held back: the strip says
+    /// of the change first, and a read that is out goes ahead of that. Once that recorder has gone silent
+    /// the change is not said, since the line says the lists were read again: what was held back is, and
+    /// with that closed the reconnect is offered. The permission is said ahead of the reconnect, which
+    /// would only run into it, and behind what was held back while that is unread. Connected again, the
+    /// change is said after all.
+    ///
+    /// In the demo the strip says that the data is invented, on a screen and not at the top of a sheet,
+    /// and what became of what was waiting goes ahead of that on both.
+    func testWithARecorderAloneTheStripSaysOneThingAtATimeInTheOrderItAlwaysHas() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        XCTAssertNil(model.tv, "a television is saved in this home")
+        XCTAssertNil(model.strip(), "a home at rest has a line on its strip")
+
+        try await GuideStore(path: bench.guidePath).queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        await recorder.become(2)
+        await model.connect()
+        try await untilIdle(model)
+        let heldBack = AppModel.Strip.report(Said.heldBack(1), inFull: false)
+        XCTAssertEqual(model.queueReport, Said.heldBack(1), "nothing was held back for the strip to say second")
+        XCTAssertEqual(model.strip(), .anotherTookOver, "what was held back is said ahead of the change")
+
+        await recorder.hold(only: Self.list)
+        let reading = Task { await model.loadReservations() }
+        try await until("the recorder's list was never being read") { model.busy == "予約一覧を取得中" }
+        XCTAssertEqual(model.strip(), .busy("予約一覧を取得中"), "work under way is not what the strip says")
+        await recorder.letGo()
+        await reading.value
+        XCTAssertEqual(model.strip(), .anotherTookOver)
+
+        await recorder.goQuiet(on: Self.list)
+        await model.loadReservations()
+        XCTAssertTrue(model.gaveUp && model.anotherTookOver, "the recorder was not lost with the change unread")
+        XCTAssertEqual(model.strip(), heldBack, "the lists are said to have been read again from a recorder now gone")
+        XCTAssertEqual(model.strip(inSheet: true), heldBack)
+        model.session.waitingForPermission()
+        XCTAssertEqual(model.strip(), heldBack, "the permission is said ahead of what was held back, still unread")
+        model.session.permissionCleared()
+        model.closeQueueReport()
+        XCTAssertEqual(model.strip(), .recorderGaveUp)
+
+        // The bench takes the permission as given, so the session is told what the link tells it when the
+        // system stops the app asking.
+        model.session.waitingForPermission()
+        XCTAssertEqual(model.strip(), .blocked, "the reconnect is offered where it would run into the same refusal")
+        model.session.permissionCleared()
+        XCTAssertEqual(model.strip(), .recorderGaveUp)
+
+        await reconnect(model)
+        XCTAssertEqual(model.strip(), .anotherTookOver, "the change went unsaid once the lists had been read again")
+        // As the buttons of the two lines close them.
+        model.anotherTookOver = false
+        XCTAssertEqual(model.strip(), heldBack)
+        model.closeQueueReport()
+        XCTAssertNil(model.strip())
+
+        await model.enterDemo()
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertEqual(model.strip(), .demo)
+        XCTAssertNil(model.strip(inSheet: true), "the demo's line is at the top of a sheet")
+        try await XCTUnwrap(model.store).queue(waiting("夜の番組", startingIn: 122, programme: 4323))
+        await model.refreshReservations()
+        let sent = AppModel.Strip.report(Said.sent("夜の番組"), inFull: false)
+        XCTAssertEqual(model.strip(), sent, "that the data is invented is said ahead of what became of the queue")
+        XCTAssertEqual(model.strip(inSheet: true), sent)
+    }
+
+    /// With a television saved, its own lines come after everything about the recorder: that it is to be
+    /// registered again, and then that it was given up on. A television that wants the registration and
+    /// has gone silent since is still said to want it. The recorder given up on is said ahead of both.
+    ///
+    /// What became of what was waiting is then shown in full: what a sending to a television says can end
+    /// with what making a reservation did to another, which is the last thing a cut would leave.
+    func testWithATelevisionSavedItsLinesComeAfterTheRecordersAndTheReportIsInFull() async throws {
+        let recorder = NamedRecorder(1)
+        let home = try await launch(with: recorder, waiting: [
+            forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)),
+        ])
+        let (model, television) = (home.model, home.television)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let link = try XCTUnwrap(model.tv)
+        XCTAssertEqual(model.strip(), .report(Said.sent("サンプル劇場", naming: "テレビ"), inFull: true))
+        model.closeQueueReport()
+        XCTAssertNil(model.strip(), "a home at rest has a line on its strip")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(model.strip(), .tvGaveUp)
+
+        // It answers again, and no longer takes the app's cookie.
+        await television.goSilent(false)
+        model.surroundings.tvCredentials.save(TVCredentials(clientID: "BDBridge:test", cookie: "run out"))
+        await link.connect()
+        XCTAssertFalse(link.session.gaveUp, "a television that answered is still given up on")
+        XCTAssertEqual(model.strip(), .tvNeedsPairing)
+
+        await television.goSilent()
+        await link.connect()
+        XCTAssertTrue(link.session.gaveUp, "a television that went silent was not given up on")
+        XCTAssertEqual(model.strip(), .tvNeedsPairing, "the reconnect is offered to a television to be registered")
+
+        await recorder.goQuiet(on: Self.list)
+        await model.loadReservations()
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertEqual(model.strip(), .recorderGaveUp, "a line of the television's is said ahead of the recorder's")
+    }
+
+    /// The television's disk has a line on the strip, the last of them all, while the disk is known to be
+    /// away and a reservation waits for it to come back; and what the reservations tab says under what
+    /// waits then ends with the same sentence. It is known from a sending that stopped for want of the
+    /// disk, which puts nothing on the television's line of what went wrong.
+    ///
+    /// Only a reservation of the television's with no reason on it waits for the disk: with that row held
+    /// for the reader, and a row of the recorder's waiting beside it, neither the strip nor the tab says
+    /// the disk. A television given up on is said ahead of its disk. With the disk back, pulling the
+    /// reservations down sends the row, and the disk is not said again of the next row to wait: that
+    /// sending saw it there, and no connect has read it since.
+    func testTheStripAndTheTabSayTheDiskIsAwayWhileAReservationWaitsForIt() async throws {
+        let notFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに登録します。"
+        let reasons = "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let row = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        try await store.queue(row)
+        await model.loadPending()
+        XCTAssertNil(model.strip(), "the disk is said to be away while it is there")
+        XCTAssertEqual(model.whatWaitsSays, televisions)
+
+        await television.unmount()
+        await host.refreshReservations()
+
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+        XCTAssertEqual(TVDriver.diskNotFound, notFound)
+        XCTAssertEqual(model.whatWaitsSays, televisions + notFound + "。")
+        XCTAssertNil(model.problem(for: .tv), "a disk that is away went on the television's line")
+
+        // Put there for the recorder and never sent: nothing here has the recorder's queue sent.
+        try await store.queue(waiting("朝の番組", startingIn: 121, programme: 4321))
+        try await store.setPendingProblem(row.id, "前に断られた理由")
+        await model.loadPending()
+        XCTAssertNil(model.strip(), "a row that waits for the reader, or for the recorder, is said to wait for a disk")
+        XCTAssertEqual(model.whatWaitsSays, both + reasons)
+        try await store.setPendingProblem(row.id, nil)
+        await model.loadPending()
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+        XCTAssertEqual(model.whatWaitsSays, both + notFound + "。")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(model.strip(), .tvGaveUp, "the disk is said ahead of a television that is not connected")
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+
+        await television.unmount(false)
+        await host.refreshReservations()
+
+        XCTAssertEqual(model.strip(), .report(Said.sent("サンプル劇場", naming: "テレビ"), inFull: true))
+        model.closeQueueReport()
+        try await store.queue(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)))
+        await model.loadPending()
+        XCTAssertEqual(model.pending.map(\.problem), [nil, nil], "nothing is left waiting unsent to say the disk of")
+        XCTAssertNil(model.strip(), "the disk is still said to be away after a sending that found it there")
+        XCTAssertEqual(model.whatWaitsSays, both)
+    }
+
     // MARK: - what the tests set up
 
     /// A home with a recorder and a television the app is registered with, and what a test reaches of it
@@ -407,9 +878,15 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// that the first connect to each device finds them. The guide is cached, so a connect has none to
     /// fetch. The television receives the station the waiting reservations are on, and holds every request
     /// for `method` when one is named.
+    ///
+    /// `busyTimeout` is how long the app's writes to its cache wait for another connection's, in
+    /// milliseconds, for a test that holds the cache's lock on purpose: the app's own five seconds unless
+    /// said.
     private func launch(with recorder: any HTTPTransport, waiting rows: [PendingReservation] = [],
+                        busyTimeout: Int32? = nil,
                         holding method: String? = nil) async throws -> Home {
         let bench = try aBench()
+        if let busyTimeout { bench.storeBusyTimeoutMilliseconds = busyTimeout }
         try await bench.cacheAGuide()
         let store = try GuideStore(path: bench.guidePath)
         for row in rows { try await store.queue(row) }
@@ -447,6 +924,14 @@ final class QueueWithATelevisionTests: XCTestCase {
     private func forTheTelevision(_ row: PendingReservation) -> PendingReservation {
         var row = row
         row.target = .tv
+        return row
+    }
+
+    /// A reservation waiting for the television on a station its list does not have, three hours ahead:
+    /// every sending turns it down, with the reason for that.
+    private func notListed(_ title: String, programme: Int) -> PendingReservation {
+        var row = forTheTelevision(waiting(title, startingIn: 180, programme: programme))
+        row.request.serviceID = 1032
         return row
     }
 
