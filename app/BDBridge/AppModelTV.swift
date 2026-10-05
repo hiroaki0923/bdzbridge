@@ -150,4 +150,40 @@ extension AppModel {
         defaults.removeObject(forKey: DefaultsKey.tvMac)
         tvClientID = nil
     }
+
+    /// How many reservations wait for the television, for the question before it is taken away. Read from
+    /// the phone and not from the queue on screen, which is read only once the reservations tab has been
+    /// opened.
+    func waitingForTheTelevision() async -> Int {
+        guard let store else { return 0 }
+        return ((try? await store.pendingReservations()) ?? []).filter { $0.target == .tv }.count
+    }
+
+    /// What the settings' 外す asks: what waits for the television goes with it, unsent, and then the
+    /// television (`removeTV`). Whether it was taken away.
+    ///
+    /// Nothing is done while the television is busy, which is asked again here as the first step. The
+    /// button is held back by the same, but the question was up for as long as the reader took, and a
+    /// sending begun meanwhile has a row in hand that it would go on to make, after the reader was told
+    /// that it is not sent.
+    ///
+    /// When what waits cannot be deleted -- the phone's cache busy past its timeout, or not open -- the
+    /// television stays and nothing is deleted, and its line says why. A television taken away over rows
+    /// that stayed would leave them with nobody to send them and nobody to drop them once their programmes
+    /// are over, which is what the question is there to prevent.
+    func takeTheTelevisionAway() async -> Bool {
+        guard !isBusy(for: .tv) else { return false }
+        guard let store, (try? await store.removePending(waitingFor: .tv)) != nil else {
+            tvHost?.problem = Self.rowsNotTakenAway
+            return false
+        }
+        removeTV()
+        await loadPending()
+        return true
+    }
+
+    /// Said on the television's line when it was not taken away because what waits for it could not be
+    /// deleted.
+    static let rowsNotTakenAway = "送信待ちの予約を削除できなかったため、テレビを外していません。"
+        + "少し待ってから、もう一度お試しください。"
 }

@@ -7,6 +7,8 @@ struct TVSection: View {
     @Environment(AppModel.self) private var model
     @State private var registering = false
     @State private var removing = false
+    /// How many reservations wait for the television, read as the question goes up, for it to say.
+    @State private var waiting = 0
 
     var body: some View {
         Group {
@@ -26,17 +28,28 @@ struct TVSection: View {
                         Button("再接続") { Task { await tv.connect() } }
                             .disabled(tv.session.connecting)
                     }
-                    Button("テレビを外す", role: .destructive) { removing = true }
+                    // Not while the television works: a sending that is out may be making a reservation
+                    // that the question would say is deleted unsent.
+                    Button("テレビを外す", role: .destructive) {
+                        Task {
+                            waiting = await model.waitingForTheTelevision()
+                            removing = true
+                        }
+                    }
+                    .disabled(model.isBusy(for: .tv))
                 } header: {
                     Text("テレビ")
                 } footer: {
                     if let problem = model.tvHost?.problem { Text(problem) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
-                    Button("外す", role: .destructive) { model.removeTV() }
+                    // What could not be taken away is said in the footer above, which reads the television's
+                    // line.
+                    Button("外す", role: .destructive) { Task { await model.takeTheTelevisionAway() } }
                 } message: {
                     Text("この iPhone から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
-                         + "テレビの設定から消してください。")
+                         + "テレビの設定から消してください。"
+                         + (waiting > 0 ? "\nこのテレビ宛の送信待ちの予約 \(waiting) 件は、送らずに削除します。" : ""))
                 }
             } else if !model.demo {
                 Section {

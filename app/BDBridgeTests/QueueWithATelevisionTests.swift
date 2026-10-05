@@ -11,9 +11,11 @@ import XCTest
 /// television and a waiting row sent again are held here for the app's side of them: which device is
 /// asked, what the television's host keeps of what came back, and what the strip says and does not say.
 /// How a reservation or a sending to a television goes, step by step, and what each way it can stop leaves
-/// and says, is RecorderKit's to hold (`TVDriverTests`). What the reservations tab needs of the model once a
-/// row can wait for the television is held here as well: what a row sent again from it came to, the device
-/// each waiting row says, and what is said under them.
+/// and says, is RecorderKit's to hold (`TVDriverTests`).
+///
+/// What the reservations tab needs of the model once a row can wait for the television is held here as
+/// well: what a row sent again from it came to, the device each waiting row says, and what is said under
+/// them. And so is what the settings need: a television is taken away together with what waits for it.
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -511,6 +513,70 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(footer(of: noRecorder, over: [its]), televisions)
     }
 
+    // MARK: - taking the television away
+
+    /// Taking the television away takes what waits for it as well, unsent, and nothing else. The question
+    /// before it says how many reservations that is, counted on the phone: the queue on screen is read only
+    /// once the reservations tab has been opened. Taken away, the television's reservation is gone from the
+    /// phone and from the screen, the recorder's waits as it did with its reason, the television's address
+    /// and registration are forgotten, and the television was asked nothing.
+    ///
+    /// Before that, twice, nothing is taken away. While the television is busy -- here with a read of its
+    /// list -- nothing is done and nothing said: the button is held back by the same, and this is for a
+    /// sending begun while the question was up. And when what waits cannot be deleted, the phone's cache
+    /// being busy with another writer for longer than the app waits, the television stays with its
+    /// registration, every reservation waits as it did, and the television's line says why.
+    func testTakingTheTelevisionAwayTakesWhatWaitsForItAndNothingElse() async throws {
+        let home = try await launch(with: NamedRecorder(1), busyTimeout: 200)
+        let (model, television, store, door) = (home.model, home.television, home.store, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        for row in [turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: "前に断られた理由"),
+                    forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))] {
+            try await store.queue(row)
+        }
+        let both = try await store.pendingReservations()
+        XCTAssertTrue(model.pending.isEmpty, "the queue on screen was read: the count could be taken from it")
+
+        expectEqual(await model.waitingForTheTelevision(), 1, "what waits was not counted on the phone")
+
+        // As the reservations tab reads the queue when it appears.
+        await model.loadPending()
+        await door.hold(only: "getScheduleList")
+        let reading = Task { await host.loadReservations() }
+        try await until("the read of the television's list was never out") { await door.isHolding }
+        expectFalse(await model.takeTheTelevisionAway(), "a television that was busy was taken away")
+        XCTAssertTrue(model.tvHost === host, "a television that was busy was let go of")
+        XCTAssertNil(host.problem, "something was said of a television that was only busy")
+        expectEqual(try await store.pendingReservations(), both, "a reservation went while the television was busy")
+        await door.letGo()
+        await reading.value
+        let calls = await television.calls
+
+        let writer = Writer(to: try model.guidePath())
+        expectFalse(await model.takeTheTelevisionAway(), "taken away though what waits could not be deleted")
+        writer.letGo()
+        XCTAssertTrue(model.tvHost === host, "the television was taken away over reservations that stayed")
+        XCTAssertNotNil(model.surroundings.tvCredentials.load(), "its registration went all the same")
+        XCTAssertEqual(host.problem, "送信待ちの予約を削除できなかったため、テレビを外していません。"
+                       + "少し待ってから、もう一度お試しください。")
+        expectEqual(try await store.pendingReservations(), both)
+        XCTAssertEqual(model.pending, both)
+
+        expectTrue(await model.takeTheTelevisionAway(), "a television at rest was not taken away")
+
+        let left = both.filter { $0.target == .recorder }
+        XCTAssertEqual(left.map(\.problem), ["前に断られた理由"])
+        expectEqual(try await store.pendingReservations(), left, "the television's stayed, or the recorder's went")
+        XCTAssertEqual(model.pending, left, "the queue on screen still shows what waited for the television")
+        XCTAssertNil(model.tv)
+        XCTAssertNil(model.tvHost)
+        XCTAssertNil(model.surroundings.tvCredentials.load(), "the registration was kept")
+        XCTAssertNil(model.defaults.string(forKey: DefaultsKey.tvHost), "the address was kept")
+        expectEqual(await television.calls, calls, "the television was asked something as it was taken away")
+    }
+
     // MARK: - what the tests set up
 
     /// A home with a recorder and a television the app is registered with, and what a test reaches of it
@@ -527,9 +593,15 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// that the first connect to each device finds them. The guide is cached, so a connect has none to
     /// fetch. The television receives the station the waiting reservations are on, and holds every request
     /// for `method` when one is named.
+    ///
+    /// `busyTimeout` is how long the app's writes to its cache wait for another connection's, in
+    /// milliseconds, for a test that holds the cache's lock on purpose: the app's own five seconds unless
+    /// said.
     private func launch(with recorder: any HTTPTransport, waiting rows: [PendingReservation] = [],
+                        busyTimeout: Int32? = nil,
                         holding method: String? = nil) async throws -> Home {
         let bench = try aBench()
+        if let busyTimeout { bench.storeBusyTimeoutMilliseconds = busyTimeout }
         try await bench.cacheAGuide()
         let store = try GuideStore(path: bench.guidePath)
         for row in rows { try await store.queue(row) }
