@@ -5,7 +5,12 @@ import SwiftUI
 /// reconnect, register again or take it away. Not in the demo, whose recorder is invented.
 struct TVSection: View {
     @Environment(AppModel.self) private var model
-    @State private var registering = false
+    /// Whether the sheet that adds a television, or registers with it again, is up. Only set here: the sheet
+    /// is the settings screen's, hung on its form. Hung on this section it was hung on each of the section's
+    /// rows -- a modifier on a group goes to each of its children, and a section in a form hands it on to
+    /// each of its rows -- and with several presenters on the one state the sheet went by itself at the first
+    /// press, and again as a registration turned the section from one form to the other under it.
+    @Binding var registering: Bool
     @State private var removing = false
     /// How many reservations wait for the television, read as the question goes up, for it to say and for
     /// 外す to be held to. Nil when they could not be counted.
@@ -63,7 +68,6 @@ struct TVSection: View {
                 }
             }
         }
-        .sheet(isPresented: $registering) { TVRegisterSheet(host: model.tv?.host ?? "") }
     }
 
     /// What the question adds about the reservations waiting for the television: how many are deleted
