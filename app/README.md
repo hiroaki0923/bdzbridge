@@ -114,6 +114,9 @@ tells it -- a fault with one of the recorder's own codes, a 503, a list a moment
 changes when the phone is meant to have moved. A bench's phone is on no Wi-Fi until a test puts it on one
 (`joinWiFi`): a /24 of addresses reserved for documentation, whose requests go to the bench's `Subnet` -- the
 recorders the test put there, nobody at any other address, or everything turned back -- and nowhere else.
+A test can take the phone off that Wi-Fi again (`leaveWiFi`) or move it to another, of other addresses, and
+can hold the search's wait for the local network permission and end it either way (`holdThePermission`,
+`letThePermissionGo`).
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
@@ -226,13 +229,23 @@ something was waiting. The demo leaves the real recorder's cache as it was.
 
 `ScanTests` presses レコーダーを探す, which no test could while the search reached for the device's
 interfaces, the permission and a session of its own: a press finds the recorder on the bench's Wi-Fi, or
-nobody, having asked each address once. Then the rule for the first press on a phone (under "What works",
-below). A search that found nobody, every request turned back, is not said to have found nobody while the app
-is not active, and is made once more, a wait after the app is active again, and finds the recorder; with the
-app active throughout it is said after the moment it is held for, and not searched again; a second search
-that finds nobody is said, and there is no third however often the app comes back; the screen going away ends
-a search that waits to be made once more; and a search that finds a recorder says so at once. The tests tell
-the model the app's phase as the first screen does (`activeChanged`), and make the moment and the second
+nobody, having asked each address once, or says there is no Wi-Fi and asks nobody. Then the rule for the
+first press on a phone (under "What works", below). A search that found nobody, every request turned back, is
+not said to have found nobody while the app is not active, and is made once more, a wait after the app is
+active again, and finds the recorder; with the app active throughout it is said after the moment it is held
+for, and not searched again; a second search that finds nobody is said, and there is no third however often
+the app comes back; the screen going away, or another press, ends a search that waits to be made once more,
+and its task is over; and a search that finds a recorder says so at once. Whether the app has stopped being
+active is counted from the press: one made after the app was away and back is searched once, and each of two
+presses has its own one more search. The press is carried across the system's question and across
+nothing else: a visit to the background ends it -- while the search waits for the app to be active, while
+nothing found is still held, and in the second after the app is active again -- and the search is not made
+once more with the Wi-Fi gone, which is what it then says, nor on a Wi-Fi of other addresses. The wait for the
+permission is the bench's to hold: while it is held nobody is asked and the screen says what is in the way;
+allowed, the search is made; ended without the permission and with the Wi-Fi gone, it says there is no Wi-Fi;
+and the screen going away meanwhile, nobody is asked though the permission comes afterwards. Once it has said
+there is no Wi-Fi no search is under way, which the tests read off the log. The tests tell the model the
+app's phase as the first screen does (`activeChanged`, `wentToBackground`), and make the moment and the second
 short. One reads the lines a search wrote for the log, the whole course of such a press, and holds that none
 has an address in it or anything the recorder said of itself.
 
@@ -244,8 +257,9 @@ public switch there; a UI test finds it by its words in the supported way, but n
 the demo, which the demo does not have yet.
 
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
-wait for an answer after one is tried, by the tests that save a MAC --, the local network permission, and the
-search for a recorder the router has moved. Nor what a screen decides for itself: what sets its list loading,
+wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
+permission itself (a search's wait for it is the bench's), and the search for a recorder the router has
+moved. Nor what a screen decides for itself: what sets its list loading,
 closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
 of the app's phase. Nor the two entries with no screen as the
 system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings and post
@@ -453,11 +467,27 @@ log below says). A search that found nobody is made once more when the app has s
 tap and is active again. Nothing found is held for about a second before it is said, since a search turned
 back at every address is over before the question is up; if the app has not left by then it is said as it
 stands. Otherwise the search is made again a second after the app is active, the screen showing it as still
-going meanwhile, and what that one comes to is said whatever it is: once to a tap. Closing the tutorial,
-choosing a recorder or turning to the demo ends it. A search that finds a recorder is as it was. The cost is
-that a search which truly finds nobody says so about a second later, and that pulling Control Centre down
-during a search gets a second one. Whether the first tap now finds the recorder can only be seen on a phone
-the app has been deleted from and installed on again.
+going meanwhile, and what that one comes to is said whatever it is: once to a tap. A search that finds a
+recorder is as it was.
+
+The tap is carried across the system's question and across nothing else. The question makes the app inactive
+and never sends it to the background, so a visit there since the tap -- the home screen, another app -- ends
+the carrying: nothing found is said as the tap's own search left it, at once where the search was waiting for
+the app to be active, and nothing is looked through when the app comes back, whenever that is and on whatever
+network. Before the second search the interfaces are read again, as they are after the wait: with none it
+says there is no Wi-Fi, and with other addresses than the tap's it says what the tap's own search came to
+(the Wi-Fi can be changed from Control Centre without the app going anywhere; another network numbered the
+same is not told apart by this). Closing the tutorial, choosing a recorder or turning to the demo ends a
+search wherever it has got to. Leaving the settings tab does not, as it never did.
+
+The cost, in full. A search that truly finds nobody says so about a second later. Pulling Control Centre down
+during such a search gets a second one. And, the largest, the first tap itself: it raises the question, which
+is the app stopping being active since the tap, so when there truly is nobody -- the recorder off, or on
+another network -- it is searched twice, 検索中 counting to the end both times, about fourteen seconds before
+it says so where it was about six. That cannot be narrowed without giving up one of the readings of why the
+first search finds nobody, that the wait worked and requests were still turned back for a moment after. And a
+reader who goes to the home screen with the question up taps again. Whether the first tap now finds the
+recorder can only be seen on a phone the app has been deleted from and installed on again.
 
 A search also writes its course to the system's log, so that the next first tap on a phone can be read
 afterwards: subsystem `RecorderKit`, category `scan`, at the default level, which the system keeps for a while

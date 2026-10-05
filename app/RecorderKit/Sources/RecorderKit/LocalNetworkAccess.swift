@@ -4,11 +4,13 @@ import Network
 /// Whether iOS lets this app reach the local network, which it asks the reader about the first time the app
 /// tries.
 ///
-/// Nothing reports that permission directly. URLSession fails a request that local network privacy stopped with
-/// the same -1009 as having no network at all, and can fail it at once, while the system's question is still on
-/// screen. The Network framework does say: a connection's path is unsatisfied with `localNetworkDenied`, and
-/// once the reader allows it the system tries the connection again by itself (TN3179, "Understanding local
-/// network privacy"). So a connection is opened towards the address in question, only to watch its path.
+/// Nothing reports that permission directly. What follows is what TN3179 ("Understanding local network
+/// privacy") is read to say, and what the wait here is built on; none of it has been seen on a phone
+/// (`docs/porting.md`, ローカルネットワークの許可). URLSession fails a request that local network privacy stopped
+/// with the same -1009 as having no network at all, and can fail it at once, while the system's question is
+/// still on screen. The Network framework does say: a connection's path is unsatisfied with
+/// `localNetworkDenied`, and once the reader allows it the system tries the connection again by itself. So a
+/// connection is opened towards the address in question, only to watch its path.
 ///
 /// Not for the overnight run: a background process touching the local network while the question is
 /// undecided is refused without a word, and nothing records that it was.
