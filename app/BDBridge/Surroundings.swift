@@ -2,13 +2,13 @@ import Foundation
 import RecorderKit
 
 /// What `AppModel` reaches beyond itself: where it keeps its settings and its database, how its requests get
-/// to the recorder, which network it takes itself to be on, and what it does on that network and on the
-/// screen of its own accord.
+/// to the recorder, which network it takes itself to be on, what it does on that network and on the
+/// screen of its own accord, and what a search for a recorder looks round, waits on and asks through.
 ///
 /// The app has one of these, `app`, and passes no other. It is here for the unit tests (`BDBridgeTests`),
 /// which make models of their own: settings in a suite they throw away, a database in a folder of their own,
-/// an invented recorder for a transport -- the demo's, or one that never answers -- and a network that
-/// changes when the test says so.
+/// an invented recorder for a transport -- the demo's, or one that never answers -- a network that
+/// changes when the test says so, and a Wi-Fi of invented addresses for a search to go through.
 ///
 /// Only what the tests need is here. The overnight run, the demo's own switch and the screens still read the
 /// shared defaults for themselves.
@@ -42,6 +42,26 @@ struct Surroundings {
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
     /// Where the television's registration is kept: the Keychain in the app, memory in a test.
     var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
+    /// The interfaces a search for a recorder looks round (`AppModel.scanForRecorders`): the Wi-Fi's in the
+    /// app. None unless a test puts its phone on one, and a search then says there is no Wi-Fi and asks nobody.
+    var lanInterfaces: () -> [LocalNetwork.Interface] = { [] }
+    /// How a search waits for the reader to allow the local network before it asks anybody
+    /// (`LocalNetwork.waitForAccess`): aimed at a neighbour on the subnet, saying so each time the permission
+    /// is in the way, and back with whether it was given. Given at once unless a test says otherwise.
+    var waitForLocalNetwork: @Sendable (_ neighbour: String, _ blocked: @Sendable () async -> Void) async -> Bool
+        = { _, _ in true }
+    /// What one search sends its requests through, to every address of the subnet: made anew for each search,
+    /// as the app's session is. Nobody answers unless a test says otherwise.
+    var scanTransport: () -> any HTTPTransport = { NoRecorderAnywhere() }
+    /// How long a search that found nobody holds that back before saying it, which is the time a question of
+    /// the system's raised by the press has to take the app out of being active; and how long after the app is
+    /// active again the search is made once more (`AppModel.scanForRecorders`). A test has no seconds to spend
+    /// on either.
+    var emptyScanHold: Duration = .seconds(1)
+    var scanAgainDelay: Duration = .seconds(1)
+    /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
+    /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
+    var scanLog: @MainActor (String) -> Void = { _ in }
 
     static var app: Surroundings {
         Surroundings(defaults: .standard,
@@ -51,7 +71,18 @@ struct Surroundings {
                      reachesTheLAN: true,
                      asksAboutNotifications: true,
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
-                     tvCredentials: KeychainTVCredentials())
+                     tvCredentials: KeychainTVCredentials(),
+                     lanInterfaces: LocalNetwork.lanInterfaces,
+                     waitForLocalNetwork: LocalNetwork.waitForAccess(probing:blocked:),
+                     scanTransport: { URLSessionTransport() },
+                     scanLog: { ScanLog.note($0) })
+    }
+}
+
+/// What a search reaches where no subnet has been given: nobody, at any address.
+actor NoRecorderAnywhere: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        throw RecorderError.transport("Nobody here.")
     }
 }
 

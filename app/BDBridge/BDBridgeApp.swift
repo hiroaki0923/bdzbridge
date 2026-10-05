@@ -74,6 +74,9 @@ struct RootView: View {
         // stayed alive in the background can come up already active, and a bulk job waiting for the app to come
         // back would then wait for good. An ordinary launch has not been away: `start()` connects then.
         .onChange(of: scenePhase, initial: true) { _, phase in
+            // In the turn it changes, where coming back below is a task of its own: a scan for a recorder goes
+            // by whether the app has stopped being active since its press (`AppModel.activeChanged`).
+            model.activeChanged(to: phase == .active)
             switch phase {
             case .background: model.wentToBackground()
             case .active: Task { await model.returnedToForeground() }

@@ -32,7 +32,8 @@
   the view that draws it in `BDBridgeApp.swift`). What the app knows of the recorder and of the link
   to it -- described, unreachable, given up on, being woken -- is `SessionState`, which changes only by what
   happened to it; the screens read it through `AppModel`.
-- `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
+- `BDBridgeTests/` — unit tests of `AppModel`, and one test of a screen on show, run inside the app with no
+  recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
 - `project.yml` — the Xcode project is generated from this by XcodeGen, and committed (see below).
@@ -98,7 +99,10 @@ databases go in, how a request reaches the recorder, which network it takes itse
 may put anything on the LAN by itself -- the magic packet, the look at the local network permission, the
 search for a recorder the router has moved, the watch on the network -- or ask about notifications, and how
 long the recorder's client pauses before sending a 503 again and a write to the cache waits for another
-connection's. The app passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a
+connection's. And what the search begun by レコーダーを探す reaches: the interfaces it looks round, its wait for
+the local network permission, the transport its requests go through, the two waits of a search that found
+nobody, and where it writes its log. The app passes `Surroundings.app` and nothing else. A test builds its
+model on a `Bench`: a
 defaults suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an
 invented recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the
 demo's pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse
@@ -107,7 +111,12 @@ recorders that each say which they are, one of which can start answering as anot
 busy when asked who it is, hold or ignore requests of one kind, or answer a request of one kind as the test
 tells it -- a fault with one of the recorder's own codes, a 503, a list a moment behind itself (`answer`,
 `beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) -- and a network it
-changes when the phone is meant to have moved.
+changes when the phone is meant to have moved. A bench's phone is on no Wi-Fi until a test puts it on one
+(`joinWiFi`): a /24 of addresses reserved for documentation, whose requests go to the bench's `Subnet` -- the
+recorders the test put there, nobody at any other address, or everything turned back -- and nowhere else.
+A test can take the phone off that Wi-Fi again (`leaveWiFi`) or move it to another, of other addresses, and
+can hold the search's wait for the local network permission and end it either way (`holdThePermission`,
+`letThePermissionGo`).
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
@@ -218,10 +227,41 @@ programme reserved then waits. With no screen, the Shortcuts action's sending an
 recorder the cache is not of alone -- nothing sent, nothing fetched, nothing taken up -- and say so only when
 something was waiting. The demo leaves the real recorder's cache as it was.
 
+`ScanTests` presses レコーダーを探す, which no test could while the search reached for the device's
+interfaces, the permission and a session of its own: a press finds the recorder on the bench's Wi-Fi, or
+nobody, having asked each address once, or says there is no Wi-Fi and asks nobody. Then the rule for the
+first press on a phone (under "What works", below). A search that found nobody, every request turned back, is
+not said to have found nobody while the app is not active, and is made once more, a wait after the app is
+active again, and finds the recorder; with the app active throughout it is said after the moment it is held
+for, and not searched again; a second search that finds nobody is said, and there is no third however often
+the app comes back; the screen going away, or another press, ends a search that waits to be made once more,
+and its task is over; and a search that finds a recorder says so at once. Whether the app has stopped being
+active is counted from the press: one made after the app was away and back is searched once, and each of two
+presses has its own one more search. The press is carried across the system's question and across
+nothing else: a visit to the background ends it -- while the search waits for the app to be active, while
+nothing found is still held, and in the second after the app is active again -- and the search is not made
+once more with the Wi-Fi gone, which is what it then says, nor on a Wi-Fi of other addresses. The wait for the
+permission is the bench's to hold: while it is held nobody is asked and the screen says what is in the way;
+allowed, the search is made; ended without the permission and with the Wi-Fi gone, it says there is no Wi-Fi;
+and the screen going away meanwhile, nobody is asked though the permission comes afterwards. Once it has said
+there is no Wi-Fi no search is under way, which the tests read off the log. The tests tell the model the
+app's phase as the first screen does (`activeChanged`, `wentToBackground`), and make the moment and the second
+short. One reads the lines a search wrote for the log, the whole course of such a press, and holds that none
+has an address in it or anything the recorder said of itself.
+
+No test puts a screen up, so none holds where the settings hang the sheet for adding a television: on the
+form, and not on the television's section, where a sheet hung on each of the section's rows went by itself at
+the first press (`TVSection`'s comment says so). A test hosted by the app would have to find テレビを追加 by its
+words, and SwiftUI tells UIKit nothing of a row's words until accessibility is on, for which the system has no
+public switch there; a UI test finds it by its words in the supported way, but needs a television's section in
+the demo, which the demo does not have yet.
+
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
-wait for an answer after one is tried, by the tests that save a MAC --, the local network permission, and the
-search for a recorder the router has moved. Nor what a screen decides for itself: what sets its list loading,
-and closing what it holds of a recorder whose lists have gone. Nor the two entries with no screen as the
+wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
+permission itself (a search's wait for it is the bench's), and the search for a recorder the router has
+moved. Nor what a screen decides for itself: what sets its list loading,
+closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
+of the app's phase. Nor the two entries with no screen as the
 system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings and post
 its notifications: the work behind each is tried with those handed in.
 
@@ -414,12 +454,55 @@ which runs the real task the real way rather than only its body.
 Finding the recorder: a button looks through the subnet the device is on and offers whatever answers as a
 recorder, so the address does not have to be typed. On a home network 253 addresses take about seven seconds.
 The first tap is also what makes iOS ask about the local network, and the search waits for that answer
-rather than running behind the question, where every request fails at once -- so that one tap finds the
-recorder. How the waiting is done, and what the app says when the answer is no, is in `docs/porting.md`
-under the local network permission. A recorder that falls silent because the permission was taken away is
-not woken, since no magic packet could leave the phone either; the app says what is wrong and connects when
-it is put back. The simulator has no local network permission, so all of this is still to be seen working
-on an iPhone.
+rather than running behind the question -- so that one tap finds the recorder. The wait reads the path of a
+connection, which the simulator cannot show, and it has still not been seen working on an iPhone. What has
+been seen on one is the search begun by the tap that raised the question coming back with
+レコーダーが見つかりませんでした after 許可, and the second tap finding the recorder. Why the first finds nobody
+is not known.
+
+So the search does not rest on the wait alone, nor on any other signal of the system's. It rests on the app's
+own phase: a question of the system's takes the app out of being active for as long as it is up, whatever
+becomes of the requests behind it (that this one does is how the system's alerts go, not something seen; the
+log below says). A search that found nobody is made once more when the app has stopped being active since the
+tap and is active again. Nothing found is held for about a second before it is said, since a search turned
+back at every address is over before the question is up; if the app has not left by then it is said as it
+stands. Otherwise the search is made again a second after the app is active, the screen showing it as still
+going meanwhile, and what that one comes to is said whatever it is: once to a tap. A search that finds a
+recorder is as it was.
+
+The tap is carried across the system's question and across nothing else. The question makes the app inactive
+and never sends it to the background, so a visit there since the tap -- the home screen, another app -- ends
+the carrying: nothing found is said as the tap's own search left it, at once where the search was waiting for
+the app to be active, and nothing is looked through when the app comes back, whenever that is and on whatever
+network. Before the second search the interfaces are read again, as they are after the wait: with none it
+says there is no Wi-Fi, and with other addresses than the tap's it says what the tap's own search came to
+(the Wi-Fi can be changed from Control Centre without the app going anywhere; another network numbered the
+same is not told apart by this). Closing the tutorial, choosing a recorder or turning to the demo ends a
+search wherever it has got to. Leaving the settings tab does not, as it never did.
+
+The cost, in full. A search that truly finds nobody says so about a second later. Pulling Control Centre down
+during such a search gets a second one. And, the largest, the first tap itself: it raises the question, which
+is the app stopping being active since the tap, so when there truly is nobody -- the recorder off, or on
+another network -- it is searched twice, 検索中 counting to the end both times, about fourteen seconds before
+it says so where it was about six. That cannot be narrowed without giving up one of the readings of why the
+first search finds nobody, that the wait worked and requests were still turned back for a moment after. And a
+reader who goes to the home screen with the question up taps again. Whether the first tap now finds the
+recorder can only be seen on a phone the app has been deleted from and installed on again.
+
+A search also writes its course to the system's log, so that the next first tap on a phone can be read
+afterwards: subsystem `RecorderKit`, category `scan`, at the default level, which the system keeps for a while
+(`ScanLog`). What the wait read of the path and what ended it; for each search how long it took and how its
+requests came back -- answered by status, timed out, failed by the system's code (`ScanTally`); each change
+of the app's phase while a search is under way; whether the search was to be made once more, and what was
+said. Counts and codes only: no address and no name is written. It is read with Console on a Mac the phone is
+connected to, or from an archive taken with `log collect --device`, by
+`log show --predicate 'subsystem == "RecorderKit" && category == "scan"'`.
+
+How the waiting is done, what is and is not known of the system's question, and what the app says when the
+answer is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because
+the permission was taken away is not woken, since no magic packet could leave the phone either; the app says
+what is wrong and connects when it is put back. That rests on the same reading of a path, so it too is still
+to be seen working on an iPhone.
 
 The recorders found stay in the order they answered, the scan's end adding only what had not arrived yet,
 and the one the app is set to -- by address, or by UDN once the router has moved it -- is marked 使用中. A

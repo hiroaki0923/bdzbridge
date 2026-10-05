@@ -63,24 +63,24 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-44 ファイル、9,298 行（空行とコメントを含み、`Package.swift` を除く）。テストは 16,457 行。
+46 ファイル、9,491 行（空行とコメントを含み、`Package.swift` を除く）。テストは 16,584 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,066 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,002 | GuideStore, Sqlite |
-| 非同期の段取り | 4,634 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
-| OS に縛られるもの | 596 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http |
+| 非同期の段取り | 4,707 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, DemoTV |
+| OS に縛られるもの | 716 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
-本当に OS に縛られるのは 596 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
+本当に OS に縛られるのは 716 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
 ものです。非同期と SQLite まで持てる仕組み（Swift そのもの、または Rust）なら、RecorderKit の 9 割を共有できます。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（9,478 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（9,684 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,568 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
+何を取るか）で、AppModel（9 ファイルで 2,731 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と
 BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。RecorderKit だけを共有する案では、どれを
 選んでもこれは Android で書き直します。
 
@@ -111,6 +111,7 @@ BackgroundWork、Notify、SendWaitingIntent を合わせて約 810 行です。R
 | LocalNetworkAccess | Network framework は Apple にしかない | Apple 専用のまま。Android の許可は Kotlin 側で扱う。`Access` の列挙型は共有できる |
 | LocalNetwork | `import Darwin`。`sa_family` の比較が `UInt8`。`IFF_UP` などのフラグは Android では列挙型で、そのまま整数とビット演算できない。セルラーと VPN を外す名前の表が iOS 用 | Darwin、Android、Glibc の 3 分岐で import。`sa_family_t(AF_INET)` と書く。フラグは `.rawValue`。名前の表は OS ごと（Android は `wlan*`、`tun*`、`rmnet*`、`ccmni*`）。一覧の取得は Bionic の `getifaddrs` で足りる |
 | WakeOnLan | `import Darwin`。`sin_len` が無い。`os.Logger` が無い | パケットの組み立てと宛先の選び方は共有。送信とログだけ OS ごと。Linux の Glibc では `SOCK_DGRAM` が列挙型なので、Linux でビルドするならそこも分岐 |
+| ScanLog | `os.Logger` が無い | 走査のログの書き先だけ OS ごと。何を書くか（`ScanTally` の件数、アプリが組み立てる行）は共有できる。待ちの読みを書くのは LocalNetworkAccess で、Apple 専用のまま |
 | RecorderAddress | IPv6 の判定に `inet_pton` と `in6_addr` を使っている。Apple の Foundation は Darwin を再エクスポートするが、Android の Foundation はしない見込み | 3 分岐で import |
 | Sqlite | `SQLite3` は Apple のモジュール。Android の NDK はシステムの SQLite をアプリに公開していない | Android では SQLite のアマルガメーションを C ターゲットで同梱。C の API は同じなのでコードは変わらない。Linux はシステムの libsqlite3 で足りる |
 | Inflate, Logo | `zlib` は Apple SDK のモジュール | 全 OS 共通の system library ターゲット 1 本で libz を読む。Logo が使うのは CRC32 だけなので、自前で書けば依存ごと外せる |
@@ -146,10 +147,10 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
   （`.when(platforms: [.android])`）。同じパッケージに置くと、Mac の `swift test` がそれもビルドして、pre-commit
   フックと Xcode Cloud のアーカイブ前のテストが壊れるか遅くなる。`Package.swift` の中の `#if os(Android)` は
   ホスト側で評価されるので、この用途には使えない。
-- **`#if` は、import の行と、OS に縛られる 2 ファイル（LocalNetwork と WakeOnLan）の中だけにする。**
+- **`#if` は、import の行と、OS に縛られる 3 ファイル（LocalNetwork、WakeOnLan、ScanLog）の中だけにする。**
 - **静的な API はそのまま残し、インターフェース一覧の出どころだけを差し替えられるようにする。** アプリは
   `LocalNetwork` と `WakeOnLan` の静的関数を直接呼んでいる（AppModel、BackgroundWork、Surroundings、SettingsScreen）。
-  `LocalNetwork.Interface` には公開の初期化子を足す。
+  `LocalNetwork.Interface` の公開の初期化子は足してある（アプリのテストが、作りものの Wi-Fi を渡すのに使う）。
 - **置き場所は、Android を続けると決めるまで `app/RecorderKit` のまま。** 移すと `project.yml`、Xcode Cloud の
   スクリプト、pre-commit フック、CLAUDE.md がすべて変わる。
 - **Kotlin への窓口は粗い単位で作る。** 接続、番組表の更新、予約の一覧と作成、送信待ちの送信といった関数を数個。
@@ -177,7 +178,7 @@ Android の tzdata を読むのは、端末の現在のタイムゾーンを求�
 
 端末側の規則を共有部へ移すのは、Android で書き直す量がいちばん減る変更です。ただし出荷中のアプリの、いちばん
 脆い部分の作り替えになります。AppModel は 70 回を超えるコミットで手が入り（`git log --follow`）、その多くは実機でしか
-出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、143 件）がその再発を見張っています。
+出なかった不具合の修正です。アプリのテスト（`BDBridgeTests`、163 件）がその再発を見張っています。
 
 そこで、移植とは関係なく価値のある部分だけを先にやりました。起こして応答を待つ処理は、画面側
 （当時の `AppModel.wakeAndAttach`）と深夜の処理とショートカット（`BackgroundWork.reach`）に二重に書かれていて、パケットを

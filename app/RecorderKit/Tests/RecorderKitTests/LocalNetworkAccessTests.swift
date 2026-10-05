@@ -24,6 +24,26 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertEqual(LocalNetwork.verdict(status: nil, reason: nil, ended: true), .unavailable)
     }
 
+    /// What a wait writes to the log of each reading (`ScanLog`): the system's words for the path and for why
+    /// it is unsatisfied, how the connection stands with the number of what stopped it, and what the two were
+    /// taken for. Nothing of where the probe was aimed is handed to it.
+    func testAReadingIsWrittenInTheSystemsWordsAndNumbers() {
+        XCTAssertEqual(LocalNetwork.reading(status: .unsatisfied, reason: .localNetworkDenied,
+                                            connection: .waiting(.posix(.ENETDOWN)), verdict: .blocked),
+                       "path unsatisfied (localNetworkDenied), connection waiting (posix 50), taken for blocked")
+        XCTAssertEqual(LocalNetwork.reading(status: .unsatisfied, reason: .notAvailable,
+                                            connection: .preparing, verdict: .unavailable),
+                       "path unsatisfied (notAvailable), connection preparing, taken for unavailable")
+        XCTAssertEqual(LocalNetwork.reading(status: .satisfied, reason: .notAvailable,
+                                            connection: .failed(.posix(.ECONNREFUSED)), verdict: .allowed),
+                       "path satisfied, connection failed (posix 61), taken for allowed")
+        XCTAssertEqual(LocalNetwork.reading(status: .requiresConnection, reason: nil, connection: .setup,
+                                            verdict: nil),
+                       "path requires a connection, connection setup, taken for nothing yet")
+        XCTAssertEqual(LocalNetwork.reading(status: nil, reason: nil, connection: nil, verdict: .unavailable),
+                       "path none yet, connection gone, taken for unavailable")
+    }
+
     /// Loopback, so that nothing leaves this machine: nothing listens on port 9, the connection is refused,
     /// and the path was there all along.
     func testAProbeOfThisMachineIsAllowedAtOnce() async {

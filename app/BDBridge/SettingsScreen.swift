@@ -10,6 +10,8 @@ struct SettingsScreen: View {
     @State private var typedMac = ""
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
+    /// The television's sheet: its section asks for it (`TVSection`), and this screen puts it up.
+    @State private var registeringTV = false
     @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
@@ -155,7 +157,7 @@ struct SettingsScreen: View {
                     }
                 }
 
-                TVSection()
+                TVSection(registering: $registeringTV)
 
                 Section {
                     NavigationLink("チャンネルの表示と並び順") {
@@ -232,6 +234,9 @@ struct SettingsScreen: View {
             }
             .sheet(isPresented: $showingGuide) { WelcomeView() }
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
+            // On the form and not on the television's section: one presenter, on a view that is still there
+            // when the section turns from one form to the other as a registration is made.
+            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "") }
         }
     }
 
