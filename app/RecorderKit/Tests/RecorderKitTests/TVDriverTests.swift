@@ -1043,6 +1043,57 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(unsaid.sendings.came.last??.deferred, two)
     }
 
+    /// Silence is said once, at an attach as well. A create that met silence left on the line that it may
+    /// have arrived, and a delete says the same of itself: all the reader has to go by until the television
+    /// answers. A connect that meets silence after either leaves that sentence where it is. One that goes
+    /// through clears it, and here finds the reservation in the television's list.
+    ///
+    /// Only silence, and only over those two sentences. A connect the television refuses for its cookie
+    /// says so over the create's sentence, and one that meets silence over anything else on the line says
+    /// that the television did not answer, as it always has.
+    func testAnAttachThatMeetsSilenceLeavesWhatAWriteThatMetSilenceSaid() async throws {
+        let noAnswer = "テレビに接続できませんでした。テレビの電源とネットワーク接続を確認してください"
+        let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
+        let row = waiting("サンプル劇場", 50101)
+        func metAtTheCreate() async throws -> QueueBench {
+            let (_, bench) = try await connect(with: [row]) {
+                await $0.television.atTheNextCreate(.carriedOutAndNotAnswered)
+            }
+            XCTAssertEqual(bench.world.problem, Self.metSilence)
+            return bench
+        }
+
+        let created = try await metAtTheCreate()
+        await created.television.goSilent()
+        await created.link.connect()
+        XCTAssertEqual(created.world.problem, Self.metSilence, "a connect that met silence wrote over the create's")
+        XCTAssertTrue(created.link.session.gaveUp)
+        await created.television.goSilent(false)
+        await created.link.connect()
+        XCTAssertNil(created.world.problem, "a connect that went through left the line as it was")
+        XCTAssertEqual(created.sendings.came.last??.alreadyThere, [row])
+
+        let deleted = await attached()
+        await deleted.gate.silence(Self.delete)
+        _ = await deleted.driver.cancel(try held())
+        XCTAssertEqual(deleted.world.problem, TVDriver.mayHaveArrived)
+        await deleted.television.goSilent()
+        await deleted.link.connect()
+        XCTAssertEqual(deleted.world.problem, TVDriver.mayHaveArrived,
+                       "a connect that met silence wrote over the delete's")
+
+        let refused = try await metAtTheCreate()
+        refused.credentials.save(Self.stale)
+        await refused.link.connect()
+        XCTAssertEqual(refused.world.problem, toBeRegistered, "a refusal was kept off the line")
+
+        let other = try await metAtTheCreate()
+        other.world.problem = Self.left
+        await other.television.goSilent()
+        await other.link.connect()
+        XCTAssertEqual(other.world.problem, noAnswer, "silence over another line went unsaid")
+    }
+
     /// Pulling the list down sends what waits and then reads the list, in that order and with no connect
     /// made: the six requests of a round and then the read, which hands back the reservation just made. The
     /// sending is asked for through the host, as an attach asks for it, and not made by the driver past it:
@@ -1749,6 +1800,161 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(met.sendings.came.last??.alreadyThere, [film])
         expectEqual(try await met.store.pendingReservations(), [])
         expectEqual(await met.television.schedules.map { "\($0.id) \($0.overlapStatus)" }, clash.stopped)
+    }
+
+    /// What a row sent again came to, as it is handed back for the screen the reader asked on, each on a
+    /// television of its own. A row the result carries is the row as it waits afterwards, and all that
+    /// waits.
+    ///
+    /// Nothing is handed back for another device's row, nor for one that no longer waits. A row the round
+    /// made is made, sent with a consent or without. One for which the television names other recordings
+    /// than its reason does would stop those, and carries the reason that names them. So does one whose
+    /// reason in the queue is not the one pressed, as the queue has it and with nothing asked.
+    ///
+    /// A row with a reason the television gave, sent again to a television given up on, is left to the
+    /// connect. Nothing is handed back where that connect's sending made the row: the host was asked for
+    /// that sending and says it. Where the sending found what the row would stop, that is the answer.
+    /// Where the television says nothing still, the row waits for it to answer. And where the connect got
+    /// through and its sending left the row all the same, the row waits for the disk, or for answers that
+    /// read: it is not said to wait for a connection there is.
+    ///
+    /// A row held for what it would stop that could not be sent keeps its reason, and is said not to have
+    /// been sent: in the sentence for a television that is not connected, or for one that is to be
+    /// registered. So is one whose round could not read the phone's queue, and so asked nothing about it.
+    /// None of them is said to go by itself. A row that went with its consent and was left unsettled --
+    /// passed over, or its create met by silence -- waits with no reason, and is handed back with none; so
+    /// is one whose reason was taken off before a round that stopped at the disk.
+    func testWhatARowSentAgainCameToIsHandedBack() async throws {
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
+            + "HDD が見つかったあと、テレビが答えたときに登録します。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
+            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        let nothingSaid = HTTPResponse(
+            statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8))
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
+        var turnedDown = film
+        turnedDown.problem = "この局は録画できません"
+        func expect(_ name: String, _ pressed: PendingReservation, on bench: QueueBench, _ expected: Reserved?,
+                    line: UInt = #line) async throws {
+            let came = await bench.driver.resend(pressed).came
+            XCTAssertEqual(came, expected, name, line: line)
+            let left = try await bench.store.pendingReservations().filter { $0.target == .tv }
+            switch expected {
+            case .wouldStop(let row)?, .waiting(let row, _)?: XCTAssertEqual(left, [row], name, line: line)
+            default: XCTAssertEqual(left, [], name, line: line)
+            }
+        }
+
+        let recorders = waiting("サンプル紀行", 50102, reason: turnedDown.problem, for: .recorder)
+        let door = try await resendBench([recorders])
+        try await expect("another device's row", recorders, on: door, nil)
+        try await expect("a row that no longer waits", turnedDown, on: door, nil)
+
+        try await expect("a reason the television gave", turnedDown, on: resendBench([turnedDown]),
+                         .made(saying: nil))
+        try await expect("held for what the television names now", clashing,
+                         on: resendBench([clashing], holding: holding), .made(saying: nil))
+        try await expect("held for another recording than the television names now", clash.stale,
+                         on: resendBench([clash.stale], holding: holding), .wouldStop(clashing))
+        let unseen = try await resendBench([clashing], holding: holding)
+        let asked = await unseen.gate.asked
+        try await expect("the reason in the queue is not the one pressed", clash.stale, on: unseen,
+                         .wouldStop(clashing))
+        expectEqual(await unseen.gate.asked, asked, "asked about a reason nobody pressed on")
+
+        let away = try await resendBench([turnedDown], givenUp: true)
+        try await expect("left to a connect whose sending made it", turnedDown, on: away, nil)
+        XCTAssertEqual(away.sendings.came.last??.sent, [film], "not made by the connect's own sending")
+        XCTAssertEqual(away.world.count("send what waits"), 2, "the host was not asked to send what waits")
+        try await expect("left to a connect whose sending found what it would stop", turnedDown,
+                         on: resendBench([turnedDown], holding: holding, givenUp: true), .wouldStop(clashing))
+        try await expect("left to a connect that met silence", turnedDown,
+                         on: resendBench([turnedDown], givenUp: true, silent: true),
+                         .waiting(film, saying: Self.waitsNotConnected))
+        let noDisk = try await resendBench([turnedDown], givenUp: true)
+        await noDisk.television.unmount()
+        try await expect("left to a connect that got through, the disk away", turnedDown, on: noDisk,
+                         .waiting(film, saying: forTheDisk))
+        let unread = try await resendBench([turnedDown], givenUp: true)
+        await unread.gate.answer(Self.question, with: nothingSaid)
+        try await expect("left to a connect that got through, its answers saying nothing", turnedDown, on: unread,
+                         .waiting(film, saying: unanswered))
+
+        try await expect("held for what it would stop, the television still silent", clashing,
+                         on: resendBench([clashing], holding: holding, givenUp: true, silent: true),
+                         .waiting(clashing, saying: notConnected))
+        let unregistered = try await resendBench([clashing], holding: holding)
+        unregistered.credentials.save(Self.stale)
+        _ = await unregistered.driver.reservations()
+        XCTAssertTrue(unregistered.driver.facts.needsPairing)
+        try await expect("held for what it would stop, the television to be registered", clashing,
+                         on: unregistered, .waiting(clashing, saying: toBeRegistered))
+
+        let passedOver = try await resendBench([clashing], holding: holding)
+        await passedOver.gate.answer(Self.question, with: nothingSaid)
+        try await expect("sent with its consent and passed over", clashing, on: passedOver,
+                         .waiting(film, saying: unanswered))
+        let met = try await resendBench([clashing], holding: holding)
+        await met.television.atTheNextCreate(.carriedOutAndNotAnswered)
+        try await expect("sent with its consent, its create met by silence", clashing, on: met,
+                         .waiting(film, saying: Self.metSilence))
+        let diskAway = try await resendBench([turnedDown])
+        await diskAway.television.unmount()
+        try await expect("its reason taken off, the disk away", turnedDown, on: diskAway,
+                         .waiting(film, saying: forTheDisk))
+
+        // The queue's table is put out of reach from another connection, on purpose, from the check before
+        // the round until the list after it, as for a reservation whose round could not read the queue: the
+        // round comes back empty, and the row is in the queue as it was, held with the reason pressed.
+        let unreadable = try await resendBench([], holding: holding)
+        let path = temporaryPath()
+        let store = try GuideStore(path: path)
+        try await store.queue(clashing)
+        unreadable.world.cache = store
+        let other = try Sqlite(path: path)
+        await unreadable.gate.before("getPowerStatus") { @MainActor in
+            for _ in 0..<100_000 where !unreadable.world.begun.contains(TVDriver.sendingLine) { await Task.yield() }
+            try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
+        }
+        await unreadable.gate.before(Self.read) { @MainActor in
+            try? other.execute("ALTER TABLE out_of_reach RENAME TO pending_reservations")
+        }
+        let before = await unreadable.gate.asked.count
+        let checking = Task { await unreadable.link.ensureUp(evenIfRecent: true) }
+        let came = await unreadable.driver.resend(clashing).came
+        expectTrue(await checking.value)
+        XCTAssertEqual(came, .waiting(clashing, saying: notConnected), "a round that could not read the queue")
+        expectEqual(Array(await unreadable.gate.asked.dropFirst(before)), ["getPowerStatus", Self.read])
+        expectEqual(try await store.pendingReservations(), [clashing])
+    }
+
+    /// What is left to say beside a waiting row once it has been sent again, with no television: the row
+    /// is on the screen with its reason, so a result that says only that reason leaves nothing. A row that
+    /// was made has left what waits, whatever was said of making it. One held for what it would stop is
+    /// said by its reason, whole, down to how the reader says to make it all the same. One that waits is
+    /// said by whatever is not its own reason: why it was not sent, where it keeps one, and how it goes by
+    /// itself, where it has none. What was neither made nor kept is said as it is.
+    func testWhatIsLeftToSayBesideAWaitingRowIsWhatTheRowDoesNotSay() throws {
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing
+        var unlisted = film
+        unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        let names = try XCTUnwrap(clashing.problem)
+        XCTAssertTrue(names.hasSuffix("「もう一度送る」を選ぶと、それでも予約します。"), names)
+        let cases: [(name: String, came: Reserved, says: String?)] = [
+            ("made", .made(saying: nil), nil),
+            ("made, and found there", .made(saying: "テレビにはこの番組の予約がすでにありました。"), nil),
+            ("held for what it would stop", .wouldStop(clashing), names),
+            ("turned down, with the reason on the row", .waiting(unlisted, saying: unlisted.problem ?? ""), nil),
+            ("held, and not sent", .waiting(clashing, saying: notConnected), notConnected),
+            ("waiting with no reason", .waiting(film, saying: Self.waitsNotConnected), Self.waitsNotConnected),
+            ("neither made nor kept", .notDone(Self.programmeIsOver), Self.programmeIsOver),
+        ]
+        for (name, came, says) in cases {
+            XCTAssertEqual(came.besideItsRow, says, name)
+        }
     }
 }
 

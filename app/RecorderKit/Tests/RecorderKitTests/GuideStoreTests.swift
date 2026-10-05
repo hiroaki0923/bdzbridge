@@ -728,6 +728,31 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertNil(channels.last?.logo, "a channel whose logo the recorder has not received yet")
     }
 
+    // MARK: - what waits for a device that is taken away
+
+    /// Taking out what waits for one device takes those rows and no others. The same programme waits here
+    /// for both devices, so a row goes by the device it waits for and not by its programme, and what waits
+    /// for the recorder stays as it was, a reason on one of them. With nothing waiting for the device,
+    /// nothing is taken and nothing fails.
+    func testWhatWaitsForOneDeviceIsTakenOutOfTheQueueAndNothingElse() async throws {
+        let store = try temporaryStore()
+        let nine = Date(timeIntervalSince1970: 1_790_000_000)
+        let recorders = [pending(problem: "このチャンネルは受信できません"),
+                         pending("サンプル紀行", eventID: 0x3120, start: nine.addingTimeInterval(3600))]
+        let televisions = [pending(target: .tv),
+                           pending("サンプル劇場", eventID: 0x3121, start: nine.addingTimeInterval(7200),
+                                   problem: "テレビのチャンネル一覧にこの局が見つかりませんでした。", target: .tv)]
+        for row in recorders + televisions { try await store.queue(row) }
+
+        try await store.removePending(waitingFor: .tv)
+
+        expectEqual(try await store.pendingReservations(), recorders)
+        try await store.removePending(waitingFor: .tv)
+        expectEqual(try await store.pendingReservations(), recorders)
+        try await store.removePending(waitingFor: .recorder)
+        expectEqual(try await store.pendingReservations(), [])
+    }
+
     // MARK: - a queue from before a reservation said which device it waits for
 
     /// The queue's table as every version up to 0.3.1 made it, and the statement those versions queue with.

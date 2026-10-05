@@ -77,6 +77,12 @@ public final class TVDriver: LinkDriver {
     /// only shown, and the USB disk, which needs the registration: a television that refuses it answered, so it
     /// is there and is not given up on, but nothing can be asked of it until it is registered again. What waits
     /// is sent last, as a recorder's attach does.
+    ///
+    /// An attach that fails says why on the host's line, but for one: silence, where the line is what a
+    /// create or a delete that met silence left there. Silence is said once (`takesSilenceOnARead`). That
+    /// sentence says the request may have arrived, which is all the reader has to go by until the television
+    /// answers, and that the television is silent still adds nothing to it. An attach that goes through
+    /// clears the line.
     public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
                        timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
         guard let client = client as? ScalarClient else { return false }
@@ -117,7 +123,9 @@ public final class TVDriver: LinkDriver {
             let deviceError = error as? any DeviceError
             if deviceError?.failure == .needsPairing { facts.needsPairing = true }
             link.session.attachFailed(deviceError?.failure)
-            if !quiet || !link.session.unreachable {
+            let saidAlready = deviceError?.failure == .silent
+                && [Self.createMetSilence, Self.mayHaveArrived].contains(owner?.problem)
+            if !saidAlready, !quiet || !link.session.unreachable {
                 owner?.problem = deviceError?.explanation ?? String(describing: error)
             }
             return false
@@ -467,16 +475,8 @@ public final class TVDriver: LinkDriver {
         } catch {
             return (.notDone(PendingQueue.couldNotBeKept(error)), nil)
         }
-        let (round, list) = await sendOne(row, under: Self.reservingLine, on: link, from: store)
-        // A round for one row that has it in none of its lists, with nothing stopped, is an empty one, and
-        // that is all a round shows whose own read of the queue failed. So the queue is read once more
-        // before the list is taken for the answer: a row that waits still is said to wait, and not to be
-        // neither made nor kept because the television's list does not have what was never sent.
-        if round == PendingQueue.Outcome(slot: ScalarClient.slot),
-           (try? await store.pendingReservations())?.contains(where: { $0.id == row.id }) == true {
-            return (.waiting(row, saying: Self.waitsUnanswered), list)
-        }
-        return (reserved(row, by: round, listing: list), list)
+        let sent = await sendOne(row, under: Self.reservingLine, on: link, from: store)
+        return (await came(row, sent, from: store), sent.list)
     }
 
     /// What a round for one row, and the list read after it, hand back: nil for a round that never ran, and
@@ -539,7 +539,7 @@ public final class TVDriver: LinkDriver {
     /// and from nothing else: a recording of the programme there that is all the row asks for is made; one
     /// that falls short of its repeat is said in the reason for that (`ScalarClient.shortfall`); and with
     /// none listed, or no list read, nothing is known to have been made. Where the queue could not be read
-    /// the row waits still: `reserve` looks for it there, and answers for it, before this is asked.
+    /// the row waits still: `came` looks for it there, and answers for it, before this is asked.
     func reserved(_ row: PendingReservation, by round: PendingQueue.Outcome?, listing list: [Reservation]?,
                   now: Date = Date()) -> Reserved {
         guard let round else {
@@ -569,15 +569,48 @@ public final class TVDriver: LinkDriver {
         return .notDone(row.request.end < now ? Self.programmeIsOver : Self.couldNotBeConfirmed)
     }
 
+    /// What one row sent because the reader asked for that reservation came to, which is how reserving a
+    /// programme and sending a row again both end. `row` is the row as it waits now: for one sent again,
+    /// with its reason gone where that was taken off.
+    ///
+    /// With no round the row was not sent (`notSent`). A round is read as `reserved` reads it, but for an
+    /// empty one. A round for one row that has it in none of its lists, with nothing stopped, is an empty
+    /// one, and that is all a round shows whose own read of the queue failed. So the queue is read once
+    /// more before the list is taken for the answer: a row that waits still is said to wait, and not to be
+    /// neither made nor kept because the television's list does not have what was never sent. With no
+    /// reason on it, it goes by itself, and the next sending reads the television's list first. One that
+    /// still carries a reason -- the one the reader consented to, in a round that then asked nothing about
+    /// the row -- is held as it was, and is answered as a row that was not sent.
+    private func came(_ row: PendingReservation, _ sent: OneSent, from store: GuideStore) async -> Reserved {
+        guard let round = sent.round else { return notSent(row) }
+        if round == PendingQueue.Outcome(slot: ScalarClient.slot),
+           let waits = (try? await store.pendingReservations())?.first(where: { $0.id == row.id }) {
+            return waits.problem == nil ? .waiting(waits, saying: Self.waitsUnanswered) : notSent(waits)
+        }
+        return reserved(row, by: round, listing: sent.list)
+    }
+
+    /// What a waiting row is answered as when nothing could be asked about it: the television is not one
+    /// that can be asked, or did not answer the check before the round. One with no reason goes when the
+    /// television can next be asked, and is said so (`reserved`). One with a reason on it waits for the
+    /// reader whatever the television does next: it is handed back with its reason, and what is said is why
+    /// it was not sent, in the two sentences a delete says at its own door (`cancel`). It is never said to
+    /// go by itself.
+    private func notSent(_ row: PendingReservation) -> Reserved {
+        guard row.problem != nil else { return reserved(row, by: nil, listing: nil) }
+        return .waiting(row, saying: facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected)
+    }
+
     // MARK: - sending a waiting row again
 
     /// Sends a row waiting for the television again, as the reader asked on that row. What its round came
-    /// to, for the host to say -- nil when none ran -- and the television's list where one was read
-    /// afterwards, for the caller to keep, as `reserve` hands it back.
+    /// to, for the host to say as it says any sending -- nil when none ran; the television's list where one
+    /// was read afterwards, for the caller to keep, as `reserve` hands it back; and what the row came to,
+    /// for the screen the reader asked on to say -- nil where there is nothing for it to say.
     ///
     /// A row that is not the television's is refused before anything else, as `cancel` refuses another
     /// device's reservation: nothing is read, sent, written or said for it. With the link or the cache gone
-    /// any row is refused the same way. Nothing is said at this door: the host is handed no sentence for it
+    /// any row is refused the same way. Nothing is said at this door, and nothing is handed back to say
     /// (`Reserved`).
     ///
     /// The row is read again from the queue, since the one handed in is the row as a screen drew it. One
@@ -603,29 +636,73 @@ public final class TVDriver: LinkDriver {
     /// is that it goes by itself: after silence at its create, that the next sending looks for it in the
     /// television's list. It is then asked about afresh, with no consent. A row the round held with a
     /// reason written anew keeps that reason, and so does one whose consent no longer stood in its turn.
-    public func resend(_ waiting: PendingReservation) async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
-        guard waiting.target == ScalarClient.slot, let link, let store = link.owner?.cache else { return (nil, nil) }
-        guard let row = (try? await store.pendingReservations())?.first(where: { $0.id == waiting.id }) else {
-            return (nil, nil)
+    ///
+    /// What the row came to is about the row as it waits now, its reason gone where it was taken off
+    /// here, before the round or after it. A round is read as a reservation's is (`came`). Where no round
+    /// answers for the row:
+    ///
+    /// - Turned away at the door, or no longer in the queue: nil.
+    /// - The queue's reason is no longer the one pressed: that it would stop others from recording, with
+    ///   the row as the queue has it, for a screen to ask about the names as they are now.
+    /// - Left to the connect made here: what the queue shows of the row once that connect is over
+    ///   (`leftToTheConnect`), nil where its sending took the row out.
+    /// - Held for what it would stop and not sent after all, the television still not one that can be
+    ///   asked: the row with its reason, and why it was not sent (`notSent`).
+    public func resend(_ waiting: PendingReservation) async
+        -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?) {
+        guard waiting.target == ScalarClient.slot, let link, let store = link.owner?.cache else {
+            return (nil, nil, nil)
+        }
+        guard var row = (try? await store.pendingReservations())?.first(where: { $0.id == waiting.id }) else {
+            return (nil, nil, nil)
         }
         var consent: String?
         if let reason = row.problem, ScalarClient.holdsForWhatItWouldStop(reason) {
-            guard reason == waiting.problem else { return (nil, nil) }
+            guard reason == waiting.problem else { return (nil, nil, .wouldStop(row)) }
             // The sentence the reader pressed on, not the one just read: what a consent is to.
             consent = waiting.problem
-        } else if row.problem != nil {
-            try? await store.setPendingProblem(row.id, nil)
+        } else if row.problem != nil, (try? await store.setPendingProblem(row.id, nil)) != nil {
+            row.problem = nil
         }
         if !canBeAsked(on: link) {
             await link.connect()
-            guard consent != nil else { return (nil, nil) }
+            guard consent != nil else { return (nil, nil, await leftToTheConnect(row, on: link, from: store)) }
         }
         let sent = await sendOne(row, consentingTo: consent, under: Self.sendingLine, on: link, from: store)
         if consent != nil, let round = sent.round,
-           round.stopped != nil || round.deferred.contains(where: { $0.id == row.id }) {
-            try? await store.setPendingProblem(row.id, nil)
+           round.stopped != nil || round.deferred.contains(where: { $0.id == row.id }),
+           (try? await store.setPendingProblem(row.id, nil)) != nil {
+            row.problem = nil
         }
-        return sent
+        return (sent.round, sent.list, await came(row, sent, from: store))
+    }
+
+    /// What a row came to that `resend` left to the connect it made. The row had no consent to go with, so
+    /// that connect's own sending took it with the rest, and what that sending came to is the host's to
+    /// say, as any connect's is. What is left to answer the reader with is read from the queue, once, by
+    /// the row's name:
+    ///
+    /// - Gone: nil. That sending made it, found it there or dropped it as over, and the host says which.
+    ///   Nil too where the queue cannot be read, and nothing is known of the row.
+    /// - There with a reason: that sending wrote it. The reason for what the reservation would stop from
+    ///   recording is a question for the reader, about names no screen has shown them yet; any other is
+    ///   said as it stands.
+    /// - There with none, and the television still cannot be asked: it goes when the television can be,
+    ///   as a reservation kept for such a television is said to (`reserved`).
+    /// - There with none, and the television can be asked: the connect got through, and its sending left
+    ///   the row all the same. For want of the disk, where the attach has just read it as away; otherwise
+    ///   for answers that said nothing that reads. Not for want of a connection, which there is.
+    private func leftToTheConnect(_ row: PendingReservation, on link: DeviceLink,
+                                  from store: GuideStore) async -> Reserved? {
+        guard let waits = (try? await store.pendingReservations())?.first(where: { $0.id == row.id }) else {
+            return nil
+        }
+        if let reason = waits.problem {
+            return ScalarClient.holdsForWhatItWouldStop(reason) ? .wouldStop(waits) : .waiting(waits, saying: reason)
+        }
+        guard canBeAsked(on: link) else { return reserved(waits, by: nil, listing: nil) }
+        let diskIsAway = facts.storage?.mounted == false
+        return .waiting(waits, saying: diskIsAway ? Self.waitsForTheDisk : Self.waitsUnanswered)
     }
 
     // MARK: - the check before an operation

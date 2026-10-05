@@ -118,7 +118,7 @@ final class TVHost: LinkHost {
     /// again with nothing to say says nothing anywhere.
     func resend(_ waiting: PendingReservation) async {
         guard let driver else { return }
-        let (round, list) = await driver.resend(waiting)
+        let (round, list, _) = await driver.resend(waiting)
         if let list { keep(list) }
         await tell(round)
     }
