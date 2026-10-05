@@ -18,6 +18,10 @@ import RecorderKit
 ///
 /// What waits in the phone's queue for the television is sent the same way: the driver has the steps, and
 /// this asks for them when the link says to and keeps what the sending came to, for the strip (`report`).
+/// So with the two things a reader asks for about a reservation the television does not hold yet: reserving
+/// a programme on it (`reserve`), whose result is handed on to whoever asked, and sending a waiting row
+/// again (`resend`), which is said on the strip as a sending is. After either the list the driver read back
+/// is kept, and the queue on screen is read again.
 ///
 /// Most of what a link can tell its host is about a recorder -- its cache, its MAC and where it was read,
 /// another recorder taking its place -- and is nothing to a television: those are left empty.
@@ -92,6 +96,31 @@ final class TVHost: LinkHost {
         let (changed, list) = await driver.update(reservation, quality: quality, repeating: repeating)
         if let list { keep(list) }
         return changed
+    }
+
+    /// Reserves a programme on the television. What it came to, for whoever asked to say: the result is
+    /// what says it, and nothing of the reservation itself goes on the strip, where it would read as one
+    /// that had been waiting. The list a reservation made was read back with is kept. The queue on screen
+    /// is read again whatever it came to: the driver writes the row before it sends anything, and the row
+    /// is gone again once the television holds it. From a host the app has let go of nothing is kept or
+    /// sent.
+    func reserve(_ program: GuideProgramRow, repeating: String) async -> Reserved {
+        guard let driver else { return .notDone(TVDriver.notConnected) }
+        let (reserved, list) = await driver.reserve(program, repeating: repeating)
+        if let list { keep(list) }
+        await model?.loadPending()
+        return reserved
+    }
+
+    /// Sends a row waiting for the television again, as the reader asked on that row. The list read after
+    /// a row that was made is kept, and what the round came to is told as any sending's is (`tell`) -- with
+    /// no round as well. Nothing is handed back: what there is to say of it is on the strip, and a sending
+    /// again with nothing to say says nothing anywhere.
+    func resend(_ waiting: PendingReservation) async {
+        guard let driver else { return }
+        let (round, list) = await driver.resend(waiting)
+        if let list { keep(list) }
+        await tell(round)
     }
 
     private func keep(_ list: [Reservation]) {
@@ -176,16 +205,25 @@ final class TVHost: LinkHost {
     func cacheMadeOver() async {}
     func cacheCouldNotBeMadeOver() {}
 
-    /// What waits for the television is sent by its driver, and what that came to is kept: the queue on
-    /// screen is read again, and what the sending has to say goes on the strip, naming the television. A
-    /// sending with nothing to say leaves the last report where it was, as the recorder's does. Nothing is
-    /// sent from a host the app has let go of. The list is not read here: a connect reads it next
-    /// (`reached`), and a pull-down reads it itself. Inside a connect, so nothing here may await
-    /// `AppModel.start()`.
+    /// What waits for the television is sent by its driver, and what that came to is kept (`tell`). With no
+    /// sending -- nothing was to go, or the television could not be asked -- nothing changed, and nothing
+    /// is read again. Nothing is sent from a host the app has let go of. The list is not read here: a
+    /// connect reads it next (`reached`), and a pull-down reads it itself. Inside a connect, so nothing
+    /// here may await `AppModel.start()`.
     func sendWhatWaits() async {
         guard let outcome = await driver?.sendWhatWaits() else { return }
+        await tell(outcome)
+    }
+
+    /// Keeps what a sending to the television came to, for a sending of what waits and for a row sent again
+    /// alike. The queue on screen is read again, always: with no round too, since a row sent again may have
+    /// had its reason taken off before the television could be asked. What the round has to say goes on the
+    /// strip, naming the television; one with nothing to say, and no round, leave the last report where it
+    /// was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
+    /// `AppModel.start()`.
+    private func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
-        if let said = outcome.said(withATelevisionSaved: true) { report = said }
+        if let said = round?.said(withATelevisionSaved: true) { report = said }
     }
 
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect

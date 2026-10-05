@@ -7,7 +7,9 @@ import SwiftUI
 ///
 /// The recorder's are read, changed and deleted here. A television's are its host's (`TVHost`), which keeps
 /// them apart from the recorder's: here the two lists are only put together for the screens, and a change or a
-/// delete is sent to the device that holds the row (`Reservation.device`), before anything else is done.
+/// delete is sent to the device that holds the row (`Reservation.device`), before anything else is done. So is
+/// a waiting reservation the reader asks to have sent again, to the device it waits for
+/// (`PendingReservation.target`).
 extension AppModel {
     func loadReservations() async {
         await start()
@@ -285,7 +287,16 @@ extension AppModel {
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
     /// connected, and otherwise with the rest the next time the recorder answers.
+    ///
+    /// A row waiting for the television is its host's to send again, handed over first as a change or a
+    /// delete of a television's reservation is (`update`): nothing below is for it. The recorder is not made
+    /// sure of on its account, and it takes no turn in the recorder's sending. With no television in play
+    /// nothing is done, and the row keeps its reason.
     func resend(_ waiting: PendingReservation) async {
+        if waiting.target == .tv {
+            await tvHost?.resend(waiting)
+            return
+        }
         await start()
         guard let store else { return }
         try? await store.setPendingProblem(waiting.id, nil)
