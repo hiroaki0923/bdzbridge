@@ -746,14 +746,17 @@ alert whatever the row itself does not say (`Reserved.besideItsRow`): why a held
 freed one goes by itself, the reservations a fresh answer names as the ones it would stop. Of a row that was
 made it says nothing more: the row leaves what waits, and the strip says so. On that tab each waiting row
 says its device once a television is saved, what is said under the rows goes by the devices they wait for,
-and a television's row is held back from もう一度送る and 削除 while the television works. The programme's
+and a television's row is held back from もう一度送る and 削除 while the television works -- at the question
+before the delete as well, for work begun while it was up (`AppModel.deleteWaiting`). The programme's
 sheet still speaks of the recorder in its waiting section, and says nothing of what a television's row sent
 again from it came to: that waits for the sheet that reserves on a television.
 
 Taking the television away in the settings takes what waits for it as well, unsent
 (`AppModel.takeTheTelevisionAway`). The question says how many reservations that is, counted on the phone,
 and when they cannot be deleted the television stays and its line says why. It is not offered while the
-television works, when a sending may have one of those rows in hand.
+television works, when a sending may have one of those rows in hand. And 外す is held to the count its
+question gave: where that is no longer what waits -- a sending came and went while the question was up --
+nothing is taken away, and the question counts again the next time.
 
 Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
 Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
