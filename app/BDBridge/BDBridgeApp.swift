@@ -106,9 +106,58 @@ struct SheetCloseButton: View {
     }
 }
 
+extension AppModel {
+    /// What the strip at the top of a screen says: one thing at a time. Which one is chosen here and not in
+    /// the view that draws it, so that the order can be held by a test.
+    enum Strip: Equatable {
+        /// Something is under way with a device, and this is its line.
+        case busy(String)
+        /// Another recorder answered where the last one had been (`anotherTookOver`).
+        case anotherTookOver
+        /// What became of what was waiting (`queueReport`). `inFull`: not cut at three lines. With a
+        /// television saved, what a sending to one says can end with what making a reservation did to
+        /// another, which is the last thing a cut would leave.
+        case report(String, inFull: Bool)
+        /// Everything on screen is invented.
+        case demo
+        /// The local network permission stands between the app and the recorder.
+        case blocked
+        /// The recorder was given every chance and did not answer.
+        case recorderGaveUp
+        /// The television answers, and takes nothing until the app is registered with it again.
+        case tvNeedsPairing
+        /// The television was given up on.
+        case tvGaveUp
+    }
+
+    /// The first of these that holds, or nil when the strip has nothing to say. `inSheet` for the strip at
+    /// the top of a sheet, which leaves the demo's line to the screen underneath
+    /// (`RecorderActivityBar.inSheet`).
+    ///
+    /// That another recorder took over is said only while connected: the line says the lists were read
+    /// again, which they were not if that recorder went quiet before it had been asked, and then the strip
+    /// offers the reconnect instead and says this after it. It is ahead of the queue's line, which says
+    /// what became of the reservations waiting under the same change of recorder and is read better
+    /// knowing of it. The queue's line is ahead of the reconnect in turn: a sending the recorder walked
+    /// out of says which were sent, and the strip goes back to offering the reconnect once that is closed.
+    /// The television's own lines come after everything about the recorder, and only when one is saved.
+    func strip(inSheet: Bool = false) -> Strip? {
+        if let busy { return .busy(busy) }
+        if anotherTookOver, connected { return .anotherTookOver }
+        if let line = queueReport { return .report(line, inFull: tv != nil) }
+        if demo, DemoData.banner, !inSheet { return .demo }
+        if connectBlocked { return .blocked }
+        if gaveUp { return .recorderGaveUp }
+        if tvDriver?.facts.needsPairing == true { return .tvNeedsPairing }
+        if tv?.session.gaveUp == true { return .tvGaveUp }
+        return nil
+    }
+}
+
 /// What the app is doing with the recorder, on whatever screen the reader is looking at. Waking takes the
 /// better part of ten seconds and the screens otherwise sit there looking broken, so it says so; it appears
-/// only while something is under way and slides out when it is done.
+/// only while something is under way and slides out when it is done. Which line it shows is the model's to
+/// choose (`AppModel.strip`); this draws the one chosen.
 struct RecorderActivityBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -121,20 +170,7 @@ struct RecorderActivityBar: View {
     /// Whether any strip is up: what the animation follows. Not which strip it is, nor what it says: one strip
     /// taking over from another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is
     /// swapped in place, where two sliding past each other would show both for a moment.
-    private var showing: Bool {
-        model.busy != nil || saysAnotherTookOver || model.queueReport != nil
-            || (model.demo && DemoData.banner && !inSheet) || model.connectBlocked || model.gaveUp
-            || tvNeedsPairing || tvGaveUp
-    }
-
-    /// The television's own two lines, after everything about the recorder, and only when one is saved.
-    private var tvNeedsPairing: Bool { model.tvDriver?.facts.needsPairing == true }
-    private var tvGaveUp: Bool { model.tv?.session.gaveUp == true }
-
-    /// Whether to say that another recorder has answered where the last one was. Only while connected: the
-    /// line says the lists were read again, which they were not if that recorder went quiet before it had
-    /// been asked, and then the strip offers the reconnect instead and says this after it.
-    private var saysAnotherTookOver: Bool { model.anotherTookOver && model.connected }
+    private var showing: Bool { model.strip(inSheet: inSheet) != nil }
 
     var body: some View {
         // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
@@ -145,98 +181,97 @@ struct RecorderActivityBar: View {
 
     @ViewBuilder
     private var content: some View {
-        if let busy = model.busy {
-            strip {
-                ProgressView().controlSize(.small)
-                Text(busy).font(.footnote)
-                Spacer()
-            }
-        } else if saysAnotherTookOver {
-            // Ahead of the queue's line, which says what became of the reservations waiting under the same
-            // change of recorder and is read better knowing of it.
-            report(AppModel.anotherTookOverLine, icon: "arrow.left.arrow.right") {
-                model.anotherTookOver = false
-            }
-        } else if let line = model.queueReport {
-            // What became of the reservations that were waiting, for the recorder and then for the television,
-            // whichever screen the app came back to. Ahead of 再接続 below: a flush the recorder walked out of
-            // says which were sent, and the strip goes back to offering the reconnect once this is closed.
-            // In full with a television saved: what a sending to one says can end with what making a
-            // reservation did to another, which is the last thing a cut would leave.
-            report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90", inFull: model.tv != nil) {
-                model.closeQueueReport()
-            }
-        } else if model.demo, DemoData.banner, !inSheet {
-            // Said on every screen, because everything on them is invented and a reader who forgets that
-            // would take the free space, the recordings and the reservations for their own.
-            strip {
-                Image(systemName: "theatermasks").font(.footnote)
-                Text("サンプルデータを表示しています").font(.footnote)
-                Spacer()
-                // Not while a connect or a job is under way, which `busy` alone does not always show: see
-                // `canChangeRecorder`.
-                Button { Task { await model.leaveDemo() } } label: {
-                    Text("終了").hitArea(horizontal: 13, vertical: Self.rim)
+        if let chosen = model.strip(inSheet: inSheet) {
+            switch chosen {
+            case .busy(let busy):
+                strip {
+                    ProgressView().controlSize(.small)
+                    Text(busy).font(.footnote)
+                    Spacer()
                 }
-                .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .disabled(!model.canChangeRecorder)
-            }
-        } else if model.connectBlocked {
-            // Not given up: the app connects the moment the permission comes. Giving it is the one thing the
-            // app cannot do, so the strip offers the way to the switch instead of 再接続, which would only
-            // run into the same refusal.
-            strip {
-                Image(systemName: "lock.shield").font(.footnote)
-                Text("ローカルネットワークが許可されていません").font(.footnote)
-                Spacer()
-                OpenSettingsButton()
+            case .anotherTookOver:
+                report(AppModel.anotherTookOverLine, icon: "arrow.left.arrow.right") {
+                    model.anotherTookOver = false
+                }
+            case .report(let line, let inFull):
+                // For the recorder and then for the television, whichever screen the app came back to.
+                report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90", inFull: inFull) {
+                    model.closeQueueReport()
+                }
+            case .demo:
+                // Said on every screen, because everything on them is invented and a reader who forgets
+                // that would take the free space, the recordings and the reservations for their own.
+                strip {
+                    Image(systemName: "theatermasks").font(.footnote)
+                    Text("サンプルデータを表示しています").font(.footnote)
+                    Spacer()
+                    // Not while a connect or a job is under way, which `busy` alone does not always show:
+                    // see `canChangeRecorder`.
+                    Button { Task { await model.leaveDemo() } } label: {
+                        Text("終了").hitArea(horizontal: 13, vertical: Self.rim)
+                    }
                     .font(.footnote.weight(.semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
-            }
-        } else if model.gaveUp {
-            // The app has stopped trying, and says so rather than leave it to be guessed from lists that never
-            // fill. Trying again is the reader's to ask for: on this network the answer will be the same, at
-            // the cost of half a minute of waking. It asks by itself only when the network changes.
-            strip {
-                Image(systemName: "wifi.exclamationmark").font(.footnote)
-                Text("レコーダーに接続していません").font(.footnote)
-                Spacer()
-                // Not while a bulk job runs, when connecting does nothing: see `connect()`.
-                Button { Task { await model.connect() } } label: {
-                    Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+                    .disabled(!model.canChangeRecorder)
                 }
-                .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .disabled(model.jobRunning)
-            }
-        } else if tvNeedsPairing {
-            // It answers, so it is there; nothing can be asked of it until the app is registered with it again.
-            strip {
-                Image(systemName: "tv").font(.footnote)
-                Text("テレビの登録が必要です").font(.footnote)
-                Spacer()
-                Button { registeringTV = true } label: {
-                    Text("登録").hitArea(horizontal: 13, vertical: Self.rim)
+            case .blocked:
+                // Not given up: the app connects the moment the permission comes. Giving it is the one
+                // thing the app cannot do, so the strip offers the way to the switch instead of 再接続,
+                // which would only run into the same refusal.
+                strip {
+                    Image(systemName: "lock.shield").font(.footnote)
+                    Text("ローカルネットワークが許可されていません").font(.footnote)
+                    Spacer()
+                    OpenSettingsButton()
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tint)
                 }
-                .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-            }
-        } else if tvGaveUp {
-            strip {
-                Image(systemName: "tv").font(.footnote)
-                Text("テレビに接続していません").font(.footnote)
-                Spacer()
-                Button { Task { await model.tv?.connect() } } label: {
-                    Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+            case .recorderGaveUp:
+                // The app has stopped trying, and says so rather than leave it to be guessed from lists
+                // that never fill. Trying again is the reader's to ask for: on this network the answer
+                // will be the same, at the cost of half a minute of waking. It asks by itself only when
+                // the network changes.
+                strip {
+                    Image(systemName: "wifi.exclamationmark").font(.footnote)
+                    Text("レコーダーに接続していません").font(.footnote)
+                    Spacer()
+                    // Not while a bulk job runs, when connecting does nothing: see `connect()`.
+                    Button { Task { await model.connect() } } label: {
+                        Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                    .disabled(model.jobRunning)
                 }
-                .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
+            case .tvNeedsPairing:
+                // It answers, so it is there; nothing can be asked of it until the app is registered with
+                // it again.
+                strip {
+                    Image(systemName: "tv").font(.footnote)
+                    Text("テレビの登録が必要です").font(.footnote)
+                    Spacer()
+                    Button { registeringTV = true } label: {
+                        Text("登録").hitArea(horizontal: 13, vertical: Self.rim)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                }
+            case .tvGaveUp:
+                strip {
+                    Image(systemName: "tv").font(.footnote)
+                    Text("テレビに接続していません").font(.footnote)
+                    Spacer()
+                    Button { Task { await model.tv?.connect() } } label: {
+                        Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                }
             }
         }
     }

@@ -16,6 +16,9 @@ import XCTest
 /// What the reservations tab needs of the model once a row can wait for the television is held here as
 /// well: what a row sent again from it came to, the device each waiting row says, and what is said under
 /// them. And so is what the settings need: a television is taken away together with what waits for it.
+///
+/// Which of its lines the strip shows is held here last, a state at a time: in the home with a recorder
+/// alone, where the order is the one it has always had, and with a television saved.
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -575,6 +578,118 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(model.surroundings.tvCredentials.load(), "the registration was kept")
         XCTAssertNil(model.defaults.string(forKey: DefaultsKey.tvHost), "the address was kept")
         expectEqual(await television.calls, calls, "the television was asked something as it was taken away")
+    }
+
+    // MARK: - which line the strip shows
+
+    /// The strip says one thing at a time, and which is the model's to choose (`AppModel.strip`). In a
+    /// home with a recorder alone the order is the one it has always had: work under way; that another
+    /// recorder took over, while the app is connected; what became of what was waiting, cut at three
+    /// lines; that the data is invented, but not at the top of a sheet; the permission for the local
+    /// network; the recorder given up on. Each is looked at while the one behind it holds as well.
+    ///
+    /// A reservation waits as another recorder answers at the address, and is held back: the strip says
+    /// of the change first, and a read that is out goes ahead of that. Once that recorder has gone silent
+    /// the change is not said, since the line says the lists were read again: what was held back is, and
+    /// with that closed the reconnect is offered. The permission is said ahead of the reconnect, which
+    /// would only run into it. Connected again, the change is said after all.
+    ///
+    /// In the demo the strip says that the data is invented, on a screen and not at the top of a sheet,
+    /// and what became of what was waiting goes ahead of that on both.
+    func testWithARecorderAloneTheStripSaysOneThingAtATimeInTheOrderItAlwaysHas() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        XCTAssertNil(model.tv, "a television is saved in this home")
+        XCTAssertNil(model.strip(), "a home at rest has a line on its strip")
+
+        try await GuideStore(path: bench.guidePath).queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        await recorder.become(2)
+        await model.connect()
+        try await untilIdle(model)
+        let heldBack = AppModel.Strip.report(Said.heldBack(1), inFull: false)
+        XCTAssertEqual(model.queueReport, Said.heldBack(1), "nothing was held back for the strip to say second")
+        XCTAssertEqual(model.strip(), .anotherTookOver, "what was held back is said ahead of the change")
+
+        await recorder.hold(only: Self.list)
+        let reading = Task { await model.loadReservations() }
+        try await until("the recorder's list was never being read") { model.busy == "予約一覧を取得中" }
+        XCTAssertEqual(model.strip(), .busy("予約一覧を取得中"), "work under way is not what the strip says")
+        await recorder.letGo()
+        await reading.value
+        XCTAssertEqual(model.strip(), .anotherTookOver)
+
+        await recorder.goQuiet(on: Self.list)
+        await model.loadReservations()
+        XCTAssertTrue(model.gaveUp && model.anotherTookOver, "the recorder was not lost with the change unread")
+        XCTAssertEqual(model.strip(), heldBack, "the lists are said to have been read again from a recorder now gone")
+        XCTAssertEqual(model.strip(inSheet: true), heldBack)
+        model.closeQueueReport()
+        XCTAssertEqual(model.strip(), .recorderGaveUp)
+
+        // The bench takes the permission as given, so the session is told what the link tells it when the
+        // system stops the app asking.
+        model.session.waitingForPermission()
+        XCTAssertEqual(model.strip(), .blocked, "the reconnect is offered where it would run into the same refusal")
+        model.session.permissionCleared()
+        XCTAssertEqual(model.strip(), .recorderGaveUp)
+
+        await reconnect(model)
+        XCTAssertEqual(model.strip(), .anotherTookOver, "the change went unsaid once the lists had been read again")
+        // As the buttons of the two lines close them.
+        model.anotherTookOver = false
+        XCTAssertEqual(model.strip(), heldBack)
+        model.closeQueueReport()
+        XCTAssertNil(model.strip())
+
+        await model.enterDemo()
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertEqual(model.strip(), .demo)
+        XCTAssertNil(model.strip(inSheet: true), "the demo's line is at the top of a sheet")
+        try await XCTUnwrap(model.store).queue(waiting("夜の番組", startingIn: 122, programme: 4323))
+        await model.refreshReservations()
+        let sent = AppModel.Strip.report(Said.sent("夜の番組"), inFull: false)
+        XCTAssertEqual(model.strip(), sent, "that the data is invented is said ahead of what became of the queue")
+        XCTAssertEqual(model.strip(inSheet: true), sent)
+    }
+
+    /// With a television saved, its own lines come after everything about the recorder: that it is to be
+    /// registered again, and then that it was given up on. A television that wants the registration and
+    /// has gone silent since is still said to want it. The recorder given up on is said ahead of both.
+    ///
+    /// What became of what was waiting is then shown in full: what a sending to a television says can end
+    /// with what making a reservation did to another, which is the last thing a cut would leave.
+    func testWithATelevisionSavedItsLinesComeAfterTheRecordersAndTheReportIsInFull() async throws {
+        let recorder = NamedRecorder(1)
+        let home = try await launch(with: recorder, waiting: [
+            forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)),
+        ])
+        let (model, television) = (home.model, home.television)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let link = try XCTUnwrap(model.tv)
+        XCTAssertEqual(model.strip(), .report(Said.sent("サンプル劇場", naming: "テレビ"), inFull: true))
+        model.closeQueueReport()
+        XCTAssertNil(model.strip(), "a home at rest has a line on its strip")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(model.strip(), .tvGaveUp)
+
+        // It answers again, and no longer takes the app's cookie.
+        await television.goSilent(false)
+        model.surroundings.tvCredentials.save(TVCredentials(clientID: "BDBridge:test", cookie: "run out"))
+        await link.connect()
+        XCTAssertFalse(link.session.gaveUp, "a television that answered is still given up on")
+        XCTAssertEqual(model.strip(), .tvNeedsPairing)
+
+        await television.goSilent()
+        await link.connect()
+        XCTAssertTrue(link.session.gaveUp, "a television that went silent was not given up on")
+        XCTAssertEqual(model.strip(), .tvNeedsPairing, "the reconnect is offered to a television to be registered")
+
+        await recorder.goQuiet(on: Self.list)
+        await model.loadReservations()
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertEqual(model.strip(), .recorderGaveUp, "a line of the television's is said ahead of the recorder's")
     }
 
     // MARK: - what the tests set up
