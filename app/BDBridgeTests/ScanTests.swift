@@ -153,6 +153,57 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(model.scanOutcome, .nothing)
     }
 
+    /// Whether the app has stopped being active is counted from the press. It was away and back before this
+    /// one, as it nearly always has been by the time anybody presses, and is active from the press to the
+    /// end: nobody there is said after one search.
+    func testAPressAfterTheAppWasAwayAndBackIsNotSearchedAgainForThat() async throws {
+        let bench = try aBench()
+        let subnet = bench.joinWiFi()
+        let model = await aModel(on: bench)
+        leave(model)
+        comeBack(model)
+
+        model.scanForRecorders()
+        try await until("the search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        expectEqual(await subnet.asked, addresses,
+                    "the search was made again for the app having been away before the press")
+    }
+
+    /// And each press has the one more search to itself. The first press's search is made once more, the app
+    /// having stopped being active over it; then the app is at the home screen and back, which is none of the
+    /// next press's business; and the second press's search is made once more as well, the app having
+    /// stopped being active over that one too.
+    func testEachPressHasItsOwnOneMoreSearch() async throws {
+        let bench = try aBench()
+        let subnet = bench.joinWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        comeBack(model)
+        try await until("the first press's search was not made once more", within: 3) {
+            await subnet.asked == addresses * 2
+        }
+        try await until("the first press's search never ended", within: 3) { model.scanOutcome != nil }
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        goToTheBackground(model)
+        comeBack(model)
+
+        model.scanForRecorders()
+        leave(model)
+        comeBack(model)
+        try await until("the second press's search was not made once more", within: 3) {
+            await subnet.asked == addresses * 4
+        }
+        // The second press has cleared what the first said by now, so this is its own.
+        try await until("the second press's search never ended", within: 3) { model.scanOutcome != nil }
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await subnet.asked, addresses * 4, "two searches to each press, and no more")
+    }
+
     /// The screen that asked goes away while the search waits for the app to be active again, as the tutorial
     /// does when it is closed: nothing more is sent, though the recorder would answer now, and nothing is said.
     func testLeavingTheScreenEndsASearchWaitingToBeMadeOnceMore() async throws {
@@ -166,8 +217,10 @@ final class ScanTests: XCTestCase {
         try await until("the first search never ended") { await subnet.asked == addresses }
         // Well past the moment nothing found is held for: the search is waiting for the app to be active.
         try await Task.sleep(for: .milliseconds(300))
+        let search = try XCTUnwrap(model.scanTask)
         model.stopScanning()
         XCTAssertNil(model.scanAwaitsActive, "the search was left waiting, for good if the app never came back")
+        try await within(2, "the search that was stopped never ended") { await search.value }
         await subnet.letThrough()
         comeBack(model)
         try await Task.sleep(for: .milliseconds(300))
@@ -176,6 +229,32 @@ final class ScanTests: XCTestCase {
         XCTAssertNil(model.scanOutcome, "something was said after the screen had gone")
         XCTAssertEqual(model.found, [])
         XCTAssertNil(model.scanning)
+    }
+
+    /// Another press while a search waits for the app to be active takes its place. The search that waited is
+    /// over -- its task ends, where one that was only cancelled would wait for good -- and the new press has a
+    /// search of its own: the app stopped being active before that press and not since, so nobody there is
+    /// said after one look, and the first press's one more is not made when the app is active again.
+    func testAnotherPressEndsASearchWaitingToBeMadeOnceMore() async throws {
+        let bench = try aBench()
+        let subnet = bench.joinWiFi()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        leave(model)
+        try await until("the search never came to wait for the app to be active") { model.scanAwaitsActive != nil }
+        let first = try XCTUnwrap(model.scanTask)
+        model.scanForRecorders()
+        try await within(2, "the search another press took the place of never ended") { await first.value }
+        try await until("the second press's search never ended", within: 3) {
+            await subnet.asked == addresses * 2 && model.scanOutcome != nil
+        }
+
+        XCTAssertEqual(model.scanOutcome, .nothing)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        comeBack(model)
+        try await Task.sleep(for: .milliseconds(300))
+        expectEqual(await subnet.asked, addresses * 2, "the first press's search was made once more after all")
     }
 
     /// A search that finds a recorder is as it was: said at once, with no moment's hold -- half a minute here,
@@ -333,6 +412,33 @@ final class ScanTests: XCTestCase {
 
     // MARK: - the wait for the local network permission
 
+    /// The system's question is up when a search comes to it. The search waits there: nobody is asked behind
+    /// the question, and the screen says what is in the way with the search still going. Allowed, the search
+    /// is made and finds the recorder.
+    func testASearchWaitsForThePermissionBeforeItAsksAnybody() async throws {
+        let bench = try aBench()
+        bench.holdThePermission()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        // Long enough for a search that went on behind the question to have asked.
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(model.scanBlocked, "the screen stopped saying the permission is in the way")
+        XCTAssertNotNil(model.scanning, "the search was not shown as still going")
+        XCTAssertNil(model.scanOutcome, "something was said behind the system's question")
+        expectEqual(await subnet.asked, 0, "somebody was asked behind the system's question")
+
+        bench.letThePermissionGo(allowed: true)
+        try await until("the search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .found(1))
+        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await subnet.asked, addresses, "each address of the subnet is asked once")
+    }
+
     /// The wait ends without the permission, and the Wi-Fi has gone meanwhile: that is what is said, rather
     /// than look through its addresses and say nobody was found. Nobody is asked, and no search is under way
     /// afterwards.
@@ -354,6 +460,31 @@ final class ScanTests: XCTestCase {
         expectEqual(await subnet.asked, 0, "the addresses of a Wi-Fi the phone has left were asked")
         XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round")
         expectNoSearchUnderWay(model, on: bench)
+    }
+
+    /// The screen that asked goes away while the search waits for the permission, as the tutorial does when
+    /// it is closed with the question up. The search is over: nobody is asked and nothing is said, though the
+    /// reader allows the local network afterwards and the recorder is there.
+    func testLeavingTheScreenEndsASearchWaitingForThePermission() async throws {
+        let bench = try aBench()
+        bench.holdThePermission()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        let search = try XCTUnwrap(model.scanTask)
+        model.stopScanning()
+        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
+        XCTAssertNil(model.scanning, "the search was shown as still going after the screen had gone")
+        bench.letThePermissionGo(allowed: true)
+        try await within(2, "the search that was stopped never ended") { await search.value }
+
+        expectEqual(await subnet.asked, 0, "the search was made after the screen had gone")
+        XCTAssertNil(model.scanOutcome, "something was said after the screen had gone")
+        XCTAssertEqual(model.found, [])
+        XCTAssertNil(model.scanning)
+        XCTAssertFalse(model.scanBlocked)
     }
 
     // MARK: - what a search leaves in the log
