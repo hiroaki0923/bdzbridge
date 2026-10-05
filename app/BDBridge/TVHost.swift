@@ -16,6 +16,9 @@ import RecorderKit
 /// go of it (`takeDownLines`), and one begun after is on no list -- and writes nothing down for an attach that
 /// was still out.
 ///
+/// What waits in the phone's queue for the television is sent the same way: the driver has the steps, and
+/// this asks for them when the link says to and keeps what the sending came to, for the strip (`report`).
+///
 /// Most of what a link can tell its host is about a recorder -- its cache, its MAC and where it was read,
 /// another recorder taking its place -- and is nothing to a television: those are left empty.
 @MainActor
@@ -33,6 +36,9 @@ final class TVHost: LinkHost {
     /// When the list was last read from the television, or nil when it has not been: a television that cannot
     /// be asked leaves the last list standing, and this says how old it is.
     private(set) var reservationsRead: Date?
+    /// What the last sending to the television came to, for the strip, until the reader closes it or leaves
+    /// the app (`AppModel.queueReport`). It goes with the host, as the television's list does.
+    var report: String?
     @ObservationIgnored private weak var model: AppModel?
     /// The link this answers for, set once the link is made.
     @ObservationIgnored weak var link: DeviceLink?
@@ -63,8 +69,9 @@ final class TVHost: LinkHost {
         keep(list)
     }
 
-    /// What pulling the reservations down asks of the television: the list read again, or a connect when it
-    /// cannot be asked, whose own read is kept from `reached`.
+    /// What pulling the reservations down asks of the television: what waits is sent, which the driver asks
+    /// of this host on the way (`sendWhatWaits`), and the list is read again; or a connect when it cannot be
+    /// asked, whose own read is kept from `reached`.
     func refreshReservations() async {
         guard let list = await driver?.refreshReservations() else { return }
         keep(list)
@@ -168,7 +175,18 @@ final class TVHost: LinkHost {
     func anotherDeviceDescribedItself(wasConnected: Bool) {}
     func cacheMadeOver() async {}
     func cacheCouldNotBeMadeOver() {}
-    func sendWhatWaits() async {}
+
+    /// What waits for the television is sent by its driver, and what that came to is kept: the queue on
+    /// screen is read again, and what the sending has to say goes on the strip, naming the television. A
+    /// sending with nothing to say leaves the last report where it was, as the recorder's does. Nothing is
+    /// sent from a host the app has let go of. The list is not read here: a connect reads it next
+    /// (`reached`), and a pull-down reads it itself. Inside a connect, so nothing here may await
+    /// `AppModel.start()`.
+    func sendWhatWaits() async {
+        guard let outcome = await driver?.sendWhatWaits() else { return }
+        await model?.loadPending()
+        if let said = outcome.said(withATelevisionSaved: true) { report = said }
+    }
 
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect
     /// reaches it. Inside the connect, so nothing here may await `AppModel.start()`.
