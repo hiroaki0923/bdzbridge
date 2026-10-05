@@ -178,15 +178,22 @@ public final class TVDriver: LinkDriver {
         return await read(link)
     }
 
-    /// What pulling the list down asks for: the list read now, as `reservations` reads it, when the
-    /// television can be asked. When it cannot, the reader has asked for it to be tried again: a connect,
-    /// which tells the host when it reaches the television (`reached`), and nil -- the host reads the list
-    /// from there, inside the connect, and what a connect that got nowhere has to say is on its line.
+    /// What pulling the list down asks for, when the television can be asked: what waits is sent, and then
+    /// the list is read now, as `reservations` reads it, so that what was just made is in it. When it cannot,
+    /// the reader has asked for it to be tried again: a connect, which tells the host when it reaches the
+    /// television (`reached`), and nil -- the host reads the list from there, inside the connect, and what a
+    /// connect that got nowhere has to say is on its line.
     public func refreshReservations() async -> [Reservation]? {
         guard let link else { return nil }
-        if canBeAsked(on: link) { return await read(link) }
-        await link.connect()
-        return nil
+        guard canBeAsked(on: link) else {
+            await link.connect()
+            return nil
+        }
+        // Through the host, as an attach asks for it: the host says what became of it.
+        await link.owner?.sendWhatWaits()
+        // A sending that lost the television, or its registration, has said so: a read would write over that.
+        guard canBeAsked(on: link) else { return nil }
+        return await read(link)
     }
 
     /// One read at a time. The list is asked for when a screen appears, when it is pulled down and when the

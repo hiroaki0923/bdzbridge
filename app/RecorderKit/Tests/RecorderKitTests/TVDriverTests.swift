@@ -997,6 +997,34 @@ final class TVDriverTests: XCTestCase {
         }
         XCTAssertEqual(unsaid.sendings.came.last??.deferred, two)
     }
+
+    /// Pulling the list down sends what waits and then reads the list, in that order and with no connect
+    /// made: the six requests of a round and then the read, which hands back the reservation just made. When
+    /// the sending lost the television -- here its create met silence -- no read follows it: nothing is
+    /// asked after the create, nothing is handed back, and the line keeps the sentence for that silence.
+    func testPullingDownSendsWhatWaitsAndThenReadsTheList() async throws {
+        let bench = try await queueBench()
+        await bench.link.connect()
+        try await bench.store.queue(waiting("サンプル劇場", 50101))
+        let tries = bench.link.session.link.tries
+        var before = await bench.gate.asked.count
+
+        let list = await bench.driver.refreshReservations()
+
+        XCTAssertEqual(list?.map(\.eventID), [50101])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), Self.round + [Self.read])
+        XCTAssertNil(bench.world.problem)
+
+        try await bench.store.queue(waiting("サンプル紀行", 50102, in: 3))
+        await bench.gate.silence(Self.create)
+        before = await bench.gate.asked.count
+
+        expectNil(await bench.driver.refreshReservations())
+
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), Self.round.dropLast(), "asked after the create")
+        XCTAssertEqual(bench.world.problem, TVDriver.createMetSilence)
+        XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
+    }
 }
 
 /// Stands between a link and an invented television, for a test that needs something to happen at one method:
