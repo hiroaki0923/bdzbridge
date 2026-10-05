@@ -1103,6 +1103,13 @@ final class TVDriverTests: XCTestCase {
     /// silence never read the disk, and leaves what was known of it as it was, though the disk is back.
     ///
     /// A disk known to be there is left as the attach read it, with its sizes, by a round that made a row.
+    ///
+    /// Making the row is not what says the disk is back: any round past its opening has read it there.
+    /// One whose row the television turns down, one that finds the reservation in the television's list,
+    /// and one that passes its row over each leave the disk there, each on a television of its own whose
+    /// disk was away at the attach. And a sending that asks the television nothing -- here it drops a row
+    /// that is over and holds one with a reason -- has not read the disk, and leaves it away as it was
+    /// known.
     func testWhatASendingSawOfTheDiskIsWrittenIntoWhatIsKnownOfTheTelevision() async throws {
         let notFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
         let away = TVStorage(mounted: false, freeMB: nil, totalMB: nil)
@@ -1143,6 +1150,43 @@ final class TVDriverTests: XCTestCase {
 
         XCTAssertEqual(silent?.stopped, .silent(afterSending: false))
         XCTAssertEqual(bench.driver.facts.storage, away, "a round that never read the disk said it was back")
+
+        // Attached with the disk away, which the attach's own sending stops at; then the disk is back.
+        func back(with row: PendingReservation) async throws -> QueueBench {
+            let (_, fresh) = try await connect(with: [row]) { await $0.television.unmount() }
+            XCTAssertEqual(fresh.driver.facts.storage, away)
+            await fresh.television.unmount(false)
+            return fresh
+        }
+        let there = TVStorage(mounted: true, freeMB: nil, totalMB: nil)
+        var unlisted = waiting("サンプル討論", 50104)
+        unlisted.request.serviceID = 1040
+
+        let turnedDown = try await back(with: unlisted)
+        let refused = await turnedDown.driver.sendWhatWaits()
+        XCTAssertEqual(refused?.refused.map(\.id), [unlisted.id])
+        XCTAssertEqual(turnedDown.driver.facts.storage, there, "a round that turned its row down left the disk away")
+
+        let listed = try await back(with: row)
+        await listed.television.put([DemoTV.Schedule(id: "recording.31", title: "サンプル劇場",
+                                                     start: row.request.start, eventId: 50101)])
+        let found = await listed.driver.sendWhatWaits()
+        XCTAssertEqual(found?.alreadyThere, [row])
+        XCTAssertEqual(listed.driver.facts.storage, there, "a round that found its row there left the disk away")
+
+        let unsaid = try await back(with: row)
+        await unsaid.gate.answer(Self.question, with: HTTPResponse(
+            statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8)))
+        let passedOver = await unsaid.driver.sendWhatWaits()
+        XCTAssertEqual(passedOver?.deferred, [row])
+        XCTAssertEqual(unsaid.driver.facts.storage, there, "a round that passed its row over left the disk away")
+
+        let over = waiting("サンプル寄席", 50106, in: -2)
+        let held = waiting("サンプル映画", 50105, reason: "この局は録画できません")
+        let (_, unasked) = try await connect(with: [over, held]) { await $0.television.unmount() }
+        XCTAssertEqual(unasked.sendings.came, [PendingQueue.Outcome(slot: .tv, expired: [over], held: [held])])
+        expectEqual(await unasked.gate.asked, Self.attaching, "a sending with nothing to send asked the television")
+        XCTAssertEqual(unasked.driver.facts.storage, away, "a sending that never read the disk said it was back")
     }
 
     /// Pulling the list down sends what waits and then reads the list, in that order and with no connect
@@ -1869,6 +1913,13 @@ final class TVDriverTests: XCTestCase {
     /// through and its sending left the row all the same, the row waits for the disk, or for answers that
     /// read: it is not said to wait for a connection there is.
     ///
+    /// Where that sending turned the row down for a reason of its own -- a station the television's list
+    /// does not have -- the answer is that reason on the row, and no question about what it would stop.
+    /// Where its create met silence the row may be on the television: it is answered in the sentence for
+    /// that, and not as one kept for a television that is not connected. Silence at what the sending reads
+    /// before its create is not this, and nor is that sentence left on the line by an earlier create, under
+    /// a connect that met silence itself: the row was sent nowhere, and waits for the television to answer.
+    ///
     /// A row held for what it would stop that could not be sent keeps its reason, and is said not to have
     /// been sent: in the sentence for a television that is not connected, or for one that is to be
     /// registered. So is one whose round could not read the phone's queue, and so asked nothing about it.
@@ -1932,6 +1983,27 @@ final class TVDriverTests: XCTestCase {
         await unread.gate.answer(Self.question, with: nothingSaid)
         try await expect("left to a connect that got through, its answers saying nothing", turnedDown, on: unread,
                          .waiting(film, saying: unanswered))
+        var unlisted = waiting("サンプル紀行", 50102, reason: turnedDown.problem)
+        unlisted.request.serviceID = 1040
+        var notListed = unlisted
+        notListed.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        try await expect("left to a connect whose sending turned it down", unlisted,
+                         on: resendBench([unlisted], givenUp: true),
+                         .waiting(notListed, saying: "テレビのチャンネル一覧にこの局が見つかりませんでした。"))
+        let metAtTheCreate = try await resendBench([turnedDown], givenUp: true)
+        await metAtTheCreate.television.atTheNextCreate(.carriedOutAndNotAnswered)
+        try await expect("left to a connect whose create met silence", turnedDown, on: metAtTheCreate,
+                         .waiting(film, saying: Self.metSilence))
+        XCTAssertEqual(metAtTheCreate.world.problem, Self.metSilence)
+        let metAtARead = try await resendBench([turnedDown], givenUp: true)
+        await metAtARead.gate.silence(Self.stations)
+        try await expect("left to a connect whose sending met silence before its create", turnedDown, on: metAtARead,
+                         .waiting(film, saying: Self.waitsNotConnected))
+        let saidBefore = try await resendBench([turnedDown], givenUp: true, silent: true)
+        saidBefore.world.problem = Self.metSilence
+        try await expect("left to a connect that met silence, an earlier create's sentence on the line", turnedDown,
+                         on: saidBefore, .waiting(film, saying: Self.waitsNotConnected))
+        XCTAssertEqual(saidBefore.world.problem, Self.metSilence, "the connect wrote over what the create said")
 
         try await expect("held for what it would stop, the television still silent", clashing,
                          on: resendBench([clashing], holding: holding, givenUp: true, silent: true),

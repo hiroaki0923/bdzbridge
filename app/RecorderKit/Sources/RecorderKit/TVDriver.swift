@@ -714,7 +714,13 @@ public final class TVDriver: LinkDriver {
     ///   recording is a question for the reader, about names no screen has shown them yet; any other is
     ///   said as it stands.
     /// - There with none, and the television still cannot be asked: it goes when the television can be,
-    ///   as a reservation kept for such a television is said to (`reserved`).
+    ///   as a reservation kept for such a television is said to (`reserved`). Not where the connect got
+    ///   as far as its sending and that sending's create met silence: the row may be on the television,
+    ///   and saying that it was not sent, and can be deleted, would be saying more than is known. It is
+    ///   answered in the create's sentence, which is on the line as well. That is told by the two
+    ///   together: the client in the link is one whose attach reached the registration, and the line
+    ///   reads that sentence. The line alone may be what an earlier create left, under a connect that
+    ///   met silence at its first request and sent nothing.
     /// - There with none, and the television can be asked: the connect got through, and its sending left
     ///   the row all the same. For want of the disk, where the attach or that sending has just read it as
     ///   away; otherwise for answers that said nothing that reads. Not for want of a connection, which
@@ -727,7 +733,13 @@ public final class TVDriver: LinkDriver {
         if let reason = waits.problem {
             return ScalarClient.holdsForWhatItWouldStop(reason) ? .wouldStop(waits) : .waiting(waits, saying: reason)
         }
-        guard canBeAsked(on: link) else { return reserved(waits, by: nil, listing: nil) }
+        guard canBeAsked(on: link) else {
+            let reachedTheRegistration = attachedClient != nil && (link.client as? ScalarClient) === attachedClient
+            guard reachedTheRegistration, link.owner?.problem == Self.createMetSilence else {
+                return reserved(waits, by: nil, listing: nil)
+            }
+            return .waiting(waits, saying: Self.createMetSilence)
+        }
         let diskIsAway = facts.storage?.mounted == false
         return .waiting(waits, saying: diskIsAway ? Self.waitsForTheDisk : Self.waitsUnanswered)
     }
