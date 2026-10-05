@@ -331,12 +331,17 @@ extension AppModel {
 
     /// What the reservations tab says under what waits: by the devices its rows wait for and not by the
     /// devices saved, so that the recorder's rows alone are said as they always have been, a television
-    /// saved or not. Then how a row with a reason is sent again, while any has one.
+    /// saved or not. Then how a row with a reason is sent again, while any has one. And last, while a row
+    /// waits for the television's disk to come back, that the disk is away (`tvWaitsForItsDisk`): of such
+    /// a row the sentences before it say only that it goes when the television is next connected to, and
+    /// the television may well be connected. The strip says the same, but as the last of its lines, where
+    /// it can sit behind whatever the recorder has up.
     var whatWaitsSays: String {
         let devices = Set(pending.map(\.target))
         let waits = devices == [.tv] ? Self.notYetAtTheTelevision
             : devices.contains(.tv) ? Self.notYetAtEither : Self.notYetAtTheRecorder
         return waits + (pending.contains { $0.problem != nil } ? Self.reasonsWaitForTheReader : "")
+            + (tvWaitsForItsDisk ? TVDriver.diskNotFound + "。" : "")
     }
 
     private static let notYetAtTheRecorder = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"

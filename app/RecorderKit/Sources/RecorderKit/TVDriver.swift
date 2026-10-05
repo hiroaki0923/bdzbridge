@@ -10,7 +10,8 @@ public final class TVFacts {
     public internal(set) var model: String?
     /// Set when the television answers but takes no cookie of the app's: it is to be registered again.
     public internal(set) var needsPairing = false
-    /// The USB disk it records to, as last read.
+    /// The USB disk it records to, as an attach last read it, or as a round sent since has seen it: there
+    /// or away, with no sizes.
     public internal(set) var storage: TVStorage?
 
     public init() {}
@@ -337,6 +338,9 @@ public final class TVDriver: LinkDriver {
     /// so it is not sent again, and the next sending reads the television's list before it sends anything.
     public static let createMetSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+    /// Why nothing is sent while the disk a television records to is away: the client's own sentence, for
+    /// the screens to say while a reservation waits for the disk to come back (`facts.storage`).
+    public static let diskNotFound = ScalarClient.diskNotFound
 
     /// Sends what waits in the phone's queue for the television. What the sending came to, or nil when none
     /// ran.
@@ -368,11 +372,12 @@ public final class TVDriver: LinkDriver {
         }
     }
 
-    /// The flush, on the link's client as it stands now, and what stopped its round said. Whether the
-    /// television can be asked is asked again here, in the turn the client is read: the queue was read since
-    /// the door, and a connect begun meanwhile has put a client of its own in the link, which has yet to hear
-    /// which television answers it. The flush reads the queue afresh once it has its turn, so one that set
-    /// out only to drop what is over can come to send a row the reader has just freed: its stop is said too.
+    /// The flush, on the link's client as it stands now, with what stopped its round said and what it saw
+    /// of the disk written down. Whether the television can be asked is asked again here, in the turn the
+    /// client is read: the queue was read since the door, and a connect begun meanwhile has put a client of
+    /// its own in the link, which has yet to hear which television answers it. The flush reads the queue
+    /// afresh once it has its turn, so one that set out only to drop what is over can come to send a row
+    /// the reader has just freed: its stop is said too.
     ///
     /// `only` and `consenting` are the queue's own (`PendingQueue.flush`), for a row the reader asked to have
     /// sent: with neither, as a sending of what waits passes them, every row goes and none with a consent.
@@ -381,6 +386,7 @@ public final class TVDriver: LinkDriver {
         guard canBeAsked(on: link), let client = link.client as? ScalarClient else { return nil }
         let outcome = await PendingQueue.flush(client: client, store: store, consenting: consenting, only: only)
         say(stopped: outcome.stopped, on: link)
+        noteTheDisk(seenBy: outcome)
         return outcome
     }
 
@@ -388,9 +394,10 @@ public final class TVDriver: LinkDriver {
     /// the request that makes a reservation has a sentence of its own and is always said, the television
     /// lost: the reservation may have been made. Silence at one of the round's reads is said as any read's.
     /// A cookie the television does not take is said in its own words and put down at once (`note`), the
-    /// television kept. A disk that is away and answers that say nothing are no fault of the link's, and
-    /// nothing here has a line for them: neither the link nor the line is touched, and the rows go by
-    /// themselves at a later sending.
+    /// television kept. A disk that is away and answers that say nothing are no fault of the link's:
+    /// neither the link nor its line of what went wrong is touched, and the rows go by themselves at a
+    /// later sending. That the disk is away is said from what is known of the television instead
+    /// (`noteTheDisk`), for as long as a reservation waits for it, and not as something that went wrong.
     private func say(stopped stop: SendingStop?, on link: DeviceLink) {
         switch stop {
         case .silent(afterSending: true)?:
@@ -401,6 +408,25 @@ public final class TVDriver: LinkDriver {
             note(link.say(.refused(.needsPairing, sentence: ScalarError.notRegistered.explanation)))
         case .cannotRecord?, .saysNothing?, nil:
             break
+        }
+    }
+
+    /// Writes what a round saw of the disk into what is known of the television, both ways: the screens say
+    /// the disk from there (`facts.storage`), and the attach that reads it may be a long way off in either
+    /// direction -- the disk pulled out, or put back, under a television that stays connected.
+    ///
+    /// A round that stopped for want of the disk leaves it away. One that got past its opening while it
+    /// was known as away leaves it there, with its sizes unknown until an attach reads them: a round
+    /// reads the disk before anything else, and a row is made, found there, turned down or passed over
+    /// only past that read. Any other round says nothing of the disk: one that asked the television
+    /// nothing, having only rows to hold or to drop, and one that stopped at its opening for something
+    /// else. A disk known as there is left as the attach read it, sizes and all.
+    private func noteTheDisk(seenBy round: PendingQueue.Outcome) {
+        if case .cannotRecord? = round.stopped {
+            facts.storage = TVStorage(mounted: false, freeMB: nil, totalMB: nil)
+        } else if facts.storage?.mounted == false,
+                  !(round.sent + round.alreadyThere + round.refused + round.deferred).isEmpty {
+            facts.storage = TVStorage(mounted: true, freeMB: nil, totalMB: nil)
         }
     }
 
@@ -690,8 +716,9 @@ public final class TVDriver: LinkDriver {
     /// - There with none, and the television still cannot be asked: it goes when the television can be,
     ///   as a reservation kept for such a television is said to (`reserved`).
     /// - There with none, and the television can be asked: the connect got through, and its sending left
-    ///   the row all the same. For want of the disk, where the attach has just read it as away; otherwise
-    ///   for answers that said nothing that reads. Not for want of a connection, which there is.
+    ///   the row all the same. For want of the disk, where the attach or that sending has just read it as
+    ///   away; otherwise for answers that said nothing that reads. Not for want of a connection, which
+    ///   there is.
     private func leftToTheConnect(_ row: PendingReservation, on link: DeviceLink,
                                   from store: GuideStore) async -> Reserved? {
         guard let waits = (try? await store.pendingReservations())?.first(where: { $0.id == row.id }) else {

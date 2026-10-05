@@ -45,6 +45,15 @@ extension AppModel {
         tvHost?.report = nil
     }
 
+    /// Whether the television's disk is away and a reservation is waiting for it to come back: what the
+    /// strip and the reservations tab say the disk for (`TVDriver.diskNotFound`). The disk is as the driver
+    /// last knew it, from an attach or from a sending since. Only a row with no reason on it waits for the
+    /// disk: one with a reason waits for the reader, and is not sent when the disk is back either.
+    var tvWaitsForItsDisk: Bool {
+        tvDriver?.facts.storage?.mounted == false
+            && pending.contains { $0.target == .tv && $0.problem == nil }
+    }
+
     /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
     /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
     /// Connects nothing.

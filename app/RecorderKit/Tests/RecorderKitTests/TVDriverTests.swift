@@ -1094,6 +1094,57 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(other.world.problem, noAnswer, "silence over another line went unsaid")
     }
 
+    /// What a sending saw of the disk is written into what is known of the television, both ways: the
+    /// screens say the disk from there, and the television stays attached while its disk is pulled out or
+    /// put back. A sending that stopped for want of the disk leaves it away, in the sentence the screens
+    /// say for it, and still writes nothing on the line of what went wrong, nor on the row. One whose
+    /// round made the row got past its opening, which reads the disk before anything else, and leaves the
+    /// disk there, its sizes unknown until an attach reads them. A round that stopped at its opening for
+    /// silence never read the disk, and leaves what was known of it as it was, though the disk is back.
+    ///
+    /// A disk known to be there is left as the attach read it, with its sizes, by a round that made a row.
+    func testWhatASendingSawOfTheDiskIsWrittenIntoWhatIsKnownOfTheTelevision() async throws {
+        let notFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+        let away = TVStorage(mounted: false, freeMB: nil, totalMB: nil)
+        let first = waiting("サンプル天気", 50100, in: 1)
+        let bench = try await queueBench([first])
+        await bench.link.connect()
+        XCTAssertEqual(bench.sendings.came.last??.sent, [first])
+        XCTAssertEqual(bench.driver.facts.storage, TVStorage(mounted: true, freeMB: 400, totalMB: 1000),
+                       "a round that found the disk where the attach had read it took its sizes away")
+        let row = waiting("サンプル劇場", 50101)
+        try await bench.store.queue(row)
+        await bench.television.unmount()
+        bench.world.problem = Self.left
+
+        let stopped = await bench.driver.sendWhatWaits()
+
+        XCTAssertEqual(stopped?.stopped, .cannotRecord(reason: notFound))
+        XCTAssertEqual(TVDriver.diskNotFound, notFound)
+        XCTAssertEqual(bench.driver.facts.storage, away, "a sending that stopped for want of the disk left it there")
+        XCTAssertEqual(bench.world.problem, Self.left, "a disk that is away went on the line of what went wrong")
+        expectEqual(try await bench.store.pendingReservations(), [row], "a reason was written, or the row went")
+
+        await bench.television.unmount(false)
+        let sent = await bench.driver.sendWhatWaits()
+
+        XCTAssertEqual(sent?.sent, [row])
+        XCTAssertEqual(bench.driver.facts.storage, TVStorage(mounted: true, freeMB: nil, totalMB: nil),
+                       "a round that got past its opening left the disk away")
+
+        try await bench.store.queue(waiting("サンプル紀行", 50102, in: 3))
+        await bench.television.unmount()
+        _ = await bench.driver.sendWhatWaits()
+        XCTAssertEqual(bench.driver.facts.storage, away)
+        await bench.television.unmount(false)
+        await bench.gate.silence(Self.disk)
+
+        let silent = await bench.driver.sendWhatWaits()
+
+        XCTAssertEqual(silent?.stopped, .silent(afterSending: false))
+        XCTAssertEqual(bench.driver.facts.storage, away, "a round that never read the disk said it was back")
+    }
+
     /// Pulling the list down sends what waits and then reads the list, in that order and with no connect
     /// made: the six requests of a round and then the read, which hands back the reservation just made. The
     /// sending is asked for through the host, as an attach asks for it, and not made by the driver past it:

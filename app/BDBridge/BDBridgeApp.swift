@@ -128,6 +128,9 @@ extension AppModel {
         case tvNeedsPairing
         /// The television was given up on.
         case tvGaveUp
+        /// The disk the television records to is away, and a reservation waits for it to come back
+        /// (`tvWaitsForItsDisk`).
+        case tvDiskAway
     }
 
     /// The first of these that holds, or nil when the strip has nothing to say. `inSheet` for the strip at
@@ -141,6 +144,8 @@ extension AppModel {
     /// knowing of it. The queue's line is ahead of the reconnect in turn: a sending the recorder walked
     /// out of says which were sent, and the strip goes back to offering the reconnect once that is closed.
     /// The television's own lines come after everything about the recorder, and only when one is saved.
+    /// Its disk is the last of them: nothing went wrong that the reader is to put right here, and a
+    /// television that is to be registered or reconnected to is sent nothing whatever its disk does.
     func strip(inSheet: Bool = false) -> Strip? {
         if let busy { return .busy(busy) }
         if anotherTookOver, connected { return .anotherTookOver }
@@ -150,6 +155,7 @@ extension AppModel {
         if gaveUp { return .recorderGaveUp }
         if tvDriver?.facts.needsPairing == true { return .tvNeedsPairing }
         if tv?.session.gaveUp == true { return .tvGaveUp }
+        if tvWaitsForItsDisk { return .tvDiskAway }
         return nil
     }
 }
@@ -271,6 +277,14 @@ struct RecorderActivityBar: View {
                     .font(.footnote.weight(.semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
+                }
+            case .tvDiskAway:
+                // No button: the disk is put back at the television, and the next sending of what waits
+                // reads it again, which pulling the reservations down asks for.
+                strip {
+                    Image(systemName: "externaldrive.badge.xmark").font(.footnote)
+                    Text(TVDriver.diskNotFound).font(.footnote)
+                    Spacer(minLength: 0)
                 }
             }
         }

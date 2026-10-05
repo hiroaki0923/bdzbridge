@@ -18,7 +18,8 @@ import XCTest
 /// them. And so is what the settings need: a television is taken away together with what waits for it.
 ///
 /// Which of its lines the strip shows is held here last, a state at a time: in the home with a recorder
-/// alone, where the order is the one it has always had, and with a television saved.
+/// alone, where the order is the one it has always had, and with a television saved, whose disk has a line
+/// there, and a sentence on the reservations tab, while a reservation waits for it to come back.
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -690,6 +691,70 @@ final class QueueWithATelevisionTests: XCTestCase {
         await model.loadReservations()
         XCTAssertTrue(model.gaveUp)
         XCTAssertEqual(model.strip(), .recorderGaveUp, "a line of the television's is said ahead of the recorder's")
+    }
+
+    /// The television's disk has a line on the strip, the last of them all, while the disk is known to be
+    /// away and a reservation waits for it to come back; and what the reservations tab says under what
+    /// waits then ends with the same sentence. It is known from a sending that stopped for want of the
+    /// disk, which puts nothing on the television's line of what went wrong.
+    ///
+    /// Only a reservation of the television's with no reason on it waits for the disk: with that row held
+    /// for the reader, and a row of the recorder's waiting beside it, neither the strip nor the tab says
+    /// the disk. A television given up on is said ahead of its disk. With the disk back, pulling the
+    /// reservations down sends the row, and the disk is not said again of the next row to wait: that
+    /// sending saw it there, and no connect has read it since.
+    func testTheStripAndTheTabSayTheDiskIsAwayWhileAReservationWaitsForIt() async throws {
+        let notFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに登録します。"
+        let reasons = "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let row = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        try await store.queue(row)
+        await model.loadPending()
+        XCTAssertNil(model.strip(), "the disk is said to be away while it is there")
+        XCTAssertEqual(model.whatWaitsSays, televisions)
+
+        await television.unmount()
+        await host.refreshReservations()
+
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+        XCTAssertEqual(TVDriver.diskNotFound, notFound)
+        XCTAssertEqual(model.whatWaitsSays, televisions + notFound + "。")
+        XCTAssertNil(model.problem(for: .tv), "a disk that is away went on the television's line")
+
+        // Put there for the recorder and never sent: nothing here has the recorder's queue sent.
+        try await store.queue(waiting("朝の番組", startingIn: 121, programme: 4321))
+        try await store.setPendingProblem(row.id, "前に断られた理由")
+        await model.loadPending()
+        XCTAssertNil(model.strip(), "a row that waits for the reader, or for the recorder, is said to wait for a disk")
+        XCTAssertEqual(model.whatWaitsSays, both + reasons)
+        try await store.setPendingProblem(row.id, nil)
+        await model.loadPending()
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+        XCTAssertEqual(model.whatWaitsSays, both + notFound + "。")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(model.strip(), .tvGaveUp, "the disk is said ahead of a television that is not connected")
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertEqual(model.strip(), .tvDiskAway)
+
+        await television.unmount(false)
+        await host.refreshReservations()
+
+        XCTAssertEqual(model.strip(), .report(Said.sent("サンプル劇場", naming: "テレビ"), inFull: true))
+        model.closeQueueReport()
+        try await store.queue(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)))
+        await model.loadPending()
+        XCTAssertEqual(model.pending.map(\.problem), [nil, nil], "nothing is left waiting unsent to say the disk of")
+        XCTAssertNil(model.strip(), "the disk is still said to be away after a sending that found it there")
+        XCTAssertEqual(model.whatWaitsSays, both)
     }
 
     // MARK: - what the tests set up
