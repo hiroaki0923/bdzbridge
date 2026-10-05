@@ -6,8 +6,10 @@ import XCTest
 /// The phone's queue in a home with a television saved beside the recorder. Each sentence about the queue then
 /// says which device it is about. What waits for the television is sent when the app connects to it and when
 /// its list is pulled down, as the television's work and none of the recorder's, and the strip says what
-/// became of it beside what the recorder's sending said. How a sending to a television goes, step by step,
-/// and what each way it can stop leaves and says, is RecorderKit's to hold (`TVDriverTests`).
+/// became of it beside what the recorder's sending said. That line of the strip is held here for the home
+/// with no television as well, where it is the recorder's report as it stands. How a sending to a
+/// television goes, step by step, and what each way it can stop leaves and says, is RecorderKit's to hold
+/// (`TVDriverTests`).
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -196,6 +198,24 @@ final class QueueWithATelevisionTests: XCTestCase {
         model.wentToBackground()
         XCTAssertNil(model.flushReport, "the recorder's half outlived the visit it was for")
         XCTAssertNil(host.report, "the television's half outlived the visit it was for")
+        XCTAssertNil(model.queueReport)
+    }
+
+    /// The strip reads both devices' reports as one line, and in a home with no television saved that line
+    /// is the recorder's report and nothing else: what its sending said, letter for letter, in the sentence
+    /// such a home has always read, which names no device. Closing the line takes it. The gates of the
+    /// recorder's queue read what the sending wrote down (`QueueGateTests`); this reads what the strip does.
+    func testWithNoTelevisionSavedTheStripReadsTheRecordersReportAndNothingElse() async throws {
+        let (bench, _, model) = try await connectedHome()
+        XCTAssertNil(model.tvHost, "a television is saved in this home")
+        try await GuideStore(path: bench.guidePath).queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+
+        await model.refreshReservations()
+
+        XCTAssertEqual(model.queueReport, Said.sent("朝の番組"))
+        XCTAssertEqual(model.queueReport, model.flushReport, "the strip reads more, or less, than the recorder said")
+        model.closeQueueReport()
+        XCTAssertNil(model.flushReport, "closing the line left what the recorder's sending said")
         XCTAssertNil(model.queueReport)
     }
 

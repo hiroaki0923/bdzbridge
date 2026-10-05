@@ -748,12 +748,12 @@ final class TVDriverTests: XCTestCase {
         var came: [PendingQueue.Outcome?] = []
     }
 
-    /// Not connected yet, with `rows` waiting in the cache.
-    private func queueBench(_ rows: [PendingReservation] = []) async throws -> QueueBench {
+    /// Not connected yet, with `rows` waiting in the cache, and the app in front unless `inFront` is false.
+    private func queueBench(_ rows: [PendingReservation] = [], inFront: Bool = true) async throws -> QueueBench {
         let television = DemoTV()
         await television.receives([DemoTV.Station()])
         let credentials = await registered(with: television)
-        let (link, driver, world) = makeLink(television, credentials)
+        let (link, driver, world) = makeLink(television, credentials, inFront: inFront)
         let gate = TVGate(television)
         world.devices[Stub.host] = gate
         let store = try temporaryStore()
@@ -790,6 +790,9 @@ final class TVDriverTests: XCTestCase {
     /// of a television that has just answered, nothing registers the app again, and no packet is sent. While
     /// the create is out the line says what is being sent. A row waiting for the recorder is none of the
     /// television's: it is not sent, and stays as it was with nothing written on it.
+    ///
+    /// A connect made with the app behind sends what waits as well, in the very same requests: the reader
+    /// has to be there for a renewal of the cookie and for nothing else.
     func testAnAttachSendsWhatWaitsForTheTelevisionAndNothingElse() async throws {
         let mine = waiting("サンプル劇場", 50101), recorders = waiting("サンプル紀行", 50102, for: .recorder)
         let bench = try await queueBench([mine, recorders])
@@ -810,6 +813,13 @@ final class TVDriverTests: XCTestCase {
         XCTAssertNil(bench.world.line)
         expectEqual(try await bench.store.pendingReservations(), [recorders])
         expectEqual(await bench.television.schedules.map(\.eventId), [50101])
+
+        let behind = try await queueBench([mine, recorders], inFront: false)
+        await behind.link.connect()
+        expectEqual(await behind.television.calls, await bench.television.calls, "with the app behind")
+        XCTAssertEqual(behind.link.session.timesAttached, 1, "with the app behind")
+        expectEqual(try await behind.store.pendingReservations(), [recorders], "with the app behind")
+        expectEqual(await behind.television.schedules.map(\.eventId), [50101], "with the app behind")
     }
 
     /// With nothing to send, an attach asks the television nothing beyond its own three requests and puts
@@ -817,20 +827,38 @@ final class TVDriverTests: XCTestCase {
     /// which is not the television's to drop -- or with only a row that has a reason on it, which waits for
     /// the reader. A row of the television's whose programme is over is dropped with nothing asked; the row
     /// with a reason beside it is held with its reason as it was, since no consent is handed in for it.
+    ///
+    /// So is a row held for what it would stop from recording, and that is the row a consent would make:
+    /// the reason on it is the very one the television would give were it asked now. Each television here
+    /// holds two recordings at one time, and a third at that time, which the row is, would cost the one
+    /// made first its recording. The row waits for the reader all the same, and what the television holds
+    /// is as it was.
     func testWithNothingToSendTheTelevisionIsAskedNothingAndNoLineGoesUp() async throws {
         let recorders = [waiting("サンプル討論", 50104, in: -2, for: .recorder),
                          waiting("サンプル紀行", 50102, for: .recorder)]
         let held = waiting("サンプル劇場", 50101, reason: "この局は録画できません")
         let over = waiting("サンプル天気", 50103, in: -2)
+        var clashing = waiting("サンプル映画", 50105)
+        let start = clashing.request.start
+        let holding = [
+            DemoTV.Schedule(id: "recording.21", serviceID: 1032, station: "サンプル放送", title: "サンプル寄席",
+                            start: start),
+            DemoTV.Schedule(id: "recording.22", serviceID: 1040, station: "サンプル放送2", title: "サンプル音楽館",
+                            start: start),
+        ]
+        clashing.problem = ScalarClient.wouldStop(naming: [holding[0].row])
         let cases: [(String, queued: [PendingReservation], came: PendingQueue.Outcome?, left: [PendingReservation])] = [
             ("nothing waiting", [], nil, []),
             ("the recorder's rows alone", recorders, nil, recorders),
             ("a row with a reason on it", [held], nil, [held]),
             ("a row that is over, beside one with a reason", [over, held],
              PendingQueue.Outcome(slot: .tv, expired: [over], held: [held]), [held]),
+            ("a row that is over, beside one held for what it would stop", [over, clashing],
+             PendingQueue.Outcome(slot: .tv, expired: [over], held: [clashing]), [clashing]),
         ]
         for (name, queued, came, left) in cases {
             let bench = try await queueBench(queued)
+            await bench.television.put(holding)
 
             await bench.link.connect()
 
@@ -839,16 +867,20 @@ final class TVDriverTests: XCTestCase {
             expectEqual(await bench.gate.asked, Self.attaching, name)
             XCTAssertEqual(bench.world.begun, [TVDriver.connectingLine], name)
             XCTAssertEqual(bench.world.events.last, "reached", name)
+            expectEqual(await bench.television.schedules, holding, name)
         }
     }
 
     /// Asked outside an attach, a television that cannot be asked is sent nothing of what waits, and the row
     /// waits as it was. Given up on after silence, nothing is asked and no line goes up, so that what an
-    /// earlier operation left on the line stays. With its link let go of, the driver sends nothing. One
-    /// that could be asked as the sending set out cannot once the queue has been read, a connect having
-    /// begun meanwhile: its client has yet to hear which television answers it -- here another one, which is
-    /// sent nothing on the strength of the last attach. And one that is being made sure of is waited for:
-    /// when that check meets silence, the television is sent nothing after it.
+    /// earlier operation left on the line stays. So it is for one that is to be registered again, which a
+    /// read since the attach found out: its session is still connected and its client the one attached, and
+    /// what the driver put down of the registration is all that says it cannot be asked. With its link let
+    /// go of, the driver sends nothing. One that could be asked as the sending set out cannot once the queue
+    /// has been read, a connect having begun meanwhile: its client has yet to hear which television answers
+    /// it -- here another one, which is sent nothing on the strength of the last attach. And one that is
+    /// being made sure of is waited for: when that check meets silence, the television is sent nothing
+    /// after it.
     func testATelevisionThatCannotBeAskedIsSentNothingOfWhatWaits() async throws {
         let row = waiting("サンプル劇場", 50101)
         func attachedThenQueued() async throws -> QueueBench {
@@ -870,6 +902,19 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(silent.world.problem, Self.left, "a sending that was not made wrote over the line")
         XCTAssertFalse(silent.world.begun.contains(TVDriver.sendingLine))
         expectEqual(try await silent.store.pendingReservations(), [row])
+
+        let unregistered = try await attachedThenQueued()
+        unregistered.credentials.save(Self.stale)
+        _ = await unregistered.driver.reservations()
+        XCTAssertTrue(unregistered.driver.facts.needsPairing)
+        XCTAssertTrue(unregistered.link.session.connected, "the refusal lost the television, as silence does")
+        unregistered.world.problem = Self.left
+        asked = await unregistered.gate.asked
+        expectNil(await unregistered.driver.sendWhatWaits(), "to be registered")
+        expectEqual(await unregistered.gate.asked, asked, "sent to a television that is to be registered")
+        XCTAssertEqual(unregistered.world.problem, Self.left, "a sending that was not made wrote over the line")
+        XCTAssertFalse(unregistered.world.begun.contains(TVDriver.sendingLine), "a line went up for nothing sent")
+        expectEqual(try await unregistered.store.pendingReservations(), [row])
 
         let driver: TVDriver, gate: TVGate
         do {
@@ -999,9 +1044,13 @@ final class TVDriverTests: XCTestCase {
     }
 
     /// Pulling the list down sends what waits and then reads the list, in that order and with no connect
-    /// made: the six requests of a round and then the read, which hands back the reservation just made. When
-    /// the sending lost the television -- here its create met silence -- no read follows it: nothing is
-    /// asked after the create, nothing is handed back, and the line keeps the sentence for that silence.
+    /// made: the six requests of a round and then the read, which hands back the reservation just made. The
+    /// sending is asked for through the host, as an attach asks for it, and not made by the driver past it:
+    /// the host is what says what became of the rows. When the sending lost the television -- here its
+    /// create met silence -- no read follows it: nothing is asked after the create, nothing is handed back,
+    /// and the line keeps the sentence for that silence. Nor does a read follow a sending that lost the
+    /// registration, the television still there: the cookie stops being taken part way through the round,
+    /// and nothing is asked after the request that was refused.
     func testPullingDownSendsWhatWaitsAndThenReadsTheList() async throws {
         let bench = try await queueBench()
         await bench.link.connect()
@@ -1014,6 +1063,8 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(list?.map(\.eventID), [50101])
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), Self.round + [Self.read])
         XCTAssertNil(bench.world.problem)
+        XCTAssertEqual(bench.world.events.suffix(2), ["send what waits", "sent [\"サンプル劇場\"]"],
+                       "the host was not asked for the sending, or not once")
 
         try await bench.store.queue(waiting("サンプル紀行", 50102, in: 3))
         await bench.gate.silence(Self.create)
@@ -1024,6 +1075,21 @@ final class TVDriverTests: XCTestCase {
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), Self.round.dropLast(), "asked after the create")
         XCTAssertEqual(bench.world.problem, TVDriver.createMetSilence)
         XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
+
+        // The cookie goes bad as the round's list is on its way: the stations are the first asked with it.
+        let refused = try await queueBench()
+        await refused.link.connect()
+        try await refused.store.queue(waiting("サンプル劇場", 50101))
+        await refused.gate.before(Self.read) { refused.credentials.save(Self.stale) }
+        before = await refused.gate.asked.count
+
+        expectNil(await refused.driver.refreshReservations())
+
+        expectEqual(Array(await refused.gate.asked.dropFirst(before)), [Self.disk, Self.read, Self.stations],
+                    "asked after the cookie was refused")
+        XCTAssertEqual(refused.world.problem, ScalarError.notRegistered.explanation)
+        XCTAssertTrue(refused.driver.facts.needsPairing)
+        XCTAssertTrue(refused.link.session.connected, "the refusal lost the television, as silence does")
     }
 }
 
