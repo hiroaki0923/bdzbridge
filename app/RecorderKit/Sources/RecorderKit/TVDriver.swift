@@ -468,6 +468,14 @@ public final class TVDriver: LinkDriver {
             return (.notDone(PendingQueue.couldNotBeKept(error)), nil)
         }
         let (round, list) = await sendOne(row, under: Self.reservingLine, on: link, from: store)
+        // A round for one row that has it in none of its lists, with nothing stopped, is an empty one, and
+        // that is all a round shows whose own read of the queue failed. So the queue is read once more
+        // before the list is taken for the answer: a row that waits still is said to wait, and not to be
+        // neither made nor kept because the television's list does not have what was never sent.
+        if round == PendingQueue.Outcome(slot: ScalarClient.slot),
+           (try? await store.pendingReservations())?.contains(where: { $0.id == row.id }) == true {
+            return (.waiting(row, saying: Self.waitsUnanswered), list)
+        }
         return (reserved(row, by: round, listing: list), list)
     }
 
@@ -530,7 +538,8 @@ public final class TVDriver: LinkDriver {
     /// is not read as made. The answer is taken from the television's list as read after the round (`list`)
     /// and from nothing else: a recording of the programme there that is all the row asks for is made; one
     /// that falls short of its repeat is said in the reason for that (`ScalarClient.shortfall`); and with
-    /// none listed, or no list read, nothing is known to have been made.
+    /// none listed, or no list read, nothing is known to have been made. Where the queue could not be read
+    /// the row waits still: `reserve` looks for it there, and answers for it, before this is asked.
     func reserved(_ row: PendingReservation, by round: PendingQueue.Outcome?, listing list: [Reservation]?,
                   now: Date = Date()) -> Reserved {
         guard let round else {
