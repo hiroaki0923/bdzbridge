@@ -2197,6 +2197,29 @@ final class TVDriverTests: XCTestCase {
             XCTAssertEqual(came.besideItsRow, says, name)
         }
     }
+
+    /// Whether a row that waits is left for the reader with a reason the result has not said, with no
+    /// television: only where the row carries a reason and something else is being said of it -- held for
+    /// what it would stop, and not sent. A row with no reason goes by itself, and one turned down is said
+    /// by the very reason on it. What was made, what comes back as the question whether to make it all the
+    /// same, and what was neither made nor kept are not said as a row that waits at all.
+    func testAWaitingRowIsLeftForTheReaderWhereItsReasonIsNotWhatIsSaid() {
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing
+        var unlisted = film
+        unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        let cases: [(name: String, came: Reserved, left: Bool)] = [
+            ("waiting with no reason", .waiting(film, saying: Self.waitsNotConnected), false),
+            ("turned down, with the reason on the row", .waiting(unlisted, saying: unlisted.problem ?? ""), false),
+            ("held, and not sent", .waiting(clashing, saying: notConnected), true),
+            ("made", .made(saying: nil), false),
+            ("held for what it would stop", .wouldStop(clashing), false),
+            ("neither made nor kept", .notDone(Self.programmeIsOver), false),
+        ]
+        for (name, came, left) in cases {
+            XCTAssertEqual(came.leftForTheReader, left, name)
+        }
+    }
 }
 
 /// Stands between a link and an invented television, for a test that needs something to happen at one method:

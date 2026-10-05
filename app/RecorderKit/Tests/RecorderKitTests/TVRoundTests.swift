@@ -259,6 +259,11 @@ final class TVRoundTests: XCTestCase {
     /// would stop changes nothing: a second before the start it makes the reservation, and from the start on
     /// the row is held all the same, with nothing asked and the household's recordings as they were.
     ///
+    /// Nor does what the television holds of the programme change the reason. With the programme reserved
+    /// there once, being recorded by then, and the row asking for it every week, the row is held for having
+    /// begun and not for the recording that falls short of its repeat: that reason tells the reader to
+    /// delete the television's reservation and send again, which would end the recording and send nothing.
+    ///
     /// Sent by the queue beside a row that is ahead, such a row costs the round's opening and nothing more:
     /// the reason is written on it, the stations of its kind of broadcast are never read, and the row ahead
     /// is asked about and made.
@@ -287,6 +292,13 @@ final class TVRoundTests: XCTestCase {
                                    consented: consent, in: &round, on: bench), comes, name)
             expectEqual(await held(bench), holds, name)
         }
+
+        let recording = await self.bench(holding: [owned("recording.31", on: 0, "サンプル劇場", programme: 50101)])
+        var round = try await open(recording).round
+        await recording.tv.goes(by: { Self.start })
+        expectEqual(await send(row("サンプル劇場", 50101, on: 0, repeating: "w7"), in: &round, on: recording),
+                    Came(.refused(reason: begun), asked: []), "its programme held once, and a repeat asked for")
+        expectEqual(await held(recording), ["recording.31 notOverlapped"], "its programme held once")
 
         let queued = await self.bench()
         let store = try temporaryStore()
