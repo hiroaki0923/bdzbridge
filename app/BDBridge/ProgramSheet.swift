@@ -63,6 +63,14 @@ struct ProgramSheet: View {
     /// can be pressed under it and the sheet cannot be closed: what the request came to is said here, in
     /// the alert, and a sheet that had gone would say it nowhere. Never set for the recorder.
     @State private var asking: String?
+    /// How many requests of this sheet's own are out and not under `asking`: a reservation on the recorder
+    /// or one of its rows sent again, and a delete of a reservation or of a waiting row. A request to the
+    /// television does not begin while there is one. As it ends, such a request closes the sheet, or puts
+    /// up its own answer and takes `asking` down, and one begun first would do that under the television's:
+    /// the sheet gone while the television's answer is still out, or left open to be pressed and closed
+    /// while its round runs. Read by the television's two buttons and by nothing else, and with the
+    /// recorder alone neither is drawn.
+    @State private var others = 0
 
     /// The recorder's reservation of this programme, and the television's, held apart.
     private var reservation: Reservation? { model.reservations(for: program).first { $0.device == .recorder } }
@@ -217,8 +225,10 @@ struct ProgramSheet: View {
                     }
                 case .cancel(let reservation):
                     Button("削除する", role: .destructive) {
+                        others += 1
                         Task {
                             done = await model.cancel(reservation)
+                            others -= 1
                             if !done {
                                 ask = .failed(model.problem(for: reservation.device)
                                               ?? "\(reservation.device.label)がエラーを返しました")
@@ -227,10 +237,12 @@ struct ProgramSheet: View {
                     }
                 case .cancelPending(let waiting):
                     Button("削除する", role: .destructive) {
+                        others += 1
                         Task {
                             // A television's row is not deleted while the television works, and stays on
                             // the sheet then: a sending begun under the question may have it in hand.
                             await model.deleteWaiting(waiting)
+                            others -= 1
                             done = waiting.target != .tv || model.pending(for: program, on: .tv) == nil
                         }
                     }
@@ -313,13 +325,15 @@ struct ProgramSheet: View {
     /// What this sheet asks for a reservation: one on a device, a waiting row sent again, or the yes to
     /// making one all the same. What it came to is said (`say`), and with nothing put up and the sheet
     /// staying, 録画予約 is read afresh. `line` is for a request to the television, and is up for as long
-    /// as that is out (`asking`).
+    /// as that is out (`asking`). With no line it is the recorder's, and counted while it is out (`others`).
     private func request(under line: String? = nil, fresh: Bool,
                          _ work: @escaping @MainActor () async -> Reserved?) {
         asking = line
+        if line == nil { others += 1 }
         Task {
             let came = await work()
             asking = nil
+            if line == nil { others -= 1 }
             say(came, fresh: fresh)
             if ask == nil, !done { turn = nil }
         }
@@ -332,24 +346,24 @@ struct ProgramSheet: View {
     ///
     /// Made closes the sheet, after what there is to say of it. Kept closes it too, the row then being on
     /// the reservations tab -- but not over a row that was waiting before, nor over one that carries a
-    /// reason which is not what is being said: that row was not sent at all, and waits for the reader
-    /// whatever its device does next, so the sheet is left open on its section. Nil is nothing to say:
-    /// the sections say what became of the row.
+    /// reason which is not what is being said (`Reserved.leftForTheReader`): that row was not sent at all,
+    /// and waits for the reader whatever its device does next, so the sheet is left open on its section.
+    /// Nil is nothing to say: the sections say what became of the row.
     private func say(_ came: Reserved?, fresh: Bool) {
+        guard let came else { return }
         switch came {
-        case nil: break
         case .made(nil): done = true
         case .made(let more?): ask = .said(more)
         case .wouldStop(let held): ask = .wouldStop(held, fresh: fresh)
-        case .waiting(let row, let why):
-            ask = .kept(why, stays: !fresh || (row.problem != nil && row.problem != why))
+        case .waiting(_, let why): ask = .kept(why, stays: !fresh || came.leftForTheReader)
         case .notDone(let why): ask = .failed(why)
         }
     }
 
     /// 録画予約 for the television: the one mode it records in and the repeats it is sent for this
     /// programme. Nothing is said of what the reservation would stop, which the television is asked when
-    /// the reader reserves and not before. Held back by the television's work, and never the recorder's.
+    /// the reader reserves and not before. Held back by the television's work, and by a request of this
+    /// sheet's own that is still out (`others`): never by the recorder's work as such.
     private var televisionOffer: some View {
         Section("録画予約") {
             destinationRow(.tv)
@@ -360,7 +374,7 @@ struct ProgramSheet: View {
                 }
             }
             Button("録画予約する") { (turn, ask) = (.tv, .reserve(.tv)) }
-                .disabled(model.isBusy(for: .tv))
+                .disabled(model.isBusy(for: .tv) || others > 0)
         }
     }
 
@@ -407,7 +421,8 @@ struct ProgramSheet: View {
     /// device has not made anything of it yet, and what the device said if it refused. With a television
     /// saved there can be one for each device, each under its device's name, and what is said and held
     /// back in one goes by its own device: a television's row is neither sent again nor deleted while the
-    /// television works, since a sending that is out may have it in hand.
+    /// television works, since a sending that is out may have it in hand. Nor is it sent again while
+    /// another request of this sheet's is out (`others`).
     private func pendingSection(_ waiting: PendingReservation) -> some View {
         let device = waiting.target
         return Section(model.tv != nil ? "\(device.label)・送信待ち" : "この番組は送信待ちです") {
@@ -426,7 +441,7 @@ struct ProgramSheet: View {
                         await model.sendAgain(waiting)
                     }
                 }
-                .disabled(device == .tv ? model.isBusy(for: .tv) : model.working)
+                .disabled(device == .tv ? model.isBusy(for: .tv) || others > 0 : model.working)
             } else {
                 Text("\(device.label)に届いていない予約です。次に\(device.label)につながったときに登録します。")
                     .foregroundStyle(.secondary)

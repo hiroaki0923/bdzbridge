@@ -458,9 +458,10 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// reservation of it can go.
     ///
     /// With both devices given up on, the programme is kept for each: two rows, each found by its device,
-    /// the television's in DR whatever mode was asked for and the recorder's in that mode. The guide's
-    /// mark goes on finding the first of the two. Nor is a device the programme waits for where a new
-    /// reservation of it can go.
+    /// the television's in DR whatever mode was asked for and the recorder's in that mode. There too the
+    /// television's asks the recorder nothing: a recorder known to be away is not made sure of on its
+    /// account, which would write over the line left there. The guide's mark goes on finding the first of
+    /// the two. Nor is a device the programme waits for where a new reservation of it can go.
     func testOneProgrammeReservedOnBothDevicesIsAReservationOnEachAndOnNoOther() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder)
@@ -500,8 +501,12 @@ final class QueueWithATelevisionTests: XCTestCase {
         await recorder.goQuiet(on: Self.list)
         await model.loadReservations()
         XCTAssertTrue(link.session.gaveUp && model.gaveUp, "the two devices were meant to be given up on")
+        leaveALine(on: model)
+        let heardSoFar = await recorder.heard.count
 
         let forTheTelevision = await reserve(later, on: .tv)
+        expectEqual(await recorder.heard(since: heardSoFar), [], "it asked a recorder known to be away")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "it wrote on the line of a recorder known to be away")
         XCTAssertEqual(model.destinations(for: later), [.recorder], "the television is offered what waits for it")
         let forTheRecorder = await reserve(later, on: .recorder)
 
