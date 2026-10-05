@@ -23,9 +23,9 @@ public final class TVFacts {
 /// there is one -- and renews the cookie when it is past half its life.
 ///
 /// What is asked of a television after its attach is here as well (`reservations`, `refreshReservations`,
-/// `cancel`, `update`, `sendWhatWaits`): the steps, what each can come to, and the sentence said for it,
-/// through the link this is the driver of and that link's host. It is asked of the driver alone, which is
-/// handed no link: with its link gone nothing is sent. The app keeps what comes back.
+/// `cancel`, `update`, `sendWhatWaits`, `reserve`): the steps, what each can come to, and the sentence said
+/// for it, through the link this is the driver of and that link's host. It is asked of the driver alone,
+/// which is handed no link: with its link gone nothing is sent. The app keeps what comes back.
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
@@ -365,9 +365,13 @@ public final class TVDriver: LinkDriver {
     /// the door, and a connect begun meanwhile has put a client of its own in the link, which has yet to hear
     /// which television answers it. The flush reads the queue afresh once it has its turn, so one that set
     /// out only to drop what is over can come to send a row the reader has just freed: its stop is said too.
-    private func flush(_ store: GuideStore, on link: DeviceLink) async -> PendingQueue.Outcome? {
+    ///
+    /// `only` and `consenting` are the queue's own (`PendingQueue.flush`), for a row the reader asked to have
+    /// sent: with neither, as a sending of what waits passes them, every row goes and none with a consent.
+    private func flush(_ store: GuideStore, on link: DeviceLink, only: String? = nil,
+                       consenting: [String: String] = [:]) async -> PendingQueue.Outcome? {
         guard canBeAsked(on: link), let client = link.client as? ScalarClient else { return nil }
-        let outcome = await PendingQueue.flush(client: client, store: store)
+        let outcome = await PendingQueue.flush(client: client, store: store, consenting: consenting, only: only)
         say(stopped: outcome.stopped, on: link)
         return outcome
     }
@@ -390,6 +394,170 @@ public final class TVDriver: LinkDriver {
         case .cannotRecord?, .saysNothing?, nil:
             break
         }
+    }
+
+    // MARK: - reserving a programme
+
+    /// The line on screen while a reservation the reader has just asked for is made.
+    public static let reservingLine = "テレビに予約を登録中"
+    /// Said of a reservation kept on the phone because the television could not be asked: not connected,
+    /// given up on, or silent to what a round reads before it sends anything.
+    public static let waitsNotConnected = "テレビに接続していないため、予約を端末に保存しました。"
+        + "次にテレビが答えたときに登録します。予約タブで削除できます。"
+    /// Said of one kept because the television wants the app registered with it again.
+    public static let waitsForTheRegistration = "テレビの登録が必要なため、予約を端末に保存しました。"
+        + "登録すると送ります。"
+    /// Said of one kept because the disk the television records to is away: it goes by itself once the
+    /// disk is back.
+    public static let waitsForTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
+        + "HDD が見つかったあと、テレビが答えたときに登録します。"
+    /// Said of one kept because the television's answers said nothing that reads. It ends as the sentence
+    /// for silence at a create does, the same thing following: the next sending reads the television's list
+    /// before it sends anything.
+    public static let waitsUnanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
+        + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+    /// Said of a reservation the television's list held already. Nothing was made, and what is held is the
+    /// television's own: it is taken for there already unless it is known to be less than was asked.
+    public static let foundThere = "テレビにはこの番組の予約がすでにありました。"
+    /// Said of a programme whose end has passed: it is neither made nor kept.
+    public static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
+    /// Said when the reservation is no longer in the phone's queue and the television's list does not show
+    /// it either: nothing says whether it was made.
+    public static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+
+    /// Reserves `program` on the television, in DR: what a television records in, and what the waiting row
+    /// then shows. What it came to, and the television's list where one was read afterwards, for the caller
+    /// to keep (nil when none was read) -- as `cancel` hands its list back.
+    ///
+    /// The driver makes nothing by itself. The reservation is written to the phone's queue and the queue is
+    /// asked to send that one row, so that the question before a create, the list after it, silence and
+    /// every reason are the round's own rules here, as they are when what waits is sent. No consent is
+    /// handed in: a reservation that would stop another from recording is held with the reason that names
+    /// it, and making it all the same is the reader's to ask for, by sending the row again.
+    ///
+    /// Turned away at the door, with nothing kept, nothing sent and no line -- the sentence is in the result,
+    /// and what an earlier operation left on the line stays (`Reserved`): the link gone; a repeat a
+    /// television is not sent for this programme (`TVReservationBody.repeatType`), and with it a repeat or a
+    /// kind of broadcast the tables do not know, which no programme of the guide has; a programme whose end
+    /// has passed; and a queue that cannot be opened or written to.
+    ///
+    /// The row is written before anything is asked: whatever becomes of the asking, the reservation is
+    /// kept. It replaces one already waiting for the same programme on the television, its reason with it.
+    /// A television that cannot be asked is then sent nothing and is not connected to: the row goes with the
+    /// next sending of what waits. So do the other rows waiting for the television, which are not sent
+    /// here: the result is about one reservation, and another row's trouble does not keep this one from
+    /// being asked about.
+    public func reserve(_ program: GuideProgramRow,
+                        repeating: String) async -> (reserved: Reserved, list: [Reservation]?) {
+        guard let link else { return (.notDone(Self.notConnected), nil) }
+        guard let request = ReservationRequest(program: program, quality: "DR", repeating: repeating),
+              TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
+            return (.notDone(ScalarClient.repeatNotTaken), nil)
+        }
+        // After the repeat, which is settled without the clock. A round would drop such a row; with no
+        // round it would be kept, and promised to a television that is never sent it.
+        guard request.end >= Date() else { return (.notDone(Self.programmeIsOver), nil) }
+        guard let store = link.owner?.cache else { return (.notDone(PendingQueue.noCache), nil) }
+        // Queued at a whole second, as the cache keeps the moment: the row handed back is the row that waits.
+        let queuedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let row = PendingReservation(request: request, serviceName: program.serviceName, queuedAt: queuedAt,
+                                     target: ScalarClient.slot)
+        do {
+            try await store.queue(row)
+        } catch {
+            return (.notDone(PendingQueue.couldNotBeKept(error)), nil)
+        }
+        let (round, list) = await sendOne(row, under: Self.reservingLine, on: link, from: store)
+        return (reserved(row, by: round, listing: list), list)
+    }
+
+    /// What a round for one row, and the list read after it, hand back: nil for a round that never ran, and
+    /// for a list that was not read.
+    private typealias OneSent = (round: PendingQueue.Outcome?, list: [Reservation]?)
+
+    /// One waiting row sent because the reader asked for that reservation, which is all that reserving a
+    /// programme and sending a row again have in common: the line, the check, the flush of that row alone
+    /// with its consent, and the list afterwards.
+    ///
+    /// A television that cannot be asked is sent nothing and no line goes up: what is done about that is the
+    /// caller's, before this. Otherwise the line goes up before the check, as any operation's does, and stays
+    /// until the list has been read. No round runs when the check says no -- the line of what went wrong is
+    /// then the check's -- or when the door fails in the turn the client is read (`flush`).
+    ///
+    /// `reason` is the sentence the reader consented to, for a row held for what it would stop from
+    /// recording, and nil for no consent. It goes to the queue with the row's id, and is held there against
+    /// the reason the row carries in the turn it is sent.
+    ///
+    /// The list is read when the round did not leave the row waiting or drop it as over, and while the
+    /// television can still be asked: after a row that was made or found there, so that the caller has the
+    /// list with the reservation in it; and after a round that had the row in none of its lists with nothing
+    /// stopped, where the list is all that says what became of it (`reserved`). After anything else nothing
+    /// is read. Silence at a create is followed by no request at all, and a read that goes through clears
+    /// the line of what went wrong, which a reservation that was not made is not to do.
+    private func sendOne(_ row: PendingReservation, consentingTo reason: String? = nil, under line: String,
+                         on link: DeviceLink, from store: GuideStore) async -> OneSent {
+        guard canBeAsked(on: link) else { return (nil, nil) }
+        return await link.underALine(line) { _ -> OneSent in
+            let consenting = reason.map { [row.id: $0] } ?? [:]
+            guard case .up = await link.check(),
+                  let round = await self.flush(store, on: link, only: row.id, consenting: consenting) else {
+                return (nil, nil)
+            }
+            let waitsOrIsOver = round.refused + round.held + round.deferred + round.expired
+            guard round.stopped == nil, !waitsOrIsOver.contains(where: { $0.id == row.id }),
+                  self.canBeAsked(on: link) else { return (round, nil) }
+            return (round, await self.read(link, underALine: false))
+        }
+    }
+
+    /// What a round for one row came to, as the result of reserving it: the one place that reads a round so,
+    /// a round that never ran included. The first of these that fits:
+    ///
+    /// - No round ran: kept, to go when the television can next be asked, which for one that wants the app
+    ///   registered is once it is.
+    /// - The round made the row: made, with what the television's list showed the create did beyond its
+    ///   own row. One row was sent, so every remark of the round is this one's.
+    /// - The round found it in the television's list: made, and said to have been there already.
+    /// - Refused now, or held with a reason from before: kept with that reason on it. The reason for what
+    ///   it would stop from recording is told apart, so that whoever asked need not read a sentence to know
+    ///   it is a question for the reader and no refusal.
+    /// - Dropped because its programme was over: neither made nor kept.
+    /// - Passed over, or the round stopped at it: kept with no reason, and what stopped the round says in
+    ///   which sentence.
+    ///
+    /// A row in none of the round's lists, with nothing stopped, was not in the queue when the round came to
+    /// it: another sending took it first, the reader deleted it, or the queue could not be read. Its absence
+    /// is not read as made. The answer is taken from the television's list as read after the round (`list`)
+    /// and from nothing else: a recording of the programme there that is all the row asks for is made; one
+    /// that falls short of its repeat is said in the reason for that (`ScalarClient.shortfall`); and with
+    /// none listed, or no list read, nothing is known to have been made.
+    func reserved(_ row: PendingReservation, by round: PendingQueue.Outcome?, listing list: [Reservation]?,
+                  now: Date = Date()) -> Reserved {
+        guard let round else {
+            return .waiting(row, saying: facts.needsPairing ? Self.waitsForTheRegistration : Self.waitsNotConnected)
+        }
+        func has(_ rows: [PendingReservation]) -> Bool { rows.contains { $0.id == row.id } }
+        if has(round.sent) {
+            return .made(saying: round.remarks.isEmpty ? nil : round.remarks.joined(separator: "。"))
+        }
+        if has(round.alreadyThere) { return .made(saying: Self.foundThere) }
+        if let kept = (round.refused + round.held).first(where: { $0.id == row.id }), let reason = kept.problem {
+            return ScalarClient.holdsForWhatItWouldStop(reason) ? .wouldStop(kept) : .waiting(kept, saying: reason)
+        }
+        if has(round.expired) { return .notDone(Self.programmeIsOver) }
+        if has(round.deferred) { return .waiting(row, saying: Self.waitsUnanswered) }
+        switch round.stopped {
+        case .silent(afterSending: true)?: return .waiting(row, saying: Self.createMetSilence)
+        case .silent(afterSending: false)?: return .waiting(row, saying: Self.waitsNotConnected)
+        case .needsPairing?: return .waiting(row, saying: Self.waitsForTheRegistration)
+        case .cannotRecord?: return .waiting(row, saying: Self.waitsForTheDisk)
+        case .saysNothing?: return .waiting(row, saying: Self.waitsUnanswered)
+        case nil: break
+        }
+        if let held = list?.compactMap(\.tvRow).holding(row.request) {
+            return ScalarClient.shortfall(of: held, for: row.request).map { .notDone($0) } ?? .made(saying: nil)
+        }
+        return .notDone(row.request.end < now ? Self.programmeIsOver : Self.couldNotBeConfirmed)
     }
 
     // MARK: - the check before an operation
