@@ -401,9 +401,10 @@ final class QueueTargetTests: XCTestCase {
     }
 
     /// A row with a reason on it is not sent, unless the reader consented to it: then it is sent though the
-    /// reason is on it, and the device is told of the consent. Consent is by id and for that row alone: the
-    /// row beside it stays held, and a row with no reason is sent as one not consented to. A consented row is
-    /// a row to go, so the round is opened for it though nothing else waits.
+    /// reason is on it, and the device is told of the consent. Consent is to the reason the row carries,
+    /// handed in with the row's id, and for that row alone: the row beside it stays held, and a row with no
+    /// reason is sent as one not consented to. A consented row is a row to go, so the round is opened for it
+    /// though nothing else waits.
     func testARowWithAReasonIsHeldUnlessTheReaderConsentedToIt() async throws {
         let held = row("断られたままの番組", 1, startingIn: 1, reason: refusal)
         let consented = row("それでも予約する番組", 2, startingIn: 2, reason: refusal)
@@ -411,7 +412,8 @@ final class QueueTargetTests: XCTestCase {
         let store = try await store(with: [held, consented, plain])
         let device = FakeTarget(store)
 
-        let outcome = await PendingQueue.flush(client: device, store: store, consenting: [consented.id], now: now)
+        let outcome = await PendingQueue.flush(client: device, store: store, consenting: [consented.id: refusal],
+                                               now: now)
 
         expectEqual(await device.asked, [
             .open(["断られたままの番組", "それでも予約する番組", "これからの番組"]),
@@ -424,7 +426,7 @@ final class QueueTargetTests: XCTestCase {
 
         let alone = try await self.store(with: [consented])
         let asked = FakeTarget(alone)
-        _ = await PendingQueue.flush(client: asked, store: alone, consenting: [consented.id], now: now)
+        _ = await PendingQueue.flush(client: asked, store: alone, consenting: [consented.id: refusal], now: now)
         expectEqual(await asked.asked,
                     [.open(["それでも予約する番組"]), .send("それでも予約する番組", consented: true, after: 0)])
 
@@ -432,9 +434,52 @@ final class QueueTargetTests: XCTestCase {
         // waits for the reader again.
         let passed = try await self.store(with: [consented])
         let passing = FakeTarget(passed, answering: ["それでも予約する番組": .passedOver])
-        let over = await PendingQueue.flush(client: passing, store: passed, consenting: [consented.id], now: now)
+        let over = await PendingQueue.flush(client: passing, store: passed, consenting: [consented.id: refusal],
+                                            now: now)
         expectEqual(try await came(over, passed),
                     Came(deferred: ["それでも予約する番組"], left: ["それでも予約する番組"], written: [refusal]))
+    }
+
+    /// A consent is given to a sentence, and counts only while that sentence is the reason the row carries
+    /// as it is sent. Handed in with another -- the one the reader saw, where the row's has been written anew
+    /// since -- it is no consent: nothing is asked of the device for the row, and it is held as it was, with
+    /// the reason it has now.
+    func testAConsentToAnotherSentenceThanTheRowCarriesIsNoConsent() async throws {
+        let rewritten = row("それでも予約する番組", 1, startingIn: 1, reason: refusal)
+        let store = try await store(with: [rewritten])
+        let device = FakeTarget(store)
+
+        let outcome = await PendingQueue.flush(client: device, store: store,
+                                               consenting: [rewritten.id: "この局は受信できません"], now: now)
+
+        expectEqual(await device.asked, [])
+        expectEqual(try await came(outcome, store),
+                    Came(held: ["それでも予約する番組"], left: ["それでも予約する番組"], written: [refusal]))
+    }
+
+    /// Asked for one row by its id, the queue sends that row and no other: the device is read for it alone,
+    /// and sent it. Everything else that waits for the device is in none of the outcome's lists and in the
+    /// queue as it was: a row with a reason on it is not told as held, and one whose programme is over is not
+    /// dropped. An id that is no row's asks the device nothing and comes to nothing.
+    func testAskedForOneRowTheQueueSendsThatRowAndLeavesTheRestAsTheyWere() async throws {
+        let wanted = row("頼まれた番組", 3, startingIn: 2)
+        let rows = [row("終わった番組", 1, startingIn: -3), row("断られていた番組", 2, startingIn: 1, reason: refusal),
+                    wanted]
+        let store = try await store(with: rows)
+        let device = FakeTarget(store)
+
+        let outcome = await PendingQueue.flush(client: device, store: store, only: wanted.id, now: now)
+
+        expectEqual(await device.asked, [.open(["頼まれた番組"]), .send("頼まれた番組", after: 0)])
+        expectEqual(try await came(outcome, store),
+                    Came(sent: ["頼まれた番組"], left: ["終わった番組", "断られていた番組"], written: [nil, refusal]))
+
+        let untouched = try await self.store(with: rows)
+        let unasked = FakeTarget(untouched)
+        let nothing = await PendingQueue.flush(client: unasked, store: untouched, only: "tv|2/1064/0", now: now)
+        expectEqual(await unasked.asked, [])
+        expectEqual(try await came(nothing, untouched),
+                    Came(left: rows.map(\.request.title), written: [nil, refusal, nil]))
     }
 
     /// What a row came to settles the row. Made, or held by the device already: it leaves the queue, told as

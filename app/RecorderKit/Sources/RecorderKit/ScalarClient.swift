@@ -615,6 +615,10 @@ extension ScalarClient {
         "\(wouldStop): \(named.map(name(of:)).joined(separator: "、"))。\(sendAgainToMakeIt)"
     }
 
+    /// Whether `reason`, written on a waiting reservation, is the one for what it would stop from recording
+    /// (`wouldStop(naming:)`): the only reason that is also a consent once the reader sends the row again.
+    static func holdsForWhatItWouldStop(_ reason: String) -> Bool { reason.hasPrefix(wouldStop + ": ") }
+
     /// How a row of the television's list is said in a sentence: its title as the television has it, and in
     /// brackets its station and the day and the time it starts. The start tells one reservation of a
     /// programme from the next day's, and the station tells it from the same title at the same minute on

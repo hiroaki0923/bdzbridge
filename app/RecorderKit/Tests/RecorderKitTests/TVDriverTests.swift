@@ -5,7 +5,7 @@ import XCTest
 /// A television on a link: attached without being woken, told from another by the MAC it wakes on, asked for a
 /// registration when it has none that works, and given a new cookie when the one in hand is past half its life.
 /// And what is asked of it after the attach, of its driver alone: its reservations read, one deleted, a change
-/// turned down, and the list pulled down.
+/// turned down, the list pulled down, what waits sent, a programme reserved, and a waiting row sent again.
 @MainActor
 final class TVDriverTests: XCTestCase {
     /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
@@ -1090,6 +1090,665 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(refused.world.problem, ScalarError.notRegistered.explanation)
         XCTAssertTrue(refused.driver.facts.needsPairing)
         XCTAssertTrue(refused.link.session.connected, "the refusal lost the television, as silence does")
+    }
+
+    // MARK: - reserving a programme
+
+    private static let waitsNotConnected = "テレビに接続していないため、予約を端末に保存しました。"
+        + "次にテレビが答えたときに登録します。予約タブで削除できます。"
+    private static let waitsForTheRegistration = "テレビの登録が必要なため、予約を端末に保存しました。"
+        + "登録すると送ります。"
+    private static let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+    private static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
+
+    /// A programme of the guide on the station the invented television receives, numbered `number`. It starts
+    /// two hours from now by the real clock unless said, at a whole second: a reservation takes the clock as
+    /// it is, as a sending does.
+    private func programme(_ title: String, _ number: Int, in hours: Double = 2,
+                           at start: Date? = nil) -> GuideProgramRow {
+        let station = DemoTV.Station()
+        let start = start ?? Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + hours * 3600).rounded(.down))
+        return GuideProgramRow(broadcasting: "td", serviceID: station.serviceID, serviceName: station.name,
+                               eventID: number, start: start, end: start.addingTimeInterval(1800), title: title,
+                               summary: "", extended: "", genres: [], copyControl: 0, parental: 0,
+                               isReference: false, referenceServiceID: nil, referenceEventID: nil)
+    }
+
+    /// Connected to a television that can be asked, with nothing waiting.
+    private func attachedQueueBench() async throws -> QueueBench {
+        let bench = try await queueBench()
+        await bench.link.connect()
+        XCTAssertTrue(bench.driver.canBeAsked)
+        return bench
+    }
+
+    /// A reservation the reader asks for is written to the phone's queue first -- for the television, in DR,
+    /// with no reason on it -- and then made by a round for that one row: when the round's first request
+    /// reaches the television the row is kept already. What goes out is the six requests of a round and the
+    /// read of the list after it, each with the cookie and nothing else on it: one create, nothing to make
+    /// sure of a television that has just answered, nothing that registers the app, no packet, no connect.
+    /// The line says what is being made while the create is out and is gone afterwards. Made, the
+    /// reservation clears the line of what went wrong, and the list handed back has it. Another row waiting
+    /// for the television is not sent with it and waits as it was, and the host is not asked to send what
+    /// waits.
+    ///
+    /// A programme the television's list holds already is not made a second time: the round ends at its
+    /// list, and the result says the reservation was there.
+    func testAReservationIsKeptFirstAndThenMadeByARoundForThatOneRow() async throws {
+        let bench = try await attachedQueueBench()
+        let other = waiting("サンプル紀行", 50102, in: 3)
+        try await bench.store.queue(other)
+        bench.world.problem = Self.left
+        await bench.gate.before(Self.disk) { @MainActor in
+            let kept = try? await bench.store.pendingReservations().first { $0.request.eventID == 50101 }
+            bench.world.put("kept for \(kept?.target.rawValue ?? "nobody") in \(kept?.request.qualityCode ?? 0), "
+                + (kept?.problem ?? "no reason"))
+        }
+        await bench.gate.before(Self.create) { @MainActor in
+            bench.world.put("under \(bench.world.line ?? "no line")")
+        }
+        let tries = bench.link.session.link.tries, events = bench.world.events.count
+        var before = await bench.television.calls.count
+
+        let made = await bench.driver.reserve(programme("サンプル劇場", 50101), repeating: "none")
+
+        XCTAssertEqual(made.reserved, .made(saying: nil))
+        XCTAssertEqual(made.list?.map(\.eventID), [50101])
+        expectEqual(Array(await bench.television.calls.dropFirst(before)),
+                    (Self.round + [Self.read]).map { "\($0) cookie=yes pin=no" })
+        XCTAssertEqual(Array(bench.world.events.dropFirst(events)),
+                       ["kept for tv in 100, no reason", "under テレビに予約を登録中"])
+        XCTAssertNil(bench.world.line)
+        XCTAssertNil(bench.world.problem)
+        expectEqual(try await bench.store.pendingReservations(), [other])
+        expectEqual(await bench.television.schedules.map(\.eventId), [50101])
+
+        let weather = programme("サンプル天気", 50103, in: 4)
+        let holds = await bench.television.schedules
+        await bench.television.put(holds + [DemoTV.Schedule(id: "recording.61", start: weather.start, eventId: 50103)])
+        before = await bench.television.calls.count
+
+        let found = await bench.driver.reserve(weather, repeating: "none")
+
+        XCTAssertEqual(found.reserved, .made(saying: "テレビにはこの番組の予約がすでにありました。"))
+        XCTAssertEqual(found.list?.map(\.eventID), [50103, 50101])
+        expectEqual(Array(await bench.television.calls.dropFirst(before)),
+                    [Self.disk, Self.read, Self.read].map { "\($0) cookie=yes pin=no" })
+        expectEqual(try await bench.store.pendingReservations(), [other])
+        XCTAssertEqual(bench.world.count("packet"), 0, "a packet was sent to a television")
+        XCTAssertEqual(bench.world.count("send what waits"), 1, "the host was asked to send what waits")
+        XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
+    }
+
+    /// A reservation asked for while a sending of what waits has the programme's row in hand is not made a
+    /// second time, and is not left unanswered. The row waited already, and the sending had read it and
+    /// was at its create when the reservation replaced the row and took its turn behind the sending. The
+    /// sending makes the reservation and takes the row out of the queue, the reservation's own with it. The
+    /// round for the reservation then finds no row, and has it in none of its lists. The television's list
+    /// is read all the same and has the programme, so the result is made, with that list handed back. One
+    /// create went out in all, and nothing waits.
+    func testAReservationASendingMadeFirstIsAnsweredFromTheListAndNotMadeAgain() async throws {
+        let bench = try await attachedQueueBench()
+        let older = waiting("サンプル劇場", 50101)
+        try await bench.store.queue(older)
+        let film = programme("サンプル劇場", 50101, at: older.request.start)
+        // The sending's create is kept back until the reservation has been kept and its line is up.
+        let behind = Reserving()
+        await bench.gate.before(Self.create) { @MainActor in
+            behind.reservation = Task { await bench.driver.reserve(film, repeating: "none") }
+            for _ in 0..<100_000 where !bench.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+        }
+        let before = await bench.gate.asked.count
+
+        let sending = await bench.driver.sendWhatWaits()
+        let made = await behind.reservation?.value
+
+        XCTAssertEqual(sending?.sent, [older], "the sending did not have the row in hand")
+        XCTAssertEqual(made?.reserved, .made(saying: nil))
+        XCTAssertEqual(made?.list?.map(\.eventID), [50101])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), Self.round + [Self.read])
+        expectEqual(try await bench.store.pendingReservations(), [])
+        expectEqual(await bench.television.schedules.map(\.eventId), [50101])
+    }
+
+    /// Holds the reservation a test sets going from inside a request, to be waited for afterwards.
+    @MainActor
+    private final class Reserving {
+        var reservation: Task<(reserved: Reserved, list: [Reservation]?), Never>?
+    }
+
+    /// A round that could not read the phone's queue comes back as one does whose row has gone: with the row
+    /// in none of its lists and nothing stopped. The row waits still, though, and the result says so. It is
+    /// not answered as neither made nor kept on the strength of a list that has no such recording, when the
+    /// next sending of what waits goes on to make it. Here the queue cannot be read from the moment the
+    /// reservation is kept until the list after its round is asked for. The round asks the television
+    /// nothing, the list is read, and the row is in the queue as it was written, with no reason on it.
+    func testAReservationWhoseRoundCouldNotReadTheQueueIsSaidToWait() async throws {
+        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
+            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        let bench = try await attachedQueueBench()
+        let path = temporaryPath()
+        let store = try GuideStore(path: path)
+        bench.world.cache = store
+        // The queue's table is put out of reach from another connection, on purpose: a read of it then fails.
+        // A check is in flight as the reservation is asked for, and its ask is held until the reservation has
+        // been kept and its line is up, so that the first read to fail is the round's.
+        let other = try Sqlite(path: path)
+        await bench.gate.before("getPowerStatus") { @MainActor in
+            for _ in 0..<100_000 where !bench.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+            try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
+        }
+        await bench.gate.before(Self.read) { @MainActor in
+            try? other.execute("ALTER TABLE out_of_reach RENAME TO pending_reservations")
+        }
+        let before = await bench.gate.asked.count
+        let checking = Task { await bench.link.ensureUp(evenIfRecent: true) }
+
+        let (reserved, list) = await bench.driver.reserve(programme("サンプル劇場", 50101), repeating: "none")
+
+        expectTrue(await checking.value)
+        let kept = try await store.pendingReservations()
+        XCTAssertEqual(kept.map(\.id), ["tv|2/1024/50101"])
+        XCTAssertEqual(kept.map(\.problem), [nil])
+        XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: unanswered) })
+        XCTAssertEqual(list?.map(\.eventID), [])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), ["getPowerStatus", Self.read])
+        expectEqual(await bench.television.schedules, [])
+    }
+
+    /// What the door turns away, each on a television of its own that could be asked, with something left on
+    /// the line by an earlier operation: a weekly repeat of another weekday than the programme's; a repeat no
+    /// table has; a programme whose end has passed; no cache; a cache that cannot be written to, another
+    /// connection holding a write on it; and the link let go of. Each is answered as not done with its
+    /// sentence, in the result and nowhere else: nothing is kept, nothing is asked of the television, no line
+    /// goes up, and the line of what went wrong is as it was.
+    func testWhatTheDoorTurnsAwayIsNeitherKeptNorSentAndIsSaidInTheResult() async throws {
+        let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+        let soon = programme("サンプル劇場", 50101)
+        func turnedAway(_ name: String, _ programme: GuideProgramRow, repeating: String = "none", by driver: TVDriver,
+                        _ gate: TVGate, _ world: LinkWorld, _ store: GuideStore) async throws -> Reserved {
+            world.problem = Self.left
+            let asked = await gate.asked, begun = world.begun
+            let (reserved, list) = await driver.reserve(programme, repeating: repeating)
+            XCTAssertNil(list, name)
+            expectEqual(await gate.asked, asked, "\(name): the television was asked")
+            expectEqual(try await store.pendingReservations(), [], "\(name): a row was kept")
+            XCTAssertEqual(world.problem, Self.left, "\(name): the door wrote on the line")
+            XCTAssertEqual(world.begun, begun, "\(name): a line went up")
+            return reserved
+        }
+        func turnedAway(_ name: String, _ programme: GuideProgramRow, repeating: String = "none",
+                        on bench: QueueBench, keptIn store: GuideStore? = nil) async throws -> Reserved {
+            try await turnedAway(name, programme, repeating: repeating, by: bench.driver, bench.gate, bench.world,
+                                 store ?? bench.store)
+        }
+
+        // A Sunday evening in Japan: a repeat is settled before the clock is read, whenever this is run.
+        let sunday = programme("サンプル劇場", 50101, at: Self.start), over = programme("サンプル劇場", 50101, in: -2)
+        let cases = [("a weekly repeat of another weekday", sunday, "mon", repeatNotTaken),
+                     ("a repeat no table has", soon, "なし", repeatNotTaken),
+                     ("a programme that is over", over, "none", Self.programmeIsOver)]
+        for (name, programme, repeating, says) in cases {
+            let bench = try await attachedQueueBench()
+            expectEqual(try await turnedAway(name, programme, repeating: repeating, on: bench), .notDone(says), name)
+        }
+
+        let without = try await attachedQueueBench()
+        without.world.cache = nil
+        expectEqual(try await turnedAway("no cache", soon, on: without),
+                    .notDone("予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"))
+
+        // The lock is held on purpose and the wait for it cut short: what is tested is giving up.
+        let locked = try await attachedQueueBench()
+        let path = temporaryPath()
+        let impatient = try GuideStore(path: path, busyTimeoutMilliseconds: 200)
+        locked.world.cache = impatient
+        let writer = try Sqlite(path: path)
+        try writer.execute("BEGIN IMMEDIATE")
+        let unkept = try await turnedAway("a cache that cannot be written to", soon, on: locked, keptIn: impatient)
+        try writer.execute("ROLLBACK")
+        guard case .notDone(let said) = unkept else { return XCTFail("not turned away: \(unkept)") }
+        XCTAssertTrue(said.hasPrefix("予約を端末に保存できませんでした: "), "what is said instead: \(said)")
+
+        let driver: TVDriver, gate: TVGate, world: LinkWorld, store: GuideStore
+        do {
+            let gone = try await attachedQueueBench()
+            (driver, gate, world, store) = (gone.driver, gone.gate, gone.world, gone.store)
+        }
+        XCTAssertFalse(driver.canBeAsked, "something still holds the link")
+        expectEqual(try await turnedAway("the link gone", soon, by: driver, gate, world, store),
+                    .notDone("テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"))
+    }
+
+    /// A television that cannot be asked is sent nothing of a reservation and is not connected to for it. The
+    /// reservation is kept on the phone, for the television and with no reason on it, to go with the next
+    /// sending of what waits, and the result says which wait it is: for the registration, where the
+    /// television refused the cookie at the attach, and otherwise for the television to answer -- here one
+    /// given up on after silence. No line goes up for either, and what an earlier operation left on the line
+    /// stays.
+    ///
+    /// One that is being made sure of as the reservation is asked for is waited for, the line up meanwhile.
+    /// When that check meets silence the reservation is kept the same way: nothing is asked after the
+    /// check's own ask, and the line of what went wrong is the check's.
+    func testAReservationForATelevisionThatCannotBeAskedIsKeptAndNotSent() async throws {
+        let film = programme("サンプル劇場", 50101)
+        let unregistered = try await queueBench()
+        unregistered.credentials.save(Self.stale)
+        await unregistered.link.connect()
+        XCTAssertTrue(unregistered.driver.facts.needsPairing)
+        let silent = try await attachedQueueBench()
+        await silent.television.goSilent()
+        _ = await silent.link.ensureUp(evenIfRecent: true)
+        await silent.television.goSilent(false)
+        XCTAssertTrue(silent.link.session.gaveUp)
+
+        for (bench, says) in [(unregistered, Self.waitsForTheRegistration), (silent, Self.waitsNotConnected)] {
+            bench.world.problem = Self.left
+            let asked = await bench.gate.asked, tries = bench.link.session.link.tries
+
+            let (reserved, list) = await bench.driver.reserve(film, repeating: "none")
+
+            let kept = try await bench.store.pendingReservations()
+            XCTAssertEqual(kept.map(\.id), ["tv|2/1024/50101"], says)
+            XCTAssertEqual(kept.map(\.problem), [nil], says)
+            XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: says) })
+            XCTAssertNil(list, says)
+            expectEqual(await bench.gate.asked, asked, "sent to a television that cannot be asked")
+            XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
+            XCTAssertFalse(bench.world.begun.contains(TVDriver.reservingLine), "a line went up for nothing sent")
+            XCTAssertEqual(bench.world.problem, Self.left, "a reservation that was not sent wrote over the line")
+        }
+
+        // The check's ask is kept from failing until the reservation has been kept and its line is up.
+        let unsure = try await attachedQueueBench()
+        await unsure.television.goSilent()
+        await unsure.gate.before("getPowerStatus") { @MainActor in
+            for _ in 0..<100_000 where !unsure.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+        }
+        let asked = await unsure.gate.asked
+        let checking = Task { await unsure.link.ensureUp(evenIfRecent: true) }
+
+        let (reserved, list) = await unsure.driver.reserve(film, repeating: "none")
+
+        expectFalse(await checking.value)
+        let kept = try await unsure.store.pendingReservations()
+        XCTAssertEqual(kept.map(\.problem), [nil])
+        XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: Self.waitsNotConnected) })
+        XCTAssertNil(list)
+        expectEqual(Array(await unsure.gate.asked.dropFirst(asked.count)), ["getPowerStatus"])
+        XCTAssertEqual(unsure.world.problem, unsure.driver.noAnswerLine)
+    }
+
+    /// A programme whose end has passed is turned away at the door where the television cannot be asked as
+    /// well, which is where the door is needed: no round runs there to drop the row, so it would be kept,
+    /// and said to go when the television next answers, for a programme no television is sent once it is
+    /// over. Here the television was given up on after silence. Nothing is kept, nothing is asked of it, no
+    /// connect is made, and the result says the programme is over.
+    func testAProgrammeThatIsOverIsNotKeptForATelevisionThatCannotBeAsked() async throws {
+        let bench = try await attachedQueueBench()
+        await bench.television.goSilent()
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        await bench.television.goSilent(false)
+        XCTAssertTrue(bench.link.session.gaveUp)
+        let asked = await bench.gate.asked, tries = bench.link.session.link.tries
+
+        let (reserved, list) = await bench.driver.reserve(programme("サンプル劇場", 50101, in: -2), repeating: "none")
+
+        XCTAssertEqual(reserved, .notDone(Self.programmeIsOver))
+        XCTAssertNil(list)
+        expectEqual(try await bench.store.pendingReservations(), [], "kept for a television that is never sent it")
+        expectEqual(await bench.gate.asked, asked, "sent to a television that cannot be asked")
+        XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
+    }
+
+    /// What a round for one row is read as, with no television: each way a round can go, and the sentence the
+    /// result says for it, to the letter. A round that never ran keeps the reservation, and what the driver
+    /// knows of the registration says which wait it is. The reason for what a reservation would stop from
+    /// recording is told from every other reason, on a row refused now and on one held from before.
+    ///
+    /// A row the round has in none of its lists, with nothing stopped, is not taken for made because it has
+    /// gone from the queue. Made is said only where the television's list has a recording of the programme
+    /// that is all the row asks for; where what it has falls short of the repeat asked, the reason for that
+    /// is said; and with nothing of it listed, or no list read, nothing is known to have been made -- or,
+    /// its programme being over by then, that is what is said.
+    func testWhatARoundForOneRowCameToIsReadAsWhatTheReservationCameTo() {
+        let driver = TVDriver(credentials: MemoryTVCredentials(), nickname: "BD Bridge", inFront: { true })
+        let row = waiting("サンプル劇場", 50101), other = waiting("サンプル紀行", 50102, in: 3)
+        var clashing = row, unlisted = row, daily = row
+        clashing.problem = ScalarClient.wouldStop(naming: [Self.weather.row])
+        unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        daily.request.repeatCode = "d"
+        let remark = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
+            + "HDD が見つかったあと、テレビが答えたときに登録します。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
+            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        let unconfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+        let once = [DemoTV.Schedule(id: "recording.31", start: row.request.start, eventId: 50101), Self.weather]
+            .compactMap { $0.row.reservation() }
+        let without = [Self.weather, Self.drama].compactMap { $0.row.reservation() }
+        func round(sent: [PendingReservation] = [], remarks: [String] = [], expired: [PendingReservation] = [],
+                   refused: [PendingReservation] = [], deferred: [PendingReservation] = [],
+                   held: [PendingReservation] = [], alreadyThere: [PendingReservation] = [],
+                   stopped: SendingStop? = nil) -> PendingQueue.Outcome {
+            PendingQueue.Outcome(slot: .tv, sent: sent, remarks: remarks, expired: expired, refused: refused,
+                                 deferred: deferred, held: held, alreadyThere: alreadyThere, stopped: stopped)
+        }
+        let cases: [(name: String, row: PendingReservation, round: PendingQueue.Outcome?, list: [Reservation]?,
+                     comes: Reserved)] = [
+            ("no round ran", row, nil, nil, .waiting(row, saying: Self.waitsNotConnected)),
+            ("made", row, round(sent: [row]), once, .made(saying: nil)),
+            ("made, and something to say", row, round(sent: [row], remarks: [remark]), once, .made(saying: remark)),
+            ("found there", row, round(alreadyThere: [row]), once,
+             .made(saying: "テレビにはこの番組の予約がすでにありました。")),
+            ("refused for what it would stop", row, round(refused: [clashing]), nil, .wouldStop(clashing)),
+            ("held for what it would stop", row, round(held: [clashing]), nil, .wouldStop(clashing)),
+            ("refused for its station", row, round(refused: [unlisted]), nil,
+             .waiting(unlisted, saying: "テレビのチャンネル一覧にこの局が見つかりませんでした。")),
+            ("held for its station", row, round(held: [unlisted]), nil,
+             .waiting(unlisted, saying: "テレビのチャンネル一覧にこの局が見つかりませんでした。")),
+            ("its programme over", row, round(expired: [row]), nil, .notDone(Self.programmeIsOver)),
+            ("silence at the create", row, round(stopped: .silent(afterSending: true)), nil,
+             .waiting(row, saying: Self.metSilence)),
+            ("silence at a read", row, round(stopped: .silent(afterSending: false)), nil,
+             .waiting(row, saying: Self.waitsNotConnected)),
+            ("the registration wanted", row, round(stopped: .needsPairing), nil,
+             .waiting(row, saying: Self.waitsForTheRegistration)),
+            ("the disk away", row, round(stopped: .cannotRecord(reason: ScalarClient.diskNotFound)), nil,
+             .waiting(row, saying: forTheDisk)),
+            ("passed over", row, round(deferred: [row]), nil, .waiting(row, saying: unanswered)),
+            ("an opening that says nothing", row, round(stopped: .saysNothing), nil,
+             .waiting(row, saying: unanswered)),
+            ("gone from the queue, and listed", row, round(), once, .made(saying: nil)),
+            ("gone, and listed once where a repeat was asked", daily, round(), once,
+             .notDone(ScalarClient.reservedOnceOnly)),
+            ("gone, and not listed", row, round(), without, .notDone(unconfirmed)),
+            ("gone, and no list read", row, round(), nil, .notDone(unconfirmed)),
+            ("gone, another row made", row, round(sent: [other], remarks: [remark]), without, .notDone(unconfirmed)),
+        ]
+        for (name, row, round, list, comes) in cases {
+            XCTAssertEqual(driver.reserved(row, by: round, listing: list), comes, name)
+        }
+        XCTAssertEqual(driver.reserved(row, by: round(), listing: without, now: row.request.end.addingTimeInterval(1)),
+                       .notDone(Self.programmeIsOver), "gone, and over by then")
+        driver.facts.needsPairing = true
+        XCTAssertEqual(driver.reserved(row, by: nil, listing: nil), .waiting(row, saying: Self.waitsForTheRegistration),
+                       "no round ran, the registration wanted")
+    }
+
+    /// A reservation that would stop another from recording is not made: nothing hands a consent in with a
+    /// reservation just asked for. The television holds two recordings at the programme's time, so a third
+    /// would cost the one made first its recording. The television is asked up to that question and no
+    /// further; the row is kept and held with the reason that names that recording; and the result says it
+    /// is for the reader to answer. No list is read for a reservation that was not made, so what an earlier
+    /// operation left on the line stays. The television holds what it held.
+    ///
+    /// A create that meets silence is followed by nothing: not the list, not a second create. It may have
+    /// been made, so the row waits with no reason on it, the result and the line both say so in the sentence
+    /// for that, and the television is lost. The next connect finds the reservation in the television's
+    /// list and sends no create.
+    func testAReservationThatWouldStopAnotherIsHeldAndOneWhoseCreateMetSilenceWaits() async throws {
+        let film = programme("サンプル映画", 50105)
+        let holding = [
+            DemoTV.Schedule(id: "recording.21", serviceID: 1032, station: "サンプル放送", title: "サンプル寄席",
+                            start: film.start),
+            DemoTV.Schedule(id: "recording.22", serviceID: 1040, station: "サンプル放送2", title: "サンプル音楽館",
+                            start: film.start),
+        ]
+        let clashing = try await attachedQueueBench()
+        await clashing.television.put(holding)
+        clashing.world.problem = Self.left
+        var before = await clashing.gate.asked.count
+
+        let held = await clashing.driver.reserve(film, repeating: "none")
+
+        var kept = try await clashing.store.pendingReservations()
+        XCTAssertEqual(kept.map(\.problem), [ScalarClient.wouldStop(naming: [holding[0].row])])
+        XCTAssertEqual(held.reserved, kept.first.map { Reserved.wouldStop($0) })
+        XCTAssertNil(held.list)
+        expectEqual(Array(await clashing.gate.asked.dropFirst(before)), Array(Self.round.prefix(4)))
+        XCTAssertEqual(clashing.world.problem, Self.left)
+        expectEqual(await clashing.television.schedules, holding)
+
+        let silent = try await attachedQueueBench()
+        await silent.television.atTheNextCreate(.carriedOutAndNotAnswered)
+        before = await silent.gate.asked.count
+
+        let waits = await silent.driver.reserve(film, repeating: "none")
+
+        kept = try await silent.store.pendingReservations()
+        XCTAssertEqual(kept.map(\.problem), [nil])
+        XCTAssertEqual(waits.reserved, kept.first.map { Reserved.waiting($0, saying: Self.metSilence) })
+        XCTAssertNil(waits.list)
+        expectEqual(Array(await silent.gate.asked.dropFirst(before)), Array(Self.round.dropLast()))
+        XCTAssertEqual(silent.world.problem, Self.metSilence)
+        XCTAssertFalse(silent.link.session.connected)
+
+        before = await silent.gate.asked.count
+        await silent.link.connect()
+        expectEqual(Array(await silent.gate.asked.dropFirst(before)), Self.attaching + [Self.disk, Self.read])
+        XCTAssertEqual(silent.sendings.came.last??.alreadyThere, kept)
+        expectEqual(try await silent.store.pendingReservations(), [])
+        expectEqual(await silent.television.schedules.map(\.eventId), [50105])
+    }
+
+    // MARK: - sending a waiting row again
+
+    /// What sending a row again came to and left: the round and the list handed back, the list by its ids;
+    /// what the television was asked for it; what still waits in the queue; what the television holds, each
+    /// by its id and its overlap; the lines put up for it; and the connects made.
+    private struct Resent: Equatable {
+        var round: PendingQueue.Outcome?
+        var listed: [String]?
+        var asked: [String]
+        var left: [PendingReservation]
+        var holds: [String]
+        var lines: [String] = []
+        var connects = 0
+    }
+
+    /// A film's row, and the two recordings a television holds at its time, so that a third there, which
+    /// the row is, would cost the one made first its recording: what the television holds while nothing is
+    /// made, and once the row is. `clashing` is the row held with the reason that names that recording, as
+    /// the television would name it now, and `stale` the row held with a reason that names the other.
+    private struct Clash {
+        let film: PendingReservation, clashing: PendingReservation, stale: PendingReservation
+        let holding: [DemoTV.Schedule]
+        let untouched = ["recording.21 notOverlapped", "recording.22 notOverlapped"]
+        let stopped = ["recording.21 fullyOverlapped", "recording.22 notOverlapped", "recording.23 notOverlapped"]
+        let listed = ["recording.23", "recording.22", "recording.21"]
+    }
+
+    private func clash() -> Clash {
+        let film = waiting("サンプル映画", 50105)
+        let holding = [
+            DemoTV.Schedule(id: "recording.21", serviceID: 1032, station: "サンプル放送", title: "サンプル寄席",
+                            start: film.request.start),
+            DemoTV.Schedule(id: "recording.22", serviceID: 1040, station: "サンプル放送2", title: "サンプル音楽館",
+                            start: film.request.start),
+        ]
+        var clashing = film, stale = film
+        clashing.problem = ScalarClient.wouldStop(naming: [holding[0].row])
+        stale.problem = ScalarClient.wouldStop(naming: [holding[1].row])
+        return Clash(film: film, clashing: clashing, stale: stale, holding: holding)
+    }
+
+    /// Connected to a television that holds `holding`, and then with `rows` waiting: queued once the attach
+    /// is over, whose own sending would have taken them. With `givenUp` it has been silent to a check since,
+    /// so it is given up on, and answers again unless `silent`.
+    private func resendBench(_ rows: [PendingReservation], holding: [DemoTV.Schedule] = [], givenUp: Bool = false,
+                             silent: Bool = false) async throws -> QueueBench {
+        let bench = try await attachedQueueBench()
+        await bench.television.put(holding)
+        for row in rows { try await bench.store.queue(row) }
+        guard givenUp else { return bench }
+        await bench.television.goSilent()
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        await bench.television.goSilent(silent)
+        XCTAssertTrue(bench.link.session.gaveUp)
+        return bench
+    }
+
+    /// Sends `pressed` again on `bench`, and reads what that came to and left. No line is left up by it,
+    /// and no packet is sent for it.
+    private func resend(_ pressed: PendingReservation, on bench: QueueBench) async throws -> Resent {
+        let asked = await bench.gate.asked.count, begun = bench.world.begun.count
+        let tries = bench.link.session.link.tries
+        let sent = await bench.driver.resend(pressed)
+        XCTAssertNil(bench.world.line, "a line was left up")
+        XCTAssertEqual(bench.world.count("packet"), 0, "a packet was sent to a television")
+        return Resent(round: sent.round, listed: sent.list?.map(\.id),
+                      asked: Array(await bench.gate.asked.dropFirst(asked)),
+                      left: try await bench.store.pendingReservations(),
+                      holds: await bench.television.schedules.map { "\($0.id) \($0.overlapStatus)" },
+                      lines: Array(bench.world.begun.dropFirst(begun)), connects: bench.link.session.link.tries - tries)
+    }
+
+    /// A row sent again, each on a television of its own.
+    ///
+    /// A row that waits for the recorder is none of this driver's: nothing is asked, read or written for
+    /// it, its reason stays, and the line of what went wrong is as it was. Nor is anything asked for a row
+    /// that is no longer in the queue. A row of the television's with a reason the television gave it has
+    /// the reason taken off and is made by a round for that one row, under the line for what waits: the six
+    /// requests of a round and the read of the list, which is handed back. The rows beside it wait as they
+    /// were, the one with a reason and the one without.
+    ///
+    /// A row held for what it would stop from recording keeps that reason, which is what the reader consents
+    /// to by sending it again. The television is asked the question again, and where it names what the
+    /// reason names the create goes and the recording named loses. Where it names another recording, nothing
+    /// is made: the row is held with the reason that names that one. And where the reason in the queue is no
+    /// longer the one on the row the reader pressed, nothing is asked and nothing changes.
+    ///
+    /// A television given up on is connected to, once. A row whose reason was taken off goes with that
+    /// connect's own sending, and nothing follows the connect -- not where that sending found the row would
+    /// stop a recording and held it for that, which the reader has not been asked about. A row held for
+    /// what it would stop is not sent by an attach: it is sent after the connect, with its consent, when
+    /// the television answers again, and stays held with its reason when it does not.
+    func testWhatSendingARowAgainSendsAndLeaves() async throws {
+        let sending = "テレビに送信待ちの予約を登録中", connecting = TVDriver.connectingLine
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
+        var turnedDown = film
+        turnedDown.problem = "この局は録画できません"
+        let made = ["recording.1 notOverlapped"], question = Array(Self.round.prefix(4))
+
+        let recorders = waiting("サンプル紀行", 50102, reason: turnedDown.problem, for: .recorder)
+        let door = try await resendBench([recorders])
+        door.world.problem = Self.left
+        expectEqual(try await resend(recorders, on: door), Resent(asked: [], left: [recorders], holds: []),
+                    "another device's row")
+        XCTAssertEqual(door.world.problem, Self.left, "something was said for another device's row")
+        expectEqual(try await resend(turnedDown, on: door), Resent(asked: [], left: [recorders], holds: []),
+                    "a row that no longer waits")
+
+        let held = waiting("サンプル劇場", 50101, in: 3, reason: turnedDown.problem)
+        let unmarked = waiting("サンプル天気", 50103, in: 4)
+        let freed = try await resendBench([turnedDown, held, unmarked])
+        expectEqual(try await resend(turnedDown, on: freed),
+                    Resent(round: .init(slot: .tv, sent: [film]), listed: ["recording.1"],
+                           asked: Self.round + [Self.read], left: [held, unmarked], holds: made, lines: [sending]),
+                    "a reason the television gave")
+
+        let consented = try await resendBench([clashing], holding: holding)
+        expectEqual(try await resend(clashing, on: consented),
+                    Resent(round: .init(slot: .tv, sent: [clashing]), listed: clash.listed,
+                           asked: Self.round + [Self.read], left: [], holds: clash.stopped, lines: [sending]),
+                    "held for what the television names now")
+
+        let renamed = try await resendBench([clash.stale], holding: holding)
+        expectEqual(try await resend(clash.stale, on: renamed),
+                    Resent(round: .init(slot: .tv, refused: [clashing]), asked: question, left: [clashing],
+                           holds: clash.untouched, lines: [sending]),
+                    "held for another recording than the television names now")
+
+        let unseen = try await resendBench([clashing], holding: holding)
+        expectEqual(try await resend(clash.stale, on: unseen),
+                    Resent(asked: [], left: [clashing], holds: clash.untouched),
+                    "the reason in the queue is not the one pressed")
+
+        let away = try await resendBench([turnedDown], givenUp: true)
+        expectEqual(try await resend(turnedDown, on: away),
+                    Resent(asked: Self.attaching + Self.round, left: [], holds: made, lines: [connecting, sending],
+                           connects: 1),
+                    "a reason the television gave, the television given up on")
+        XCTAssertEqual(away.sendings.came.last??.sent, [film], "not made by the connect's own sending")
+
+        let back = try await resendBench([clashing], holding: holding, givenUp: true)
+        expectEqual(try await resend(clashing, on: back),
+                    Resent(round: .init(slot: .tv, sent: [clashing]), listed: clash.listed,
+                           asked: Self.attaching + Self.round + [Self.read], left: [], holds: clash.stopped,
+                           lines: [connecting, sending], connects: 1),
+                    "held for what it would stop, the television given up on")
+
+        let silent = try await resendBench([clashing], holding: holding, givenUp: true, silent: true)
+        expectEqual(try await resend(clashing, on: silent),
+                    Resent(asked: [Self.attaching[0]], left: [clashing], holds: clash.untouched, lines: [connecting],
+                           connects: 1),
+                    "held for what it would stop, the television still silent")
+
+        let found = try await resendBench([turnedDown], holding: holding, givenUp: true)
+        expectEqual(try await resend(turnedDown, on: found),
+                    Resent(asked: Self.attaching + question, left: [clashing], holds: clash.untouched,
+                           lines: [connecting, sending], connects: 1),
+                    "a reason the television gave, and the connect's sending finds what the row would stop")
+    }
+
+    /// A consent is to one sentence, and for one round.
+    ///
+    /// Two sendings again begun together on one row, whose reason names a recording the television no
+    /// longer names: both set out with the sentence the reader saw, the second while the first is still
+    /// asking. The first is answered with another name and holds the row with the reason for that. The
+    /// second then finds a reason on the row that is not the one it was handed, and asks nothing: one
+    /// question in all, no create, and the television holds what it held. Nothing is made for a sentence no
+    /// screen has shown.
+    ///
+    /// A row sent with a consent and left unsettled does not keep the reason it was held with, which would
+    /// keep it from every later sending: passed over for an answer that says nothing, it waits with no
+    /// reason. So does one whose create met silence, and what the line then says of it is so: the next
+    /// connect looks for it in the television's list, finds it, and sends no second create.
+    func testAConsentIsToTheSentencePressedAndForOneRound() async throws {
+        let sending = "テレビに送信待ちの予約を登録中"
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
+        let question = Array(Self.round.prefix(4))
+
+        // The first's question is kept from being answered until the second has its line up as well.
+        let twice = try await resendBench([clash.stale], holding: holding)
+        await twice.gate.before(Self.question) { @MainActor in
+            for _ in 0..<100_000 where twice.world.begun.filter({ $0 == sending }).count < 2 { await Task.yield() }
+        }
+        var before = await twice.gate.asked.count
+        let first = Task { await twice.driver.resend(clash.stale) }
+        let second = Task { await twice.driver.resend(clash.stale) }
+        let rounds = [await first.value.round, await second.value.round].compactMap { $0 }
+        expectEqual(Array(await twice.gate.asked.dropFirst(before)), question, "asked again, or a create sent")
+        XCTAssertEqual([rounds.flatMap(\.refused), rounds.flatMap(\.held), rounds.flatMap(\.sent)],
+                       [[clashing], [clashing], []])
+        expectEqual(try await twice.store.pendingReservations(), [clashing])
+        expectEqual(await twice.television.schedules, holding)
+
+        let unsaid = try await resendBench([clashing], holding: holding)
+        await unsaid.gate.answer(Self.question, with: HTTPResponse(
+            statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8)))
+        expectEqual(try await resend(clashing, on: unsaid),
+                    Resent(round: .init(slot: .tv, deferred: [clashing]), asked: question, left: [film],
+                           holds: clash.untouched, lines: [sending]),
+                    "passed over")
+
+        let met = try await resendBench([clashing], holding: holding)
+        await met.television.atTheNextCreate(.carriedOutAndNotAnswered)
+        expectEqual(try await resend(clashing, on: met),
+                    Resent(round: .init(slot: .tv, stopped: .silent(afterSending: true)),
+                           asked: Array(Self.round.dropLast()), left: [film], holds: clash.stopped, lines: [sending]),
+                    "silence at the create")
+        XCTAssertEqual(met.world.problem, Self.metSilence)
+        XCTAssertFalse(met.link.session.connected)
+
+        before = await met.gate.asked.count
+        await met.link.connect()
+        expectEqual(Array(await met.gate.asked.dropFirst(before)), Self.attaching + [Self.disk, Self.read])
+        XCTAssertEqual(met.sendings.came.last??.alreadyThere, [film])
+        expectEqual(try await met.store.pendingReservations(), [])
+        expectEqual(await met.television.schedules.map { "\($0.id) \($0.overlapStatus)" }, clash.stopped)
     }
 }
 

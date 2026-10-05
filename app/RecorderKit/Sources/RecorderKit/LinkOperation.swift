@@ -5,7 +5,8 @@ import Foundation
 public enum OperationFailure: Error, Sendable, Equatable {
     /// Nothing was sent: the check before it said no, and why. No sentence comes with it, since what there is
     /// to say the check or the host has put on the line already. Only the check's no is carried here: what an
-    /// operation says when its driver turns it away at a door of its own is not decided by this type.
+    /// operation says when its driver turns it away at a door of its own is not decided by this type, and
+    /// the rule for it is written at `Reserved`.
     case notSent(NotUp)
     /// Not silence. Something answered, and not as asked -- a refusal, busy, an answer that could not be read
     /// -- or the request failed without the device: an address nothing can be sent to, an error that is no
@@ -36,6 +37,40 @@ public enum OperationFailure: Error, Sendable, Equatable {
             self = .silentOnARead(sentence: error.explanation)
         }
     }
+}
+
+/// What asking a device to record a programme came to, for the app to keep and a screen to say. The first
+/// result a driver's operation hands back as a value: where there is something to say, the sentence is in it,
+/// and whoever asked says it.
+///
+/// What an operation says at its own door -- where its driver turns it away before anything is sent -- goes
+/// by what the operation hands back, and is one rule for every operation a driver hands the app:
+///
+/// - One whose result carries a sentence says in that result what its door turned away, and leaves the
+///   device's line of what went wrong as it was: nothing was sent, and the line an earlier operation left
+///   is not its to write over. Reserving a programme is one.
+/// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
+///   until it too hands back a result with a sentence: a delete, a change.
+/// - One that hands a screen nothing to say says nothing at its door: a waiting row sent again, a sending
+///   of what waits, a read of the list.
+///
+/// What was sent and failed is written on the line by the link, whichever operation it was
+/// (`DeviceLink.say`), and what the check before an operation writes there is the check's.
+public enum Reserved: Sendable, Equatable {
+    /// The device holds it: made now, or found there already. `saying` is what there is to add, in the
+    /// device's own sentence -- that it was there already; what making it did beyond itself (another
+    /// reservation left marked as sharing its time, the new one marked so itself) -- and nil for nothing.
+    case made(saying: String?)
+    /// Kept on the phone, and held: making it would stop other reservations from recording, and the reason
+    /// on the row names them. Nothing was made. It is for the reader to say whether to make it all the same,
+    /// which sending the row again is: the consent is to the reason as it stands on this row.
+    case wouldStop(PendingReservation)
+    /// Kept on the phone and not on the device: the row as it waits now, and what to say of it. With a reason
+    /// on the row the device turned it down -- `saying` is that reason -- and it waits for the reader; with
+    /// none it goes by itself the next time what waits is sent.
+    case waiting(PendingReservation, saying: String)
+    /// Not kept, and not known to have been made, and why.
+    case notDone(String)
 }
 
 /// What an operation asked of a device is made of, whichever device it is, beside the check before it (`check`)

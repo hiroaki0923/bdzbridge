@@ -101,7 +101,8 @@ public protocol QueueTarget: DeviceEndpoint {
     /// wait for another device.
     static var slot: DeviceSlot { get }
     /// Reads what the device has to be read for before any of `waiting` is sent. Asked once in a round, and
-    /// only when the round has a row to send; `waiting` is every row of the device whose programme is not over.
+    /// only when the round has a row to send; `waiting` is every row of the round whose programme is not over:
+    /// all that wait for the device, or the one row the reader asked to have sent.
     func openRound(for waiting: [PendingReservation]) async -> RoundOpened<Round>
     /// Sends one waiting row. `consented`: the reader has said to make it though it stops another reservation
     /// from recording. A request that may have been taken is not sent a second time. The round comes back as it

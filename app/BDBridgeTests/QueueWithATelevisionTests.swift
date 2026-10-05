@@ -7,9 +7,11 @@ import XCTest
 /// says which device it is about. What waits for the television is sent when the app connects to it and when
 /// its list is pulled down, as the television's work and none of the recorder's, and the strip says what
 /// became of it beside what the recorder's sending said. That line of the strip is held here for the home
-/// with no television as well, where it is the recorder's report as it stands. How a sending to a
-/// television goes, step by step, and what each way it can stop leaves and says, is RecorderKit's to hold
-/// (`TVDriverTests`).
+/// with no television as well, where it is the recorder's report as it stands. A programme reserved on the
+/// television and a waiting row sent again are held here for the app's side of them: which device is
+/// asked, what the television's host keeps of what came back, and what the strip says and does not say.
+/// How a reservation or a sending to a television goes, step by step, and what each way it can stop leaves
+/// and says, is RecorderKit's to hold (`TVDriverTests`).
 @MainActor
 final class QueueWithATelevisionTests: XCTestCase {
     /// What runs with no screen has no model to ask whether a television is saved, and reads it from what the
@@ -252,6 +254,143 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(model.queueReport, Said.sent("サンプル劇場", naming: "テレビ"))
     }
 
+    // MARK: - a reservation made now, and a row sent again
+
+    /// A programme reserved on the television through its host is the television's work, and what it came
+    /// to is what the host hands back. While the request that makes it is out the strip reads the
+    /// television's line for a reservation, the television's buttons are held back and the recorder's are
+    /// not, and the reservation waits on the phone already: for the television, in DR, with no reason.
+    /// Made, it is on the television once and in the host's list, which is the list read back after it;
+    /// nothing waits any more, on the phone or on screen; and the strip says nothing of it, since there it
+    /// would read as a reservation that had been waiting. The recorder is asked nothing, and what its line
+    /// said and what it has waiting are as they were.
+    ///
+    /// With the television given up on, a reservation is kept and the answer says so, carrying the row as
+    /// it waits. The queue on screen has that row, read again though nothing was sent, and the television
+    /// is neither asked nor connected to.
+    func testAReservationOnTheTelevisionIsItsOwnWorkAndItsHostKeepsWhatCameBack() async throws {
+        let recorder = NamedRecorder(1)
+        let home = try await launch(with: recorder)
+        let (model, television, door) = (home.model, home.television, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let programmes = try await programmesNotReserved(model, 2)
+        let (wanted, another) = (programmes[0], programmes[1])
+        await television.receives(programmes.map(station(of:)))
+        leaveALine(on: model)
+        await door.hold(only: Self.tvCreate)
+        let heard = await recorder.heard.count
+
+        let asking = Task { await host.reserve(wanted, repeating: "none") }
+        try await until("the television was never asked to make the reservation") { await door.isHolding }
+
+        XCTAssertEqual(model.busy, TVDriver.reservingLine)
+        XCTAssertTrue(model.isBusy(for: .tv), "a reservation being made holds no button of the television's back")
+        XCTAssertFalse(model.isBusy(for: .recorder), "it holds a button of the recorder's back")
+        XCTAssertTrue(model.canChangeRecorder, "it held the recorder's choice back")
+        // As the reservations tab reads the queue when it appears.
+        await model.loadPending()
+        XCTAssertEqual(waits(model.pending), ["\(wanted.eventID) for tv in 100, no reason"])
+
+        await door.letGo()
+        expectEqual(await asking.value, .made(saying: nil))
+
+        expectEqual(await television.schedules.map(\.eventId), [wanted.eventID])
+        XCTAssertEqual(host.reservations.map(\.eventID), [wanted.eventID], "the list read after it was not kept")
+        expectEqual(try await home.store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty, "what was made is still shown as waiting")
+        XCTAssertNil(model.queueReport, "a reservation made now is said on the strip as one that had waited")
+        expectEqual(await recorder.heard(since: heard), [], "the television's reservation asked the recorder")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
+        XCTAssertNil(model.queued, "the television's reservation is said to wait for the recorder")
+        XCTAssertNil(model.busy, "a line was left up")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp)
+        let calls = await television.calls, tries = link.session.link.tries
+
+        let kept = await host.reserve(another, repeating: "none")
+
+        let onThePhone = try await home.store.pendingReservations()
+        let row = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
+        XCTAssertEqual(kept, .waiting(row, saying: TVDriver.waitsNotConnected))
+        XCTAssertEqual(waits(model.pending), ["\(another.eventID) for tv in 100, no reason"],
+                       "the queue on screen was not read again")
+        expectEqual(await television.calls, calls, "a television given up on was asked")
+        XCTAssertEqual(link.session.link.tries, tries, "a television given up on was connected to")
+        XCTAssertEqual(host.reservations.map(\.eventID), [wanted.eventID], "the list it gave went with the answer")
+    }
+
+    /// 「もう一度送る」 goes to the device the row waits for. On a row waiting for the television it is the
+    /// television's work alone: the recorder is asked nothing -- it is not made sure of, and no sending of
+    /// its own is begun -- and its line stays as it was left. The row is made on the television and gone
+    /// from the queue, on the phone and on screen; the host's list has it, being the list read back after
+    /// it; and the strip says so, naming the television. On a row waiting for the recorder it is what it
+    /// was: the recorder is sent the reservation, and the television is asked nothing.
+    ///
+    /// With the television given up on and still silent, sending its row again takes the reason off, so
+    /// that the row goes by itself the next time the television answers, and tries one connect. No round
+    /// ran. The queue on screen is read again all the same, and the row there has no reason either. A row
+    /// held for what it would stop from recording keeps that reason through the same: it is what the
+    /// reader consents to, and nothing of the recorder's sending again, which takes any reason off, is for
+    /// a television's row. A sending again with nothing to say leaves the strip as it read.
+    func testSendingARowAgainGoesToTheDeviceItWaitsFor() async throws {
+        let recorder = NamedRecorder(1)
+        let (title, reason) = ("サンプル劇場", "前に断られた理由")
+        let first = turnedDown(forTheTelevision(waiting(title, startingIn: 120, programme: 4401)), for: reason)
+        let home = try await launch(with: recorder, waiting: [first])
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        // As the reservations tab reads the queue when it appears.
+        await model.loadPending()
+        XCTAssertEqual(waits(model.pending), ["4401 for tv in 100, \(reason)"])
+        leaveALine(on: model)
+        let heard = await recorder.heard.count
+
+        await model.resend(try XCTUnwrap(model.pending.first))
+
+        expectEqual(await recorder.heard(since: heard), [], "a television's row went by way of the recorder")
+        expectEqual(await television.schedules.map(\.eventId), [4401], "the row was not made on the television")
+        expectEqual(try await store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
+        XCTAssertEqual(host.reservations.map(\.eventID), [4401], "the list read after it was not kept")
+        XCTAssertEqual(model.queueReport, Said.sent(title, naming: "テレビ"))
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
+
+        let theirs = turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: reason)
+        try await store.queue(theirs)
+        let asked = await recorder.asked, calls = await television.calls
+
+        await model.resend(theirs)
+
+        expectEqual(await recorder.asked(Self.create, since: asked), 1, "the recorder's row did not go to it once")
+        expectEqual(await television.calls, calls, "the recorder's row asked the television")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp)
+        let freed = turnedDown(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)), for: reason)
+        let held = turnedDown(forTheTelevision(waiting("サンプル天気", startingIn: 181, programme: 4403)),
+                              for: Self.wouldStop)
+        for row in [freed, held] { try await store.queue(row) }
+        await model.loadPending()
+        XCTAssertEqual(waits(model.pending), ["4402 for tv in 100, \(reason)", "4403 for tv in 100, \(Self.wouldStop)"])
+        let tries = link.session.link.tries, said = model.queueReport
+
+        await model.resend(freed)
+        await model.resend(held)
+
+        let left = ["4402 for tv in 100, no reason", "4403 for tv in 100, \(Self.wouldStop)"]
+        expectEqual(waits(try await store.pendingReservations()), left, "a reason stayed that goes, or went that stays")
+        XCTAssertEqual(waits(model.pending), left, "the rows on screen are not as the phone has them")
+        XCTAssertEqual(link.session.link.tries, tries + 2, "the television was not tried once for each")
+        XCTAssertEqual(model.queueReport, said, "a sending again with nothing to say changed the strip")
+    }
+
     // MARK: - what the tests set up
 
     /// A home with a recorder and a television the app is registered with, and what a test reaches of it
@@ -309,5 +448,34 @@ final class QueueWithATelevisionTests: XCTestCase {
         var row = row
         row.target = .tv
         return row
+    }
+
+    /// The same reservation as its device turned it down before: with a reason on it, which is what offers
+    /// 「もう一度送る」 on its row.
+    private func turnedDown(_ row: PendingReservation, for reason: String) -> PendingReservation {
+        var row = row
+        row.problem = reason
+        return row
+    }
+
+    /// The reason a television's round writes on a reservation that would stop another from recording, as
+    /// it reads on the phone: known by how it begins, and the one reason sending again does not take off.
+    /// The recording it names is invented.
+    private static let wouldStop = "この予約を入れると、次の予約は録画されません: 「サンプル番組」（サンプルテレビ 10/6 21:00）。"
+        + "「もう一度送る」を選ぶと、それでも予約します。"
+
+    /// The station a programme of the cached guide is on, as the invented television lists one it receives.
+    private func station(of program: GuideProgramRow) -> DemoTV.Station {
+        DemoTV.Station(scheme: program.broadcasting == "bs" ? "isdbbs" : "isdbt", serviceID: program.serviceID,
+                       name: program.serviceName)
+    }
+
+    /// What waits, a row to a line: the programme, the device it waits for, the mode by its code -- 100 is
+    /// DR -- and the reason on it.
+    private func waits(_ rows: [PendingReservation]) -> [String] {
+        rows.map { row in
+            "\(row.request.eventID ?? 0) for \(row.target.rawValue) in \(row.request.qualityCode), "
+                + (row.problem ?? "no reason")
+        }
     }
 }

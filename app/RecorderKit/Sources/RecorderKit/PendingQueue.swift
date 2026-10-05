@@ -58,21 +58,31 @@ public enum PendingQueue {
     /// or cancel it. A failure that says nothing about the reservation -- a 503, an answer with no code --
     /// leaves it as it was.
     ///
-    /// `consenting`: the rows, by id, the reader has said to make though they stop another reservation from
-    /// recording. For those rows only, and one among them is sent though a reason is on it: the device is told
-    /// of the consent, and what it makes of it is the device's. A consented row that is passed over keeps its
-    /// reason, and waits for the reader again. Nothing hands any in yet: what asks the reader comes with the
-    /// device that has something to ask.
+    /// `consenting`: the rows the reader has said to make though they stop another reservation from
+    /// recording, each by its id with the reason the reader consented to, letter for letter. A consent is
+    /// given to a sentence: a row is consented only while the reason it carries, in the turn it is sent, is
+    /// that one. Then it is sent though a reason is on it: the device is told of the consent, and what it
+    /// makes of it is the device's. A row whose reason has been written anew since the reader saw it is held
+    /// as any row with a reason is, so that two sendings begun on one sentence cannot make what a second
+    /// sentence names. A consented row that is passed over keeps its reason here: what becomes of the reason
+    /// once the round is over is for whoever handed the consent in (`TVDriver.resend`).
+    ///
+    /// `only`: the id of the one row to send, when the reader asked for that reservation and no other. The
+    /// round is then for that row alone, and so is the reading of the device for it. Everything else that
+    /// waits for the device is left exactly as it is: not sent, not dropped though its programme is over,
+    /// nothing written on it. With none, as whatever sends what waits passes it, every row of the device
+    /// is gone through.
     ///
     /// One flush at a time in the process, whoever asks and whichever device it is for: a second waits for the
     /// first and then reads the queue afresh. The screens and the overnight run each have a client and a
     /// connection of their own and can run at once: both could read the same waiting reservation and send it,
     /// and one sent twice is made twice.
-    public static func flush<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String> = [],
+    public static func flush<Target: QueueTarget>(client: Target, store: GuideStore,
+                                                  consenting: [String: String] = [:], only: String? = nil,
                                                   now: Date = Date()) async -> Outcome {
         // Nothing in it throws, so neither does running it.
         (try? await oneAtATime.run {
-            await oneRound(client: client, store: store, consenting: consenting, now: now)
+            await oneRound(client: client, store: store, consenting: consenting, only: only, now: now)
         }) ?? Outcome(slot: Target.slot)
     }
 
@@ -88,10 +98,12 @@ public enum PendingQueue {
 
     private static let oneAtATime = SerialQueue()
 
-    private static func oneRound<Target: QueueTarget>(client: Target, store: GuideStore, consenting: Set<String>,
+    private static func oneRound<Target: QueueTarget>(client: Target, store: GuideStore,
+                                                      consenting: [String: String], only: String?,
                                                       now: Date) async -> Outcome {
         var outcome = Outcome(slot: Target.slot)
-        let waiting = ((try? await store.pendingReservations()) ?? []).filter { $0.target == Target.slot }
+        let waiting = ((try? await store.pendingReservations()) ?? [])
+            .filter { $0.target == Target.slot && (only == nil || $0.id == only) }
         var round: Target.Round?
         // The rows the opening found on the device, by id.
         var found: Set<String> = []
@@ -101,7 +113,8 @@ public enum PendingQueue {
                 outcome.expired.append(pending)
                 continue
             }
-            let consented = consenting.contains(pending.id)
+            // Against the reason as the queue has it in this turn, not as it was when the reader was asked.
+            let consented = consenting[pending.id].map { $0 == pending.problem } == true
             let isToGo = pending.problem == nil || consented
             if round == nil, isToGo {
                 switch await client.openRound(for: waiting.filter { $0.request.end >= now }) {
@@ -153,6 +166,16 @@ public enum PendingQueue {
         }
         return outcome
     }
+}
+
+public extension PendingQueue {
+    /// Said when a reservation could not be kept on the phone because its cache could not be opened. No
+    /// device's failure, so no device's sentence.
+    static let noCache = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+
+    /// Said when a reservation could not be kept on the phone because writing it failed, with the error as
+    /// Swift describes it.
+    static func couldNotBeKept(_ error: any Error) -> String { "予約を端末に保存できませんでした: \(error)" }
 }
 
 public extension PendingQueue.Outcome {
