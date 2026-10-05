@@ -24,7 +24,9 @@
   (`TVDriver.reserve`, `resend`): the host asks, keeps the list that came back and reads the queue on screen
   again, and hands what the reservation or the row came to on to whoever asked, while `AppModelReservations`
   sends a waiting row's sending again to the device it waits for (`resend`, and `sendAgain` for a screen that
-  says what it came to). What the screens say of what waits is chosen in the model, where a test can hold it:
+  says what it came to), and has the one entry a screen reserves through whichever device it is for
+  (`reserve(_:on:quality:repeating:)`, among the devices `destinations(for:)` lists for the programme).
+  What the screens say of what waits is chosen in the model, where a test can hold it:
   the device a waiting row names and what the reservations tab says under the rows (`deviceSaid`,
   `whatWaitsSays`), and which one line the strip at the top of every screen shows (`AppModel.strip`, beside
   the view that draws it in `BDBridgeApp.swift`). What the app knows of the recorder and of the link
@@ -162,7 +164,13 @@ added to what the strip has unread with no sentence said twice; the device each 
 is said under the rows, by the devices they wait for; and that a television is taken away together with what
 waits for it and nothing else, and stays when that cannot be deleted. And which line the strip shows, a
 state at a time: in the order it has always had in a home with a recorder alone, the television's lines
-after the recorder's, and last the line for a disk that is away while a reservation waits for it. How a
+after the recorder's, and last the line for a disk that is away while a reservation waits for it. And what
+the programme's sheet asks of the model: where a reservation can go, by the devices saved and by what each
+holds or has waiting, with nothing asked of a television and none offered in the demo; the one entry, which
+reserves on the device named and on no other and reads the recorder's reservation, unchanged, into the
+value both devices answer with; and the yes and the no at the question before a reservation that would stop
+another from recording -- the yes the consent to what the question named and silent on the strip for a
+reservation asked for just now, the no taking that row off and leaving one that waited before. How a
 reservation or a sending to a television goes step by step, and what each way it can stop leaves and says,
 is tried in RecorderKit (`TVDriverTests`).
 
@@ -246,7 +254,8 @@ reservation the way the app is to send what waits for a television -- through th
 round the package has for it (`ScalarClient` as a `QueueTarget`, tried in `TVRoundTests`) -- then flushes the
 same reservation a second time, which is to find it on the television and send no create, and takes it off.
 The app sends those three requests in that round and nowhere else: when a reservation waits in the phone's
-queue for the television (below, under the reservations made away from home), which no screen makes yet.
+queue for the television (below, under the reservations made away from home), as one does once a programme
+has been reserved on the television from its sheet.
 
 That check asks for no length of time off, and is one short sitting at any time of day. A television was
 seen to answer alike minutes after it was switched off (a script made and deleted reservations on it and
@@ -345,6 +354,12 @@ xcrun devicectl device process launch --device <udid> jp.hiroaki.bdbridge
 
 A device takes the same launch arguments a simulator does, but they have to come after `--` or devicectl
 reads them as its own options.
+
+**Going back to an older build.** A build from before a waiting reservation said which device it waits for --
+every tagged version up to v0.3.1 -- knows only the recorder. Run on a phone whose queue holds reservations
+for a television, it sends them to the recorder. Before putting such a build on a phone that has been
+reserving on a television, delete what waits for the television on the reservations tab, or take the
+television away in the settings, which deletes it.
 
 ## TestFlight
 
@@ -717,8 +732,10 @@ at a time, and which is the model's to choose (`AppModel.strip`): work under way
 taken over, this report, the demo, the local network permission, the recorder given up on, and then the
 television's own -- to be registered, given up on, its disk away. The recorder's sending leaves a
 television's rows alone, and with none of its own waiting it does nothing, so that it does not wait its turn
-behind a television's round. No screen makes a row for a television yet. The overnight run and the Shortcuts
-action do not know one either: they send the recorder's rows only.
+behind a television's round. A row for a television is made by the programme's sheet (below). The overnight
+run and the Shortcuts action do not know one yet. They send the recorder's rows only, the action answers
+送信待ちの予約はありません。 when only a television's rows wait, and the settings' footer about arriving home
+still says of every waiting reservation that the overnight refresh sends it.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is
@@ -728,9 +745,9 @@ in it (`Reserved`): made, with whatever the television's list showed it did to o
 because it would stop reservations from recording that the reason on the row names; kept on the phone, because
 the television could not be asked or its round stopped; or neither made nor kept. A television that cannot be
 asked is not connected to for it, and what is turned away before anything is sent -- a repeat a television
-is not sent, a programme that is over -- is said in the result and leaves the television's line alone. The
-host (`TVHost.reserve`) keeps the list read after a reservation that was made and reads the queue on screen
-again; it puts nothing on the strip, since the result is what says it. No screen asks for one yet.
+is not sent, a programme that is over or has begun -- is said in the result and leaves the television's line
+alone. The host (`TVHost.reserve`) keeps the list read after a reservation that was made and reads the queue
+on screen again; it puts nothing on the strip, since the result is what says it.
 
 もう一度送る goes to the device the row waits for (`AppModel.resend`). On a television's row it is the
 driver's (`TVDriver.resend`): that one row is sent, under テレビに送信待ちの予約を登録中, and the strip says
@@ -747,9 +764,50 @@ freed one goes by itself, the reservations a fresh answer names as the ones it w
 made it says nothing more: the row leaves what waits, and the strip says so. On that tab each waiting row
 says its device once a television is saved, what is said under the rows goes by the devices they wait for,
 and a television's row is held back from もう一度送る and 削除 while the television works -- at the question
-before the delete as well, for work begun while it was up (`AppModel.deleteWaiting`). The programme's
-sheet still speaks of the recorder in its waiting section, and says nothing of what a television's row sent
-again from it came to: that waits for the sheet that reserves on a television.
+before the delete as well, for work begun while it was up (`AppModel.deleteWaiting`).
+
+The programme's sheet is where a reservation on a television is asked for. With a television saved, 録画予約 says
+first where the reservation goes (予約先), among the devices that can still take the programme
+(`AppModel.destinations(for:)`): those that neither hold it nor have it waiting, so that one programme can be
+reserved on both. Both free is a choice, which opens on the recorder; one free is a fixed line; a home with
+one device has no such row. Under it is what the device takes: the recorder's rows as they have always been,
+or the television's one mode (DR) and the repeats it is sent for the programme (`TVDriver.repeats(for:)`),
+with no row about clashes, since the television is asked nothing until the reader reserves. The repeat goes
+back to しない whenever the section becomes the television's. The question names the device its section showed
+when 録画予約する was pressed and reserves on no other, whatever the lists read meanwhile; and with two devices the
+section is not read afresh until the answer has been closed, since falling back to the recorder under a
+television's answer would have the recorder asked what would clash on account of a reservation that was the
+television's.
+
+One entry reserves for both devices (`AppModel.reserve(_:on:quality:repeating:)`) and answers in the one value
+(`Reserved`); the recorder's is its reservation as it stands, read into that value. Under a request of its own
+to the television nothing on the sheet can be pressed and the sheet cannot be closed, and the request's line
+(テレビに予約を登録中) is a section of its own: what the request came to is said in the sheet's one alert and nowhere
+else. Nor does such a request begin while another request of the sheet's is still out -- the recorder's
+reservation or its row sent again, a delete: the sheet counts those, and the television's 録画予約する and もう一度送る
+wait for the count to be nought, since one that ended under the television's would close the sheet, or take
+the request's line down, before the television had answered. Made closes the sheet, after what the television
+had to say of it (テレビの予約). A reservation that would
+stop others from recording comes back as a question, それでも予約しますか？, put as the row's reason without its sentence
+about もう一度送る. それでも予約 is the held row sent again (`AppModel.consent`): the consent to that sentence, with
+nothing said on the strip, since the row never waited, and an answer that names others asks again. キャンセル takes
+the row off the phone (`AppModel.decline`), so that nothing was made and nothing waits. Kept says 送信待ちにしました
+and closes the sheet. But a row left with a reason that is not what is being said -- consented to, and not
+sent because the television could not be asked -- is said under 送信待ちのままです and the sheet stays open on it: it
+does not go by itself (`Reserved.leftForTheReader` says which row that is). Not done is said under エラー.
+
+The sheet has a waiting section for each device a row of the programme waits for, under the device's name once
+a television is saved (テレビ・送信待ち). もう一度送る on a television's row there is answered by the same alert, with two
+differences: a row that still waits is said under 送信待ちのままです, and キャンセル at the question leaves the row as it
+was. That button and the row's delete are held back while the television works, and the delete goes through
+`AppModel.deleteWaiting` as the tab's does. With the recorder alone the sheet draws, says and does what it
+always has.
+
+A programme that has begun is not sent to a television. What one that is switched off does with a create whose
+start has passed has not been seen, and nothing is sent that might light its panel unasked. So the sheet does
+not offer the television for such a programme, `TVDriver.reserve` turns it away, and the round holds a waiting
+row whose programme has begun by the time it is sent, with the reason written on it, until the programme ends
+and the row is dropped. The recorder still takes one, and records what is left.
 
 Taking the television away in the settings takes what waits for it as well, unsent
 (`AppModel.takeTheTelevisionAway`). The question says how many reservations that is, counted on the phone,

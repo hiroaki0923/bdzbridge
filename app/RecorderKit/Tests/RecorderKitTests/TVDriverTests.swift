@@ -1548,6 +1548,94 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
     }
 
+    /// A programme that has begun is not reserved on a television. Why not is said for a screen to go by,
+    /// by the moment it is handed: nothing for a programme still ahead, a second before its start as well;
+    /// that it has begun, from its start to its end; and that it is over, once its end has passed.
+    ///
+    /// The door turns such a programme away by the same rule, with the sentence in the result and nowhere
+    /// else, on a television that can be asked and on one given up on after silence: nothing is kept,
+    /// nothing is asked of the television, no connect is made, no line goes up, and the line of what went
+    /// wrong is as it was. With no door the first would keep a row for its round to hold, and the second a
+    /// row promised to a television that is never sent it.
+    func testAProgrammeThatHasBegunIsNotOfferedAndIsTurnedAwayAtTheDoor() async throws {
+        let begun = "放送が始まった番組は、テレビには予約できません。"
+        let film = programme("サンプル劇場", 50101, at: Self.start)
+        let whys: [(name: String, after: TimeInterval, why: String?)] = [
+            ("a day ahead", -86_400, nil), ("a second before its start", -1, nil), ("at its start", 0, begun),
+            ("half way through", 900, begun), ("at its end", 1800, begun),
+            ("a second after its end", 1801, Self.programmeIsOver),
+        ]
+        for (name, after, why) in whys {
+            XCTAssertEqual(TVDriver.whyNot(film, now: Self.start.addingTimeInterval(after)), why, name)
+        }
+
+        // On air by the real clock, which is the door's: begun a quarter of an hour ago, with as long to go.
+        let onAir = programme("サンプル劇場", 50101, in: -0.25)
+        let attached = try await attachedQueueBench()
+        let givenUp = try await attachedQueueBench()
+        await givenUp.television.goSilent()
+        _ = await givenUp.link.ensureUp(evenIfRecent: true)
+        await givenUp.television.goSilent(false)
+        XCTAssertTrue(givenUp.link.session.gaveUp)
+        for (name, bench) in [("attached", attached), ("given up on", givenUp)] {
+            bench.world.problem = Self.left
+            let asked = await bench.gate.asked, lines = bench.world.begun, tries = bench.link.session.link.tries
+
+            let (reserved, list) = await bench.driver.reserve(onAir, repeating: "none")
+
+            XCTAssertEqual(reserved, .notDone(begun), name)
+            XCTAssertNil(list, name)
+            expectEqual(try await bench.store.pendingReservations(), [], "\(name): a row was kept")
+            expectEqual(await bench.gate.asked, asked, "\(name): the television was asked")
+            XCTAssertEqual(bench.link.session.link.tries, tries, "\(name): a connect was made")
+            XCTAssertEqual(bench.world.begun, lines, "\(name): a line went up")
+            XCTAssertEqual(bench.world.problem, Self.left, "\(name): the door wrote on the line")
+        }
+    }
+
+    /// A television is offered DR and, for a programme, exactly the repeats it is sent for it, in the order
+    /// a sheet lists them: all six for a Monday evening's; no Monday to Friday for a Saturday's; neither
+    /// that nor Monday to Saturday for a Sunday's; and nothing with a weekday in it for one at two in the
+    /// morning. Each list is the names the door of `reserve` lets through, of all the names there are: every
+    /// other is turned away there for its repeat, and none of these is. With no cache to keep a row in they
+    /// get as far as that and no further, so nothing is kept or sent.
+    ///
+    /// Each programme is the next of its weekday from tomorrow on by the real clock, which is the door's: a
+    /// start fixed here would one day be over, and the door would then say that of every repeat it is sent.
+    func testATelevisionIsOfferedTheRepeatsItIsSentForAProgrammeAndDR() async throws {
+        XCTAssertEqual(TVDriver.recordsIn, "DR")
+        XCTAssertEqual(Codes.qualityLabel[TVDriver.recordsIn], "DR(高画質)")
+        let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+        let noCache = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+        var japan = Calendar(identifier: .gregorian)
+        japan.timeZone = RecorderTime.timeZone
+        // The calendar counts the days of the week from Sunday, which is 1.
+        func next(_ weekday: Int, at hour: Int) throws -> Date {
+            try XCTUnwrap(japan.nextDate(after: Date().addingTimeInterval(86_400),
+                                         matching: DateComponents(hour: hour, weekday: weekday),
+                                         matchingPolicy: .nextTime))
+        }
+        let offered: [(name: String, start: Date, repeats: [String])] = [
+            ("a Monday evening's", try next(2, at: 21), ["none", "title", "daily", "mon", "mon-fri", "mon-sat"]),
+            ("a Saturday evening's", try next(7, at: 21), ["none", "title", "daily", "sat", "mon-sat"]),
+            ("a Sunday evening's", try next(1, at: 21), ["none", "title", "daily", "sun"]),
+            ("one at two on a Monday morning", try next(2, at: 2), ["none", "title", "daily"]),
+        ]
+        let bench = try await attachedQueueBench()
+        bench.world.cache = nil
+        let asked = await bench.gate.asked
+        for (name, start, repeats) in offered {
+            let programme = programme("サンプル劇場", 50101, at: start)
+            XCTAssertEqual(TVDriver.repeats(for: programme), repeats, name)
+            for repeating in Codes.repeatCodes.keys.sorted() {
+                expectEqual(await bench.driver.reserve(programme, repeating: repeating).reserved,
+                            .notDone(repeats.contains(repeating) ? noCache : repeatNotTaken),
+                            "\(name), \(repeating)")
+            }
+        }
+        expectEqual(await bench.gate.asked, asked, "the television was asked")
+    }
+
     /// What a round for one row is read as, with no television: each way a round can go, and the sentence the
     /// result says for it, to the letter. A round that never ran keeps the reservation, and what the driver
     /// knows of the registration says which wait it is. The reason for what a reservation would stop from
@@ -1677,6 +1765,36 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(silent.sendings.came.last??.alreadyThere, kept)
         expectEqual(try await silent.store.pendingReservations(), [])
         expectEqual(await silent.television.schedules.map(\.eventId), [50105])
+    }
+
+    /// What a screen asks before a reservation held for what it would stop is made all the same is the
+    /// reason on the row without its last sentence: the reservations as the television named them, a viewing
+    /// reservation as one, and nothing of the button that sends a row again, which the screen that asks does
+    /// not have. Only that last sentence goes, from the end: the same words in a title stay. A row held for
+    /// anything else, and one with no reason, has nothing to ask. And what a screen says a reservation on
+    /// the television will do, before the reader confirms it, to the letter.
+    func testWhatIsAskedBeforeAHeldReservationIsMadeIsItsReasonWithoutItsLastSentence() {
+        let named = "この予約を入れると、次の予約は録画されません: 「サンプル天気」（サンプル放送 11/1 22:00）、"
+            + "視聴予約「サンプル番組」（サンプルテレビ 11/1 21:00）。"
+        let tail = "「もう一度送る」を選ぶと、それでも予約します。"
+        var held = waiting("サンプル劇場", 50101)
+        held.problem = ScalarClient.wouldStop(naming: [Self.weather.row, Self.reminder.row])
+        XCTAssertEqual(held.problem, named + tail)
+        XCTAssertEqual(TVDriver.asks(of: held), named)
+
+        var titled = Self.weather
+        titled.title = tail
+        held.problem = ScalarClient.wouldStop(naming: [titled.row])
+        XCTAssertEqual(TVDriver.asks(of: held), "この予約を入れると、次の予約は録画されません: "
+                       + "「「もう一度送る」を選ぶと、それでも予約します。」（サンプル放送 11/1 22:00）。")
+
+        held.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        XCTAssertNil(TVDriver.asks(of: held), "a row held for its station")
+        held.problem = nil
+        XCTAssertNil(TVDriver.asks(of: held), "a row with no reason")
+
+        XCTAssertEqual(TVDriver.confirming, "テレビに予約を登録します。テレビが応答しないときは端末に保存し、"
+                       + "次に応答したときに登録します。")
     }
 
     // MARK: - sending a waiting row again
@@ -2077,6 +2195,29 @@ final class TVDriverTests: XCTestCase {
         ]
         for (name, came, says) in cases {
             XCTAssertEqual(came.besideItsRow, says, name)
+        }
+    }
+
+    /// Whether a row that waits is left for the reader with a reason the result has not said, with no
+    /// television: only where the row carries a reason and something else is being said of it -- held for
+    /// what it would stop, and not sent. A row with no reason goes by itself, and one turned down is said
+    /// by the very reason on it. What was made, what comes back as the question whether to make it all the
+    /// same, and what was neither made nor kept are not said as a row that waits at all.
+    func testAWaitingRowIsLeftForTheReaderWhereItsReasonIsNotWhatIsSaid() {
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let clash = self.clash(), film = clash.film, clashing = clash.clashing
+        var unlisted = film
+        unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
+        let cases: [(name: String, came: Reserved, left: Bool)] = [
+            ("waiting with no reason", .waiting(film, saying: Self.waitsNotConnected), false),
+            ("turned down, with the reason on the row", .waiting(unlisted, saying: unlisted.problem ?? ""), false),
+            ("held, and not sent", .waiting(clashing, saying: notConnected), true),
+            ("made", .made(saying: nil), false),
+            ("held for what it would stop", .wouldStop(clashing), false),
+            ("neither made nor kept", .notDone(Self.programmeIsOver), false),
+        ]
+        for (name, came, left) in cases {
+            XCTAssertEqual(came.leftForTheReader, left, name)
         }
     }
 }

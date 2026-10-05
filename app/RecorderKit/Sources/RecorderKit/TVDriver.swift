@@ -454,10 +454,45 @@ public final class TVDriver: LinkDriver {
     /// television's own: it is taken for there already unless it is known to be less than was asked.
     public static let foundThere = "テレビにはこの番組の予約がすでにありました。"
     /// Said of a programme whose end has passed: it is neither made nor kept.
-    public static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
+    public nonisolated static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
     /// Said when the reservation is no longer in the phone's queue and the television's list does not show
     /// it either: nothing says whether it was made.
     public static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+    /// What a screen says a reservation on the television will do, before the reader confirms it.
+    public static let confirming = "テレビに予約を登録します。テレビが応答しないときは端末に保存し、"
+        + "次に応答したときに登録します。"
+
+    /// The mode a television records in, by its name in `Codes.quality`.
+    public static let recordsIn = "DR"
+
+    /// The repeats a reservation of `program` on a television can be given, by their names in
+    /// `Codes.repeatCodes` and in the order a sheet lists them: the recorder's six, the weekly one the
+    /// programme's own weekday, less those a television is not sent for it (`TVReservationBody.repeatType`),
+    /// which is what `reserve` turns away. So a choice a screen offers from here is never one the door
+    /// refuses.
+    public nonisolated static func repeats(for program: GuideProgramRow) -> [String] {
+        ["none", "title", "daily", Codes.weekdayRepeat(for: program.start), "mon-fri", "mon-sat"].filter { name in
+            Codes.repeatCodes[name].flatMap { TVReservationBody.repeatType(for: $0, start: program.start) } != nil
+        }
+    }
+
+    /// Why `program` cannot be reserved on a television, or nil when it can: it is over, or it has begun
+    /// (`ScalarClient.startedAlready`). For a screen, which offers no television for such a programme, and
+    /// for `reserve`, which turns it away by this very rule.
+    public nonisolated static func whyNot(_ program: GuideProgramRow, now: Date = Date()) -> String? {
+        if program.end < now { return programmeIsOver }
+        return program.start <= now ? ScalarClient.startedAlready : nil
+    }
+
+    /// What a screen asks before a reservation held for what it would stop is made all the same: the reason
+    /// on the row without its last sentence, which tells of a button the screen that asks does not have.
+    /// Nil for a row held for anything else. The consent is still to the reason as it stands on the row,
+    /// whole: this is only how it is put to the reader.
+    public nonisolated static func asks(of held: PendingReservation) -> String? {
+        guard let reason = held.problem, ScalarClient.holdsForWhatItWouldStop(reason) else { return nil }
+        let tail = ScalarClient.sendAgainToMakeIt
+        return reason.hasSuffix(tail) ? String(reason.dropLast(tail.count)) : reason
+    }
 
     /// Reserves `program` on the television, in DR: what a television records in, and what the waiting row
     /// then shows. What it came to, and the television's list where one was read afterwards, for the caller
@@ -473,7 +508,7 @@ public final class TVDriver: LinkDriver {
     /// and what an earlier operation left on the line stays (`Reserved`): the link gone; a repeat a
     /// television is not sent for this programme (`TVReservationBody.repeatType`), and with it a repeat or a
     /// kind of broadcast the tables do not know, which no programme of the guide has; a programme whose end
-    /// has passed; and a queue that cannot be opened or written to.
+    /// has passed, or that has begun (`whyNot`); and a queue that cannot be opened or written to.
     ///
     /// The row is written before anything is asked: whatever becomes of the asking, the reservation is
     /// kept. It replaces one already waiting for the same programme on the television, its reason with it.
@@ -484,13 +519,14 @@ public final class TVDriver: LinkDriver {
     public func reserve(_ program: GuideProgramRow,
                         repeating: String) async -> (reserved: Reserved, list: [Reservation]?) {
         guard let link else { return (.notDone(Self.notConnected), nil) }
-        guard let request = ReservationRequest(program: program, quality: "DR", repeating: repeating),
+        guard let request = ReservationRequest(program: program, quality: Self.recordsIn, repeating: repeating),
               TVReservationBody.repeatType(for: request.repeatCode, start: request.start) != nil else {
             return (.notDone(ScalarClient.repeatNotTaken), nil)
         }
-        // After the repeat, which is settled without the clock. A round would drop such a row; with no
-        // round it would be kept, and promised to a television that is never sent it.
-        guard request.end >= Date() else { return (.notDone(Self.programmeIsOver), nil) }
+        // After the repeat, which is settled without the clock. A round would drop the row of a programme
+        // that is over and hold that of one that has begun; with no round either would be kept, and promised
+        // to a television that is never sent it.
+        if let why = Self.whyNot(program) { return (.notDone(why), nil) }
         guard let store = link.owner?.cache else { return (.notDone(PendingQueue.noCache), nil) }
         // Queued at a whole second, as the cache keeps the moment: the row handed back is the row that waits.
         let queuedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))

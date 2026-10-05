@@ -94,6 +94,21 @@ public extension Reserved {
         case .notDone(let why): why
         }
     }
+
+    /// Whether a row that waits is left for the reader with a reason this result has not said: it carries
+    /// one, and that reason is not what is being said. Such a row was not sent at all -- `saying` is why
+    /// nothing could be asked about it -- and the reason it was held with before still stands, so it does
+    /// not go by itself the next time what waits is sent. A screen that said `saying` and went on as for any
+    /// reservation kept would have it read as one that does: the programme's sheet stays open on the row.
+    ///
+    /// Not so for a row with no reason, which goes by itself, nor for one whose reason is what is being
+    /// said, which the reader has then been told. The comparison `besideItsRow` makes, as a yes or a no.
+    var leftForTheReader: Bool {
+        switch self {
+        case .waiting(let row, let saying): row.problem != nil && row.problem != saying
+        case .made, .wouldStop, .notDone: false
+        }
+    }
 }
 
 /// What an operation asked of a device is made of, whichever device it is, beside the check before it (`check`)
