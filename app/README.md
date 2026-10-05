@@ -783,14 +783,18 @@ One entry reserves for both devices (`AppModel.reserve(_:on:quality:repeating:)`
 (`Reserved`); the recorder's is its reservation as it stands, read into that value. Under a request of its own
 to the television nothing on the sheet can be pressed and the sheet cannot be closed, and the request's line
 (テレビに予約を登録中) is a section of its own: what the request came to is said in the sheet's one alert and nowhere
-else. Made closes the sheet, after what the television had to say of it (テレビの予約). A reservation that would
+else. Nor does such a request begin while another request of the sheet's is still out -- the recorder's
+reservation or its row sent again, a delete: the sheet counts those, and the television's 録画予約する and もう一度送る
+wait for the count to be nought, since one that ended under the television's would close the sheet, or take
+the request's line down, before the television had answered. Made closes the sheet, after what the television
+had to say of it (テレビの予約). A reservation that would
 stop others from recording comes back as a question, それでも予約しますか？, put as the row's reason without its sentence
 about もう一度送る. それでも予約 is the held row sent again (`AppModel.consent`): the consent to that sentence, with
 nothing said on the strip, since the row never waited, and an answer that names others asks again. キャンセル takes
 the row off the phone (`AppModel.decline`), so that nothing was made and nothing waits. Kept says 送信待ちにしました
 and closes the sheet. But a row left with a reason that is not what is being said -- consented to, and not
 sent because the television could not be asked -- is said under 送信待ちのままです and the sheet stays open on it: it
-does not go by itself. Not done is said under エラー.
+does not go by itself (`Reserved.leftForTheReader` says which row that is). Not done is said under エラー.
 
 The sheet has a waiting section for each device a row of the programme waits for, under the device's name once
 a television is saved (テレビ・送信待ち). もう一度送る on a television's row there is answered by the same alert, with two
