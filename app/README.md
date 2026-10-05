@@ -213,11 +213,24 @@ television). What is at an address, the registration and the two reads behind it
 checks with which the three requests that reserve on a television -- its stations, the question of what a
 reservation would stop from recording, the create -- meet a real one for the first time: nine of them, run
 one at a time in a sitting with the television's owner, in the order written at the head of that file with
-what to look at for each. One more is for a television left in standby overnight. It sends one waiting
+what to look at for each. One more is for a television that is switched off. It sends one waiting
 reservation the way the app is to send what waits for a television -- through the queue's own flush and the
 round the package has for it (`ScalarClient` as a `QueueTarget`, tried in `TVRoundTests`) -- then flushes the
 same reservation a second time, which is to find it on the television and send no create, and takes it off.
 Nothing in the app hands the queue a television yet, so nothing in the app sends those three requests.
+
+That check asks for no length of time off, and is one short sitting at any time of day. A television was
+seen to answer alike minutes after it was switched off (a script made and deleted reservations on it and
+read its stations) and more than five hours after (this client read what needs no registration, the disk
+and the list, and renewed its registration), and the app deleted a reservation on one that was off. What
+the check adds is the round that ships sent to a real television that is off, by the app's own client and
+transport, with the owner looking at the panel, the lamp and the disk. Run about a minute after a
+television was switched off, it went through: the first flush had the disk, the list, the stations, the
+question, the create and the list each answered and made one row, read back as sent; the second sent the
+disk and the list alone and found the row there; the television said it was in standby at the end, and the
+owner saw nothing change. Not seen on a real television: one asked for a kind of broadcast it lacks, the
+list of stations answered with a code that says a state it is in, and the round's refusals and stops,
+which are tried on the invented one.
 
 A check that writes to somebody's television keeps to rules that are written once, in `TVSitting`. It makes
 nothing unless it was given leave by name (`TV_WRITE` set to the name of the one test that is run) and the
@@ -246,7 +259,7 @@ the round passed over reads the same there whether a create went for it or its q
 an error code and none followed. The question before the create is the round's, which sends none when the
 television names any row. It reserves no programme that starts between midnight and five in the morning,
 when a station may be off the air: what a television answers a create for those hours has not been seen,
-and the night is not for finding that out.
+and the check is not for finding that out.
 
 Of each flush it says what was sent, a request at a time: its client is built on a line (`TVLine`) that
 keeps the method of each request and the kind of its answer -- answered, an error's code, an HTTP status,
