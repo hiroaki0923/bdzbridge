@@ -82,9 +82,9 @@ extension LocalNetwork {
     static let turnsAllowed = 120
 
     /// How long the wait's connection gives an address to answer its handshake. An address where nothing
-    /// lives is silent, and a connection left to itself goes on trying it for over a minute, in a state that
-    /// says nothing of the permission. With "the number of seconds that TCP waits before timing out its
-    /// handshake" set, the connection comes to waiting when they are up, and can be read.
+    /// lives is silent, and a connection left to itself goes on trying it, in a state that says nothing of
+    /// the permission, for longer than a reader would wait. With "the number of seconds that TCP waits before
+    /// timing out its handshake" set, the connection comes to waiting when they are up, and can be read.
     static let handshakeSeconds = 2
 
     /// The wait itself, with what it reaches handed in: how a connection is made, how the wait pauses, and
