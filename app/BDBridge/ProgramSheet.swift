@@ -35,7 +35,8 @@ struct ProgramSheet: View {
         /// The reservation is waiting instead of made, and the sentence for why. `stays`: the sheet is left
         /// open on the row, which waited before or does not go by itself.
         case kept(String, stays: Bool)
-        /// Made, and what the television had to say of it.
+        /// Made, and what the television had to say of it; or made by a sending while the reader was deleting
+        /// the row it waited in, said as such a sending says it.
         case said(String)
         /// Making it would stop others from recording, which the row's reason names: whether to make it
         /// all the same. `fresh`: it was asked for just now, so a no takes the row off again.
@@ -240,10 +241,15 @@ struct ProgramSheet: View {
                         others += 1
                         Task {
                             // A television's row is not deleted while the television works, and stays on
-                            // the sheet then: a sending begun under the question may have it in hand.
-                            await model.deleteWaiting(waiting)
+                            // the sheet then: a sending begun under the question may have it in hand. One a
+                            // sending made first is said as made, and the sheet closes once that is read.
+                            let instead = await model.deleteWaiting(waiting)
                             others -= 1
-                            done = waiting.target != .tv || model.pending(for: program, on: .tv) == nil
+                            if let instead {
+                                ask = .said(instead)
+                            } else {
+                                done = waiting.target != .tv || model.pending(for: program, on: .tv) == nil
+                            }
                         }
                     }
                 case .wouldStop(let held, let fresh):

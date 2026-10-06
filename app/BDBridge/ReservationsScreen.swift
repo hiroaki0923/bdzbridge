@@ -16,7 +16,8 @@ struct ReservationsScreen: View {
     /// The same for a reservation waiting to be sent, read back out of the queue.
     @State private var removingPending: String?
     @State private var failure: String?
-    /// What a waiting reservation sent again came to, where its row does not say it: said once, in the alert.
+    /// What a waiting reservation sent again came to, where its row does not say it, or what a sending made
+    /// of one the reader was deleting: said once, in the alert.
     @State private var said: String?
     @State private var opened: Reservation?
 
@@ -162,7 +163,7 @@ struct ReservationsScreen: View {
                     Button("キャンセル", role: .cancel) {}
                 case .confirmPending(let waiting):
                     Button("削除する", role: .destructive) {
-                        Task { await model.deleteWaiting(waiting) }
+                        Task { if let instead = await model.deleteWaiting(waiting) { said = instead } }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed, .said:

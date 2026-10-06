@@ -119,6 +119,14 @@ public extension TVDriver {
         return lines.isEmpty ? nil : lines.joined(separator: "。")
     }
 
+    /// What is said of a waiting row the reader asked to delete when a sending whose turn came first made it
+    /// (`PendingQueue.betweenFlushes`) -- above all one with no screen, which the screens do not see. The
+    /// queue's own sentence for a row it sent, naming `device`, as the strip and the notifications say it:
+    /// the row was made as any sending makes one, and has no sentence of its own.
+    nonisolated static func madeBeforeItsDelete(_ row: PendingReservation, naming device: String) -> String {
+        PendingQueue.Outcome(slot: ScalarClient.slot, sent: [row]).says(naming: device) ?? ""
+    }
+
     /// Said when the television did not answer a run with no screen.
     nonisolated static let notAnsweringWithNoScreen = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
     /// Said when the television's answers to a run with no screen said nothing that reads, before any row.

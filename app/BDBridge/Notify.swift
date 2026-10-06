@@ -89,13 +89,26 @@ enum Notify {
     /// queue is replaced by the next run's, as the recorder's is; a notice of reservations not yet there stays
     /// until one of its kind replaces it or none of the reservations it told of waits to go, so that the news
     /// of a sending does not take away a warning that may still hold.
+    ///
+    /// That one replaces another is inferred, as the recorder's notification has always inferred it: Apple
+    /// says that scheduling a request with the identifier of one scheduled before replaces that one, and says
+    /// nothing of one already delivered. Taking a delivered one away by its identifier is what Apple does say.
     static func television(_ notices: TVNotices) async {
-        if notices.withdrawsNotYet {
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["tv-not-yet-sent"])
-        }
-        if let queue = notices.queue { await post(id: "tv-queue-flushed", title: "送信待ちの予約", body: queue) }
-        if let notYet = notices.notYet { await post(id: "tv-not-yet-sent", title: "送信待ちの予約", body: notYet) }
+        if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
+        if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }
+        if let notYet = notices.notYet { await post(id: televisionNotYet, title: "送信待ちの予約", body: notYet) }
     }
+
+    /// Takes away the warning of reservations not yet at the television, once none of them waits: sent since,
+    /// or gone with the television taken away.
+    static func withdrawTelevisionNotYet() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionNotYet])
+    }
+
+    /// The identifiers of the television's two notifications: what became of what waited for it, and the
+    /// warning of reservations not yet there. Neither is the recorder's, nor the other's.
+    static let televisionQueue = "tv-queue-flushed"
+    static let televisionNotYet = "tv-not-yet-sent"
 
     /// What that notification says, and the Shortcuts action when it is run by hand. The state the reader
     /// will find, in the words used when the recorder could not be reached.

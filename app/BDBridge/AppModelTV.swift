@@ -144,22 +144,39 @@ extension AppModel {
             } else {
                 defaults.removeObject(forKey: DefaultsKey.tvMac)
             }
-            // What the runs with no screen told of the last registration is not held against this one.
-            defaults.removeObject(forKey: DefaultsKey.tvTold)
+            forgetTheStopTold()
             makeTVLink()
             await tv?.connect()
             return .registered
         }
     }
 
+    /// What the runs with no screen told of the stop that kept the last registration's rounds from going is
+    /// not held against this one (`TVTold`). The reservations they warned of as not yet at the television
+    /// stay told: the connect that follows sends them, and the next run then finds none of them waiting and
+    /// takes the warning away, which with nothing told it would leave standing.
+    private func forgetTheStopTold() {
+        guard let saved = defaults.data(forKey: DefaultsKey.tvTold),
+              let told = try? JSONDecoder().decode(TVTold.self, from: saved), !told.rows.isEmpty,
+              let rowsAlone = try? JSONEncoder().encode(TVTold(rows: told.rows)) else {
+            defaults.removeObject(forKey: DefaultsKey.tvTold)
+            return
+        }
+        defaults.set(rowsAlone, forKey: DefaultsKey.tvTold)
+    }
+
     /// Takes the television away: its link, its address and its registration. What the television itself
-    /// lists as registered is left; it can be removed from the list in the television's settings.
+    /// lists as registered is left; it can be removed from the list in the television's settings. What the
+    /// runs with no screen told of it goes too, and with it their warning of reservations not yet at the
+    /// television, which went unsent with it; that one is taken away where the app asks the system about
+    /// notifications at all.
     func removeTV() {
         dropTVLink()
         surroundings.tvCredentials.remove()
         defaults.removeObject(forKey: DefaultsKey.tvHost)
         defaults.removeObject(forKey: DefaultsKey.tvMac)
         defaults.removeObject(forKey: DefaultsKey.tvTold)
+        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
         tvClientID = nil
     }
 
@@ -194,10 +211,11 @@ extension AppModel {
     /// are over, which is what the question is there to prevent.
     ///
     /// The first step sees the app's own work only. A run with no screen sends through the same queue with a
-    /// client of its own, so the rest is done in the queue's turn (`PendingQueue.betweenFlushes`): a sending
-    /// under way is over first, and one that made what was counted leaves a count that no longer holds.
-    /// Taken away while such a run had its round out, the registration would go from under it, and the run
-    /// would tell the reader to register a television that is no longer there.
+    /// client of its own -- inferred for the action, as `deleteWaiting` says -- so the rest is done in the
+    /// queue's turn (`PendingQueue.betweenFlushes`): a sending under way is over first, and one that made what
+    /// was counted leaves a count that no longer holds. Taken away while such a run had its round out, the
+    /// registration would go from under it, and the run would tell the reader to register a television that is
+    /// no longer there.
     func takeTheTelevisionAway(counted: Int?) async -> Bool {
         guard !isBusy(for: .tv) else { return false }
         return await PendingQueue.betweenFlushes { @MainActor in

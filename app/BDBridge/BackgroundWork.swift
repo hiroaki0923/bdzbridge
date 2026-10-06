@@ -196,8 +196,11 @@ enum BackgroundWork {
     /// posted or written, in the demo, with no television saved, and with no cache.
     ///
     /// Nothing is posted or written when the television was taken away while the run was out. Once the task's
-    /// time is up, only what the queue says of its rows is posted, and nothing is written: a request the
-    /// suspension cut reads as silence when the process resumes, which is not the television's doing.
+    /// time is up, only what the queue says of its rows is posted, without its sentence for a round cut short
+    /// by silence, and nothing is written. That is inferred, not seen: a request the suspension cut would come
+    /// back, once the process resumes, as a failure of the transport, which the client reads as silence. Apple
+    /// says only that the system can interrupt the process; what becomes of a request then is not in its
+    /// pages. Silence so read is not the television's doing.
     ///
     /// What was told is written whether or not a notification could be heard: one posted with the quiet
     /// permission the app takes at its first connect still reaches Notification Centre, and a reader who
@@ -221,7 +224,9 @@ enum BackgroundWork {
         guard televisionSaved() else { return run.sending }
         // The task's time ran out while the run was out (`register`).
         if Task.isCancelled {
-            if case .sent(let outcome) = run.sending, !outcome.isEmpty {
+            if case .sent(var outcome) = run.sending, !outcome.isEmpty {
+                // The suspension may be what cut the round short, and the television is not to be said to.
+                if outcome.interrupted { outcome.stopped = nil }
                 await Notify.television(TVNotices(queue: outcome.says(naming: DeviceSlot.tv.label)))
             }
             return run.sending
