@@ -356,9 +356,16 @@ extension AppModel {
     /// that it is not sent. Taking the television away does nothing then either (`takeTheTelevisionAway`).
     /// Never for the recorder's work, and a recorder's row is deleted whatever is under way, as it always
     /// has been.
+    ///
+    /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
+    /// run -- sends through the same queue in the same process with a client of its own, so a television's
+    /// row is deleted in the queue's turn (`PendingQueue.betweenFlushes`): before a sending, which then does
+    /// not see it, or after one, which has made it or not. The wait is the length of a round, a recorder's
+    /// included.
     func deleteWaiting(_ waiting: PendingReservation) async {
         guard !(waiting.target == .tv && isBusy(for: .tv)) else { return }
-        await removePending(waiting)
+        guard waiting.target == .tv else { return await removePending(waiting) }
+        _ = await PendingQueue.betweenFlushes { @MainActor in await self.removePending(waiting) }
     }
 
     /// ［それでも予約］ at the question a screen asks before a reservation that would stop others from

@@ -98,6 +98,14 @@ public enum PendingQueue {
         waiting.contains { $0.target == slot && $0.problem == nil && $0.request.end >= now }
     }
 
+    /// Runs `work` between two flushes: none is under way while it runs, and none begins until it is over.
+    /// For a change to what waits that a sending must not meet half way -- the screens deleting what a run
+    /// with no screen may have in hand. One turn for every device, as the flushes have. Nil never comes from
+    /// a `work` that does not throw.
+    public static func betweenFlushes<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T? {
+        try? await oneAtATime.run(work)
+    }
+
     private static let oneAtATime = SerialQueue()
 
     private static func oneRound<Target: QueueTarget>(client: Target, store: GuideStore,

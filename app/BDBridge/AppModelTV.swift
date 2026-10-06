@@ -144,6 +144,8 @@ extension AppModel {
             } else {
                 defaults.removeObject(forKey: DefaultsKey.tvMac)
             }
+            // What the runs with no screen told of the last registration is not held against this one.
+            defaults.removeObject(forKey: DefaultsKey.tvTold)
             makeTVLink()
             await tv?.connect()
             return .registered
@@ -157,6 +159,7 @@ extension AppModel {
         surroundings.tvCredentials.remove()
         defaults.removeObject(forKey: DefaultsKey.tvHost)
         defaults.removeObject(forKey: DefaultsKey.tvMac)
+        defaults.removeObject(forKey: DefaultsKey.tvTold)
         tvClientID = nil
     }
 
@@ -189,16 +192,24 @@ extension AppModel {
     /// television stays and nothing is deleted, and its line says why. A television taken away over rows
     /// that stayed would leave them with nobody to send them and nobody to drop them once their programmes
     /// are over, which is what the question is there to prevent.
+    ///
+    /// The first step sees the app's own work only. A run with no screen sends through the same queue with a
+    /// client of its own, so the rest is done in the queue's turn (`PendingQueue.betweenFlushes`): a sending
+    /// under way is over first, and one that made what was counted leaves a count that no longer holds.
+    /// Taken away while such a run had its round out, the registration would go from under it, and the run
+    /// would tell the reader to register a television that is no longer there.
     func takeTheTelevisionAway(counted: Int?) async -> Bool {
         guard !isBusy(for: .tv) else { return false }
-        guard await waitingForTheTelevision() == counted else { return false }
-        guard let store, (try? await store.removePending(waitingFor: .tv)) != nil else {
-            tvHost?.problem = Self.rowsNotTakenAway
-            return false
-        }
-        removeTV()
-        await loadPending()
-        return true
+        return await PendingQueue.betweenFlushes { @MainActor in
+            guard await self.waitingForTheTelevision() == counted else { return false }
+            guard let store = self.store, (try? await store.removePending(waitingFor: .tv)) != nil else {
+                self.tvHost?.problem = AppModel.rowsNotTakenAway
+                return false
+            }
+            self.removeTV()
+            await self.loadPending()
+            return true
+        } ?? false
     }
 
     /// Said on the television's line when it was not taken away because what waits for it could not be
