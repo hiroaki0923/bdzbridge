@@ -73,6 +73,30 @@ final class URLSessionTransportTests: XCTestCase {
         XCTAssertEqual(counts.timedOut + counts.other, 0)
     }
 
+    /// What a search's tally makes of an address where nobody answers, through the real session: a request
+    /// there times out when its own time is up, and is cancelled when the search ends it first, as a search's
+    /// deadline does to one that has outlived its time (`Discovery.probe`). Either is a request that was out,
+    /// so a look made of such addresses was not turned away (`ScanTally.Counts.turnedAwayWhole`). 127.0.0.2 is
+    /// the loopback network's and nobody's: what is sent there never leaves this machine and is never answered.
+    func testASilentAddressCountsAsARequestThatWasOut() async throws {
+        let silent = try XCTUnwrap(URL(string: "http://127.0.0.2:9/description.xml"))
+
+        let timingOut = ScanTally(URLSessionTransport())
+        _ = try? await timingOut.send(HTTPRequest(url: silent, timeout: 0.5))
+        let timedOut = await timingOut.counts
+        XCTAssertEqual(timedOut.timedOut, 1, "not timed out: \(timedOut.summary)")
+        XCTAssertFalse(timedOut.turnedAwayWhole, "a request that timed out was taken for one turned away")
+
+        let endedEarly = ScanTally(URLSessionTransport())
+        let request = Task { _ = try? await endedEarly.send(HTTPRequest(url: silent, timeout: 30)) }
+        try await Task.sleep(for: .milliseconds(300))
+        request.cancel()
+        await request.value
+        let cancelled = await endedEarly.counts
+        XCTAssertEqual(cancelled.failed, [-999: 1], "not counted as cancelled: \(cancelled.summary)")
+        XCTAssertFalse(cancelled.turnedAwayWhole, "a request the search ended was taken for one turned away")
+    }
+
     /// Why the wait for the local network permission is a connection of the Network framework's and not a
     /// request through a session that waits for connectivity, though Apple's technote names the two side by
     /// side (`LocalNetwork.waitForAccess`). Such a session takes a connection the address refused for one to

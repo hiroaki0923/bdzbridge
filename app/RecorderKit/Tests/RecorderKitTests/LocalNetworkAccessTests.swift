@@ -52,10 +52,12 @@ final class LocalNetworkAccessTests: XCTestCase {
         expectEqual(await LocalNetwork.access(probing: "127.0.0.1", within: .seconds(5)), .allowed)
         XCTAssertLessThan(Date().timeIntervalSince(started), 4, "answered by the path, not by the time limit")
 
-        let allowed = await LocalNetwork.waitForAccess(probing: "127.0.0.1") {
-            XCTFail("loopback is never held back by local network privacy")
+        let waiting = Task {
+            await LocalNetwork.waitForAccess(probing: "127.0.0.1") {
+                XCTFail("loopback is never held back by local network privacy")
+            }
         }
-        XCTAssertEqual(allowed, .allowed)
+        expectEqual(await outcome(of: waiting), .allowed)
     }
 
     /// Leaving the tutorial or turning to the demo cancels the scan that is waiting, and the scan must then
@@ -66,7 +68,7 @@ final class LocalNetworkAccessTests: XCTestCase {
             withUnsafeCurrentTask { $0?.cancel() }
             return await LocalNetwork.waitForAccess(probing: "127.0.0.1") {}
         }
-        expectEqual(await waiting.value, .unavailable)
+        expectEqual(await outcome(of: waiting), .unavailable)
     }
 
     // MARK: - where the wait reads the path
@@ -106,7 +108,7 @@ final class LocalNetworkAccessTests: XCTestCase {
         for outcome in [Sighting.answered, .refused, .unanswered] {
             let played = Played([PlayedConnection([.onItsWay, outcome], thenGoes: true)])
 
-            let access = await played.wait()
+            let access = await self.outcome(of: Task { await played.wait() })
 
             XCTAssertEqual(access, .allowed, "\(outcome.state)")
             XCTAssertEqual(played.timesBlocked, 0, "\(outcome.state): the permission was said to be in the way")
@@ -134,7 +136,7 @@ final class LocalNetworkAccessTests: XCTestCase {
 
         connection.comes(to: .onItsWay)
         connection.comes(to: .refused)
-        expectEqual(await waiting.value, .allowed)
+        expectEqual(await outcome(of: waiting), .allowed)
 
         XCTAssertEqual(played.timesBlocked, 1)
         XCTAssertEqual(played.pauses, [], "nothing is tried again by the wait while the system tries for it")
@@ -151,7 +153,7 @@ final class LocalNetworkAccessTests: XCTestCase {
                              PlayedConnection([.failedDenied], thenGoes: true),
                              PlayedConnection([.refused])])
 
-        let access = await played.wait()
+        let access = await outcome(of: Task { await played.wait() })
 
         XCTAssertEqual(access, .allowed)
         XCTAssertEqual(played.timesBlocked, 3, "each connection the permission stopped is said")
@@ -165,7 +167,7 @@ final class LocalNetworkAccessTests: XCTestCase {
     func testTheWaitGivesUpBlockedWhenEveryConnectionItIsAllowedHasFailed() async {
         let played = Played(thenAlways: { PlayedConnection([.failedDenied], thenGoes: true) })
 
-        let access = await played.wait()
+        let access = await outcome(of: Task { await played.wait() })
 
         XCTAssertEqual(access, .blocked)
         XCTAssertEqual(LocalNetwork.turnsAllowed, 120)
@@ -173,6 +175,19 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertEqual(played.timesBlocked, 120)
         XCTAssertEqual(played.pauses, Array(repeating: .seconds(1), count: 119),
                        "a pause between one connection and the next, and none after the last")
+    }
+
+    /// Nor when every connection it makes has gone without coming to anything at all: after as many as the
+    /// wait allows it gives up, not with a yes, and with nothing said of the permission.
+    func testTheWaitGivesUpWithNoYesWhenNoConnectionCameToAnything() async {
+        let played = Played()
+
+        let access = await outcome(of: Task { await played.wait() })
+
+        XCTAssertEqual(access, .unavailable)
+        XCTAssertEqual(played.timesBlocked, 0, "the permission was said to be in the way")
+        XCTAssertEqual(played.made.count, 120, "more connections were made than the wait allows, or fewer")
+        XCTAssertEqual(played.pauses.count, 119)
     }
 
     /// The screen that asked goes away while the connection waits: the wait's task is cancelled. The wait is
@@ -185,7 +200,7 @@ final class LocalNetworkAccessTests: XCTestCase {
         try await until("the wait never said the permission was in the way") { played.timesBlocked == 1 }
         waiting.cancel()
 
-        expectEqual(await waiting.value, .unavailable)
+        expectEqual(await outcome(of: waiting), .unavailable)
         XCTAssertTrue(connection.stopped, "the connection was left waiting after the wait was cancelled")
         XCTAssertEqual(played.made.count, 1, "another connection was made after the wait was cancelled")
         XCTAssertEqual(played.pauses, [])
@@ -196,7 +211,7 @@ final class LocalNetworkAccessTests: XCTestCase {
     func testNoPathForAnotherReasonEndsTheWaitWithNothingSaidOfThePermission() async {
         let played = Played([PlayedConnection([.onItsWay, .noNetwork])])
 
-        let access = await played.wait()
+        let access = await outcome(of: Task { await played.wait() })
 
         XCTAssertEqual(access, .unavailable)
         XCTAssertEqual(played.timesBlocked, 0)
@@ -210,7 +225,7 @@ final class LocalNetworkAccessTests: XCTestCase {
         let played = Played([PlayedConnection([.failedDenied], thenGoes: true),
                              PlayedConnection([.onItsWay, .denied, .denied, .onItsWay, .refused])])
 
-        let access = await played.wait()
+        let access = await outcome(of: Task { await played.wait() })
 
         XCTAssertEqual(access, .allowed)
         XCTAssertEqual(played.timesBlocked, 3)
@@ -261,9 +276,50 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertEqual(made.connection.parameters.prohibitedInterfaceTypes, [.cellular])
     }
 
+    /// The wait's own connection, towards this machine, where nothing listens on port 9: it is refused and
+    /// comes to something the wait reads, and stopped then, it ends, and what it reports with it. A wait
+    /// stops its connection once it has its answer; one left going would be tried again by the system.
+    func testTheWaitsOwnConnectionEndsWhenItIsStopped() async {
+        let made = WaitConnection(host: "127.0.0.1")
+        let watched = Task { () -> Bool in
+            var stopped = false
+            for await sighting in made.sightings where !stopped && LocalNetwork.settled(sighting) != nil {
+                made.stop()
+                stopped = true
+            }
+            return stopped
+        }
+
+        let ended = await outcome(of: watched, within: 3, "the connection, stopped,")
+
+        XCTAssertEqual(ended, true, "the connection had come to nothing the wait reads when it ended")
+    }
+
     // MARK: - what the tests do
 
     private typealias Sighting = LocalNetwork.Sighting
+
+    /// What a task of the test's came to, or nil, with the test failed, if it had not come to anything within
+    /// `seconds`: it is cancelled then, which ends a wait. Every wait the tests await is awaited through this,
+    /// so that a fault of the wait fails a test instead of leaving `swift test` waiting for good, and with it
+    /// the pre-commit hook and the archive.
+    private func outcome<T: Sendable>(of task: Task<T, Never>, within seconds: Double = 5,
+                                      _ what: String = "the wait", file: StaticString = #filePath,
+                                      line: UInt = #line) async -> T? {
+        let limit = Task { () -> Bool in
+            guard (try? await Task.sleep(for: .seconds(seconds))) != nil else { return false }
+            task.cancel()
+            return true
+        }
+        let value = await task.value
+        limit.cancel()
+        let ranOut = await limit.value
+        guard !ranOut else {
+            XCTFail("\(what) was still going after \(Int(seconds)) seconds", file: file, line: line)
+            return nil
+        }
+        return value
+    }
 
     /// Waits for `condition`, a few seconds at most: for what a wait in a task of its own gets round to.
     private func until(_ what: String, within seconds: Double = 3, _ condition: () -> Bool) async throws {

@@ -238,6 +238,8 @@ final class ScanTests: XCTestCase {
         try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
         let search = try XCTUnwrap(model.scanTask)
         model.stopScanning()
+        // The bench's wait ends only when the test lets it go; the app's ends when its task is cancelled.
+        XCTAssertTrue(search.isCancelled, "the search's task was left waiting after the screen had gone")
         XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
         XCTAssertNil(model.scanning, "the search was shown as still going after the screen had gone")
         bench.letThePermissionGo(allowed: true)
@@ -248,6 +250,23 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(model.found, [])
         XCTAssertNil(model.scanning)
         XCTAssertFalse(model.scanBlocked)
+    }
+
+    /// The app's own surroundings hand its search the package's wait for the permission
+    /// (`LocalNetwork.waitForAccess`), and not one that lets it straight through: every other test here has
+    /// the bench's. Called in a task cancelled before it begins, the package's wait is over at once, without a
+    /// yes and before it has made a connection, where a wait that let everything through would say allowed.
+    /// Aimed at this machine's loopback all the same.
+    func testTheAppsSearchWaitsWithThePackagesOwnWait() async throws {
+        let wait = Surroundings.app.waitForLocalNetwork
+        let waiting = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await wait("127.0.0.1") {}
+        }
+
+        let access = try await within(2, "the app's wait never ended") { await waiting.value }
+
+        XCTAssertEqual(access, .unavailable, "the app's search does not wait with the package's wait")
     }
 
     /// The wait gives up with the permission still in the way. The search is over without having asked
