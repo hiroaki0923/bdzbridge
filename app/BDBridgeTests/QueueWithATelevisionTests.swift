@@ -524,8 +524,8 @@ final class QueueWithATelevisionTests: XCTestCase {
 
     /// Where a reservation can go is the devices saved: the recorder alone in a home with no television,
     /// both with both, and the television alone where a television is saved and no recorder is. Asking
-    /// asks the television nothing. A programme that has begun can go to the recorder, as ever, and not to
-    /// a television.
+    /// asks the television nothing. A programme that has begun can go to either, the television as the
+    /// recorder. One that is over is not offered a television, whose door would turn it away.
     ///
     /// In the demo, entered from the home with both, the invented recorder is alone: the real television
     /// is not offered, and a reservation asked for on it all the same is not done. Nothing is kept, in the
@@ -546,7 +546,10 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(model.destinations, [.recorder, .tv])
         XCTAssertEqual(model.destinations(for: begun), [.recorder, .tv])
         begun.start = Date().addingTimeInterval(-60)
-        XCTAssertEqual(model.destinations(for: begun), [.recorder], "a programme on air is offered a television")
+        XCTAssertEqual(model.destinations(for: begun), [.recorder, .tv], "a programme on air is offered no television")
+        var over = begun
+        over.end = Date().addingTimeInterval(-1)
+        XCTAssertEqual(model.destinations(for: over), [.recorder], "a programme that is over is offered a television")
         expectEqual(await television.calls, calls, "asking where a reservation can go asked the television")
 
         await model.enterDemo()
