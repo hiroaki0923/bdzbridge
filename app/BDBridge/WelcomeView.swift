@@ -44,12 +44,12 @@ struct WelcomeView: View {
                     } label: {
                         HStack {
                             Spacer()
-                            if model.scanning != nil { ProgressView().controlSize(.small).padding(.trailing, 6) }
+                            if model.scanHoldsTheButton { ProgressView().controlSize(.small).padding(.trailing, 6) }
                             Text("レコーダーを探す").bold()
                             Spacer()
                         }
                     }
-                    .disabled(model.scanning != nil || model.busy != nil)
+                    .disabled(model.scanHoldsTheButton || model.busy != nil)
                     // Right under the button, which is where the reader is looking: the foot of this list is
                     // below the fold on most iPhones.
                     if model.lanBlocked {
