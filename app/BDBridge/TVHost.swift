@@ -272,16 +272,17 @@ final class TVHost: LinkHost {
 
     /// Not from a host the app has let go of. A request still out on its link can run into the permission
     /// after that, and the app stops a host's wait once, as it lets go of it (`AppModel.dropTVLink`): one set
-    /// going later would have nothing left to stop it.
+    /// going later would have nothing left to stop it. A wait that has given up ends as the recorder's does
+    /// (`AppModel.waitForPermission`).
     func waitForPermission(at host: String) {
         guard inPlay else { return }
         accessWatch?.cancel()
         accessWatch = Task { [weak self] in
-            let allowed = await LocalNetwork.waitForAccess(probing: host) {}
+            let access = await LocalNetwork.waitForAccess(probing: host) {}
             guard let self, !Task.isCancelled else { return }
             // cleared before the link connects, since connecting stops whatever wait is still set
             self.accessWatch = nil
-            await self.link?.permissionArrived(allowed, at: host)
+            await self.link?.permissionArrived(access == .allowed, at: host)
         }
     }
 

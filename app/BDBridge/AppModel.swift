@@ -112,8 +112,17 @@ final class AppModel: LinkHost {
     /// which every screen shows as a failure.
     var scanOutcome: ScanOutcome?
     /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
-    /// answered no -- so that the screens can say so and offer the Settings app.
+    /// answered no -- or is taken to be, its look through the subnet having been turned away whole
+    /// (`scanForRecorders`), so that the screens can say so and offer the Settings app.
     var scanBlocked = false
+    /// Whether レコーダーを探す is held back, with its small spinner, on every screen that has it: while a scan
+    /// is under way and the notice about the permission is not up. Behind the notice the button is the
+    /// reader's, and a press starts over (`scanForRecorders` ends the scan under way). It is a new local
+    /// network operation in the foreground, which is what puts the system's question up while the permission
+    /// is undecided -- of one turned away in the background, "If, later on, the app performs a local network
+    /// operation while in the foreground, the system presents the alert to the user as if this were the first
+    /// local network operation" (TN3179). Whether a question left unanswered comes back so has not been seen.
+    var scanHoldsTheButton: Bool { scanning != nil && !scanBlocked }
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
     /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.
     var connectBlocked: Bool { session.connectBlocked }
@@ -124,10 +133,6 @@ final class AppModel: LinkHost {
     var scanTask: Task<Void, Never>?
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0
-    /// A scan that found nobody, waiting for the app to be active again before it looks once more (`scan`).
-    /// Let go of when the app is (`activeChanged`), when it goes to the background instead
-    /// (`wentToBackground`), and when the scan is stopped.
-    var scanAwaitsActive: CheckedContinuation<Void, Never>?
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     var accessWatch: Task<Void, Never>?
@@ -176,16 +181,11 @@ final class AppModel: LinkHost {
     /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
     var inBackground = false
     /// Whether the app is the one in front and taking touches (`ScenePhase.active`), as the first screen tells
-    /// it at each change (`activeChanged`). Not the same as being out of the background: a question of the
-    /// system's, Control Centre and the app switcher take the app out of it without its going anywhere.
+    /// it at each change (`activeChanged`). Not the same as being out of the background: Control Centre and the
+    /// app switcher take the app out of it without its going anywhere. Whether the system's question about the
+    /// local network does has not been seen; the log's phase lines will say. Nothing goes by it: it is for the
+    /// log of a scan for a recorder.
     var appIsActive = true
-    /// How often the app has stopped being active, and when it last became active again: what a scan that
-    /// found nobody goes by (`scan`).
-    var timesLeftActive = 0
-    var activeSince: ContinuousClock.Instant?
-    /// How often the app has gone to the background. A scan's press is carried across a question of the
-    /// system's, which never sends the app there, and not across a visit there (`scan`).
-    var timesInBackground = 0
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
     var backInFront: CheckedContinuation<Void, Never>?
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
