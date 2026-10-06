@@ -92,9 +92,9 @@ public enum Discovery {
     /// about the local network may do to it: "it may deny the operation immediately, before the user has
     /// responded to the alert", and for requests that cannot be made through an API that waits for
     /// connectivity, "add appropriate retry logic" (Apple's TN3179). A search's requests cannot: a session
-    /// that waits also waits, without end, on an address that refuses (`docs/porting.md`). So the search asks
-    /// one address until a request is let out, and looks again then. The asking, and how often, is the
-    /// caller's; this is the one request and the reading of it.
+    /// that waits was seen, on a Mac, to wait on an address that refused as well, and not to end
+    /// (`docs/porting.md`). So the search asks one address until a request is let out, and looks again then.
+    /// The asking, and how often, is the caller's; this is the one request and the reading of it.
     public static func turnedAway(at host: String, transport: any HTTPTransport = URLSessionTransport(),
                                   port: Int = Upnp.port, timeout: TimeInterval = 1.2) async -> Bool {
         let tally = ScanTally(transport)

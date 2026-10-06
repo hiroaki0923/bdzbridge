@@ -75,8 +75,9 @@ final class ScanTests: XCTestCase {
     }
 
     /// Nobody there. The search waited for the permission, and the app stopped being active meanwhile, as it
-    /// does for the system's question: let go, the search looks through the addresses once and says at once
-    /// that it found nobody. Nothing is made of the app's phase, then or afterwards.
+    /// may for the system's question (not seen; the log's phase lines will say): let go, the search looks
+    /// through the addresses once and says at once that it found nobody. Nothing is made of the app's phase,
+    /// then or afterwards.
     func testNothingFoundIsSaidAtOnceAfterOneLookWhateverTheAppsPhaseDid() async throws {
         let bench = try aBench()
         bench.holdThePermission()
@@ -621,7 +622,7 @@ final class ScanTests: XCTestCase {
     // MARK: - what a search leaves in the log
 
     /// The course of a first press as the log has it, for reading off a phone afterwards: the press, each
-    /// change of the app's phase while the search waits for the permission, as the system's question makes
+    /// change of the app's phase while the search waits for the permission, as the system's question may make
     /// them, the end of the wait, the search with how its requests came back, and what was said. In counts
     /// and codes: no line has an address in it, nor anything the recorder said of itself.
     func testASearchWritesItsCourseToTheLogInCountsAndCodes() async throws {
@@ -665,7 +666,8 @@ final class ScanTests: XCTestCase {
         return model
     }
 
-    /// The app stops being active, as it does for as long as a question of the system's is up over it.
+    /// The app stops being active, as it does under Control Centre, and as it may for as long as a question of
+    /// the system's is up over it: whether the local network's does has not been seen.
     private func leave(_ model: AppModel) {
         model.activeChanged(to: false)
     }
@@ -675,8 +677,8 @@ final class ScanTests: XCTestCase {
         model.activeChanged(to: true)
     }
 
-    /// The app goes to the background, as it does for the home screen or another app and never for a question
-    /// of the system's: it stops being active on the way there, if it had not already.
+    /// The app goes to the background, as it does for the home screen or another app: it stops being active on
+    /// the way there, if it had not already.
     private func goToTheBackground(_ model: AppModel) {
         model.activeChanged(to: false)
         model.wentToBackground()

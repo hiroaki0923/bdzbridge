@@ -74,8 +74,8 @@ final class LocalNetworkAccessTests: XCTestCase {
     // MARK: - where the wait reads the path
 
     /// The wait reads a connection's path once the connection has come to something, and not before. A
-    /// connection has a path before it has tried anything, satisfied on any network there is, and that says
-    /// nothing of the permission: the system's question comes up when the connection tries.
+    /// connection has a path before it has tried anything -- satisfied, on this machine's loopback -- and that
+    /// says nothing of the permission: the system's question comes up when the connection tries.
     func testAPathSaysNothingBeforeItsConnectionHasComeToAnything() {
         func settled(_ state: NWConnection.State, _ status: NWPath.Status?,
                      _ reason: NWPath.UnsatisfiedReason? = .notAvailable) -> LocalNetwork.Access? {
@@ -90,7 +90,7 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertEqual(settled(.waiting(.posix(.ECONNREFUSED)), .satisfied), .allowed,
                        "an address that refused the connection was reached")
         XCTAssertEqual(settled(.waiting(.posix(.ETIMEDOUT)), .satisfied), .allowed,
-                       "a handshake that ran out of time was sent")
+                       "a handshake that ran out of time is taken for the local network reached")
         XCTAssertEqual(settled(.waiting(.posix(.ENETDOWN)), .unsatisfied, .localNetworkDenied), .blocked)
         XCTAssertEqual(settled(.waiting(.posix(.ENETDOWN)), .unsatisfied, .notAvailable), .unavailable)
         XCTAssertNil(settled(.waiting(.posix(.ENETDOWN)), nil, nil), "waiting with no path yet is still to come")
@@ -101,9 +101,9 @@ final class LocalNetworkAccessTests: XCTestCase {
 
     // MARK: - the wait, on connections the tests play
 
-    /// A connection that is answered, refused, or left unanswered until its handshake ran out has reached the
-    /// local network: the wait is over at once, nothing was said of the permission, and the connection is
-    /// ended.
+    /// A connection that is answered or refused has had an answer from the local network, and one left
+    /// unanswered until its handshake ran out is taken for one that reached it: the wait is over at once,
+    /// nothing was said of the permission, and the connection is ended.
     func testAConnectionThatGotOutIsAllowedAndNothingIsSaidOfThePermission() async {
         for outcome in [Sighting.answered, .refused, .unanswered] {
             let played = Played([PlayedConnection([.onItsWay, outcome], thenGoes: true)])

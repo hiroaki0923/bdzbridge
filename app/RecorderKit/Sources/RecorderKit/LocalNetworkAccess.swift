@@ -4,20 +4,24 @@ import Network
 /// Whether iOS lets this app reach the local network, which it asks the reader about the first time the app
 /// tries.
 ///
-/// Nothing reports that permission, nor the reader answering the system's question: "There's no general API
-/// that returns whether the current process has local network access" (Apple's TN3179, "Understanding local
-/// network privacy"). What the technote gives is a sign to read off a connection: "If your goal is to make a
-/// TCP connection to a local network address, manage that connection with NWConnection. If your program
-/// doesn't have local network access, the connection enters the NWConnection.State.waiting(_:) state and the
-/// current path lists an unsatisfied reason of NWPath.UnsatisfiedReason.localNetworkDenied." And for the
-/// answer arriving: "If the user subsequently changes the Local Network privilege to grant your program local
-/// network access, the system automatically retries the connection." So a connection is opened towards the
-/// address in question, to watch what it comes to.
+/// Nothing reports that permission: "There's no general API that returns whether the current process has
+/// local network access" (Apple's TN3179, "Understanding local network privacy"). Nor does the technote name
+/// an event for the reader answering the system's question. What it gives is a sign to read off a connection:
+/// "If your goal is to make a TCP connection to a local network address, manage that connection with
+/// NWConnection. If your program doesn't have local network access, the connection enters the
+/// NWConnection.State.waiting(_:) state and the current path lists an unsatisfied reason of
+/// NWPath.UnsatisfiedReason.localNetworkDenied." And for the answer arriving: "If the user subsequently
+/// changes the Local Network privilege to grant your program local network access, the system automatically
+/// retries the connection." So a connection is opened towards the address in question, to watch what it
+/// comes to.
 ///
 /// The wait (`waitForAccess`) reads that sign where the technote reads it, in a state the connection has come
-/// to, and nowhere sooner. A connection is handed its first path before it has tried anything, and on a Wi-Fi
-/// that path is satisfied whatever the permission: a wait that took it for the answer let a search go ahead
-/// behind the system's question, which said it had found nobody while the question was still up.
+/// to, and nowhere sooner. A connection is handed its first path before it has tried anything -- satisfied, on
+/// a Mac's loopback, while the connection is still being set up -- and a wait that took that path for the
+/// answer let a search go ahead behind the system's question on a phone, which said it had found nobody while
+/// the question was still up. That the first path is satisfied on a phone's Wi-Fi whatever the permission is
+/// taken from those two and has not been seen; the old wait answering no path for another reason would have
+/// let the search through as well (`docs/porting.md`).
 ///
 /// The one look (`access`) still reads the path as soon as there is one, and is left as it was: it can take a
 /// permission still to be given for given (`docs/porting.md`, ローカルネットワークの許可).
@@ -58,12 +62,17 @@ extension LocalNetwork {
     ///
     /// There is no time limit while the connection waits: the reader may take as long as they like over the
     /// question, or go to the Settings app and back. A connection the system keeps waiting sends nothing, and
-    /// the system tries it again by itself once the reader allows it, which is the one event there is for the
-    /// answer. So the connection is kept, and not replaced by a fresh one every few seconds as it once was.
+    /// the system tries it again by itself once the reader allows it, which is the nearest thing to an event
+    /// for the answer that the technote gives. So the connection is kept, and not replaced by a fresh one every
+    /// few seconds as it once was. The technote's sign is all it says of the time before the answer; a
+    /// session of WWDC20 (10110) adds "Local connections that use NWConnection will stay in the waiting state
+    /// until your app gets permission".
     ///
-    /// A connection that has failed outright is another matter: nothing tries that one again. With the
-    /// permission in the way, the wait makes another a second later, which is the technote's "appropriate
-    /// retry logic". That does not go on without end. The loop is a `for` over `turnsAllowed`, each turn of
+    /// A connection that has failed outright is another matter: "The connection has irrecoverably closed or
+    /// failed" (`Network/connection.h`), and nothing tries it again. With the permission in the way, the wait
+    /// makes another a second later: a retry of the app's own, in the spirit of the "appropriate retry logic"
+    /// the technote asks of what cannot wait. Nothing documents a connection failing outright for want of the
+    /// permission. That does not go on without end. The loop is a `for` over `turnsAllowed`, each turn of
     /// it makes one connection and goes round again only when that connection has gone without an answer,
     /// and after the last the wait gives up, two minutes on. A connection that waits is one turn however
     /// long it waits.
@@ -84,7 +93,8 @@ extension LocalNetwork {
     /// How long the wait's connection gives an address to answer its handshake. An address where nothing
     /// lives is silent, and a connection left to itself goes on trying it, in a state that says nothing of
     /// the permission, for longer than a reader would wait. With "the number of seconds that TCP waits before
-    /// timing out its handshake" set, the connection comes to waiting when they are up, and can be read.
+    /// timing out its handshake" set, the connection comes to waiting when they are up, and can be read. Both
+    /// as seen on a Mac's loopback (`LocalNetworkAccessTests`), at an address where nobody answers.
     static let handshakeSeconds = 2
 
     /// The wait itself, with what it reaches handed in: how a connection is made, how the wait pauses, and
@@ -147,9 +157,12 @@ extension LocalNetwork {
     ///
     /// Ready, it has been answered. Waiting, or failed, it has tried and "will indicate the reason that the
     /// connection couldn't be established": there the path is read, as the technote's own check reads it. A
-    /// path that is satisfied then is an address that refused the connection or let its handshake run out,
-    /// and either way something of it left this device. Before that -- set up, or "in the process of being
-    /// established" -- the path says only that there is a network to try on.
+    /// path that is satisfied then is an address that refused the connection, which is an answer from the
+    /// local network, or one that let its handshake run out. That is taken for the local network reached too,
+    /// since nothing tells it from an address where nobody lives; whether the system can hold a connection
+    /// behind its question until the handshake runs out has not been seen (`docs/porting.md`). Before that --
+    /// set up, or "in the process of being established" -- the path says only that there is a network to try
+    /// on.
     static func settled(_ sighting: Sighting) -> Access? {
         switch sighting.state {
         case .ready: .allowed

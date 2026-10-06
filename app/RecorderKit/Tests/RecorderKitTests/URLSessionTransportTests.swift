@@ -96,55 +96,6 @@ final class URLSessionTransportTests: XCTestCase {
         XCTAssertEqual(cancelled.failed, [-999: 1], "not counted as cancelled: \(cancelled.summary)")
         XCTAssertFalse(cancelled.turnedAwayWhole, "a request the search ended was taken for one turned away")
     }
-
-    /// Why the wait for the local network permission is a connection of the Network framework's and not a
-    /// request through a session that waits for connectivity, though Apple's technote names the two side by
-    /// side (`LocalNetwork.waitForAccess`). Such a session takes a connection the address refused for one to
-    /// wait on: it tells the task's delegate that the task is waiting for connectivity, and the request does
-    /// not end, where the same request through a session that does not wait fails at once. A router refuses
-    /// port 9, so a wait made of such a request would not be over for a reader who had allowed everything,
-    /// and what it was told could not be told from the permission. Seen here on the loopback, where nothing
-    /// listens on port 9.
-    func testASessionThatWaitsForConnectivityWaitsOnAnAddressThatRefuses() async throws {
-        let refusing = try XCTUnwrap(URL(string: "http://127.0.0.1:9/"))
-        let atOnce = URLSession(configuration: .ephemeral)
-        defer { atOnce.invalidateAndCancel() }
-        do {
-            _ = try await atOnce.data(from: refusing)
-            XCTFail("something on this machine answers on port 9")
-        } catch {
-            XCTAssertEqual((error as? URLError)?.code, .cannotConnectToHost)
-        }
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.waitsForConnectivity = true
-        let waiting = URLSession(configuration: configuration)
-        defer { waiting.invalidateAndCancel() }
-        let told = ToldToWait()
-        let request = Task { try await waiting.data(from: refusing, delegate: told) }
-        // The session that does not wait had its answer in hundredths of a second.
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertTrue(told.wasTold, "the task's delegate was not told the task is waiting for connectivity")
-        request.cancel()
-        do {
-            _ = try await request.value
-            XCTFail("something on this machine answers on port 9")
-        } catch {
-            XCTAssertEqual((error as? URLError)?.code, .cancelled, "the refused request ended by itself")
-        }
-    }
-}
-
-/// Hears a session say that a task is waiting for connectivity.
-private final class ToldToWait: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var told = false
-
-    var wasTold: Bool { lock.withLock { told } }
-
-    func urlSession(_ session: URLSession, taskIsWaitingForConnectivity task: URLSessionTask) {
-        lock.withLock { told = true }
-    }
 }
 
 /// A server on the loopback that answers every request with the same bytes, closes, and keeps the request

@@ -100,8 +100,9 @@ may put anything on the LAN by itself -- the magic packet, the look at the local
 search for a recorder the router has moved, the watch on the network -- or ask about notifications, and how
 long the recorder's client pauses before sending a 503 again and a write to the cache waits for another
 connection's. And what the search begun by レコーダーを探す reaches: the interfaces it looks round, its wait for
-the local network permission, the transport its requests go through, and where it writes its log. The app
-passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a
+the local network permission, the transport its requests go through, the pause between the single requests it
+makes after a look that was turned away, and where it writes its log. The app passes `Surroundings.app` and
+nothing else. A test builds its model on a `Bench`: a
 defaults suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an
 invented recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the
 demo's pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse
@@ -112,10 +113,13 @@ tells it -- a fault with one of the recorder's own codes, a 503, a list a moment
 `beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) -- and a network it
 changes when the phone is meant to have moved. A bench's phone is on no Wi-Fi until a test puts it on one
 (`joinWiFi`): a /24 of addresses reserved for documentation, whose requests go to the bench's `Subnet` -- the
-recorders the test put there, and nobody at any other address -- and nowhere else. A test can take the phone
-off that Wi-Fi again (`leaveWiFi`), and can hold the search's wait for the local network permission, with or
-without its saying that the permission is in the way, and end it each of the three ways it ends
-(`holdThePermission`, `letThePermissionGo`, `giveUpOnThePermission`).
+recorders the test put there, and nobody at any other address, who times out or refuses as the test says --
+and nowhere else. A test can take the phone off that Wi-Fi again (`leaveWiFi`) or put it on another; can have
+the subnet turn every request away at once, as the system may behind its question, or hold the requests; can
+hold the search's wait for the local network permission, with or without its saying that the permission is in
+the way, and end it each of the three ways it ends (`holdThePermission`, `letThePermissionGo`,
+`giveUpOnThePermission`); and can hold the pause before each single request a search makes after a look that
+was turned away (`holdTheSingleRequests`).
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
@@ -228,27 +232,42 @@ something was waiting. The demo leaves the real recorder's cache as it was.
 
 `ScanTests` presses レコーダーを探す, which no test could while the search reached for the device's
 interfaces, the permission and a session of its own: a press finds the recorder on the bench's Wi-Fi, or
-nobody, having asked each address once, or says there is no Wi-Fi and asks nobody. The wait for the
-permission is the bench's to hold. While it is held nobody is asked and the screen says what is in the way.
-Allowed, the search is made, once, and what it found is said at once, whatever the app's phase did meanwhile.
-Ended without the permission and with the Wi-Fi gone, it says there is no Wi-Fi. Given up on with the
-permission still in the way, nobody is asked and nothing is said of having looked: the notice stays and the
-button is the reader's again, and the next press takes that notice down and starts over. And the screen going
-away meanwhile, nobody is asked though the permission comes afterwards. Once a search has said there is no
-Wi-Fi, or its wait has given up, no search is under way, which the tests read off the log. The tests tell the
-model the app's phase as the first screen does (`activeChanged`, `wentToBackground`): nothing goes by it but
-the log. One reads the lines a search wrote for the log, the whole course of a first press, and holds that
-none has an address in it or anything the recorder said of itself.
+nobody, having asked each address once, or says there is no Wi-Fi and asks nobody. The wait for the permission
+is the bench's to hold. While it is held nobody is asked and the screen says what is in the way. Allowed, the
+search is made, once, and what it found is said at once, whatever the app's phase did meanwhile; ended with no
+path and the Wi-Fi still there, the search is made all the same. The Wi-Fi is read again after the wait,
+whatever it answered: gone, the search says there is no Wi-Fi and asks nobody, and on another Wi-Fi it goes
+through that one's addresses. Given up on with the permission still in the way, nobody is asked and nothing is
+said of having looked: the notice stays and the button is the reader's again, and the next press takes that
+notice down and starts over. And the screen going away meanwhile, the search's task is cancelled and nobody is
+asked though the permission comes afterwards. The app's own surroundings hand the search the package's wait,
+and not one that lets it through.
+
+A look that got out and found nobody -- every address silent, or every one refusing -- is said at once, with
+no pause and no other request. One the subnet turned away whole says nothing: the notice goes up and stays up
+while one address is asked after each pause, and when a request gets out the addresses are looked through
+again and the recorder is found without another press. That stops after a hundred and twenty such requests,
+with the notice up and nothing said, and a press then starts over; the Wi-Fi going meanwhile is said, and the
+screen going away ends it. The button is held back only while a search is under way with no notice up, and a
+press behind the notice starts over. Once a search has said there is no Wi-Fi, or has given up, no search is
+under way, which the tests read off the log. The tests tell the model the app's phase as the first screen does
+(`activeChanged`, `wentToBackground`): nothing goes by it but the log. One reads the lines a search wrote for
+the log, the whole course of a first press, and holds that none has an address in it or anything the recorder
+said of itself.
 
 The wait itself is the package's to try (`LocalNetworkAccessTests`). On connections the tests play: one that
-is answered, refused or left unanswered is allowed, with nothing said of the permission; one kept waiting for
-the permission is said to be, and stayed on until the system tries it again, when what it comes to is the
-answer; one that fails outright is made again a second later, a hundred and twenty at most, and then the wait
-gives up; a wait that is cancelled ends its connection; and no path for another reason ends it without a
-word of the permission. And on this machine's loopback, with the wait's own connection: refused at once at one
-address, and at another left unanswered until the two seconds its handshake is given are up, and not taken
-for allowed before then, though its path was satisfied from the start. `URLSessionTransportTests` holds why
-the wait is not a request through a session that waits for connectivity.
+is answered or refused is allowed, and so is one left unanswered until its handshake ran out, with nothing
+said of the permission; one kept waiting for the permission is said to be, and stayed on until the system
+tries it again, when what it comes to is the answer; one that fails outright is made again a second later, a
+hundred and twenty at most, and then the wait gives up, blocked when the last was denied and without a yes
+when none came to anything; a wait that is cancelled ends its connection; and no path for another reason ends
+it without a word of the permission. Every wait a test awaits has a limit of its own, so that a fault of the
+wait fails a test rather than leaving `swift test` waiting. And on this machine's loopback, with the wait's
+own connection: refused at once at one address, and at another left unanswered until the two seconds its
+handshake is given are up, and not taken for allowed before then, though its path was satisfied from the
+start; never made over the mobile network; and ended when it is stopped. `ScanTallyTests` holds the rule for a
+look turned away whole, term by term, and `URLSessionTransportTests` that a silent address comes back through
+the real session as a request that was out: timed out, or cancelled when the search ends it first.
 
 No test puts a screen up, so none holds where the settings hang the sheet for adding a television: on the
 form, and not on the television's section, where a sheet hung on each of the section's rows went by itself at
@@ -457,43 +476,71 @@ recorder, so the address does not have to be typed. On a home network 253 addres
 The first tap is also what makes iOS ask about the local network, and the search waits for that answer
 rather than running behind the question -- so that one tap finds the recorder.
 
-The wait is written from Apple's TN3179, "Understanding local network privacy". Nothing reports the
-permission, or the reader answering the question. What the technote gives is a sign to read off a
-connection: without access it "enters the NWConnection.State.waiting(_:) state and the current path lists an
-unsatisfied reason of NWPath.UnsatisfiedReason.localNetworkDenied", and once the reader allows it "the system
-automatically retries the connection". So the wait opens one connection towards a neighbour on the subnet and
-reads its path only when the connection has come to something. Waiting with that reason is the permission in
-the way: the screen says so, with a button to the Settings app, and the wait stays on that connection for as
-long as it takes. Ready, refused, or unanswered for the two seconds its handshake is given is the local
-network reached, and the search starts.
+The wait is written from Apple's TN3179, "Understanding local network privacy". Nothing reports the permission
+("There's no general API that returns whether the current process has local network access"), and the technote
+names no event for the reader answering the question. What it gives is a sign to read off a connection:
+without access it "enters the NWConnection.State.waiting(_:) state and the current path lists an unsatisfied
+reason of NWPath.UnsatisfiedReason.localNetworkDenied", and once the reader allows it "the system
+automatically retries the connection". So the wait opens one connection towards a neighbour on the subnet,
+never over the mobile network, and reads its path only when the connection has come to something. Waiting with
+that reason is the permission in the way: the screen says so, with a button to the Settings app, and the wait
+stays on that connection for as long as it takes. Ready or refused is an answer from the local network, and
+the search starts. Unanswered for the two seconds its handshake is given is taken for the local network
+reached as well, since nothing tells it from an address where nobody lives; whether the system can hold a
+connection behind its question until then has not been seen.
 
-The wait as it was written for 0.3 read the path the first time there was one. That is before a connection
-has tried anything, and on a Wi-Fi the path is satisfied whatever the permission. So on an iPhone the search
-ran behind the question and said レコーダーが見つかりませんでした while the question was still up, and 許可
-started nothing. The rule added after that -- hold an empty result for a second, and search once more if the
-app had stopped being active since the tap -- rested on a guess, did not fire on a phone, and is gone.
+The wait as it was written for 0.3 read the path the first time there was one, before the connection has tried
+anything. That path is satisfied on a Mac's loopback, and is taken to have been satisfied on the phone
+whatever the permission; nobody has read it there, and a wait that answered "no path, and not for the
+permission" would have let the search through just the same. Either way, on an iPhone the search ran behind
+the question and said レコーダーが見つかりませんでした while the question was still up, and 許可 started
+nothing. The rule added after that -- hold an empty result for a second, and search once more if the app had
+stopped being active since the tap -- rested on a guess, did not fire on a phone, and is gone.
 
-Behind the wait the search looks through the addresses once and says what it found at once. If the wait
-gives up with the permission still in the way -- which takes a connection that fails outright, made again
-every second for two minutes -- nobody is asked and nothing is said of having looked: the notice stays, and
-the button is live again. Closing the tutorial, choosing a recorder or turning to the demo ends a search
-wherever it has got to. Leaving the settings tab does not, as it never did.
+Behind the wait the Wi-Fi is read again, since the reader may have been minutes over the question, and the
+search looks through the addresses it has then, once, and says what it found at once; with no Wi-Fi by then it
+says so and asks nobody. If the wait gives up with the permission still in the way -- which takes a connection
+that fails outright, made again every second for two minutes -- nobody is asked and nothing is said of having
+looked: the notice stays, and the button is live again.
+
+Under that is a net, for a wait that is wrong behind the question. A look none of whose requests was answered,
+timed out, was cancelled for outliving its time, or was refused or dropped by an address was turned away
+whole: a subnet always has addresses where nobody lives, and those time out. Such a look says nothing. The
+notice goes up and stays up while the search asks the neighbour once a second, with a request of its own kind,
+until one gets out; then it looks again, and reads that look the same way. A press comes to a hundred and
+twenty such requests at most, and then ends as a wait that gave up does. What the net cannot catch is requests
+the system holds behind its question until they time out, which read as a home with nobody in it. A home whose
+first look gets out sees nothing new: one wait, one look, said at once.
+
+Nothing goes round without end. The wait is a `for` over the connections it may make, each turn one
+connection, going round again only when that connection has gone without an answer. The single requests are a
+`for` over the hundred and twenty a press may make, each turn one request and at most one look after it, and
+nothing gives a turn back.
+
+レコーダーを探す is held back, with its spinner, only while a search is under way and the notice is not up
+(`AppModel.scanHoldsTheButton`, which both screens read); behind the notice a press starts over. Closing the
+tutorial, choosing a recorder or turning to the demo ends a search wherever it has got to. Leaving the
+settings tab does not, as it never did.
 
 None of this can be seen off a phone: the simulator has no local network privacy, and a Mac lets what is run
-from a terminal through unasked. Still to be seen, on an iPhone the app has been deleted from and installed
-on again: that the connection waits with that reason while the question is up, so that the app's notice
-shows behind it and no red line; that the system tries the connection again at 許可, so that the search
-starts by itself; and that the connection stays waiting after 許可しない. `docs/porting.md` has the list in
-full.
+from a terminal through unasked. Still to be seen, on an iPhone the app has been deleted from and installed on
+again, with the question left up for ten seconds or more before it is answered -- a tap within two seconds
+hides the case that matters most -- and the phone's iOS version written down beside each result: that the
+connection waits with that reason while the question is up, so that the app's notice shows behind it and no
+red line; that the system tries the connection again at 許可, so that the search starts by itself; that the
+connection stays waiting after 許可しない, and that switching Local Network on in the Settings app then starts
+the search by itself; what the app sent to the background under the question shows when it comes back; and
+what the Wi-Fi dropping during the wait says. `docs/porting.md` has the list in full.
 
 A search also writes its course to the system's log, so that a first tap on a phone can be read afterwards:
 subsystem `RecorderKit`, category `scan`, at the default level, which the system keeps for a while
 (`ScanLog`). What the wait's connection came to, with its path each time, and what ended the wait; how long
 the search took and how its requests came back -- answered by status, timed out, failed by the system's code
-(`ScanTally`); each change of the app's phase while a search is under way, which nothing goes by; and what
+(`ScanTally`); a look turned away whole, a single request that got out and after how many, and the single
+requests used up; each change of the app's phase while a search is under way, which nothing goes by; and what
 was said. Counts and codes only: no address and no name is written. It is read with Console on a Mac the phone
-is connected to, or from an archive taken with `log collect --device`, by
-`log show --predicate 'subsystem == "RecorderKit" && category == "scan"'`.
+is connected to, or from an archive taken with `log collect --device`, by `log show --predicate 'subsystem ==
+"RecorderKit" && category == "scan"'`.
 
 How the waiting is done, what the technote says and what is still to be seen, and what the app says when the
 answer is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because

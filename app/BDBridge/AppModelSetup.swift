@@ -143,9 +143,10 @@ extension AppModel {
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
     /// reach the local network. The scan waits for that answer before it starts
-    /// (`LocalNetwork.waitForAccess`): the system may turn a request away at once behind its question, and a
-    /// scan made there has said it found nobody while the question was still up. Then it looks through the
-    /// addresses once, and what it found is said as soon as it has.
+    /// (`LocalNetwork.waitForAccess`): the system "may deny the operation immediately, before the user has
+    /// responded to the alert" (TN3179), and a scan made there has said, on a phone, that it found nobody
+    /// while the question was still up. Then it looks through the addresses once, and what it found is said as
+    /// soon as it has.
     ///
     /// The addresses are those of the Wi-Fi the device is on when the look is made, read again after the wait
     /// and not taken from the press: a reader may be minutes over the system's question, and the device off

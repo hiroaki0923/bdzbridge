@@ -121,8 +121,9 @@ public enum LocalNetwork {
 
     /// Somebody else on the interface's subnet, to aim the local network check at (see `waitForAccess`):
     /// the first address of the subnet, which is usually the router, or the second when that is this
-    /// device. Whether anything answers there does not matter: a connection that is refused, or left
-    /// unanswered for as long as its handshake is given, has reached the local network all the same.
+    /// device. Whether anything answers there does not matter: a connection that is refused has had an answer
+    /// from the local network, and one left unanswered for as long as its handshake is given is taken for one
+    /// that reached it (`LocalNetwork.settled` says why, and what has not been seen).
     public static func neighbour(on interface: Interface) -> String? {
         guard let address = packed(interface.address), let mask = packed(interface.netmask) else { return nil }
         let network = address & mask

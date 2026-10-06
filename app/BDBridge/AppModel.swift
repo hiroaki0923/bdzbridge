@@ -181,9 +181,10 @@ final class AppModel: LinkHost {
     /// Set when the app went to the background, and cleared when it is back in front. See `wentToBackground`.
     var inBackground = false
     /// Whether the app is the one in front and taking touches (`ScenePhase.active`), as the first screen tells
-    /// it at each change (`activeChanged`). Not the same as being out of the background: a question of the
-    /// system's, Control Centre and the app switcher take the app out of it without its going anywhere.
-    /// Nothing goes by it: it is for the log of a scan for a recorder.
+    /// it at each change (`activeChanged`). Not the same as being out of the background: Control Centre and the
+    /// app switcher take the app out of it without its going anywhere. Whether the system's question about the
+    /// local network does has not been seen; the log's phase lines will say. Nothing goes by it: it is for the
+    /// log of a scan for a recorder.
     var appIsActive = true
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
     var backInFront: CheckedContinuation<Void, Never>?
