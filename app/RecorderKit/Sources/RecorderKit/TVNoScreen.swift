@@ -120,9 +120,10 @@ public extension TVDriver {
     }
 
     /// What is said of a waiting row the reader asked to delete when a sending whose turn came first made it
-    /// (`PendingQueue.betweenFlushes`) -- above all one with no screen, which the screens do not see. The
-    /// queue's own sentence for a row it sent, naming `device`, as the strip and the notifications say it:
-    /// the row was made as any sending makes one, and has no sentence of its own.
+    /// (`PendingQueue.betweenFlushes`) -- above all one with no screen, which the screens do not see -- or
+    /// when the television lists its programme though the row still waited: a create the television took
+    /// whose answer was lost. The queue's own sentence for a row it sent, naming `device`, as the strip and
+    /// the notifications say it: the row was made as any sending makes one, and has no sentence of its own.
     nonisolated static func madeBeforeItsDelete(_ row: PendingReservation, naming device: String) -> String {
         PendingQueue.Outcome(slot: ScalarClient.slot, sent: [row]).says(naming: device) ?? ""
     }
@@ -202,8 +203,7 @@ public struct TVTold: Codable, Sendable, Equatable {
         if case .sent(let round) = sending { outcome = round }
         let settled = Set(((outcome?.sent ?? []) + (outcome?.alreadyThere ?? [])).map(\.id))
         let late = waiting?.filter { row in
-            row.target == ScalarClient.slot && row.problem == nil && row.request.end >= now
-                && row.request.start < nextRun && !settled.contains(row.id)
+            Self.waitsToGo(row, now: now) && row.request.start < nextRun && !settled.contains(row.id)
         }
         let new = late?.filter { !rows.contains($0.id) } ?? []
 
@@ -232,6 +232,24 @@ public struct TVTold: Codable, Sendable, Equatable {
             notices.withdrawsNotYet = !rows.isEmpty && told.rows.isEmpty
         }
         return (notices, told)
+    }
+
+    /// What is told from now on after a sending of the screens' own, `waiting` being the phone's queue read
+    /// after it. Nil when nothing changes: no reservation was told of, or one told of still waits to go.
+    /// Otherwise the same with none told of, and the warning about them is to be taken away at once: none of
+    /// what it was about waits any more, and the next run with no screen, which would take it away, may come
+    /// after their programmes have begun. The stop told is left as it was, for the runs with no screen to
+    /// hold against what they find.
+    public func afterTheScreensSent(waiting: [PendingReservation], now: Date = Date()) -> TVTold? {
+        guard !rows.isEmpty,
+              !waiting.contains(where: { rows.contains($0.id) && Self.waitsToGo($0, now: now) }) else { return nil }
+        return TVTold(stop: stop)
+    }
+
+    /// Whether a row is still to go to the television by itself: one of its, with no reason on it, whose
+    /// programme is not over.
+    private static func waitsToGo(_ row: PendingReservation, now: Date) -> Bool {
+        row.target == ScalarClient.slot && row.problem == nil && row.request.end >= now
     }
 }
 

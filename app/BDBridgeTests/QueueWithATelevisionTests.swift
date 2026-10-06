@@ -1334,9 +1334,9 @@ final class QueueWithATelevisionTests: XCTestCase {
     }
 
     /// A registration, or a television taken away, is a change: what the runs with no screen told of the
-    /// television before is forgotten with it, so that the next run tells what it finds afresh. A
-    /// registration keeps the reservations told of as not yet at the television, so that the next run takes
-    /// that warning away once they have gone; a stop alone leaves nothing told.
+    /// television before is forgotten with it, so that the next run tells what it finds afresh. That goes
+    /// for the reservations told of as not yet at the television as well: the warning about them can end by
+    /// asking for the registration, and is taken away with what was told.
     func testARegistrationAgainOrTheTelevisionTakenAwayForgetsWhatWasToldOfIt() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let model = home.model
@@ -1351,9 +1351,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         let warned = TVTold(stop: .registration, rows: ["サンプルの行"])
         model.defaults.set(try JSONEncoder().encode(warned), forKey: DefaultsKey.tvTold)
         expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .registered)
-        let kept = try model.defaults.data(forKey: DefaultsKey.tvTold)
-            .map { try JSONDecoder().decode(TVTold.self, from: $0) }
-        XCTAssertEqual(kept, TVTold(rows: warned.rows), "the stop kept, or the rows warned of forgotten")
+        XCTAssertNil(model.defaults.data(forKey: DefaultsKey.tvTold), "the rows warned of kept over a registration")
 
         model.defaults.set(told, forKey: DefaultsKey.tvTold)
         model.removeTV()
@@ -1467,6 +1465,127 @@ final class QueueWithATelevisionTests: XCTestCase {
         await door.letGo()
         await deleting.value
         _ = await action.value
+    }
+
+    /// A delete whose row a sending made before its turn says the row was made though the app's own link
+    /// cannot read the television's list -- here given up after a read met silence, while the action still
+    /// reaches the television: a row not over leaves the queue only by being made or found there. One the
+    /// same sending dropped because its programme was over is not said to be made.
+    func testADeleteWhoseRowASendingTookIsSaidAsMadeThoughTheListCannotBeRead() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        await television.goSilent()
+        await host.loadReservations()
+        await television.goSilent(false)
+        XCTAssertFalse(try XCTUnwrap(model.tvDriver).canBeAsked, "the app's link can still ask the television")
+        let made = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        let over = forTheTelevision(waiting("サンプル朝市", startingIn: -120, programme: 4408))
+        for row in [made, over] { try await store.queue(row) }
+        let client = ScalarClient(host: Bench.tvHost, transport: television,
+                                  credentials: model.surroundings.tvCredentials)
+        _ = await BackgroundWork.sendToTheTelevision(client: client, store: try GuideStore(path: try model.guidePath()),
+                                                     mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        expectEqual(await television.schedules.map(\.eventId), [4401])
+        expectEqual(try await store.pendingReservations(), [])
+
+        let instead = await model.deleteWaiting(made)
+        XCTAssertEqual(instead, Said.sent("サンプル劇場", naming: "テレビ"), "a reservation made was said to be deleted")
+        let dropped = await model.deleteWaiting(over)
+        XCTAssertNil(dropped, "a reservation dropped as over was said to be made")
+    }
+
+    /// A delete whose row still waits, but whose programme the television lists -- the action's create taken
+    /// and its answer lost -- says the row was made, takes it out of the queue as a row made, and keeps the
+    /// list it read: deleted unsent, it would be a reservation on the television that the reader believes
+    /// gone, which no later sending would look for.
+    func testADeleteOfARowWhoseCreateTheTelevisionTookSaysItWasMade() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let row = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        try await store.queue(row)
+        await television.atTheNextCreate(.carriedOutAndNotAnswered)
+        let client = ScalarClient(host: Bench.tvHost, transport: television,
+                                  credentials: model.surroundings.tvCredentials)
+        let run = await BackgroundWork.sendToTheTelevision(client: client,
+                                                           store: try GuideStore(path: try model.guidePath()),
+                                                           mac: nil, told: TVTold(),
+                                                           nextRun: Date().addingTimeInterval(6 * 3600))
+        guard case .sent(let round) = run.sending, round.stopped == .silent(afterSending: true) else {
+            return XCTFail("the create's answer was not lost: \(run.sending)")
+        }
+        expectEqual(try await store.pendingReservations().map(\.id), [row.id])
+
+        let instead = await model.deleteWaiting(row)
+        XCTAssertEqual(instead, Said.sent("サンプル劇場", naming: "テレビ"), "a reservation made was said to be deleted")
+        expectEqual(try await store.pendingReservations(), [], "the row made was left waiting")
+        XCTAssertEqual(model.tvHost?.reservations.compactMap(\.eventID), [4401], "the list read was not kept")
+        expectEqual(await television.schedules.map(\.eventId), [4401])
+    }
+
+    /// A delete that waited its turn behind 外す, itself waiting behind the action's sending, finds its row
+    /// gone with the television: it was deleted unsent, and is not said to be made. The row carries a reason,
+    /// so that the sending leaves it to 外す.
+    func testADeleteWhoseRowWentWithTheTelevisionIsNotSaidToBeMade() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, door, store) = (home.model, home.door, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        let held = turnedDown(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)),
+                              for: "前に断られた理由")
+        try await store.queue(held)
+        let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
+        let theirs = try GuideStore(path: try model.guidePath())
+        await door.hold(only: Self.tvCreate)
+        let action = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        }
+        try await until("the action never reached the create") { await door.isHolding }
+        let takingAway = Task { await model.takeTheTelevisionAway(counted: 1) }
+        // Long enough for 外す to be waiting its turn before the delete asks for one.
+        try await Task.sleep(for: .milliseconds(300))
+        let deleting = Task { await model.deleteWaiting(held) }
+        try await Task.sleep(for: .milliseconds(300))
+        await door.letGo()
+        _ = await action.value
+
+        expectTrue(await takingAway.value, "外す did not take the television away")
+        let instead = await deleting.value
+        XCTAssertNil(instead, "a reservation gone with the television was said to be made")
+    }
+
+    /// A sending of the app's own that leaves none of the reservations a run with no screen warned of
+    /// waiting takes that warning away and tells of them no more, the stop told kept; one that leaves one of
+    /// them waiting -- here stopped for the television's disk -- changes nothing.
+    func testTheAppsOwnSendingForgetsTheWarningOnceNoneOfItsRowsWaits() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        let late = forTheTelevision(waiting("サンプル紀行", startingIn: 120, programme: 4402))
+        try await store.queue(late)
+        let warned = TVTold(stop: .disk, rows: [late.id])
+        model.defaults.set(try JSONEncoder().encode(warned), forKey: DefaultsKey.tvTold)
+        func told() throws -> TVTold? {
+            try model.defaults.data(forKey: DefaultsKey.tvTold).map { try JSONDecoder().decode(TVTold.self, from: $0) }
+        }
+
+        await television.unmount()
+        await host.refreshReservations()
+        XCTAssertEqual(try told(), warned, "forgotten while a reservation warned of still waits")
+
+        await television.unmount(false)
+        await host.refreshReservations()
+        expectEqual(await television.schedules.map(\.eventId), [4402])
+        XCTAssertEqual(try told(), TVTold(stop: .disk), "the reservations warned of still told of once sent")
     }
 
     /// Whether something begun in a task of its own has come back, for a test to look at meanwhile.

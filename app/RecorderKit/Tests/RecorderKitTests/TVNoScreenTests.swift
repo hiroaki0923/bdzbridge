@@ -489,4 +489,26 @@ final class TVNoScreenTests: XCTestCase {
         let told = TVTold(stop: .registration, rows: [theatre.id, journey.id])
         XCTAssertEqual(try JSONDecoder().decode(TVTold.self, from: JSONEncoder().encode(told)), told)
     }
+
+    /// A sending of the screens' own takes the late notice away once none of the rows it told of waits to go
+    /// -- gone, held with a reason, or over -- by the rule a run with no screen takes it away by, and the
+    /// rows are told no more; the stop told stays. While one of them still waits nothing changes, and with
+    /// no row told of there is nothing to take away.
+    func testTheScreensSendingTakesTheLateNoticeAwayOnceNoneOfItsRowsWaits() {
+        let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
+        let told = TVTold(stop: .disk, rows: [theatre.id])
+        // The same programme, and so the same row, as it would read held, and once it is over.
+        let held = row("サンプル劇場", 50101, at: 60, reason: "この局は録画できません")
+        let over = row("サンプル劇場", 50101, at: -60)
+        let cases: [(String, TVTold, [PendingReservation], TVTold?)] = [
+            ("still waiting", told, [theatre, journey], nil),
+            ("sent", told, [journey], TVTold(stop: .disk)),
+            ("held with a reason", told, [held], TVTold(stop: .disk)),
+            ("over", told, [over], TVTold(stop: .disk)),
+            ("none told of", TVTold(stop: .disk), [], nil),
+        ]
+        for (name, before, waiting, after) in cases {
+            XCTAssertEqual(before.afterTheScreensSent(waiting: waiting, now: Self.now), after, name)
+        }
+    }
 }

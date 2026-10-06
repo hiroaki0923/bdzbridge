@@ -144,39 +144,48 @@ extension AppModel {
             } else {
                 defaults.removeObject(forKey: DefaultsKey.tvMac)
             }
-            forgetTheStopTold()
+            forgetWhatWasTold()
             makeTVLink()
             await tv?.connect()
             return .registered
         }
     }
 
-    /// What the runs with no screen told of the stop that kept the last registration's rounds from going is
-    /// not held against this one (`TVTold`). The reservations they warned of as not yet at the television
-    /// stay told: the connect that follows sends them, and the next run then finds none of them waiting and
-    /// takes the warning away, which with nothing told it would leave standing.
-    private func forgetTheStopTold() {
+    /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play
+    /// from now on: a registration, or a television taken away, is a change, and the next run tells what it
+    /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
+    /// the app asks the system about notifications at all: it can end by telling the reader to register,
+    /// which must not outlive the registration, and the reservations it names went unsent with a television
+    /// taken away.
+    private func forgetWhatWasTold() {
+        defaults.removeObject(forKey: DefaultsKey.tvTold)
+        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+    }
+
+    /// The warning the runs with no screen left of reservations not yet at the television is taken away once
+    /// a sending of the app's own leaves none of them waiting to go, and they are told of no more
+    /// (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise, may
+    /// come after their programmes have begun. Read from the phone's queue and not from the one on screen,
+    /// which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
+    func forgetTheWarningOnceSent() async {
         guard let saved = defaults.data(forKey: DefaultsKey.tvTold),
-              let told = try? JSONDecoder().decode(TVTold.self, from: saved), !told.rows.isEmpty,
-              let rowsAlone = try? JSONEncoder().encode(TVTold(rows: told.rows)) else {
-            defaults.removeObject(forKey: DefaultsKey.tvTold)
-            return
-        }
-        defaults.set(rowsAlone, forKey: DefaultsKey.tvTold)
+              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let store, let waiting = try? await store.pendingReservations(),
+              let after = told.afterTheScreensSent(waiting: waiting),
+              let kept = try? JSONEncoder().encode(after) else { return }
+        defaults.set(kept, forKey: DefaultsKey.tvTold)
+        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
     }
 
     /// Takes the television away: its link, its address and its registration. What the television itself
     /// lists as registered is left; it can be removed from the list in the television's settings. What the
-    /// runs with no screen told of it goes too, and with it their warning of reservations not yet at the
-    /// television, which went unsent with it; that one is taken away where the app asks the system about
-    /// notifications at all.
+    /// runs with no screen told of it goes too (`forgetWhatWasTold`).
     func removeTV() {
         dropTVLink()
         surroundings.tvCredentials.remove()
         defaults.removeObject(forKey: DefaultsKey.tvHost)
         defaults.removeObject(forKey: DefaultsKey.tvMac)
-        defaults.removeObject(forKey: DefaultsKey.tvTold)
-        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+        forgetWhatWasTold()
         tvClientID = nil
     }
 

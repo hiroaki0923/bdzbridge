@@ -90,9 +90,11 @@ enum Notify {
     /// until one of its kind replaces it or none of the reservations it told of waits to go, so that the news
     /// of a sending does not take away a warning that may still hold.
     ///
-    /// That one replaces another is inferred, as the recorder's notification has always inferred it: Apple
-    /// says that scheduling a request with the identifier of one scheduled before replaces that one, and says
-    /// nothing of one already delivered. Taking a delivered one away by its identifier is what Apple does say.
+    /// That one replaces another is Apple's, for the recorder's notification as well: "If the identifier
+    /// matches a previously delivered notification, the system alerts the user again, replaces the old
+    /// notification with the new one, and places the new notification at the top of the list."
+    /// (`UNNotificationRequest.init(identifier:content:trigger:)`). So is taking a delivered one away by its
+    /// identifier.
     static func television(_ notices: TVNotices) async {
         if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
         if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }

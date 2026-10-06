@@ -71,8 +71,15 @@ final class TVHost: LinkHost {
     /// Reads the television's reservations, as a screen that shows them does when it appears. One that could
     /// not be read leaves the last list, and its time, as they were.
     func loadReservations() async {
-        guard let list = await driver?.reservations() else { return }
+        _ = await readReservations()
+    }
+
+    /// The same, handing back the list read now, nil when none was: for whoever has to know what the
+    /// television holds at this moment, and not what it held when it was last read.
+    func readReservations() async -> [Reservation]? {
+        guard let list = await driver?.reservations() else { return nil }
         keep(list)
+        return list
     }
 
     /// What pulling the reservations down asks of the television: what waits is sent, which the driver asks
@@ -240,8 +247,12 @@ final class TVHost: LinkHost {
     /// each connect and each pull-down. A round with nothing to say, and no round, leave the report where
     /// it was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
     /// `AppModel.start()`.
+    ///
+    /// A warning the runs with no screen left of reservations not yet at the television goes here once none
+    /// of them waits to go any more (`AppModel.forgetTheWarningOnceSent`), whichever sending took them.
     private func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
+        await model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
         let unread = report.map(Self.sentences) ?? []
         let new = Self.sentences(said).filter { !unread.contains($0) }

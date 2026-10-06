@@ -198,9 +198,12 @@ enum BackgroundWork {
     /// Nothing is posted or written when the television was taken away while the run was out. Once the task's
     /// time is up, only what the queue says of its rows is posted, without its sentence for a round cut short
     /// by silence, and nothing is written. That is inferred, not seen: a request the suspension cut would come
-    /// back, once the process resumes, as a failure of the transport, which the client reads as silence. Apple
-    /// says only that the system can interrupt the process; what becomes of a request then is not in its
-    /// pages. Silence so read is not the television's doing.
+    /// back, once the process resumes, as a failure of the transport, which the client reads as silence.
+    /// Apple's page on `BGProcessingTask` says that "the system can interrupt the process". Its archived
+    /// TN2277, "Networking and Multitasking", is about BSD sockets and what was built on them before
+    /// `URLSession`: once an app is suspended, "the socket's resources might get reclaimed by the kernel, after
+    /// which all networking operations on the socket will fail". What becomes of a `URLSession` request then
+    /// is in no page read. Silence so read is not the television's doing.
     ///
     /// What was told is written whether or not a notification could be heard: one posted with the quiet
     /// permission the app takes at its first connect still reaches Notification Centre, and a reader who
