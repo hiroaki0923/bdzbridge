@@ -128,9 +128,9 @@ in the line that reads it. Nothing leaves the machine. So what the link does on 
 packet before the first ask, the wait for the local network permission, the search for a recorder the router
 has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
 test's own. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
-`TVReservationTests`, `QueueWithATelevisionTests`, `TVDriverTests`). All of these hand the client a transport
-of their own; what `URLSession` itself does with an answer -- it sends a request again for a 401 that asks for
-a password -- is tried against a server on the loopback (`URLSessionTransportTests`).
+`TVReservationTests`, `QueueWithATelevisionTests`, `TVDriverTests`, `TVNoScreenTests`). All of these hand the
+client a transport of their own; what `URLSession` itself does with an answer -- it sends a request again for a
+401 that asks for a password -- is tried against a server on the loopback (`URLSessionTransportTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -184,7 +184,12 @@ value both devices answer with; and the yes and the no at the question before a 
 another from recording -- the yes the consent to what the question named and silent on the strip for a
 reservation asked for just now, the no taking that row off and leaving one that waited before. How a
 reservation or a sending to a television goes step by step, and what each way it can stop leaves and says,
-is tried in RecorderKit (`TVDriverTests`).
+is tried in RecorderKit (`TVDriverTests`). And the runs with no screen, on the app's side: the Shortcuts
+action's answer for each pair of what the two devices came to; the screens and the action at once making a
+television's reservation once; what a run tells, read from the queue as the run left it; what was told
+forgotten on a registration again and on the television taken away; and 外す and the delete of a television's
+row waiting for the action's sending. What such a run asks of a television, in what order, and what it tells
+once, is tried in RecorderKit (`TVNoScreenTests`).
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
@@ -872,10 +877,22 @@ at a time, and which is the model's to choose (`AppModel.strip`): work under way
 taken over, this report, the demo, the local network permission, the recorder given up on, and then the
 television's own -- to be registered, given up on, its disk away. The recorder's sending leaves a
 television's rows alone, and with none of its own waiting it does nothing, so that it does not wait its turn
-behind a television's round. A row for a television is made by the programme's sheet (below). The overnight
-run and the Shortcuts action do not know one yet. They send the recorder's rows only, the action answers
-送信待ちの予約はありません。 when only a television's rows wait, and the settings' footer about arriving home
-still says of every waiting reservation that the overnight refresh sends it.
+behind a television's round. A row for a television is made by the programme's sheet (below).
+
+The overnight run and the Shortcuts action send a television's rows as well (`TVDriver.sendWithNoScreen`,
+from `BackgroundWork.sendToTheTelevisionNow`), beside the recorder's part and whether or not a recorder is
+saved, with no link and once. The queue is read first, and with no row of the television's that goes by
+itself nothing is asked. Then the MAC, with no cookie, held against the one saved as a connect holds it, and
+the round the screens send. Nothing renews the registration, reads the power, wakes, deletes or writes to the
+Keychain, and a row held for what it would stop from recording waits for the reader. What a run found is
+told in notifications of the television's own (`tv-queue-flushed`, `tv-not-yet-sent`), each thing once
+(`TVTold`, kept under one key of the defaults): what became of the rows, as the recorder's run tells it; the
+disk away, a registration wanted, another television, when that is not what was told last; and a row that
+starts before the next overnight run and has not reached the television, once, with what stands in its way,
+taken away again once none of its rows waits. A television that does not answer is said only there and in
+the action's answer, never on its own: the recorder's run says nothing of a recorder that does not answer. A
+run whose time ran out tells only what the queue says and keeps nothing. With a television saved, the
+settings' footers about notifications and arriving home speak of both devices.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is
@@ -954,7 +971,10 @@ Taking the television away in the settings takes what waits for it as well, unse
 and when they cannot be deleted the television stays and its line says why. It is not offered while the
 television works, when a sending may have one of those rows in hand. And 外す is held to the count its
 question gave: where that is no longer what waits -- a sending came and went while the question was up --
-nothing is taken away, and the question counts again the next time.
+nothing is taken away, and the question counts again the next time. 外す and the delete of a television's
+waiting row do their work in the queue's turn (`PendingQueue.betweenFlushes`), so that a sending under way
+is over first, the action's and the overnight run's included, which the television's own busy state does
+not show: the wait is one round at most.
 
 Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
 Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
@@ -962,7 +982,9 @@ home Wi-Fi, which since iOS 17 can run without asking; the settings say how to s
 background and reads the queue before anything goes on the network, so that the arrivals with nothing
 waiting -- most of them -- do not wake the recorder. Otherwise it wakes it, sends through `PendingQueue` as
 everything else does, one flush at a time with the screens, and says what became of it in a notification,
-as the overnight run does.
+as the overnight run does. The television's rows go beside that (above), not after the recorder's waking.
+Run by hand it answers with the recorder's sentence and then the television's, and with
+送信待ちの予約はありません。 once when neither had anything to send.
 
 Only silence is queued. A recorder that answers and says no has said something worth reading, so that is
 shown as it always was.
