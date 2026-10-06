@@ -24,6 +24,9 @@ enum DefaultsKey {
     static let tvHost = "tvHost"
     /// The MAC it wakes on, which is what tells it from any other. Kept to recognise it, never to wake it.
     static let tvMac = "tvMac"
+    /// What the runs with no screen have told of it (`TVTold`), as JSON; forgotten when a television is
+    /// registered or taken away.
+    static let tvTold = "tvTold"
 
     // MARK: - what the screens keep between launches
 

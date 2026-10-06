@@ -1173,6 +1173,164 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(model.whatWaitsSays, both)
     }
 
+    // MARK: - with no screen
+
+    /// The Shortcuts action's answer in a home with a television: the recorder's sentence, as it reads with a
+    /// television saved, then the television's, joined with a full stop; a device with nothing to say is left
+    /// out, and 「送信待ちの予約はありません。」 is said once where neither has anything. With no sending of the
+    /// television's -- no television saved, or the demo -- the answer is the one a home with a recorder alone
+    /// has always had, letter for letter. In a home with a television and no recorder the recorder's sentence
+    /// for that is not said, and the television's is the answer.
+    ///
+    /// One real sending of each device, made against the fakes, stands for a round that went; so does one of
+    /// the television's that found nothing left to send, and one stopped for its disk or for want of a
+    /// registration.
+    func testTheActionAnswersForTheRecorderAndThenTheTelevision() async throws {
+        let recorder = NamedRecorder(1)
+        let home = try await launch(with: recorder)
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        func client(with credentials: any TVCredentialStore) -> ScalarClient {
+            ScalarClient(host: Bench.tvHost, transport: television, credentials: credentials)
+        }
+        func sendToTheTelevision(with credentials: any TVCredentialStore) async -> NoScreenSending {
+            await TVDriver.sendWithNoScreen(client(with: credentials), store: store, knownAs: nil)
+        }
+        let recorders = await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil)
+        let televisions = await sendToTheTelevision(with: model.surroundings.tvCredentials)
+        let nothingLeft = NoScreenSending.sent(
+            await PendingQueue.flush(client: client(with: model.surroundings.tvCredentials), store: store))
+        try await store.queue(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)))
+        let unregistered = await sendToTheTelevision(with: MemoryTVCredentials())
+        await television.unmount()
+        let diskAway = await sendToTheTelevision(with: model.surroundings.tvCredentials)
+
+        let made = (recorder: Said.sent("朝の番組", naming: "レコーダー"), tv: Said.sent("サンプル劇場", naming: "テレビ"))
+        let nothing = "送信待ちの予約はありません。"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        for sending in [recorders, .nothingWaiting, .unreachable, .anotherRecorder, .noRecorder, .demo] {
+            XCTAssertEqual(SendWaitingIntent.saying(sending, beside: nil, televisionSaved: false),
+                           SendWaitingIntent.saying(sending, televisionSaved: false), "\(sending)")
+        }
+        XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: nil, televisionSaved: false), Said.sent("朝の番組"))
+        let cases: [(String, BackgroundWork.Sending, NoScreenSending, String)] = [
+            ("nothing anywhere", .nothingWaiting, .nothingWaiting, nothing),
+            ("nothing left for the television", .nothingWaiting, nothingLeft, nothing),
+            ("both made", recorders, televisions, made.recorder + "。" + made.tv),
+            ("the recorder away", .unreachable, .nothingWaiting, "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"),
+            ("the television away", .nothingWaiting, .unreachable, notAnswering),
+            ("another of each", .anotherRecorder, .anotherAnswered,
+             "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
+                + "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください"),
+            ("the television's disk away", .nothingWaiting, diskAway,
+             "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"),
+            ("no registration kept", .nothingWaiting, unregistered,
+             "テレビへの登録が必要です。設定の「テレビ」から登録してください"),
+            ("a television alone, made", .noRecorder, televisions, made.tv),
+            ("a television alone, away", .noRecorder, .unreachable, notAnswering),
+            ("a television alone, nothing waiting", .noRecorder, .nothingWaiting, nothing),
+        ]
+        for (name, recorders, television, said) in cases {
+            XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: television, televisionSaved: true), said, name)
+        }
+        XCTAssertEqual(SendWaitingIntent.saying(.demo, beside: nil, televisionSaved: true), "サンプルデータの表示中は送りません。")
+    }
+
+    /// The screens and a run with no screen sending at once -- the app open as the action runs on arriving
+    /// home -- make a television's reservation once. The screens' pull-down is held at the television's create;
+    /// the action, with a client and a connection to the cache of its own, reads the MAC and then waits its turn
+    /// (`PendingQueue.flush`), reading the queue afresh once it has it. Made by each, it would be on the
+    /// television twice.
+    func testTheScreensAndARunWithNoScreenAtOnceMakeATelevisionsReservationOnce() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, door) = (home.model, home.television, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let host = try XCTUnwrap(model.tvHost)
+        // Queued once the television is connected: its first connect would have sent it by itself.
+        try await home.store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        let theirs = try GuideStore(path: try model.guidePath())
+        let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
+        let readsTheMAC = "getSystemSupportedFunction cookie=no pin=no"
+        await door.hold(only: Self.tvCreate)
+
+        let screens = Task { await host.refreshReservations() }
+        try await until("the screens' sending never reached the create") { await door.isHolding }
+        let macReads = await television.calls.filter { $0 == readsTheMAC }.count
+        let action = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        }
+        try await until("the action never read the MAC") {
+            await television.calls.filter { $0 == readsTheMAC }.count > macReads
+        }
+        // Long enough for the action to have sent it too, were it not waiting its turn.
+        try await Task.sleep(for: .milliseconds(300))
+        await door.letGo()
+        await screens.value
+        let run = await action.value
+
+        expectEqual(await television.calls.filter { $0.hasPrefix(Self.tvCreate) }.count, 1, "made by each")
+        expectEqual(await television.schedules.map(\.eventId), [4401])
+        expectEqual(try await home.store.pendingReservations(), [])
+        guard case .sent(let round) = run.sending else { return XCTFail("the action ran no round: \(run.sending)") }
+        XCTAssertTrue(round.sent.isEmpty && round.alreadyThere.isEmpty && round.stopped == nil,
+                      "the action's round found something to send")
+        XCTAssertNil(TVDriver.says(run.sending, naming: "テレビ"))
+    }
+
+    /// What a run with no screen tells is read from the queue as the run left it, against the next run it is
+    /// handed. A reservation the television makes is said as made, naming the television, and one it turns
+    /// down as turned down, and neither is told as not having reached it. With the television silent, a
+    /// reservation due before the next run is told in a notice of its own, ending with the television not
+    /// answering; the same run again, from what the last one handed back, tells nothing. One due an hour after
+    /// the next run is not told.
+    func testWhatARunWithNoScreenTellsIsReadFromTheQueueItLeft() async throws {
+        let bench = try aBench()
+        let store = try GuideStore(path: bench.guidePath)
+        let television = DemoTV()
+        await television.receives([DemoTV.Station()])
+        let client = ScalarClient(host: Bench.tvHost, transport: television,
+                                  credentials: await registered(with: television))
+        let nextRun = Date().addingTimeInterval(6 * 3600)
+        func run(from told: TVTold) async -> (sending: NoScreenSending, notices: TVNotices, told: TVTold) {
+            await BackgroundWork.sendToTheTelevision(client: client, store: store, mac: nil, told: told,
+                                                     nextRun: nextRun)
+        }
+        try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        try await store.queue(notListed("サンプル特番", programme: 4405))
+
+        let went = await run(from: TVTold())
+
+        XCTAssertEqual(went.notices, TVNotices(queue: Said.sent("サンプル劇場", naming: "テレビ") + "。"
+                                                + Said.refused("サンプル特番", naming: "テレビ")))
+
+        await television.goSilent()
+        let late = forTheTelevision(waiting("サンプル紀行", startingIn: 120, programme: 4402))
+        try await store.queue(late)
+        try await store.queue(forTheTelevision(waiting("サンプル天気", startingIn: 7 * 60, programme: 4403)))
+
+        let silent = await run(from: went.told)
+
+        XCTAssertEqual(silent.notices, TVNotices(notYet: "テレビにまだ届いていない予約があります（「サンプル紀行」"
+                                                  + "\(startInJapan(late)) から）。"
+                                                  + "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"))
+        let again = await run(from: silent.told)
+        XCTAssertEqual(again.notices, TVNotices(), "told a second time")
+    }
+
+    /// The hour and minute a reservation starts in Japan, as a notice writes it: no leading zero.
+    private func startInJapan(_ row: PendingReservation) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        formatter.dateFormat = "H:mm"
+        return formatter.string(from: row.request.start)
+    }
+
     // MARK: - what the tests set up
 
     /// A home with a recorder and a television the app is registered with, and what a test reaches of it

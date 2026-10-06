@@ -149,15 +149,27 @@ enum BackgroundWork {
         return next ?? now.addingTimeInterval(6 * 3600)
     }
 
-    /// The work itself, with no screen behind it: the address comes from what the app saved, and the cache is
-    /// opened directly. The recorder is asleep most of the time -- measured over twelve hours, it was answering
-    /// for a quarter of it -- so this wakes it rather than give up. Whatever is waiting in the queue goes out
-    /// while the recorder is up, and the reader is told.
+    /// The work itself, with no screen behind it -- the television's part beside the recorder's. The
+    /// television's runs whether or not a recorder is saved, so a home with a television alone has one too.
+    /// Both are awaited before the task is completed, unless its time runs out first: the handler then
+    /// completes it (`register`), and each part sees the cancellation only where it looks for it. An
+    /// `async let` left unawaited is cancelled as the scope ends, so each is awaited on the one way out.
+    @discardableResult
+    static func refreshNow() async -> Bool {
+        async let television = sendToTheTelevisionNow()
+        let refreshed = await refreshTheRecorderNow()
+        _ = await television
+        return refreshed
+    }
+
+    /// The recorder's part: the address comes from what the app saved, and the cache is opened directly. The
+    /// recorder is asleep most of the time -- measured over twelve hours, it was answering for a quarter of
+    /// it -- so this wakes it rather than give up. Whatever is waiting in the queue goes out while the recorder
+    /// is up, and the reader is told.
     ///
     /// Stops between steps once its time is up (see `register`): the task has been completed by then, and
     /// what the system allows after that is not to be counted on.
-    @discardableResult
-    static func refreshNow() async -> Bool {
+    private static func refreshTheRecorderNow() async -> Bool {
         // Nothing to fetch and nobody to wake while the demo is on the screen.
         guard !DemoData.on else { return false }
         guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
@@ -169,12 +181,67 @@ enum BackgroundWork {
     }
 
     /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
-    /// ask: read from what the screens saved, as the recorder's address is. It decides words only -- with one
-    /// saved, what became of the queue says which device it went to (`PendingQueue.Outcome.said`) -- and
-    /// nothing is asked of a television from here. The defaults are handed in for a test of the reading; a run
-    /// reads the app's own.
+    /// ask: read from what the screens saved, as the recorder's address is. With one saved, what became of the
+    /// recorder's queue says which device it went to (`PendingQueue.Outcome.said`), and the television's part
+    /// tells nothing of a television taken away while it was out. The defaults are handed in for a test of the
+    /// reading; a run reads the app's own.
     static func televisionSaved(in defaults: UserDefaults = .standard) -> Bool {
         !(defaults.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
+    }
+
+    /// The television's part of a run with no screen, from what the screens saved: its address and MAC in the
+    /// defaults, its registration in the Keychain, the cache opened directly, a transport that keeps no
+    /// cookies. What it found is told in notifications (`Notify.television`), what was told is written back,
+    /// and what it came to is handed back for the Shortcuts action to say. Nil, with nothing opened, asked,
+    /// posted or written, in the demo, with no television saved, and with no cache.
+    ///
+    /// Nothing is posted or written when the television was taken away while the run was out. Once the task's
+    /// time is up, only what the queue says of its rows is posted, and nothing is written: a request the
+    /// suspension cut reads as silence when the process resumes, which is not the television's doing.
+    ///
+    /// What was told is written whether or not a notification could be heard: one posted with the quiet
+    /// permission the app takes at its first connect still reaches Notification Centre, and a reader who
+    /// said no would hear nothing either way.
+    @discardableResult
+    static func sendToTheTelevisionNow() async -> NoScreenSending? {
+        let defaults = UserDefaults.standard
+        guard !DemoData.on, let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty,
+              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
+            return nil
+        }
+        let client = ScalarClient(host: host, transport: URLSessionTransport.withoutCookies(),
+                                  credentials: KeychainTVCredentials())
+        let told = defaults.data(forKey: DefaultsKey.tvTold)
+            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
+        let now = Date()
+        let run = await sendToTheTelevision(client: client, store: store,
+                                            mac: defaults.string(forKey: DefaultsKey.tvMac), told: told,
+                                            nextRun: nextNightlyRun(after: now), now: now)
+        // Taken away while the run was out: what it found is no longer anybody's to be told.
+        guard televisionSaved() else { return run.sending }
+        // The task's time ran out while the run was out (`register`).
+        if Task.isCancelled {
+            if case .sent(let outcome) = run.sending, !outcome.isEmpty {
+                await Notify.television(TVNotices(queue: outcome.says(naming: DeviceSlot.tv.label)))
+            }
+            return run.sending
+        }
+        await Notify.television(run.notices)
+        if let kept = try? JSONEncoder().encode(run.told) { defaults.set(kept, forKey: DefaultsKey.tvTold) }
+        return run.sending
+    }
+
+    /// The same with its surroundings handed in, which is what the tests give it: the run, the queue read
+    /// after it, and what that tells against what was told before (`TVTold.after`), with the television named
+    /// as the screens name it.
+    static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?, told: TVTold,
+                                    nextRun: Date, now: Date = Date())
+        async -> (sending: NoScreenSending, notices: TVNotices, told: TVTold) {
+        let sending = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac, now: now)
+        let waiting = try? await store.pendingReservations()
+        let (notices, after) = told.after(sending, waiting: waiting, before: nextRun, now: now,
+                                          naming: DeviceSlot.tv.label)
+        return (sending, notices, after)
     }
 
     /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.

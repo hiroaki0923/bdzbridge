@@ -5,8 +5,8 @@ import UserNotifications
 /// The few things worth interrupting somebody for.
 ///
 /// Everything here happens with no screen in front of it -- the overnight run sends the reservations that
-/// were waiting, and finds out how much room is left -- so a notification is the only way the reader learns
-/// of it.
+/// were waiting, to the recorder and to the television, and finds out how much room is left; the Shortcuts
+/// action sends them too -- so a notification is the only way the reader learns of it.
 ///
 /// Permission comes in two steps. Once the app has reached a real recorder, it asks for provisional permission,
 /// which shows no dialog and lets the notifications reach Notification Centre quietly, where the reader can
@@ -82,6 +82,19 @@ enum Notify {
     /// under the queue's own identifier, so that it is one entry however many nights it takes.
     static func queueHeldBack() async {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: anotherRecorderAnswered)
+    }
+
+    /// What a run with no screen has to tell of the television (`TVNotices`), each under an identifier of its
+    /// own: neither takes the place of the recorder's (`queue-flushed`) nor of the other. What became of the
+    /// queue is replaced by the next run's, as the recorder's is; a notice of reservations not yet there stays
+    /// until one of its kind replaces it or none of the reservations it told of waits to go, so that the news
+    /// of a sending does not take away a warning that may still hold.
+    static func television(_ notices: TVNotices) async {
+        if notices.withdrawsNotYet {
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["tv-not-yet-sent"])
+        }
+        if let queue = notices.queue { await post(id: "tv-queue-flushed", title: "送信待ちの予約", body: queue) }
+        if let notYet = notices.notYet { await post(id: "tv-not-yet-sent", title: "送信待ちの予約", body: notYet) }
     }
 
     /// What that notification says, and the Shortcuts action when it is run by hand. The state the reader
