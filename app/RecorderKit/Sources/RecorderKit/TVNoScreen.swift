@@ -174,8 +174,10 @@ public struct TVTold: Codable, Sendable, Equatable {
     /// next run and is not one this round made or found there -- whose removal from the queue can fail
     /// behind another writer and leave it read as waiting. One on air is late as well: it is still sent, and
     /// records what is left. A late row is told once, in a notice of its own, with what stands in its way or,
-    /// where nothing known does, that opening the app sends it. That notice is taken away once none of the
-    /// rows it told of waits to go.
+    /// where nothing known does, that opening the app sends it. The notice is about every late row, those told
+    /// before included: it takes the place of the last one, and one about the new rows alone would take the
+    /// warning of an earlier row away while that row is still late. It is taken away once none of the rows it
+    /// told of waits to go.
     ///
     /// What became of the queue is told when it is news, as the recorder's run tells it, and so is a stop the
     /// reader was not told last, unless the late notice carries it already, and silence at a create when
@@ -198,8 +200,8 @@ public struct TVTold: Codable, Sendable, Equatable {
         let new = late?.filter { !rows.contains($0.id) } ?? []
 
         var notices = TVNotices()
-        if !new.isEmpty {
-            notices.notYet = TVDriver.notYetAtTheTelevision(new) + "。"
+        if let late, !new.isEmpty {
+            notices.notYet = TVDriver.notYetAtTheTelevision(late) + "。"
                 + (sending.inTheWay ?? TVDriver.opensToSend)
         }
         var queue: [String] = []
@@ -218,7 +220,8 @@ public struct TVTold: Codable, Sendable, Equatable {
         }
         if let late {
             told.rows = Set(late.map(\.id))
-            notices.withdrawsNotYet = !rows.isEmpty && told.rows.isEmpty && notices.notYet == nil
+            // A notice of this run's has rows, so it never comes with a withdrawal.
+            notices.withdrawsNotYet = !rows.isEmpty && told.rows.isEmpty
         }
         return (notices, told)
     }
@@ -228,8 +231,8 @@ public struct TVTold: Codable, Sendable, Equatable {
 public struct TVNotices: Sendable, Equatable {
     /// What became of what waited for it, and why it could not go when that is news. Nil for nothing.
     public var queue: String?
-    /// The rows that start before the next overnight run and have not reached it, each told once, and what
-    /// stands in their way. Nil for nothing.
+    /// The rows that start before the next overnight run and have not reached it, all of them whenever one is
+    /// new, and what stands in their way. Nil for nothing.
     public var notYet: String?
     /// None of the rows the last such notice told of waits to go any more: it is to be taken away. Never with
     /// a `notYet` of this run, which takes its place.
