@@ -115,6 +115,14 @@ final class AppModel: LinkHost {
     /// answered no -- or is taken to be, its look through the subnet having been turned away whole
     /// (`scanForRecorders`), so that the screens can say so and offer the Settings app.
     var scanBlocked = false
+    /// Whether レコーダーを探す is held back, with its small spinner, on every screen that has it: while a scan
+    /// is under way and the notice about the permission is not up. Behind the notice the button is the
+    /// reader's, and a press starts over (`scanForRecorders` ends the scan under way). It is a new local
+    /// network operation in the foreground, which is what puts the system's question up while the permission
+    /// is undecided -- of one turned away in the background, "If, later on, the app performs a local network
+    /// operation while in the foreground, the system presents the alert to the user as if this were the first
+    /// local network operation" (TN3179). Whether a question left unanswered comes back so has not been seen.
+    var scanHoldsTheButton: Bool { scanning != nil && !scanBlocked }
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
     /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.
     var connectBlocked: Bool { session.connectBlocked }

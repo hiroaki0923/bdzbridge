@@ -537,6 +537,68 @@ final class ScanTests: XCTestCase {
         }
     }
 
+    // MARK: - the button
+
+    /// レコーダーを探す is held back, with its spinner, only while a search is under way with no notice about
+    /// the permission up (`scanHoldsTheButton`, which both screens read): through a look, and not before the
+    /// press, nor behind the notice -- while the wait says the permission is in the way, while one address is
+    /// asked after a look that was turned away whole, and once those requests are used up.
+    func testTheButtonIsHeldBackOnlyWhileASearchGoesWithNoNoticeUp() async throws {
+        let bench = try aBench()
+        bench.holdThePermission()
+        bench.holdTheSingleRequests()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingAway()
+        await subnet.hold()
+        let model = await aModel(on: bench)
+        XCTAssertFalse(model.scanHoldsTheButton, "held back before any press")
+
+        model.scanForRecorders()
+        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        XCTAssertNotNil(model.scanning)
+        XCTAssertFalse(model.scanHoldsTheButton, "held back behind the notice while the wait waits")
+
+        bench.letThePermissionGo(allowed: true)
+        try await until("the look never began", within: 3) { await subnet.asked > 0 }
+        XCTAssertFalse(model.scanBlocked)
+        XCTAssertTrue(model.scanHoldsTheButton, "live while a look went through the addresses")
+
+        await subnet.letGo()
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        XCTAssertTrue(model.scanBlocked)
+        XCTAssertNotNil(model.scanning)
+        XCTAssertFalse(model.scanHoldsTheButton, "held back behind the notice while one address is asked")
+
+        bench.letEverySingleRequestGo()
+        try await until("the search never ended") { model.scanning == nil }
+        XCTAssertTrue(model.scanBlocked)
+        XCTAssertFalse(model.scanHoldsTheButton, "held back once the single requests were used up")
+    }
+
+    /// With the notice up the button is the reader's, and a press while the wait is still held starts over:
+    /// the search under way is ended, its task cancelled, and only the second press's search asks anybody once
+    /// the permission comes.
+    func testAPressWhileTheNoticeIsUpStartsOver() async throws {
+        let bench = try aBench()
+        bench.holdThePermission()
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        let model = await aModel(on: bench)
+        model.scanForRecorders()
+        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        let first = try XCTUnwrap(model.scanTask)
+
+        model.scanForRecorders()
+        XCTAssertTrue(first.isCancelled, "the first press's search was left running")
+        bench.letThePermissionGo(allowed: true)
+        try await within(2, "the first press's search never ended") { await first.value }
+        try await until("the second press's search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .found(1))
+        XCTAssertFalse(model.scanBlocked)
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await subnet.asked, addresses, "the addresses were looked through for both presses")
+    }
+
     // MARK: - what a search leaves in the log
 
     /// The course of a first press as the log has it, for reading off a phone afterwards: the press, each
