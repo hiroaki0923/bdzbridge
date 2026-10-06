@@ -214,4 +214,223 @@ final class TVNoScreenTests: XCTestCase {
         XCTAssertEqual(asked.filter { $0 == Self.create }.count, 1, "the held row was sent")
         expectEqual(await home.television.schedules.map(\.id), ["recording.21", "recording.22", "recording.23"])
     }
+
+    // MARK: - what it says
+
+    /// What the Shortcuts action is told of a run, every time and in the reader's words: what the queue says
+    /// of the round, naming the device it is handed, then what stands in the way of what still waits.
+    /// Nothing where nothing waited, or where another sending had taken what did. The television not
+    /// answering, at its MAC or at the round's opening; another television; the disk away; a registration
+    /// wanted, none kept or one the television no longer takes; silence at a create, said in its own
+    /// sentence only where the queue has none for the round cut short; answers that say nothing at the
+    /// opening; a row passed over, which is the queue's to say.
+    func testWhatARunSaysIsWhatTheQueueSaysAndThenWhatStandsInTheWay() async throws {
+        let row = waiting("サンプル劇場", 50101), later = waiting("サンプル紀行", 50102, in: 3)
+        let theDisk = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let toRegister = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
+        let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
+            + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+
+        let cases: [(String, NoScreenSending, String?)] = [
+            ("nothing waiting", await send(try await home()), nil),
+            ("nothing left to send", .sent(PendingQueue.Outcome(slot: .tv)), nil),
+            ("silent at the MAC", await run([row]) { await $0.television.goSilent() }, notAnswering),
+            ("silent at the opening", await run([row]) { home in
+                let television = home.television
+                await home.gate.before(Self.disk) { await television.goSilent() }
+            }, notAnswering),
+            ("another television", await run([row]) { await $0.television.becomeAnother(mac: "f8:4e:17:00:00:0b") },
+             "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"),
+            ("one row made", await run([row]), "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+            ("the disk away", await run([row]) { await $0.television.unmount() }, theDisk),
+            ("no registration kept", await run([row], credentials: nil), toRegister),
+            ("a cookie it no longer takes",
+             await run([row], credentials: TVCredentials(clientID: "BDBridge:test", cookie: "run out")), toRegister),
+            ("silent at the first create",
+             await run([row]) { await $0.television.atTheNextCreate(.carriedOutAndNotAnswered) }, metSilence),
+            ("silent at the second create", await run([row, later]) { home in
+                let television = home.television
+                await home.gate.before(Self.create) {
+                    if await television.calls.filter({ $0.hasPrefix(Self.create) }).count == 1 {
+                        await television.goSilent()
+                    }
+                }
+            }, "送信待ちだった「サンプル劇場」をテレビに登録しました。"
+                + "途中でテレビの応答がなくなったため、残りは次につながったときに送ります"),
+            ("nothing that reads at the opening",
+             await run([row]) { await $0.gate.answer(Self.disk, with: Self.unreadable) },
+             "テレビの応答を読み取れなかったため、テレビへの予約は送っていません"),
+            ("a row passed over", await run([row]) { await $0.gate.answer(Self.stations, with: Self.unreadable) },
+             "「サンプル劇場」はテレビに送れなかったため、次の機会にもう一度送ります"),
+        ]
+        for (name, sending, says) in cases {
+            XCTAssertEqual(TVDriver.says(sending, naming: "テレビ"), says, name)
+        }
+    }
+
+    /// One attempt from a home of `rows`, bent first as a test says.
+    private func run(_ rows: [PendingReservation], credentials: TVCredentials? = TVNoScreenTests.kept,
+                     _ bend: (Home) async -> Void = { _ in }) async -> NoScreenSending {
+        guard let home = try? await home(rows, credentials: credentials) else { return .nothingWaiting }
+        await bend(home)
+        return await send(home)
+    }
+
+    // MARK: - told once
+
+    /// Eight in the evening in Japan on Sunday 1 November 2026, and the next overnight run, at two.
+    private static let now = Date(timeIntervalSince1970: 1_793_530_800)
+    private static let nextRun = Date(timeIntervalSince1970: 1_793_552_400)
+
+    /// A reservation waiting for the television unless said, starting `minutes` after eight that evening.
+    private func row(_ title: String, _ programme: Int, at minutes: Double, for durationSec: Int = 1800,
+                     reason: String? = nil, target: DeviceSlot = .tv) -> PendingReservation {
+        let request = ReservationRequest(title: title, start: Self.now + minutes * 60, durationSec: durationSec,
+                                         repeatCode: "1", broadcastingType: Codes.broadcasting["td"] ?? 0,
+                                         serviceID: 1024, qualityCode: 100, eventID: programme)
+        return PendingReservation(request: request, serviceName: "サンプルテレビ",
+                                  queuedAt: Date(timeIntervalSince1970: 1_793_000_000), problem: reason, target: target)
+    }
+
+    /// One run with no screen, what it came to and the queue read after it, and what it is to tell.
+    private struct Run {
+        let name: String
+        let sending: NoScreenSending
+        var waiting: [PendingReservation]? = []
+        var queue: String?
+        var notYet: String?
+        var withdraws = false
+    }
+
+    /// The runs one after another from `told`, each held to what it is to tell. What is told after the last.
+    @discardableResult
+    private func tell(_ runs: [Run], from told: TVTold = TVTold()) -> TVTold {
+        var told = told
+        for run in runs {
+            let (notices, next) = told.after(run.sending, waiting: run.waiting, before: Self.nextRun, now: Self.now,
+                                             naming: "テレビ")
+            XCTAssertEqual(notices, TVNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
+                           run.name)
+            told = next
+        }
+        return told
+    }
+
+    /// A stop is told once, and again after a run that got past the round's opening, after one with nothing
+    /// waiting, and after another stop. A run that learnt nothing of the television -- silent, or answering
+    /// with nothing that reads -- leaves what was told as it was, and a television that does not answer is
+    /// never told on its own. What a round made is news, as the recorder's is.
+    func testAStopIsToldOnceUntilSomethingHasChanged() {
+        let morning = row("サンプル天気", 50103, at: 420)
+        let disk = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv,
+                                                             stopped: .cannotRecord(reason: ScalarClient.diskNotFound)))
+        let theDisk = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+        let went = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, sent: [morning]))
+        let unread = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing))
+        let unregistered = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, stopped: .needsPairing))
+        let waits: [PendingReservation] = [morning]
+
+        let twice = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+                          Run(name: "the disk again", sending: disk, waiting: waits)])
+        XCTAssertEqual(twice, TVTold(stop: .disk))
+        let afterARound = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+                                Run(name: "a round that went", sending: went, waiting: [],
+                                    queue: "送信待ちだった「サンプル天気」をテレビに登録しました"),
+                                Run(name: "the disk after a round", sending: disk, waiting: waits, queue: theDisk)])
+        XCTAssertEqual(afterARound, TVTold(stop: .disk))
+        tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+              Run(name: "nothing waiting", sending: .nothingWaiting, waiting: []),
+              Run(name: "the disk after nothing waiting", sending: disk, waiting: waits, queue: theDisk)])
+        let silent = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+                           Run(name: "the television silent", sending: .unreachable, waiting: waits),
+                           Run(name: "the disk after a silent run", sending: disk, waiting: waits)])
+        XCTAssertEqual(silent, TVTold(stop: .disk))
+        tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+              Run(name: "nothing that reads", sending: unread, waiting: waits),
+              Run(name: "the disk after nothing that reads", sending: disk, waiting: waits)])
+        let another = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
+                            Run(name: "another television", sending: .anotherAnswered, waiting: waits,
+                                queue: "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。")])
+        XCTAssertEqual(another, TVTold(stop: .another))
+        tell([Run(name: "no registration", sending: unregistered, waiting: waits,
+                  queue: "テレビへの登録が必要です。設定の「テレビ」から登録してください"),
+              Run(name: "no registration again", sending: unregistered, waiting: waits)])
+        tell([Run(name: "silent", sending: .unreachable, waiting: waits),
+              Run(name: "silent again", sending: .unreachable, waiting: waits)])
+        tell([Run(name: "only a row passed over", sending: .sent(PendingQueue.Outcome(slot: .tv, deferred: [morning])),
+                  waiting: waits)])
+    }
+
+    /// A row that starts before the next run and has not reached the television is told once, by the run
+    /// that first finds it so, in a notice of its own that ends with what stands in its way -- the television
+    /// silent, a registration wanted, answers that say nothing, silence at a create -- or, where nothing known
+    /// does, with opening the app. The queue's notice then says nothing of what the late one carries. A row
+    /// late since is told alone. One on air is told: it is still sent. Rows that start at or after the next
+    /// run, carry a reason, are the recorder's or are over are never told; nor is one the round made or found
+    /// there that the queue read after it still holds.
+    func testALateRowIsToldOnceWithWhatStandsInItsWay() {
+        let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
+        let notYet = "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から）。"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+
+        tell([Run(name: "late, the television silent", sending: .unreachable, waiting: [theatre],
+                  notYet: notYet + notAnswering),
+              Run(name: "still late, silent again", sending: .unreachable, waiting: [theatre]),
+              Run(name: "a second late row", sending: .unreachable, waiting: [theatre, journey],
+                  notYet: "テレビにまだ届いていない予約があります（「サンプル紀行」23:30 から）。" + notAnswering)])
+        tell([Run(name: "late, no registration",
+                  sending: .sent(PendingQueue.Outcome(slot: .tv, stopped: .needsPairing)), waiting: [theatre],
+                  notYet: notYet + "テレビへの登録が必要です。設定の「テレビ」から登録してください")])
+        tell([Run(name: "late, nothing that reads",
+                  sending: .sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing)), waiting: [theatre],
+                  notYet: notYet + "テレビの応答を読み取れなかったため、テレビへの予約は送っていません")])
+        tell([Run(name: "late, silent at a create",
+                  sending: .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: true))),
+                  waiting: [theatre], notYet: notYet + "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
+                    + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。")])
+        tell([Run(name: "late, passed over", sending: .sent(PendingQueue.Outcome(slot: .tv, deferred: [theatre])),
+                  waiting: [theatre], notYet: notYet + "アプリを開くと送ります")])
+        tell([Run(name: "on air", sending: .unreachable, waiting: [row("サンプル中継", 50107, at: -30, for: 3600)],
+                  notYet: "テレビにまだ届いていない予約があります（「サンプル中継」19:30 から）。" + notAnswering)])
+
+        let never = [row("サンプル天気", 50103, at: 420), row("サンプル体操", 50104, at: 360),
+                     row("サンプル映画", 50105, at: 120, reason: "この局は録画できません"),
+                     row("サンプル討論", 50106, at: 120, target: .recorder), row("サンプル朝市", 50108, at: -120)]
+        let none = tell([Run(name: "never late", sending: .unreachable, waiting: never)])
+        XCTAssertEqual(none, TVTold())
+        tell([Run(name: "made, still read as waiting", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [theatre])),
+                  waiting: [theatre], queue: "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+              Run(name: "found there, still read as waiting",
+                  sending: .sent(PendingQueue.Outcome(slot: .tv, alreadyThere: [journey])), waiting: [journey],
+                  queue: "「サンプル紀行」はテレビにすでに予約がありました")])
+    }
+
+    /// The late notice is taken away by the first run that finds none of the rows it told of waiting to go,
+    /// and not while one still does, nor by a run that posts a late notice of its own, nor when there was
+    /// none to take away. A queue that could not be read tells no row, takes nothing away and leaves what was
+    /// told. What is told reads back from its JSON as it was.
+    func testTheLateNoticeIsTakenAwayOnceNoneOfItsRowsWaits() throws {
+        let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let both = tell([
+            Run(name: "two late", sending: .unreachable, waiting: [theatre, journey],
+                notYet: "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から、ほか 1 件）。" + notAnswering),
+            Run(name: "one made", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [theatre])), waiting: [journey],
+                queue: "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+            Run(name: "the other made", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [journey])), waiting: [],
+                queue: "送信待ちだった「サンプル紀行」をテレビに登録しました", withdraws: true),
+            Run(name: "nothing to take away", sending: .nothingWaiting, waiting: []),
+        ])
+        XCTAssertEqual(both, TVTold())
+
+        let one = TVTold(rows: [theatre.id])
+        tell([Run(name: "another late in its place", sending: .unreachable, waiting: [journey],
+                  notYet: "テレビにまだ届いていない予約があります（「サンプル紀行」23:30 から）。" + notAnswering)], from: one)
+        let unread = tell([Run(name: "a queue that could not be read", sending: .unreachable, waiting: nil)], from: one)
+        XCTAssertEqual(unread, one)
+
+        let told = TVTold(stop: .registration, rows: [theatre.id, journey.id])
+        XCTAssertEqual(try JSONDecoder().decode(TVTold.self, from: JSONEncoder().encode(told)), told)
+    }
 }
