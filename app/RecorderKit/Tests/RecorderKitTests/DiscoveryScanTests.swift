@@ -64,23 +64,6 @@ final class DiscoveryScanTests: XCTestCase {
                           "a VPN coming up is a change")
     }
 
-    func testThePermissionCheckIsAimedAtANeighbour() {
-        let wifi = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.0",
-                                          broadcasts: true)
-        XCTAssertEqual(LocalNetwork.neighbour(on: wifi), "192.0.2.1")
-
-        let router = LocalNetwork.Interface(name: "en0", address: "192.0.2.1", netmask: "255.255.255.0",
-                                            broadcasts: true)
-        XCTAssertEqual(LocalNetwork.neighbour(on: router), "192.0.2.2", "never this device itself")
-
-        let alone = LocalNetwork.Interface(name: "en0", address: "192.0.2.85", netmask: "255.255.255.255",
-                                           broadcasts: true)
-        XCTAssertNil(LocalNetwork.neighbour(on: alone), "a /32 has no neighbours")
-        let pair = LocalNetwork.Interface(name: "en0", address: "192.0.2.84", netmask: "255.255.255.254",
-                                          broadcasts: true)
-        XCTAssertNil(LocalNetwork.neighbour(on: pair))
-    }
-
     func testThisDevicesLocalNetworkLeavesTunnelsOut() {
         for interface in LocalNetwork.lanInterfaces() {
             XCTAssertTrue(interface.broadcasts, interface.name)

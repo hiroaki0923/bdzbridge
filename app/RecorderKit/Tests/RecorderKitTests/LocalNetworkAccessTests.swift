@@ -60,9 +60,10 @@ final class LocalNetworkAccessTests: XCTestCase {
         expectEqual(await outcome(of: waiting), .allowed)
     }
 
-    /// Leaving the tutorial or turning to the demo cancels the scan that is waiting, and the scan must then
-    /// stop rather than take the wait's end for a yes. Cancelled before it starts, so that loopback's
-    /// immediate answer cannot win a race with the cancelling.
+    /// Letting go of a recorder or a television, or connecting to it again, cancels the watcher waiting for
+    /// its permission (`stopWaitingForPermission`), which must then stop rather than take the wait's end for a
+    /// yes. Cancelled before it starts, so that loopback's immediate answer cannot win a race with the
+    /// cancelling.
     func testACancelledWaitIsNotAYes() async {
         let waiting = Task {
             withUnsafeCurrentTask { $0?.cancel() }

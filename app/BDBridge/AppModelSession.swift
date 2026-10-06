@@ -120,8 +120,8 @@ extension AppModel {
     /// The app has stopped being active, or is active again (`ScenePhase`): told at each change, in the turn
     /// it happens and so in order. Nothing goes by it. A scan for a recorder that is under way writes it to
     /// its log (`ScanLog`), where what the system's question about the local network did to the app can be
-    /// read afterwards beside what the scan's wait saw. What coming back from the background is worth is
-    /// `returnedToForeground`'s to say, as before.
+    /// read afterwards beside how the scan's requests came back. What coming back from the background is
+    /// worth is `returnedToForeground`'s to say, as before.
     func activeChanged(to active: Bool) {
         guard active != appIsActive else { return }
         appIsActive = active

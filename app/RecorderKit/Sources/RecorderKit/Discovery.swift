@@ -85,21 +85,27 @@ public enum Discovery {
     }
 
     /// One request of a search's kind to one address, read for how it came back and not for who lives there:
-    /// whether it was turned away before it could have been out for its time (`ScanTally.Counts`'s
-    /// `turnedAwayWhole`, of the one request).
+    /// whether the system turned it away, by the rule a search reads its look by (`ScanTally.Counts`'s
+    /// `mostTurnedAway`, of the one request).
     ///
-    /// For a search whose look through the subnet was turned away whole, which is what the system's question
-    /// about the local network may do to it: "it may deny the operation immediately, before the user has
-    /// responded to the alert", and for requests that cannot be made through an API that waits for
-    /// connectivity, "add appropriate retry logic" (Apple's TN3179). A search's requests cannot: a session
-    /// that waits was seen, on a Mac, to wait on an address that refused as well, and not to end
-    /// (`docs/porting.md`). So the search asks one address until a request is let out, and looks again then.
-    /// The asking, and how often, is the caller's; this is the one request and the reading of it.
+    /// For a search whose look through the subnet was turned away, which is what the system's question about
+    /// the local network may do to it: "it may deny the operation immediately, before the user has responded
+    /// to the alert", and for requests that cannot be made through an API that waits for connectivity, "add
+    /// appropriate retry logic" (Apple's TN3179). A search's requests cannot: a session that waits was seen,
+    /// on a Mac, to wait on an address that refused as well, and not to end (`docs/porting.md`). So the search
+    /// asks again, at an address its look saw turned away (`ScanTally.turnedAwayAt`), until a request is let
+    /// out, and looks again then. The system turned that address away, so it is not one the system lets
+    /// through unasked, and its refusing the request is the request let out as much as its answering, or its
+    /// silence until the request times out. That the request is turned away while the permission is in the
+    /// way and let out once it is given is the technote's of every operation, "If your program has local
+    /// network access, the system allows the operation. If not, the system blocks it.", and not yet seen on
+    /// a phone for a request asked again. The asking, and how often, is the caller's; this is the one request
+    /// and the reading of it.
     public static func turnedAway(at host: String, transport: any HTTPTransport = URLSessionTransport(),
                                   port: Int = Upnp.port, timeout: TimeInterval = 1.2) async -> Bool {
         let tally = ScanTally(transport)
         _ = await probe(host, transport: tally, port: port, timeout: timeout)
-        return await tally.counts.turnedAwayWhole
+        return await tally.counts.mostTurnedAway
     }
 
     /// Reads a candidate's `description.xml`. Returns nil for anything that is not a Sony recorder with the
