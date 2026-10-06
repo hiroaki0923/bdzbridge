@@ -186,12 +186,14 @@ reservation asked for just now, the no taking that row off and leaving one that 
 reservation or a sending to a television goes step by step, and what each way it can stop leaves and says,
 is tried in RecorderKit (`TVDriverTests`). And the runs with no screen, on the app's side: the Shortcuts
 action's answer for each pair of what the two devices came to; the screens and the action at once making a
-television's reservation once; what a run tells, read from the queue as the run left it; the stop told
-forgotten on a registration again, with the rows warned of kept, and all of it on the television taken away;
-外す and the delete of a television's row waiting for the action's sending, and a row that sending made said as
-made and not as deleted; a recorder's row deleted at once all the same; and the identifiers of the
-television's two notifications. What such a run asks of a television, in what order, and what it tells once,
-is tried in RecorderKit (`TVNoScreenTests`).
+television's reservation once; what a run tells, read from the queue as the run left it; all of it forgotten
+on a registration again and on the television taken away, and the warning of rows not yet there forgotten once
+a sending of the app's own leaves none of them waiting; 外す and the delete of a television's row waiting for
+the action's sending, and a row that sending made said as made and not as deleted -- with the app's link
+unable to read the list too, and with the row still waiting after its create's answer was lost -- but not one
+dropped as over, nor one gone with the television; a recorder's row deleted at once all the same; and the
+identifiers of the television's two notifications. What such a run asks of a television, in what order, and
+what it tells once, is tried in RecorderKit (`TVNoScreenTests`).
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
@@ -892,14 +894,16 @@ told in notifications of the television's own (`tv-queue-flushed`, `tv-not-yet-s
 disk away, a registration wanted, another television, when that is not what was told last; and a row that
 starts before the next overnight run and has not reached the television, once, with what stands in its way,
 taken away again once none of its rows waits. Whenever such a row is new, that warning names every such row
-still waiting, so that it does not take the place of one about an earlier row that is still late. A
-registration again forgets the stop told and keeps the rows warned of, so that the next run can take the
-warning away; taking the television away forgets all of it and takes the warning away at once. A television
-that does not answer is said only there and in the action's answer, never on its own: the recorder's run says
-nothing of a recorder that does not answer. A run whose time ran out tells only what the queue says, less its
-sentence for a round that silence cut short, and keeps nothing: a request the suspension cut would read as
-silence, which is inferred and not seen. With a television saved, the settings' footers about notifications
-and arriving home speak of both devices.
+still waiting, so that it does not take the place of one about an earlier row that is still late. A sending
+of the app's own that leaves none of the rows warned of waiting takes the warning away at once and tells of
+them no more (`TVTold.afterTheScreensSent`): the next run may come after their programmes have begun. A
+registration again, and taking the television away, forget all of it and take the warning away at once, so
+that a warning asking for the registration does not outlive it. A television that does not answer is said
+only there and in the action's answer, never on its own: the recorder's run says nothing of a recorder that
+does not answer. A run whose time ran out tells only what the queue says, less its sentence for a round that
+silence cut short, and keeps nothing: a request the suspension cut would read as silence, which is inferred
+and not seen. With a television saved, the settings' footers about notifications and arriving home speak of
+both devices.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is
@@ -982,10 +986,13 @@ nothing is taken away, and the question counts again the next time. 外す and t
 waiting row do their work in the queue's turn (`PendingQueue.betweenFlushes`), so that a sending under way
 is over first, the action's and the overnight run's included, which the television's own busy state does
 not show: the wait is one round at most. That the action shares the queue is inferred, not seen: it is an
-intent in the app's own target, and Apple says only that one placed in an app extension can run in a process
-of its own. A delete whose row a sending took meanwhile deletes nothing; it reads the television's list again
-and, where the list holds the row's programme, says so in the strip's sentence for a row sent
-(`TVDriver.madeBeforeItsDelete`), and not that the row was deleted.
+intent in the app's own target, and Apple's article "Creating your first app intent" says only "You can also
+place your app intent types in an app extension, and run them in a separate process from the rest of your
+app." The delete reads the television's list in its turn, before it deletes anything. Where the list holds the
+row's programme -- though the row still waits, as one does whose create the television took and whose answer
+was lost -- the row is taken out of the queue as a row made and said so in the strip's sentence for a row sent
+(`TVDriver.madeBeforeItsDelete`), not as deleted. So is a row a sending took meanwhile whose programme is not
+over, though the list cannot be read: while the television is in play, nothing else takes such a row out.
 
 Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
 Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
