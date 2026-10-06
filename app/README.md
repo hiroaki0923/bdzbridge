@@ -895,10 +895,11 @@ disk away, a registration wanted, another television, when that is not what was 
 starts before the next overnight run and has not reached the television, once, with what stands in its way,
 taken away again once none of its rows waits. Whenever such a row is new, that warning names every such row
 still waiting, so that it does not take the place of one about an earlier row that is still late. A sending
-of the app's own that leaves none of the rows warned of waiting takes the warning away at once and tells of
-them no more (`TVTold.afterTheScreensSent`): the next run may come after their programmes have begun. A
-registration again, and taking the television away, forget all of it and take the warning away at once, so
-that a warning asking for the registration does not outlive it. A television that does not answer is said
+of the app's own, or a delete, that leaves none of the rows warned of waiting takes the warning away at once
+and tells of them no more (`TVTold.afterTheScreensSent`): the next run may come after their programmes have
+begun. A registration again, and taking the television away, forget all of it and take the warning away at
+once, and the notice of what became of the rows as well when the stop told last was a registration wanted,
+so that a notice asking for the registration does not outlive it. A television that does not answer is said
 only there and in the action's answer, never on its own: the recorder's run says nothing of a recorder that
 does not answer. A run whose time ran out tells only what the queue says, less its sentence for a round that
 silence cut short, and keeps nothing: a request the suspension cut would read as silence, which is inferred
@@ -992,7 +993,12 @@ app." The delete reads the television's list in its turn, before it deletes anyt
 row's programme -- though the row still waits, as one does whose create the television took and whose answer
 was lost -- the row is taken out of the queue as a row made and said so in the strip's sentence for a row sent
 (`TVDriver.madeBeforeItsDelete`), not as deleted. So is a row a sending took meanwhile whose programme is not
-over, though the list cannot be read: while the television is in play, nothing else takes such a row out.
+over, though the list cannot be read: while the television is in play, nothing else takes such a row out but
+the app's own delete, and a row has one delete at a time -- a second, asked for while the first waits its
+turn, comes back at once with nothing said. What the delete cannot tell: a row whose create the television
+took and whose answer was lost is deleted unsent, with nothing said, when the app's own link cannot read the
+list -- likely, since a television silent to the action is usually silent to the app as well -- and the
+television keeps the reservation.
 
 Arriving home does not send it by itself: iOS wakes no app because a network has come. For that there is a
 Shortcuts action, 送信待ちの予約を送る (`BDBridge/SendWaitingIntent.swift`), for an automation on joining the
