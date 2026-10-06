@@ -71,8 +71,15 @@ final class TVHost: LinkHost {
     /// Reads the television's reservations, as a screen that shows them does when it appears. One that could
     /// not be read leaves the last list, and its time, as they were.
     func loadReservations() async {
-        guard let list = await driver?.reservations() else { return }
+        _ = await readReservations()
+    }
+
+    /// The same, handing back the list read now, nil when none was: for whoever has to know what the
+    /// television holds at this moment, and not what it held when it was last read.
+    func readReservations() async -> [Reservation]? {
+        guard let list = await driver?.reservations() else { return nil }
         keep(list)
+        return list
     }
 
     /// What pulling the reservations down asks of the television: what waits is sent, which the driver asks
@@ -106,11 +113,16 @@ final class TVHost: LinkHost {
     /// is read again whatever it came to: the driver writes the row before it sends anything, and the row
     /// is gone again once the television holds it. From a host the app has let go of nothing is kept or
     /// sent.
+    ///
+    /// A reservation kept to go by itself is heard of again in a notification, as one kept for the recorder
+    /// is, so the system's dialog comes here as it does there: after the row is kept, before the result is
+    /// said. Not for one held with a reason, which waits for the reader.
     func reserve(_ program: GuideProgramRow, repeating: String) async -> Reserved {
         guard let driver else { return .notDone(TVDriver.notConnected) }
         let (reserved, list) = await driver.reserve(program, repeating: repeating)
         if let list { keep(list) }
         await model?.loadPending()
+        if case .waiting(let row, _) = reserved, row.problem == nil { await model?.askForNotifications() }
         return reserved
     }
 
@@ -235,8 +247,12 @@ final class TVHost: LinkHost {
     /// each connect and each pull-down. A round with nothing to say, and no round, leave the report where
     /// it was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
     /// `AppModel.start()`.
+    ///
+    /// A warning the runs with no screen left of reservations not yet at the television goes here once none
+    /// of them waits to go any more (`AppModel.forgetTheWarningOnceSent`), whichever sending took them.
     private func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
+        await model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
         let unread = report.map(Self.sentences) ?? []
         let new = Self.sentences(said).filter { !unread.contains($0) }

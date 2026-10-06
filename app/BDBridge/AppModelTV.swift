@@ -144,19 +144,53 @@ extension AppModel {
             } else {
                 defaults.removeObject(forKey: DefaultsKey.tvMac)
             }
+            forgetWhatWasTold()
             makeTVLink()
             await tv?.connect()
             return .registered
         }
     }
 
+    /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play
+    /// from now on: a registration, or a television taken away, is a change, and the next run tells what it
+    /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
+    /// the app asks the system about notifications at all: it can end by telling the reader to register,
+    /// which must not outlive the registration, and the reservations it names went unsent with a television
+    /// taken away. When the stop told last is the registration, their notice of what became of the queue
+    /// goes too: it is the one that asked for the registration whenever the warning did not.
+    private func forgetWhatWasTold() {
+        let stop = defaults.data(forKey: DefaultsKey.tvTold)
+            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) }?.stop
+        defaults.removeObject(forKey: DefaultsKey.tvTold)
+        guard surroundings.asksAboutNotifications else { return }
+        Notify.withdrawTelevisionNotYet()
+        if stop == .registration { Notify.withdrawTelevisionQueue() }
+    }
+
+    /// The warning the runs with no screen left of reservations not yet at the television is taken away once
+    /// a sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no
+    /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
+    /// may come after their programmes have begun. Read from the phone's queue and not from the one on
+    /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
+    func forgetTheWarningOnceSent() async {
+        guard let saved = defaults.data(forKey: DefaultsKey.tvTold),
+              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let store, let waiting = try? await store.pendingReservations(),
+              let after = told.afterTheScreensSent(waiting: waiting),
+              let kept = try? JSONEncoder().encode(after) else { return }
+        defaults.set(kept, forKey: DefaultsKey.tvTold)
+        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+    }
+
     /// Takes the television away: its link, its address and its registration. What the television itself
-    /// lists as registered is left; it can be removed from the list in the television's settings.
+    /// lists as registered is left; it can be removed from the list in the television's settings. What the
+    /// runs with no screen told of it goes too (`forgetWhatWasTold`).
     func removeTV() {
         dropTVLink()
         surroundings.tvCredentials.remove()
         defaults.removeObject(forKey: DefaultsKey.tvHost)
         defaults.removeObject(forKey: DefaultsKey.tvMac)
+        forgetWhatWasTold()
         tvClientID = nil
     }
 
@@ -189,16 +223,25 @@ extension AppModel {
     /// television stays and nothing is deleted, and its line says why. A television taken away over rows
     /// that stayed would leave them with nobody to send them and nobody to drop them once their programmes
     /// are over, which is what the question is there to prevent.
+    ///
+    /// The first step sees the app's own work only. A run with no screen sends through the same queue with a
+    /// client of its own -- inferred for the action, as `deleteWaiting` says -- so the rest is done in the
+    /// queue's turn (`PendingQueue.betweenFlushes`): a sending under way is over first, and one that made what
+    /// was counted leaves a count that no longer holds. Taken away while such a run had its round out, the
+    /// registration would go from under it, and the run would tell the reader to register a television that is
+    /// no longer there.
     func takeTheTelevisionAway(counted: Int?) async -> Bool {
         guard !isBusy(for: .tv) else { return false }
-        guard await waitingForTheTelevision() == counted else { return false }
-        guard let store, (try? await store.removePending(waitingFor: .tv)) != nil else {
-            tvHost?.problem = Self.rowsNotTakenAway
-            return false
-        }
-        removeTV()
-        await loadPending()
-        return true
+        return await PendingQueue.betweenFlushes { @MainActor in
+            guard await self.waitingForTheTelevision() == counted else { return false }
+            guard let store = self.store, (try? await store.removePending(waitingFor: .tv)) != nil else {
+                self.tvHost?.problem = AppModel.rowsNotTakenAway
+                return false
+            }
+            self.removeTV()
+            await self.loadPending()
+            return true
+        } ?? false
     }
 
     /// Said on the television's line when it was not taken away because what waits for it could not be

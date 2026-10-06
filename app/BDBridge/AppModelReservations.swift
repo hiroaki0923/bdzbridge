@@ -356,9 +356,61 @@ extension AppModel {
     /// that it is not sent. Taking the television away does nothing then either (`takeTheTelevisionAway`).
     /// Never for the recorder's work, and a recorder's row is deleted whatever is under way, as it always
     /// has been.
-    func deleteWaiting(_ waiting: PendingReservation) async {
-        guard !(waiting.target == .tv && isBusy(for: .tv)) else { return }
-        await removePending(waiting)
+    ///
+    /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
+    /// run -- sends through the same queue with a client of its own, so a television's row is deleted in the
+    /// queue's turn (`PendingQueue.betweenFlushes`): before a sending, which then does not see it, or after
+    /// one. The wait is the length of a round, a recorder's included. That the action shares the queue is
+    /// inferred, not seen: it is an intent in the app's own target, and Apple's article "Creating your first
+    /// app intent" says only "You can also place your app intent types in an app extension, and run them in a
+    /// separate process from the rest of your app."
+    ///
+    /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it
+    /// would be a reservation on the television that the reader believes gone. What to say in place of that
+    /// is handed back, as the strip says a row sent (`TVDriver.madeBeforeItsDelete`). It was made when the
+    /// television's list, read in the turn and before anything is deleted, holds its programme -- though the
+    /// row still waited, as one does whose create the television took and whose answer was lost: that row
+    /// leaves the queue as a row made does. And it was made when the sending took it out of the queue though
+    /// its programme is not over, whatever the list read gave, since a list that cannot be read now says
+    /// nothing: while the television is in play, nothing else takes such a row out but a round that made it
+    /// or found it there, and a delete of the app's own. So a row has one delete at a time: a second one,
+    /// asked for while the first waits its turn -- the row is still listed then, and the reader can confirm
+    /// again -- would find the row gone and say it was made, and it comes back with nil at once instead. The
+    /// list read is kept for the screens either way, and the warning of reservations not yet at the
+    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
+    ///
+    /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
+    /// unsent, with nothing said, when the app's own link cannot read the list -- as it often cannot, a
+    /// television that was silent to the action being silent to the app as well -- and the television keeps
+    /// the reservation.
+    ///
+    /// Nil when the row was deleted, when nothing was done while the television works or while the row has
+    /// a delete under way already, and when the row has gone and nothing says it was made.
+    @discardableResult
+    func deleteWaiting(_ waiting: PendingReservation) async -> String? {
+        guard !(waiting.target == .tv && isBusy(for: .tv)) else { return nil }
+        guard waiting.target == .tv else {
+            await removePending(waiting)
+            return nil
+        }
+        guard deletingWaiting.insert(waiting.id).inserted else { return nil }
+        defer { deletingWaiting.remove(waiting.id) }
+        let made = await PendingQueue.betweenFlushes { @MainActor in
+            // A queue that cannot be read is no sign that a sending took the row: the delete is tried.
+            let stillWaits = (try? await self.store?.pendingReservations())
+                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
+            let listed = await self.tvHost?.readReservations() ?? []
+            let onTheTelevision = waiting.request.eventID.map {
+                AppModel.byProgram(listed)[AppModel.key(waiting.request.broadcastingType, waiting.request.serviceID,
+                                                        $0)] != nil
+            } ?? false
+            let made = onTheTelevision || (!stillWaits && waiting.request.end >= Date() && self.tvHost != nil)
+            if stillWaits { await self.removePending(waiting) }
+            return made
+        } ?? false
+        await loadPending()
+        await forgetTheWarningOnceSent()
+        return made ? TVDriver.madeBeforeItsDelete(waiting, naming: DeviceSlot.tv.label) : nil
     }
 
     /// ［それでも予約］ at the question a screen asks before a reservation that would stop others from

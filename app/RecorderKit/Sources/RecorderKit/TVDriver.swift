@@ -27,6 +27,8 @@ public final class TVFacts {
 /// `cancel`, `update`, `sendWhatWaits`, `reserve`, `resend`): the steps, what each can come to, and the
 /// sentence said for it, through the link this is the driver of and that link's host. It is asked of the
 /// driver alone, which is handed no link: with its link gone nothing is sent. The app keeps what comes back.
+/// A run with no screen asks the television through the same client and round, without a link
+/// (`sendWithNoScreen`).
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
@@ -136,7 +138,7 @@ public final class TVDriver: LinkDriver {
     public static let connectingLine = "テレビに接続中"
 
     /// Said when the device at the television's address is another one.
-    public static let anotherAnswered = "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"
+    public nonisolated static let anotherAnswered = "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"
 
     /// Never: see the type's description.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool { false }
@@ -336,7 +338,7 @@ public final class TVDriver: LinkDriver {
     public static let sendingLine = "テレビに送信待ちの予約を登録中"
     /// Said when the request that makes a waiting reservation met silence: it may have been made all the same,
     /// so it is not sent again, and the next sending reads the television's list before it sends anything.
-    public static let createMetSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
+    public nonisolated static let createMetSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
     /// Why nothing is sent while the disk a television records to is away: the client's own sentence, for
     /// the screens to say while a reservation waits for the disk to come back (`facts.storage`).
