@@ -111,9 +111,9 @@ final class AppModel: LinkHost {
     /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
     /// which every screen shows as a failure.
     var scanOutcome: ScanOutcome?
-    /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
-    /// answered no -- or is taken to be, its look through the subnet having been turned away whole
-    /// (`scanForRecorders`), so that the screens can say so and offer the Settings app.
+    /// Set while a scan is taken to be held up by local network privacy -- the system's question is on screen,
+    /// or was answered no -- its look through the subnet having been turned away (`scanForRecorders`), so that
+    /// the screens can say so and offer the Settings app.
     var scanBlocked = false
     /// Whether レコーダーを探す is held back, with its small spinner, on every screen that has it: while a scan
     /// is under way and the notice about the permission is not up. Behind the notice the button is the
@@ -129,7 +129,7 @@ final class AppModel: LinkHost {
     /// Either of the two: something the reader wants is waiting on the local network permission.
     var lanBlocked: Bool { scanBlocked || connectBlocked }
     /// The scan under way, kept so that leaving the tutorial or turning to the demo can stop it -- above all
-    /// while it waits on the system's question, which could otherwise outlive the screen that asked.
+    /// while it asks again behind the system's question, which could otherwise outlive the screen that asked.
     var scanTask: Task<Void, Never>?
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0

@@ -76,7 +76,7 @@ final class URLSessionTransportTests: XCTestCase {
     /// What a search's tally makes of an address where nobody answers, through the real session: a request
     /// there times out when its own time is up, and is cancelled when the search ends it first, as a search's
     /// deadline does to one that has outlived its time (`Discovery.probe`). Either is a request that was out,
-    /// so a look made of such addresses was not turned away (`ScanTally.Counts.turnedAwayWhole`). 127.0.0.2 is
+    /// so a look made of such addresses was not turned away (`ScanTally.Counts.mostTurnedAway`). 127.0.0.2 is
     /// the loopback network's and nobody's: what is sent there never leaves this machine and is never answered.
     func testASilentAddressCountsAsARequestThatWasOut() async throws {
         let silent = try XCTUnwrap(URL(string: "http://127.0.0.2:9/description.xml"))
@@ -85,7 +85,7 @@ final class URLSessionTransportTests: XCTestCase {
         _ = try? await timingOut.send(HTTPRequest(url: silent, timeout: 0.5))
         let timedOut = await timingOut.counts
         XCTAssertEqual(timedOut.timedOut, 1, "not timed out: \(timedOut.summary)")
-        XCTAssertFalse(timedOut.turnedAwayWhole, "a request that timed out was taken for one turned away")
+        XCTAssertFalse(timedOut.mostTurnedAway, "a request that timed out was taken for one turned away")
 
         let endedEarly = ScanTally(URLSessionTransport())
         let request = Task { _ = try? await endedEarly.send(HTTPRequest(url: silent, timeout: 30)) }
@@ -94,7 +94,7 @@ final class URLSessionTransportTests: XCTestCase {
         await request.value
         let cancelled = await endedEarly.counts
         XCTAssertEqual(cancelled.failed, [-999: 1], "not counted as cancelled: \(cancelled.summary)")
-        XCTAssertFalse(cancelled.turnedAwayWhole, "a request the search ended was taken for one turned away")
+        XCTAssertFalse(cancelled.mostTurnedAway, "a request the search ended was taken for one turned away")
     }
 }
 

@@ -119,20 +119,6 @@ public enum LocalNetwork {
         return out
     }
 
-    /// Somebody else on the interface's subnet, to aim the local network check at (see `waitForAccess`):
-    /// the first address of the subnet, which is usually the router, or the second when that is this
-    /// device. Whether anything answers there does not matter: a connection that is refused has had an answer
-    /// from the local network, and one left unanswered for as long as its handshake is given is taken for one
-    /// that reached it (`LocalNetwork.settled` says why, and what has not been seen).
-    public static func neighbour(on interface: Interface) -> String? {
-        guard let address = packed(interface.address), let mask = packed(interface.netmask) else { return nil }
-        let network = address & mask
-        let broadcast = network | ~mask
-        return [network &+ 1, network &+ 2]
-            .first { $0 > network && $0 < broadcast && $0 != address }
-            .map(dotted)
-    }
-
     /// Where to send something that everything on the subnet should hear: the broadcast address of each
     /// LAN interface's subnet, then 255.255.255.255.
     ///
