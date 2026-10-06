@@ -46,7 +46,9 @@ public enum PendingQueue {
 
     /// Sends what waits for `client`'s device, in the order it starts. A programme already over is dropped
     /// rather than sent, and nothing is asked of the device for it; one on air is still sent, because the
-    /// device records what is left of it. A device that goes away mid-flush leaves the rest queued.
+    /// device records what is left of it. That is what a recorder does: what a television does with a
+    /// reservation of a programme on air has not been seen, and it is sent one all the same. A device that
+    /// goes away mid-flush leaves the rest queued.
     ///
     /// The device is read for the round (`QueueTarget.openRound`) at the first row that is to go, and only
     /// then: a queue with nothing to send asks it nothing. A round that cannot be opened ends the flush with

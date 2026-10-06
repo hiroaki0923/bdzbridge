@@ -476,12 +476,12 @@ public final class TVDriver: LinkDriver {
         }
     }
 
-    /// Why `program` cannot be reserved on a television, or nil when it can: it is over, or it has begun
-    /// (`ScalarClient.startedAlready`). For a screen, which offers no television for such a programme, and
-    /// for `reserve`, which turns it away by this very rule.
+    /// Why `program` cannot be reserved on a television, or nil when it can: its end has passed, and that is
+    /// all. One that has begun and is not over is no reason: its reservation is sent as any other is, as a
+    /// recorder is sent one. For `reserve`, which turns a programme away at its door by this very rule, and
+    /// for a screen, which offers no television for a programme the door would turn away.
     public nonisolated static func whyNot(_ program: GuideProgramRow, now: Date = Date()) -> String? {
-        if program.end < now { return programmeIsOver }
-        return program.start <= now ? ScalarClient.startedAlready : nil
+        program.end < now ? programmeIsOver : nil
     }
 
     /// What a screen asks before a reservation held for what it would stop is made all the same: the reason
@@ -508,7 +508,7 @@ public final class TVDriver: LinkDriver {
     /// and what an earlier operation left on the line stays (`Reserved`): the link gone; a repeat a
     /// television is not sent for this programme (`TVReservationBody.repeatType`), and with it a repeat or a
     /// kind of broadcast the tables do not know, which no programme of the guide has; a programme whose end
-    /// has passed, or that has begun (`whyNot`); and a queue that cannot be opened or written to.
+    /// has passed (`whyNot`); and a queue that cannot be opened or written to.
     ///
     /// The row is written before anything is asked: whatever becomes of the asking, the reservation is
     /// kept. It replaces one already waiting for the same programme on the television, its reason with it.
@@ -524,8 +524,7 @@ public final class TVDriver: LinkDriver {
             return (.notDone(ScalarClient.repeatNotTaken), nil)
         }
         // After the repeat, which is settled without the clock. A round would drop the row of a programme
-        // that is over and hold that of one that has begun; with no round either would be kept, and promised
-        // to a television that is never sent it.
+        // that is over; with no round it would be kept, and promised to a television that is never sent it.
         if let why = Self.whyNot(program) { return (.notDone(why), nil) }
         guard let store = link.owner?.cache else { return (.notDone(PendingQueue.noCache), nil) }
         // Queued at a whole second, as the cache keeps the moment: the row handed back is the row that waits.

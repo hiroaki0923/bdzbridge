@@ -1548,49 +1548,66 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(bench.link.session.link.tries, tries, "a connect was made")
     }
 
-    /// A programme that has begun is not reserved on a television. Why not is said for a screen to go by,
-    /// by the moment it is handed: nothing for a programme still ahead, a second before its start as well;
-    /// that it has begun, from its start to its end; and that it is over, once its end has passed.
+    /// A programme that has begun and is not over is reserved on a television as one still ahead is. Why
+    /// not is said for a screen to go by, by the moment it is handed: nothing from a day ahead to the
+    /// programme's end, its start and its end included, and that it is over once its end has passed.
     ///
-    /// The door turns such a programme away by the same rule, with the sentence in the result and nowhere
-    /// else, on a television that can be asked and on one given up on after silence: nothing is kept,
-    /// nothing is asked of the television, no connect is made, no line goes up, and the line of what went
-    /// wrong is as it was. With no door the first would keep a row for its round to hold, and the second a
-    /// row promised to a television that is never sent it.
-    func testAProgrammeThatHasBegunIsNotOfferedAndIsTurnedAwayAtTheDoor() async throws {
-        let begun = "放送が始まった番組は、テレビには予約できません。"
+    /// The door goes by the same rule, with the real clock. A programme on air -- begun a quarter of an hour
+    /// ago, with as long to go -- is kept first, for the television, in DR and with no reason on it, and
+    /// then made by a round for that one row: the six requests of a round and the read of the list after
+    /// it, the create among them once. The result is made, the list handed back has the reservation, and
+    /// nothing waits. On a television given up on after silence it is kept as one still ahead is, to go
+    /// when the television next answers: nothing is asked, no connect is made, no line goes up, and the line
+    /// of what went wrong is as it was.
+    func testAProgrammeThatHasBegunIsReservedAsOneStillAheadIs() async throws {
         let film = programme("サンプル劇場", 50101, at: Self.start)
         let whys: [(name: String, after: TimeInterval, why: String?)] = [
-            ("a day ahead", -86_400, nil), ("a second before its start", -1, nil), ("at its start", 0, begun),
-            ("half way through", 900, begun), ("at its end", 1800, begun),
+            ("a day ahead", -86_400, nil), ("a second before its start", -1, nil), ("at its start", 0, nil),
+            ("half way through", 900, nil), ("at its end", 1800, nil),
             ("a second after its end", 1801, Self.programmeIsOver),
         ]
         for (name, after, why) in whys {
             XCTAssertEqual(TVDriver.whyNot(film, now: Self.start.addingTimeInterval(after)), why, name)
         }
 
-        // On air by the real clock, which is the door's: begun a quarter of an hour ago, with as long to go.
         let onAir = programme("サンプル劇場", 50101, in: -0.25)
         let attached = try await attachedQueueBench()
+        await attached.gate.before(Self.disk) { @MainActor in
+            let kept = try? await attached.store.pendingReservations().first
+            attached.world.put("kept for \(kept?.target.rawValue ?? "nobody") in \(kept?.request.qualityCode ?? 0), "
+                + (kept?.problem ?? "no reason"))
+        }
+        let events = attached.world.events.count, before = await attached.television.calls.count
+
+        let made = await attached.driver.reserve(onAir, repeating: "none")
+
+        XCTAssertEqual(made.reserved, .made(saying: nil))
+        XCTAssertEqual(made.list?.map(\.eventID), [50101])
+        expectEqual(Array(await attached.television.calls.dropFirst(before)),
+                    (Self.round + [Self.read]).map { "\($0) cookie=yes pin=no" })
+        XCTAssertEqual(Array(attached.world.events.dropFirst(events)), ["kept for tv in 100, no reason"])
+        expectEqual(try await attached.store.pendingReservations(), [], "a reservation that was made still waits")
+        expectEqual(await attached.television.schedules.map(\.start), [onAir.start])
+
         let givenUp = try await attachedQueueBench()
         await givenUp.television.goSilent()
         _ = await givenUp.link.ensureUp(evenIfRecent: true)
         await givenUp.television.goSilent(false)
         XCTAssertTrue(givenUp.link.session.gaveUp)
-        for (name, bench) in [("attached", attached), ("given up on", givenUp)] {
-            bench.world.problem = Self.left
-            let asked = await bench.gate.asked, lines = bench.world.begun, tries = bench.link.session.link.tries
+        givenUp.world.problem = Self.left
+        let asked = await givenUp.gate.asked, lines = givenUp.world.begun, tries = givenUp.link.session.link.tries
 
-            let (reserved, list) = await bench.driver.reserve(onAir, repeating: "none")
+        let (reserved, list) = await givenUp.driver.reserve(onAir, repeating: "none")
 
-            XCTAssertEqual(reserved, .notDone(begun), name)
-            XCTAssertNil(list, name)
-            expectEqual(try await bench.store.pendingReservations(), [], "\(name): a row was kept")
-            expectEqual(await bench.gate.asked, asked, "\(name): the television was asked")
-            XCTAssertEqual(bench.link.session.link.tries, tries, "\(name): a connect was made")
-            XCTAssertEqual(bench.world.begun, lines, "\(name): a line went up")
-            XCTAssertEqual(bench.world.problem, Self.left, "\(name): the door wrote on the line")
-        }
+        let kept = try await givenUp.store.pendingReservations()
+        XCTAssertEqual(kept.map(\.id), ["tv|2/1024/50101"])
+        XCTAssertEqual(kept.map(\.problem), [nil])
+        XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: Self.waitsNotConnected) })
+        XCTAssertNil(list)
+        expectEqual(await givenUp.gate.asked, asked, "sent to a television that cannot be asked")
+        XCTAssertEqual(givenUp.link.session.link.tries, tries, "a connect was made")
+        XCTAssertEqual(givenUp.world.begun, lines, "a line went up for nothing sent")
+        XCTAssertEqual(givenUp.world.problem, Self.left, "a reservation that was not sent wrote over the line")
     }
 
     /// A television is offered DR and, for a programme, exactly the repeats it is sent for it, in the order
@@ -1600,8 +1617,14 @@ final class TVDriverTests: XCTestCase {
     /// other is turned away there for its repeat, and none of these is. With no cache to keep a row in they
     /// get as far as that and no further, so nothing is kept or sent.
     ///
-    /// Each programme is the next of its weekday from tomorrow on by the real clock, which is the door's: a
-    /// start fixed here would one day be over, and the door would then say that of every repeat it is sent.
+    /// Each of those four is the next of its weekday from tomorrow on by the real clock, which is the door's:
+    /// a start fixed here would one day be over, and the door would then say that of every repeat it is sent.
+    ///
+    /// That a programme has begun takes nothing from what is offered for it, nor from what the door lets
+    /// through: a sheet opened on a programme on air lists its repeats from here, and the reservation is sent
+    /// as one for a programme still ahead is. So one on air by the real clock -- begun a quarter of an hour
+    /// ago, with as long to go -- is offered what the same programme a week later is, which starts at the
+    /// same hour of the same weekday in Japan and is still ahead, and the door lets exactly those through.
     func testATelevisionIsOfferedTheRepeatsItIsSentForAProgrammeAndDR() async throws {
         XCTAssertEqual(TVDriver.recordsIn, "DR")
         XCTAssertEqual(Codes.qualityLabel[TVDriver.recordsIn], "DR(高画質)")
@@ -1615,11 +1638,16 @@ final class TVDriverTests: XCTestCase {
                                          matching: DateComponents(hour: hour, weekday: weekday),
                                          matchingPolicy: .nextTime))
         }
+        // The two differ in nothing but that the first has begun. No clock is handed in with the question of
+        // what is offered, so only a start set against the real one can show that the real one is not read.
+        let onAir = programme("サンプル劇場", 50101, in: -0.25).start
+        let aWeekLater = programme("サンプル劇場", 50101, at: onAir.addingTimeInterval(7 * 86_400))
         let offered: [(name: String, start: Date, repeats: [String])] = [
             ("a Monday evening's", try next(2, at: 21), ["none", "title", "daily", "mon", "mon-fri", "mon-sat"]),
             ("a Saturday evening's", try next(7, at: 21), ["none", "title", "daily", "sat", "mon-sat"]),
             ("a Sunday evening's", try next(1, at: 21), ["none", "title", "daily", "sun"]),
             ("one at two on a Monday morning", try next(2, at: 2), ["none", "title", "daily"]),
+            ("one on air, as the same a week later", onAir, TVDriver.repeats(for: aWeekLater)),
         ]
         let bench = try await attachedQueueBench()
         bench.world.cache = nil
@@ -1645,7 +1673,9 @@ final class TVDriverTests: XCTestCase {
     /// gone from the queue. Made is said only where the television's list has a recording of the programme
     /// that is all the row asks for; where what it has falls short of the repeat asked, the reason for that
     /// is said; and with nothing of it listed, or no list read, nothing is known to have been made -- or,
-    /// its programme being over by then, that is what is said.
+    /// its programme being over by then, that is what is said. Over is said once the programme's end has
+    /// passed and not before: while it is on air, which a programme reserved after it began is from the
+    /// first, and at its end, the answer is still that nothing is known to have been made.
     func testWhatARoundForOneRowCameToIsReadAsWhatTheReservationCameTo() {
         let driver = TVDriver(credentials: MemoryTVCredentials(), nickname: "BD Bridge", inFront: { true })
         let row = waiting("サンプル劇場", 50101), other = waiting("サンプル紀行", 50102, in: 3)
@@ -1703,6 +1733,11 @@ final class TVDriverTests: XCTestCase {
         ]
         for (name, row, round, list, comes) in cases {
             XCTAssertEqual(driver.reserved(row, by: round, listing: list), comes, name)
+        }
+        for (name, now) in [("a second after its start", row.request.start.addingTimeInterval(1)),
+                            ("at its end", row.request.end)] {
+            XCTAssertEqual(driver.reserved(row, by: round(), listing: without, now: now), .notDone(unconfirmed),
+                           "gone, and not listed, \(name)")
         }
         XCTAssertEqual(driver.reserved(row, by: round(), listing: without, now: row.request.end.addingTimeInterval(1)),
                        .notDone(Self.programmeIsOver), "gone, and over by then")

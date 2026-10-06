@@ -920,7 +920,7 @@ in it (`Reserved`): made, with whatever the television's list showed it did to o
 because it would stop reservations from recording that the reason on the row names; kept on the phone, because
 the television could not be asked or its round stopped; or neither made nor kept. A television that cannot be
 asked is not connected to for it, and what is turned away before anything is sent -- a repeat a television
-is not sent, a programme that is over or has begun -- is said in the result and leaves the television's line
+is not sent, a programme that is over -- is said in the result and leaves the television's line
 alone. The host (`TVHost.reserve`) keeps the list read after a reservation that was made and reads the queue
 on screen again; it puts nothing on the strip, since the result is what says it.
 
@@ -978,11 +978,11 @@ was. That button and the row's delete are held back while the television works, 
 `AppModel.deleteWaiting` as the tab's does. With the recorder alone the sheet draws, says and does what it
 always has.
 
-A programme that has begun is not sent to a television. What one that is switched off does with a create whose
-start has passed has not been seen, and nothing is sent that might light its panel unasked. So the sheet does
-not offer the television for such a programme, `TVDriver.reserve` turns it away, and the round holds a waiting
-row whose programme has begun by the time it is sent, with the reason written on it, until the programme ends
-and the row is dropped. The recorder still takes one, and records what is left.
+A programme that has begun is sent to a television as it is to the recorder. The sheet offers the television
+for it, `TVDriver.reserve` lets it through, and the round sends a waiting row whose programme has begun as it
+sends any other, until the programme ends and the row is dropped. What a television that is switched off does
+with a create whose start has passed -- whether its panel lights, what it answers -- has not been seen yet:
+the first use of this build is the measurement.
 
 Taking the television away in the settings takes what waits for it as well, unsent
 (`AppModel.takeTheTelevisionAway`). The question says how many reservations that is, counted on the phone,

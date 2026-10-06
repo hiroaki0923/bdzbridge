@@ -515,7 +515,10 @@ public actor DemoTV: HTTPTransport {
     /// Taken, not seen: that the weekday is the start's by the calendar in Japan, a start before four in the
     /// morning included, which a guide counts to the day before -- no real one has been sent a weekly repeat
     /// for one; that Monday to Friday and Monday to Saturday are taken on any day, as they were on a
-    /// Monday's programme; and that error 7 comes before 41222 where both would.
+    /// Monday's programme; that error 7 comes before 41222 where both would; and that a create whose start
+    /// has passed is taken as any other is. This one has no clock and does not tell such a create from one
+    /// still ahead: what a real one answers it, and does on getting it while switched off, has not been
+    /// seen yet.
     private func make(_ asked: Asked, eventId: Int, _ id: Int) -> HTTPResponse {
         let station = asked.station
         guard station.subscribed, Self.suitsItsDay(asked.repeatType, start: asked.start) else {
