@@ -35,6 +35,37 @@ public extension NoScreenSending {
     }
 }
 
+public extension TVDriver {
+    /// One attempt at the television for a run with no screen. In this order, each once:
+    ///  1. The queue: unless a row of the television's goes by itself and is not over, `nothingWaiting`, and
+    ///     nothing is asked.
+    ///  2. The MAC it wakes on (`getSystemSupportedFunction`, no cookie, five seconds as a registration waits
+    ///     for it), normalised as an attach normalises it and held against `mac` by the rule a connect holds
+    ///     it by (`SessionState.recognition(of:knownAs:)`): no MAC saved, or none given, is not another. Any
+    ///     failure of the read: `unreachable`. Another: `anotherAnswered`.
+    ///  3. The queue's flush for the television, with no consent and no row named.
+    /// It is asked in standby. Nothing here can wake it -- there is no packet to send -- and nothing renews
+    /// the registration, reads the power, mounts the disk, deletes or turns anything on: after the MAC read,
+    /// what goes is the round's own -- the disk and the list, then for each row the stations of its kind
+    /// once, the question, the create and the list again.
+    nonisolated static func sendWithNoScreen(_ client: ScalarClient, store: GuideStore, knownAs mac: String?,
+                                             now: Date = Date()) async -> NoScreenSending {
+        let waiting = (try? await store.pendingReservations()) ?? []
+        guard PendingQueue.hasSomethingToSend(waiting, for: ScalarClient.slot, now: now) else {
+            return .nothingWaiting
+        }
+        let identity: String
+        do {
+            identity = (try await client.wakeOnLANAddress(timeout: 5)).flatMap(WakeOnLan.normalise) ?? ""
+        } catch {
+            return .unreachable
+        }
+        // Its cookie would not be good there, and what waits was made for the television registered.
+        guard SessionState.recognition(of: identity, knownAs: mac) != .another else { return .anotherAnswered }
+        return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+    }
+}
+
 /// What the runs with no screen have told the reader of the television, kept between runs by the app: the
 /// stop told last, and the rows told of as not having reached it in time.
 public struct TVTold: Codable, Sendable, Equatable {

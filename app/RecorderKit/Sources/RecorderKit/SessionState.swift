@@ -116,8 +116,15 @@ public final class SessionState {
         return who
     }
     /// Who a device that gives an identity rather than a description is, measured as `recognises` measures a
-    /// recorder: against `device`, and an empty identity is taken for the one known.
+    /// recorder: against `device` (`recognition(of:knownAs:)`).
     public func recognises(identity: String) -> Recognition {
+        Self.recognition(of: identity, knownAs: device)
+    }
+
+    /// Who a device that gives `identity` is, against the device known as `device`: the first with none known,
+    /// and an empty identity is taken for the one known. Case does not matter. The one rule for a connect and
+    /// for a run with no screen, which has no session to ask.
+    public nonisolated static func recognition(of identity: String, knownAs device: String?) -> Recognition {
         guard let device, !device.isEmpty else { return .first }
         return identity.isEmpty || identity.caseInsensitiveCompare(device) == .orderedSame ? .same : .another
     }

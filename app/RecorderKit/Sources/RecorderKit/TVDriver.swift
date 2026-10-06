@@ -27,6 +27,8 @@ public final class TVFacts {
 /// `cancel`, `update`, `sendWhatWaits`, `reserve`, `resend`): the steps, what each can come to, and the
 /// sentence said for it, through the link this is the driver of and that link's host. It is asked of the
 /// driver alone, which is handed no link: with its link gone nothing is sent. The app keeps what comes back.
+/// A run with no screen asks the television through the same client and round, without a link
+/// (`sendWithNoScreen`).
 @MainActor
 public final class TVDriver: LinkDriver {
     public let facts = TVFacts()
