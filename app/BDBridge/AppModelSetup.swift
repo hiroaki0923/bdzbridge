@@ -142,71 +142,35 @@ extension AppModel {
 
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
-    /// reach the local network. The scan waits for that answer before it starts: one made behind the question
-    /// came back with nothing on a phone, in the version that did not wait. That every request fails at once
-    /// there is what the wait is built on, and has not been seen on one (`docs/porting.md`,
-    /// ローカルネットワークの許可).
+    /// reach the local network. The scan waits for that answer before it starts
+    /// (`LocalNetwork.waitForAccess`): the system may turn a request away at once behind its question, and a
+    /// scan made there has said it found nobody while the question was still up. Then it looks through the
+    /// addresses once, and what it found is said as soon as it has.
     ///
-    /// That wait reads a signal of the system's which has not been seen to work on a phone, and the scan begun
-    /// by the press that raised the question has come back with nothing after the reader allowed it. So a scan
-    /// that found nobody is made once more when the app has come back to being active since the press. That
-    /// rests on nothing of the system's but the app's own phase: the question takes the app out of being
-    /// active for as long as it is up, whatever the wait read and whatever became of the requests behind it.
-    ///
-    /// Nothing found is held for a moment before it is said, since a scan turned back at every address is over
-    /// in hundredths of a second, which can be before the question is up. If by then the app has not stopped
-    /// being active since the press, it is said as it stands. If it has, the scan is made again a second after
-    /// the app is active, the screen showing it as still going meanwhile, and what that one comes to is said
-    /// whatever it is: once to a press. A scan that found somebody is said at once, as ever.
-    ///
-    /// The press is carried across the question and across nothing else. The question never sends the app to
-    /// the background, so a visit there since the press ends the carrying: nothing found is said as the
-    /// press's own scan left it, and what the app comes back to, at any time and on any network, is not looked
-    /// through. And before the second scan the interfaces are read again, as after the wait: with none it
-    /// says there is no Wi-Fi, and with other addresses than the press's it says what the press's own scan
-    /// came to.
-    ///
-    /// The cost is a second before nothing found is said, a second scan for a reader who pulled Control Centre
-    /// down during one that finds nobody, and, the largest, the first press itself: one that raised the
-    /// question and truly finds nobody is scanned twice, about fourteen seconds before it says so where it was
-    /// about six.
-    ///
-    /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: why the first one finds
-    /// nobody is still to be seen, and the next first press on a phone is where it will be.
+    /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: what the system does
+    /// behind its question is seen nowhere but on a phone.
     func scanForRecorders() {
-        endScanTask()
-        // Read at the press and not in the task, which starts a turn later.
-        let departures = timesLeftActive
-        let visits = timesInBackground
-        scanTask = Task { await scan(pressedAfter: departures, visits) }
+        scanTask?.cancel()
+        scanTask = Task { await scan() }
     }
 
-    /// Ends a scan wherever it has got to: the wait for the permission and the wait to look once more included.
+    /// Ends a scan wherever it has got to, the wait for the permission included.
     func stopScanning() {
         if scanTask != nil { surroundings.scanLog("stopped") }
-        endScanTask()
+        scanTask?.cancel()
         scanTask = nil
         scanRun += 1
         scanning = nil
         scanBlocked = false
     }
 
-    /// Cancels the scan under way, and lets go of it where it waits for the app to be active: a wait that
-    /// cancelling does not end by itself.
-    private func endScanTask() {
-        scanTask?.cancel()
-        scanAwaitsActive?.resume()
-        scanAwaitsActive = nil
-    }
-
-    /// One press's scan. `departures` is how often the app had stopped being active when the button was
-    /// pressed, and `visits` how often it had gone to the background.
-    private func scan(pressedAfter departures: Int, _ visits: Int) async {
+    private func scan() async {
         scanRun += 1
         let run = scanRun
         // whatever the last attempt left on screen is not about this one
         problem = nil
         scanOutcome = nil
+        scanBlocked = false
         found = []
         // The interfaces, the wait and the transport are the surroundings' (`Surroundings`), the device's own
         // in the app: a test presses the button on a Wi-Fi it has invented.
@@ -222,53 +186,35 @@ extension AppModel {
         }
         surroundings.scanLog("press: \(hosts.count) addresses to ask, the app \(appIsActive ? "active" : "not active")")
         scanning = (0, hosts.count)
-        let allowed = await surroundings.waitForLocalNetwork(neighbour) { @MainActor [weak self] in
+        let access = await surroundings.waitForLocalNetwork(neighbour) { @MainActor [weak self] in
             guard let self, self.scanRun == run else { return }
             self.scanBlocked = true
         }
         guard scanRun == run, !Task.isCancelled else { return }
+        let over = switch access {
+        case .allowed: "allowed"
+        case .blocked: "given up, the permission still in the way"
+        case .unavailable: "no path, and not for the permission"
+        }
+        surroundings.scanLog("the wait for the permission is over: \(over)")
+        // The wait has given up with the permission still in the way. Nobody was asked, so nothing is said
+        // of having looked: the notice the wait put up stays, with its way to the Settings app, and the
+        // button is the reader's again.
+        if access == .blocked {
+            scanning = nil
+            scanTask = nil
+            return
+        }
         scanBlocked = false
-        surroundings.scanLog("the wait for the permission is over: \(allowed ? "allowed" : "not allowed")")
         // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
         // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
-        if !allowed, surroundings.lanInterfaces().isEmpty {
+        if access == .unavailable, surroundings.lanInterfaces().isEmpty {
             surroundings.scanLog("no Wi-Fi left to look round")
             scanning = nil
             scanTask = nil
             report(.noWiFi)
             return
         }
-        guard await look(through: hosts, run: run, as: "first search") else { return }
-        // Once more, and only once: an `if` with one look in it, and nothing after it but saying what was found.
-        if found.isEmpty, await cameBackToBeingActive(since: departures, visits) {
-            // The interfaces again, as after the wait above: the app was not active meanwhile, and the Wi-Fi
-            // can be turned off or changed from Control Centre without the app going to the background. Other
-            // addresses than the press's are another network's, which nobody asked to have looked through.
-            let lanNow = surroundings.lanInterfaces()
-            if lanNow.isEmpty {
-                surroundings.scanLog("no Wi-Fi left to look round")
-                scanning = nil
-                scanTask = nil
-                report(.noWiFi)
-                return
-            }
-            if lanNow.flatMap({ LocalNetwork.hosts(around: $0) }) == hosts {
-                scanning = (0, hosts.count)
-                guard await look(through: hosts, run: run, as: "second search") else { return }
-            } else {
-                surroundings.scanLog("other addresses than at the press; not searched again")
-            }
-        }
-        guard scanRun == run, !Task.isCancelled else { return }
-        scanning = nil
-        scanTask = nil
-        surroundings.scanLog(found.isEmpty ? "said: nothing found" : "said: found \(found.count)")
-        report(found.isEmpty ? .nothing : .found(found.count))
-    }
-
-    /// One look through the addresses, each asked once. False when the scan was stopped meanwhile. How its
-    /// requests came back, how many recorders that made and how long it took go to the log under `name`.
-    private func look(through hosts: [String], run: Int, as name: String) async -> Bool {
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
         let transport = ScanTally(surroundings.scanTransport())
@@ -284,51 +230,23 @@ extension AppModel {
                 if !self.found.contains(where: { $0.host == recorder.host }) { self.found.append(recorder) }
             }
         })
+        // How the requests came back, how many recorders that made and how long it took, for the log.
         let seconds = String(format: "%.2f", (ContinuousClock.now - began) / .seconds(1))
         let counts = await transport.counts
         let stopped = scanRun != run || Task.isCancelled
-        surroundings.scanLog("\(name): \(counts.summary); recorders \(result.count); \(seconds) s"
+        surroundings.scanLog("search: \(counts.summary); recorders \(result.count); \(seconds) s"
                              + (stopped ? "; stopped" : ""))
-        guard !stopped else { return false }
+        guard !stopped else { return }
         // The list stays in the order the recorders answered, which the reader has been looking at while the
         // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
         // under a finger about to tap it. Anything it found whose row has not arrived yet goes at the end.
         for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
             found.append(recorder)
         }
-        return true
-    }
-
-    /// Holds nothing found for a moment, then says whether the scan is to be made once more: whether the app
-    /// has stopped being active since the press, which is `departures` gone up, without going to the
-    /// background, which is `visits` gone up. If so, this comes back when the app is active again and a second
-    /// has gone by since it became so. A visit to the background at any point of that ends it, at once where
-    /// it waits for the app to be active (`wentToBackground`). False as well when the scan was stopped while
-    /// it waited; the caller looks.
-    private func cameBackToBeingActive(since departures: Int, _ visits: Int) async -> Bool {
-        try? await Task.sleep(for: surroundings.emptyScanHold)
-        guard !Task.isCancelled else { return false }
-        guard timesLeftActive != departures else {
-            surroundings.scanLog("nothing found; the app active since the press; not searched again")
-            return false
-        }
-        guard stillCarried(since: visits) else { return false }
-        surroundings.scanLog("nothing found; the app stopped being active since the press, times: "
-                             + "\(timesLeftActive - departures); \(appIsActive ? "active" : "not active") now; "
-                             + "to be searched once more when active")
-        if !appIsActive { await withCheckedContinuation { scanAwaitsActive = $0 } }
-        guard !Task.isCancelled, stillCarried(since: visits) else { return false }
-        try? await Task.sleep(until: (activeSince ?? .now) + surroundings.scanAgainDelay, clock: .continuous)
-        return !Task.isCancelled && stillCarried(since: visits)
-    }
-
-    /// Whether a press is still carried across what took the app out of being active: not once the app has
-    /// gone to the background since it, `visits` being how often it had when the button was pressed. That it
-    /// is not goes to the log.
-    private func stillCarried(since visits: Int) -> Bool {
-        guard timesInBackground != visits else { return true }
-        surroundings.scanLog("nothing found; the app went to the background since the press; not searched again")
-        return false
+        scanning = nil
+        scanTask = nil
+        surroundings.scanLog(found.isEmpty ? "said: nothing found" : "said: found \(found.count)")
+        report(found.isEmpty ? .nothing : .found(found.count))
     }
 
     /// Whether a recorder a scan found is the one the app is set to. By its UDN as well as its address, so

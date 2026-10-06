@@ -47,18 +47,12 @@ struct Surroundings {
     var lanInterfaces: () -> [LocalNetwork.Interface] = { [] }
     /// How a search waits for the reader to allow the local network before it asks anybody
     /// (`LocalNetwork.waitForAccess`): aimed at a neighbour on the subnet, saying so each time the permission
-    /// is in the way, and back with whether it was given. Given at once unless a test says otherwise.
-    var waitForLocalNetwork: @Sendable (_ neighbour: String, _ blocked: @Sendable () async -> Void) async -> Bool
-        = { _, _ in true }
+    /// is in the way, and back with how the wait ended. Allowed at once unless a test says otherwise.
+    var waitForLocalNetwork: @Sendable (_ neighbour: String, _ blocked: @Sendable () async -> Void) async
+        -> LocalNetwork.Access = { _, _ in .allowed }
     /// What one search sends its requests through, to every address of the subnet: made anew for each search,
     /// as the app's session is. Nobody answers unless a test says otherwise.
     var scanTransport: () -> any HTTPTransport = { NoRecorderAnywhere() }
-    /// How long a search that found nobody holds that back before saying it, which is the time a question of
-    /// the system's raised by the press has to take the app out of being active; and how long after the app is
-    /// active again the search is made once more (`AppModel.scanForRecorders`). A test has no seconds to spend
-    /// on either.
-    var emptyScanHold: Duration = .seconds(1)
-    var scanAgainDelay: Duration = .seconds(1)
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
     /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
     var scanLog: @MainActor (String) -> Void = { _ in }
@@ -73,7 +67,7 @@ struct Surroundings {
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
                      tvCredentials: KeychainTVCredentials(),
                      lanInterfaces: LocalNetwork.lanInterfaces,
-                     waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0, blocked: $1) == .allowed },
+                     waitForLocalNetwork: LocalNetwork.waitForAccess(probing:blocked:),
                      scanTransport: { URLSessionTransport() },
                      scanLog: { ScanLog.note($0) })
     }
