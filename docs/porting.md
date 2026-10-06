@@ -509,7 +509,10 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
       irrecoverably closed or failed" と書き、"Connections in the waiting state will normally re-attempt on
       network changes" とも書いています。経路が `unsatisfied` の理由については、同じ SDK の `Network/path.h` に
       "In many cases, the path may be unsatisfied with no reason available." とあり、そのとき理由は
-      `notAvailable` です。
+      `notAvailable` です。待ちが読む理由の方は、同じヘッダーに "The user has disabled local network access"
+      と定義されています（`nw_path_unsatisfied_reason_local_network_denied`）。書かれているとおりに読めば、利
+      用者が「許可しない」と答えた（または設定でオフにした）あとの状態です。確認が出ていて答えがまだの間に、経
+      路が何を言うのかは、この定義からは分からず、実機でもまだ見ていません。
     - シミュレータでは試せません。"The simulator doesn't support local network privacy. Test your local network
       privacy behavior on a real device."
   - **アプリが間違えていたこと。** 0.3 で入れた待ちも `NWConnection` を使っていましたが、経路を**最初に読めた時
@@ -612,10 +615,11 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
       an error, such as `NSURLErrorNotConnectedToInternet`"（-1009。`waitsForConnectivity` のページ）と例として
       挙げているだけだからです。確認の裏で拒否された要求にどのコードが付くかは、読んだどの文書にもなく、実機でも
       まだ読んでいません。
-    - 丸ごと拒否されたら、許可の案内を出し、待ちが狙ったのと同じ宛先（`LocalNetwork.neighbour`）に、走査と同じ種
+    - 丸ごと拒否されたら、許可の案内を出し、そのときの Wi-Fi の宛先（`LocalNetwork.neighbour`）に、走査と同じ種
       類の要求を 1 秒に 1 件送ります（`Discovery.turnedAway`。待てない要求にテックノートが勧める "appropriate
       retry logic"）。1 件が拒否されずに出たら、案内を下ろして走査し直し、その結果も同じ規則で読みます。1 件ずつ
-      の要求の前と、そのあとの走査の前に、Wi-Fi を読み直します（無ければ「Wi-Fi に接続されていません」）。
+      の要求の前と、そのあとの走査の前に、Wi-Fi を読み直します（無ければ「Wi-Fi に接続されていません」）。宛先
+      もそのつど読み直した Wi-Fi のもので、待ちのあとで別の Wi-Fi に移っていれば、移った先の宛先に送ります。
     - 1 件ずつの要求は、1 回押すごとに合わせて 120 件までです（`AppModel.singleRequestsAllowed`）。使い切った
       ら、待ちが諦めたときと同じに終わります。案内はそのまま、何も言わず、ボタンは押せます。
     - 網にかからないものがあります。確認の裏でシステムが要求を止めておいて、時間切れにした場合です。時間切れは誰

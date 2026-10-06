@@ -151,17 +151,17 @@ extension AppModel {
     /// The addresses are those of the Wi-Fi the device is on when the look is made, read again after the wait
     /// and not taken from the press: a reader may be minutes over the system's question, and the device off
     /// the Wi-Fi or on another by the end of them. With none by then the scan says there is no Wi-Fi and asks
-    /// nobody, whatever the wait answered.
+    /// nobody, whatever the wait answered short of giving up.
     ///
     /// Unless that look was turned away whole (`ScanTally.Counts.turnedAwayWhole`): not one request of it
-    /// answered, timed out, refused or dropped, which on a subnet, where the addresses nobody lives at time
-    /// out, is taken for a look of which nothing left the device. The wait can be wrong behind the system's
-    /// question -- what its connection is while the question is up is not in what Apple has written
-    /// (`docs/porting.md`) -- and this is the net under it. Nothing is said of having looked. The notice
-    /// about the permission goes up, and the scan asks one address once a second (`Discovery.turnedAway`)
-    /// until a request is let out; then the notice comes down and it looks again, and what that look comes
-    /// to is treated the same way. The Wi-Fi is read again before each of those requests, which goes to the
-    /// neighbour on it, and before the look after one that got out.
+    /// answered, timed out, cancelled for outliving its time, refused or dropped, which on a subnet, where the
+    /// addresses nobody lives at time out, is taken for a look of which nothing left the device. The wait can
+    /// be wrong behind the system's question -- what its connection is while the question is up is not in
+    /// what Apple has written (`docs/porting.md`) -- and this is the net under it. Nothing is said of having
+    /// looked. The notice about the permission goes up, and the scan asks one address once a second
+    /// (`Discovery.turnedAway`) until a request is let out; then the notice comes down and it looks again, and
+    /// what that look comes to is treated the same way. The Wi-Fi is read again before each of those
+    /// requests, which goes to the neighbour on it, and before the look after one that got out.
     ///
     /// That does not go on without end. The loop is a `for` over the single requests one press is allowed
     /// (`singleRequestsAllowed`): each turn of it makes one of them and at most one look after it, and

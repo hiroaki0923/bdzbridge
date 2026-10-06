@@ -236,21 +236,23 @@ nobody, having asked each address once, or says there is no Wi-Fi and asks nobod
 is the bench's to hold. While it is held nobody is asked and the screen says what is in the way. Allowed, the
 search is made, once, and what it found is said at once, whatever the app's phase did meanwhile; ended with no
 path and the Wi-Fi still there, the search is made all the same. The Wi-Fi is read again after the wait,
-whatever it answered: gone, the search says there is no Wi-Fi and asks nobody, and on another Wi-Fi it goes
-through that one's addresses. Given up on with the permission still in the way, nobody is asked and nothing is
-said of having looked: the notice stays and the button is the reader's again, and the next press takes that
-notice down and starts over. And the screen going away meanwhile, the search's task is cancelled and nobody is
-asked though the permission comes afterwards. The app's own surroundings hand the search the package's wait,
-and not one that lets it through.
+whatever it answered short of giving up: gone, the search says there is no Wi-Fi and asks nobody, and on
+another Wi-Fi it goes through that one's addresses. Given up on with the permission still in the way, nobody is
+asked and nothing is said of having looked: the notice stays and the button is the reader's again, and the
+next press takes that notice down and starts over. And the screen going away meanwhile, the search's task is
+cancelled and nobody is asked though the permission comes afterwards. The app's own surroundings hand the
+search the package's wait, and not one that lets it through; and a pause that lasts as long as the search
+asks, and the real session's transport, where the bench's defaults take no time and reach nobody.
 
 A look that got out and found nobody -- every address silent, or every one refusing -- is said at once, with
 no pause and no other request. One the subnet turned away whole says nothing: the notice goes up and stays up
 while one address is asked after each pause, and when a request gets out the addresses are looked through
 again and the recorder is found without another press. That stops after a hundred and twenty such requests,
-with the notice up and nothing said, and a press then starts over; the Wi-Fi going meanwhile is said, and the
-screen going away ends it. The button is held back only while a search is under way with no notice up, and a
-press behind the notice starts over. Once a search has said there is no Wi-Fi, or has given up, no search is
-under way, which the tests read off the log. The tests tell the model the app's phase as the first screen does
+with the notice up and nothing said, and a press then starts over; the Wi-Fi going meanwhile is said, the
+phone moving to another Wi-Fi sends the next request to the neighbour on that one, and the screen going away
+ends it. The button is held back only while a search is under way with no notice up, and a press behind the
+notice starts over. Once a search has said there is no Wi-Fi, or has given up, no search is under way, which
+the tests read off the log. The tests tell the model the app's phase as the first screen does
 (`activeChanged`, `wentToBackground`): nothing goes by it but the log. One reads the lines a search wrote for
 the log, the whole course of a first press, and holds that none has an address in it or anything the recorder
 said of itself.

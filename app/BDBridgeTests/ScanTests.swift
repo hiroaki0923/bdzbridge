@@ -155,8 +155,8 @@ final class ScanTests: XCTestCase {
     }
 
     /// The wait ends with the permission given, and the Wi-Fi has gone meanwhile: the reader may be a long
-    /// time over the system's question. The Wi-Fi is read again after the wait, whatever it answered, so that
-    /// is what is said. Nobody is asked, and no search is under way afterwards.
+    /// time over the system's question. The Wi-Fi is read again after the wait, whatever it answered short of
+    /// giving up, so that is what is said. Nobody is asked, and no search is under way afterwards.
     func testAWaitAllowedAfterTheWiFiHasGoneSaysThereIsNoWiFi() async throws {
         let bench = try aBench()
         bench.holdThePermission()
@@ -270,6 +270,23 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(access, .unavailable, "the app's search does not wait with the package's wait")
     }
 
+    /// And they hand it the app's own pause and transport, which every other test here has the bench's for: a
+    /// pause before a single request lasts as long as the search asks, where one left out takes no time, and
+    /// the requests go through the real session (`URLSessionTransport`), where one left out reaches nobody. The
+    /// pause is only waited out and the transport only made: nothing is sent.
+    func testTheAppsSearchPausesForAsLongAsItAsksAndSendsThroughTheRealSession() async throws {
+        let app = Surroundings.app
+        let pause = app.scanPause
+        let began = ContinuousClock.now
+
+        try await within(2, "the app's pause never ended") { await pause(.milliseconds(300)) }
+
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - began, .milliseconds(300),
+                                    "the app's search does not pause for as long as it asks")
+        XCTAssertTrue(app.scanTransport() is URLSessionTransport,
+                      "the app's search does not send through the real session")
+    }
+
     /// The wait gives up with the permission still in the way. The search is over without having asked
     /// anybody and says nothing of having looked: the notice about the permission stays, and the button is
     /// the reader's again.
@@ -327,9 +344,10 @@ final class ScanTests: XCTestCase {
     /// The wait said the local network was reached, and the look that followed was turned away whole, as it
     /// is if the wait was wrong behind the system's question: every request failed at once for want of a
     /// network to send on. Nothing is said of having looked. The notice about the permission goes up, and it
-    /// stays up while the search asks one address -- the neighbour the wait was aimed at -- once after each
-    /// pause of a second: at a pause, and with a single request out. When a request is let out the notice
-    /// comes down, the addresses are looked through again, and the recorder is found with no other press.
+    /// stays up while the search asks one address -- the neighbour on the Wi-Fi the phone is on, read again
+    /// before each request -- once after each pause of a second: at a pause, and with a single request out.
+    /// When a request is let out the notice comes down, the addresses are looked through again, and the
+    /// recorder is found with no other press.
     func testALookTurnedAwayWholeIsMadeAgainOnceASingleRequestGetsOut() async throws {
         let bench = try aBench()
         bench.holdTheSingleRequests()
@@ -367,8 +385,12 @@ final class ScanTests: XCTestCase {
         XCTAssertNil(model.scanning, "the button was left held back after the search")
         let askedOf = await subnet.askedOf
         XCTAssertEqual(askedOf.count, addresses + 3 + addresses, "a look, three single requests, and one look more")
-        XCTAssertEqual(Array(askedOf[addresses..<addresses + 3]), Array(repeating: "192.0.2.1", count: 3),
-                       "the single requests were not for the neighbour the wait was aimed at")
+        // Read only where there are that many, so that a search that asked fewer fails above and does not
+        // stop the test host here.
+        if askedOf.count >= addresses + 3 {
+            XCTAssertEqual(Array(askedOf[addresses..<addresses + 3]), Array(repeating: "192.0.2.1", count: 3),
+                           "the single requests were not for the neighbour on the Wi-Fi the phone is on")
+        }
         XCTAssertEqual(bench.scanPauses, Array(repeating: .seconds(1), count: 3), "a second before each single request")
         XCTAssertEqual(bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
             "press: 253 addresses to ask, the app active",
@@ -555,6 +577,33 @@ final class ScanTests: XCTestCase {
             XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round", leftAt)
             expectNoSearchUnderWay(model, on: bench)
         }
+    }
+
+    /// The phone moves to another Wi-Fi while the search is asking one address after a look that was turned
+    /// away whole. The Wi-Fi is read again before each single request, so the next one goes to the neighbour on
+    /// the Wi-Fi the phone is on now, and not to the one the press was made on and the wait aimed at.
+    func testASingleRequestAfterTheWiFiChangedGoesToTheNeighbourOnTheNewWiFi() async throws {
+        let bench = try aBench()
+        bench.holdTheSingleRequests()
+        let left = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await left.turnEverythingAway()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        let joined = bench.joinWiFi(as: Bench.phoneElsewhere)
+        await joined.turnEverythingAway()
+        bench.letSingleRequestsGo()
+        try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
+
+        // Read off both subnets: which one carried the request is the bench's affair, where it was for is not.
+        let leftSince = Array(await left.askedOf.dropFirst(addresses))
+        let joinedSince = await joined.askedOf
+        XCTAssertEqual(leftSince + joinedSince, ["198.51.100.1"],
+                       "the single request was not for the neighbour on the Wi-Fi the phone is on now")
+        XCTAssertTrue(model.scanBlocked, "the notice came down with the request turned away")
+        XCTAssertNil(model.scanOutcome, "something was said while every request was being turned away")
     }
 
     // MARK: - the button
