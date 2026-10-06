@@ -251,6 +251,16 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertLessThan(took, .seconds(6), "the handshake was given more than its two seconds")
     }
 
+    /// The wait's own connection is never made over the mobile network, where there is no local network to
+    /// be allowed onto and a handshake that ran out would be taken for one reached. Aimed at this machine's
+    /// loopback, and stopped at once.
+    func testTheWaitsConnectionIsNeverMadeOverTheMobileNetwork() {
+        let made = WaitConnection(host: "127.0.0.1")
+        defer { made.stop() }
+
+        XCTAssertEqual(made.connection.parameters.prohibitedInterfaceTypes, [.cellular])
+    }
+
     // MARK: - what the tests do
 
     private typealias Sighting = LocalNetwork.Sighting

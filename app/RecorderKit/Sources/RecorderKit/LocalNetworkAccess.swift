@@ -228,18 +228,28 @@ protocol WatchedConnection: Sendable {
 
 /// One TCP connection towards the address, kept for as long as the wait watches it. `sightings` yields each
 /// state it comes to, with its path at that moment, and finishes when the connection has gone. Which of those
-/// states say anything of the permission is not decided here (`LocalNetwork.settled`).
-private final class WaitConnection: WatchedConnection {
+/// states say anything of the permission is not decided here (`LocalNetwork.settled`). Not private, so that
+/// a test can make one towards this machine's loopback and look at it.
+final class WaitConnection: WatchedConnection {
     let sightings: AsyncStream<LocalNetwork.Sighting>
-    private let connection: NWConnection
+    let connection: NWConnection
 
     init(host: String, port: UInt16 = 9) {
         // Port 9 is discard, which nothing on a home network is expected to listen on. At most a connection
         // attempt goes out, and nothing is sent on a connection that is made.
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = LocalNetwork.handshakeSeconds
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        // Never by the mobile network: "A list of interface types that connections, listeners, and browsers
+        // will not use" (Apple, `NWParameters.prohibitedInterfaceTypes`). Without it, with the Wi-Fi gone, the
+        // address could be tried that way, where there is no local network to be allowed onto -- "Such
+        // interfaces include Wi-Fi and Ethernet, but not cellular (WWAN) or VPN" (TN3179) -- and a handshake
+        // that ran out there would be taken for the local network reached. Barred from it, the connection is
+        // taken to have no path then, which the wait answers as no path for another reason than the
+        // permission. Neither the one nor the other has been seen on a phone.
+        parameters.prohibitedInterfaceTypes = [.cellular]
         let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 9,
-                                      using: NWParameters(tls: nil, tcp: tcp))
+                                      using: parameters)
         self.connection = connection
         let (sightings, continuation) = AsyncStream.makeStream(of: LocalNetwork.Sighting.self)
         self.sightings = sightings

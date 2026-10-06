@@ -104,16 +104,20 @@ final class Bench {
     /// The phone's own address on a Wi-Fi a test puts it on, reserved for documentation like the others.
     static let phone = "192.0.2.20"
 
+    /// The phone's address on another Wi-Fi, for a test that moves it there: from another range reserved for
+    /// documentation, so on another subnet.
+    static let phoneElsewhere = "198.51.100.20"
+
     /// Puts the phone on a Wi-Fi for a search for a recorder to look round, before or after the model is
-    /// made: a /24 as a home's is, so 253 addresses, with `recorders` at theirs and nobody at the rest, who
-    /// are silent unless the test has them refuse. The search's requests go to the subnet handed back and
-    /// nowhere else. Until a test calls this the phone is on no Wi-Fi, and a search by a model made here says
-    /// so and asks nobody.
+    /// made: a /24 as a home's is, so 253 addresses around `phone`, with `recorders` at theirs and nobody at
+    /// the rest, who are silent unless the test has them refuse. The search's requests go to the subnet handed
+    /// back and nowhere else. Until a test calls this the phone is on no Wi-Fi, and a search by a model made
+    /// here says so and asks nobody.
     @discardableResult
-    func joinWiFi(with recorders: [String: any HTTPTransport] = [:], nobody: Subnet.Nobody = .silent) -> Subnet {
+    func joinWiFi(with recorders: [String: any HTTPTransport] = [:], nobody: Subnet.Nobody = .silent,
+                  as phone: String = Bench.phone) -> Subnet {
         let subnet = Subnet(recorders, nobody: nobody)
-        wifi = LocalNetwork.Interface(name: "en0", address: Bench.phone, netmask: "255.255.255.0",
-                                      broadcasts: true)
+        wifi = LocalNetwork.Interface(name: "en0", address: phone, netmask: "255.255.255.0", broadcasts: true)
         self.subnet = subnet
         return subnet
     }

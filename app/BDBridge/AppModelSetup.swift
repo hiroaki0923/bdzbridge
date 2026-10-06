@@ -147,6 +147,11 @@ extension AppModel {
     /// scan made there has said it found nobody while the question was still up. Then it looks through the
     /// addresses once, and what it found is said as soon as it has.
     ///
+    /// The addresses are those of the Wi-Fi the device is on when the look is made, read again after the wait
+    /// and not taken from the press: a reader may be minutes over the system's question, and the device off
+    /// the Wi-Fi or on another by the end of them. With none by then the scan says there is no Wi-Fi and asks
+    /// nobody, whatever the wait answered.
+    ///
     /// Unless that look was turned away whole (`ScanTally.Counts.turnedAwayWhole`): not one request of it
     /// answered, timed out, refused or dropped, which on a subnet, where the addresses nobody lives at time
     /// out, is taken for a look of which nothing left the device. The wait can be wrong behind the system's
@@ -154,7 +159,8 @@ extension AppModel {
     /// (`docs/porting.md`) -- and this is the net under it. Nothing is said of having looked. The notice
     /// about the permission goes up, and the scan asks one address once a second (`Discovery.turnedAway`)
     /// until a request is let out; then the notice comes down and it looks again, and what that look comes
-    /// to is treated the same way.
+    /// to is treated the same way. The Wi-Fi is read again before each of those requests, which goes to the
+    /// neighbour on it, and before the look after one that got out.
     ///
     /// That does not go on without end. The loop is a `for` over the single requests one press is allowed
     /// (`singleRequestsAllowed`): each turn of it makes one of them and at most one look after it, and
@@ -195,19 +201,18 @@ extension AppModel {
         found = []
         // The interfaces, the wait, the transport and the pause are the surroundings' (`Surroundings`), the
         // device's own in the app: a test presses the button on a Wi-Fi it has invented.
-        let lan = surroundings.lanInterfaces()
-        let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
-        guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
+        guard let pressed = wifiToLookRound() else {
             surroundings.scanLog("press: no Wi-Fi to look round")
-            // No scan is under way once this is said, here and where it is said below: the log is not to go
-            // on writing the app's phases, and a stop, for one.
+            // No scan is under way once this is said, here and where it is said later (`wifiStillThere`): the
+            // log is not to go on writing the app's phases, and a stop, for one.
             scanTask = nil
             report(.noWiFi)
             return
         }
-        surroundings.scanLog("press: \(hosts.count) addresses to ask, the app \(appIsActive ? "active" : "not active")")
-        scanning = (0, hosts.count)
-        let access = await surroundings.waitForLocalNetwork(neighbour) { @MainActor [weak self] in
+        let active = appIsActive ? "active" : "not active"
+        surroundings.scanLog("press: \(pressed.hosts.count) addresses to ask, the app \(active)")
+        scanning = (0, pressed.hosts.count)
+        let access = await surroundings.waitForLocalNetwork(pressed.neighbour) { @MainActor [weak self] in
             guard let self, self.scanRun == run else { return }
             self.scanBlocked = true
         }
@@ -227,36 +232,55 @@ extension AppModel {
             return
         }
         scanBlocked = false
-        // Neither allowed nor refused: the path went for some other reason while waiting, most likely the
-        // Wi-Fi itself. When it has, say that, rather than scan nothing and report nothing found.
-        if access == .unavailable, surroundings.lanInterfaces().isEmpty {
-            surroundings.scanLog("no Wi-Fi left to look round")
-            scanning = nil
-            scanTask = nil
-            report(.noWiFi)
-            return
-        }
-        guard await look(through: hosts, run) == .turnedAway else { return }
+        // Whatever else the wait answered: allowed, or no path for another reason than the permission. Either
+        // way the Wi-Fi may have gone or changed since the press. Where it is still there the look is made,
+        // through the addresses it has now, and read as any other.
+        guard let wifi = wifiStillThere() else { return }
+        guard await look(through: wifi.hosts, run) == .turnedAway else { return }
         // The look was turned away whole, and the notice is up. One address is asked, a second apart, through
         // a transport of the scan's own kind, until a request is let out; nothing in between takes the notice
         // down, and the look that follows puts it back if it is turned away as well.
         let transport = surroundings.scanTransport()
         for single in 1...Self.singleRequestsAllowed {
             await surroundings.scanPause(.seconds(1))
-            guard scanRun == run, !Task.isCancelled else { return }
-            let turnedAway = await Discovery.turnedAway(at: neighbour, transport: transport)
+            guard scanRun == run, !Task.isCancelled, let asking = wifiStillThere() else { return }
+            let turnedAway = await Discovery.turnedAway(at: asking.neighbour, transport: transport)
             // A request ended by the scan being stopped comes back as one that was out.
             guard scanRun == run, !Task.isCancelled else { return }
             guard !turnedAway else { continue }
             surroundings.scanLog("single request: got out, after \(single)")
             scanBlocked = false
-            guard await look(through: hosts, run) == .turnedAway else { return }
+            guard let again = wifiStillThere() else { return }
+            guard await look(through: again.hosts, run) == .turnedAway else { return }
         }
         // Every single request the press is allowed has been made. The notice stays, nothing is said of
         // having looked, and the button is the reader's, as when the wait gives up.
         surroundings.scanLog("single requests: given up after \(Self.singleRequestsAllowed)")
         scanning = nil
         scanTask = nil
+    }
+
+    /// The Wi-Fi the device is on at this moment, as a scan needs it: somebody on it to aim at
+    /// (`LocalNetwork.neighbour`), and the addresses to ask. Nil on none.
+    private func wifiToLookRound() -> (neighbour: String, hosts: [String])? {
+        let lan = surroundings.lanInterfaces()
+        let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
+        guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
+            return nil
+        }
+        return (neighbour, hosts)
+    }
+
+    /// The same, for a scan that has got past the press. On none the scan is over: that is said, nobody is
+    /// asked, and the notice about the permission comes down, since what is in the way is the Wi-Fi.
+    private func wifiStillThere() -> (neighbour: String, hosts: [String])? {
+        if let wifi = wifiToLookRound() { return wifi }
+        surroundings.scanLog("no Wi-Fi left to look round")
+        scanBlocked = false
+        scanning = nil
+        scanTask = nil
+        report(.noWiFi)
+        return nil
     }
 
     /// How one look through the addresses ended: over, with what it found said or the scan stopped
