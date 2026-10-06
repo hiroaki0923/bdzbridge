@@ -107,6 +107,12 @@ enum Notify {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionNotYet])
     }
 
+    /// Takes away what became of what waited for the television, when it asked for a registration: once one
+    /// has been made, or the television taken away.
+    static func withdrawTelevisionQueue() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionQueue])
+    }
+
     /// The identifiers of the television's two notifications: what became of what waited for it, and the
     /// warning of reservations not yet there. Neither is the recorder's, nor the other's.
     static let televisionQueue = "tv-queue-flushed"

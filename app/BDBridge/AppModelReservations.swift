@@ -373,9 +373,19 @@ extension AppModel {
     /// leaves the queue as a row made does. And it was made when the sending took it out of the queue though
     /// its programme is not over, whatever the list read gave, since a list that cannot be read now says
     /// nothing: while the television is in play, nothing else takes such a row out but a round that made it
-    /// or found it there. The list read is kept for the screens either way. Nil when the row was deleted,
-    /// when nothing was done while the television works, and when the row has gone and nothing says it was
-    /// made.
+    /// or found it there, and a delete of the app's own. So a row has one delete at a time: a second one,
+    /// asked for while the first waits its turn -- the row is still listed then, and the reader can confirm
+    /// again -- would find the row gone and say it was made, and it comes back with nil at once instead. The
+    /// list read is kept for the screens either way, and the warning of reservations not yet at the
+    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
+    ///
+    /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
+    /// unsent, with nothing said, when the app's own link cannot read the list -- as it often cannot, a
+    /// television that was silent to the action being silent to the app as well -- and the television keeps
+    /// the reservation.
+    ///
+    /// Nil when the row was deleted, when nothing was done while the television works or while the row has
+    /// a delete under way already, and when the row has gone and nothing says it was made.
     @discardableResult
     func deleteWaiting(_ waiting: PendingReservation) async -> String? {
         guard !(waiting.target == .tv && isBusy(for: .tv)) else { return nil }
@@ -383,6 +393,8 @@ extension AppModel {
             await removePending(waiting)
             return nil
         }
+        guard deletingWaiting.insert(waiting.id).inserted else { return nil }
+        defer { deletingWaiting.remove(waiting.id) }
         let made = await PendingQueue.betweenFlushes { @MainActor in
             // A queue that cannot be read is no sign that a sending took the row: the delete is tried.
             let stillWaits = (try? await self.store?.pendingReservations())
@@ -397,6 +409,7 @@ extension AppModel {
             return made
         } ?? false
         await loadPending()
+        await forgetTheWarningOnceSent()
         return made ? TVDriver.madeBeforeItsDelete(waiting, naming: DeviceSlot.tv.label) : nil
     }
 

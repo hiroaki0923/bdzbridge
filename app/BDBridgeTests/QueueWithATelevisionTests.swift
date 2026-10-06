@@ -1588,6 +1588,70 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(try told(), TVTold(stop: .disk), "the reservations warned of still told of once sent")
     }
 
+    /// A row has one delete at a time. A second delete of a television's row, asked for while the first waits
+    /// its turn behind a sending with no screen -- the action's, held at the television's create -- comes back
+    /// with nil, as the first does once it has deleted the row unsent: waiting behind the first, the second
+    /// would find the row gone and say it was made. The row carries a reason, so that the sending leaves it.
+    func testASecondDeleteOfARowBeingDeletedIsNotSaidAsMade() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, door, store) = (home.model, home.television, home.door, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        let held = turnedDown(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)),
+                              for: "前に断られた理由")
+        try await store.queue(held)
+        let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
+        let theirs = try GuideStore(path: try model.guidePath())
+        await door.hold(only: Self.tvCreate)
+        let action = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        }
+        try await until("the action never reached the create") { await door.isHolding }
+        let first = Task { await model.deleteWaiting(held) }
+        // Long enough for the first delete to be waiting its turn before the second is asked for.
+        try await Task.sleep(for: .milliseconds(300))
+        let second = Task { await model.deleteWaiting(held) }
+        try await Task.sleep(for: .milliseconds(300))
+        await door.letGo()
+        _ = await action.value
+
+        let firstSaid = await first.value
+        XCTAssertNil(firstSaid, "a reservation deleted unsent was said to be made")
+        let secondSaid = await second.value
+        XCTAssertNil(secondSaid, "a reservation the delete before it took away was said to be made")
+        expectEqual(await television.schedules.map(\.eventId), [4401])
+        expectEqual(try await store.pendingReservations(), [])
+    }
+
+    /// A delete that leaves none of the reservations a run with no screen warned of waiting takes that warning
+    /// away and tells of them no more, the stop told kept; one that leaves one of them waiting changes
+    /// nothing. Both are deleted unsent.
+    func testADeleteForgetsTheWarningOnceNoneOfItsRowsWaits() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, store) = (home.model, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let early = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        let late = forTheTelevision(waiting("サンプル紀行", startingIn: 150, programme: 4402))
+        for row in [early, late] { try await store.queue(row) }
+        let warned = TVTold(stop: .disk, rows: [early.id, late.id])
+        model.defaults.set(try JSONEncoder().encode(warned), forKey: DefaultsKey.tvTold)
+        func told() throws -> TVTold? {
+            try model.defaults.data(forKey: DefaultsKey.tvTold).map { try JSONDecoder().decode(TVTold.self, from: $0) }
+        }
+
+        let earlySaid = await model.deleteWaiting(early)
+        XCTAssertNil(earlySaid, "a reservation deleted unsent was said to be made")
+        XCTAssertEqual(try told(), warned, "forgotten while a reservation warned of still waits")
+
+        let lateSaid = await model.deleteWaiting(late)
+        XCTAssertNil(lateSaid, "a reservation deleted unsent was said to be made")
+        XCTAssertEqual(try told(), TVTold(stop: .disk), "the reservations warned of still told of once deleted")
+        expectEqual(try await store.pendingReservations(), [])
+    }
+
     /// Whether something begun in a task of its own has come back, for a test to look at meanwhile.
     @MainActor
     private final class Returned {

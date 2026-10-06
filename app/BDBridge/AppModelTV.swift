@@ -156,17 +156,22 @@ extension AppModel {
     /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
     /// the app asks the system about notifications at all: it can end by telling the reader to register,
     /// which must not outlive the registration, and the reservations it names went unsent with a television
-    /// taken away.
+    /// taken away. When the stop told last is the registration, their notice of what became of the queue
+    /// goes too: it is the one that asked for the registration whenever the warning did not.
     private func forgetWhatWasTold() {
+        let stop = defaults.data(forKey: DefaultsKey.tvTold)
+            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) }?.stop
         defaults.removeObject(forKey: DefaultsKey.tvTold)
-        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+        guard surroundings.asksAboutNotifications else { return }
+        Notify.withdrawTelevisionNotYet()
+        if stop == .registration { Notify.withdrawTelevisionQueue() }
     }
 
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
-    /// a sending of the app's own leaves none of them waiting to go, and they are told of no more
-    /// (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise, may
-    /// come after their programmes have begun. Read from the phone's queue and not from the one on screen,
-    /// which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
+    /// a sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no
+    /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
+    /// may come after their programmes have begun. Read from the phone's queue and not from the one on
+    /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
     func forgetTheWarningOnceSent() async {
         guard let saved = defaults.data(forKey: DefaultsKey.tvTold),
               let told = try? JSONDecoder().decode(TVTold.self, from: saved),
