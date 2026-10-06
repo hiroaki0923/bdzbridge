@@ -96,8 +96,9 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 録画の内容は写っていません。一覧にサムネイルを出さない判断はこの確認に基づきます。
 
 その他: `GetSortCapabilities` は `dc:title,dc:date,upnp:genre,av:capturedDateTime`、`GetSearchCapabilities` は
-**空**（`Search` は使えない）。`X_HDLnkGetRecordDestinations` は `HDD` 1 つ。`X_GetDLNAUploadProfiles` は
-アップロード可能な 6 プロファイルを返します。`GetSystemUpdateID` は変更のたびに増える番号です。
+**空**（`Search` は使えない）。`X_HDLnkGetRecordDestinations` は `HDD` 1 つ（USB HDD をつないでも同じ）。
+`X_GetDLNAUploadProfiles` はアップロード可能な 6 プロファイルを返します。`GetSystemUpdateID` は変更のたびに
+増える番号です。
 
 ## ConnectionManager
 
@@ -179,8 +180,6 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 ### 語彙が確定しているもの
 
 - `X_GetSetupInfo(SetupName)` — 7 項目。`*` で列挙できるので網羅的。
-- `X_HDLnkGetRecordDestinationInfo` / `X_GetMediaInfo` / `X_ChkWlanOdekakeUsability` の `recordDestinationID`
-  — `X_HDLnkGetRecordDestinations` が列挙してくれる（実機は `HDD` のみ）。網羅的。
 - `Browse` の `BrowseFlag` — `BrowseMetadata` / `BrowseDirectChildren`。**CDS の SCPD が `allowedValueList` で
   宣言している**唯一の例。
 - `GetCurrentConnectionInfo` の `Direction` / `Status` — ConnectionManager の SCPD が宣言済み。
@@ -188,6 +187,12 @@ AllVideoTuners ─ VideoTuner00「地上デジタル」/ VideoTuner01「BSデジ
 
 ### 見つけたが網羅性は不明
 
+- 録画先の `recordDestinationID` — `X_GetMediaInfo` が答えるのは `HDD`（本体の HDD）、`USBHDD`（つないで登録した
+  USB HDD）、`BD`（ディスクドライブ。容量は 0）の 3 つ。試したほかの値（`USBHDD1`、`USBHDD2`、`USB1`、`USB HDD`、
+  空文字など）はすべて **803** でした。**`X_HDLnkGetRecordDestinations` は列挙になりません**: USB HDD をつないで
+  登録しても `HDD` 1 つしか返さないので、ここから録画先を知ることはできません。USB HDD を 2 台同時につないだ
+  ときの id は未確認。`X_HDLnkGetRecordDestinationInfo` と `X_ChkWlanOdekakeUsability` は、この引数をそもそも
+  見ていません（下の「まったく見ていない引数がある」）。
 - `X_GetServiceStatus` の `ServiceName` — `DLNA` と `MOVE` のみ。候補 84 個（`X_SPTVCAP` と `X_JLABSCAP` の
   トークンを含む）を試しての 2 件なので、未知の名前が残っている可能性はあります。
 - `X_PlayControlTitle` の `Operation` — `play` / `pause` / `stop`（小文字）は実証済み。早送りや次章送りに

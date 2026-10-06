@@ -11,13 +11,15 @@ public struct ReservationRequest: Equatable, Sendable {
     public var serviceID: Int
     public var qualityCode: Int
     public var eventID: Int?
+    /// The recorder's id for the disk to record to: `HDD` for its own, `USBHDD` for a USB disk connected to it.
+    public var destination: String
 
     /// When the programme ends. A reservation is worth sending until then: the recorder records what is left
     /// of a programme already on air, which is better than dropping it.
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
 
     public init(title: String, start: Date, durationSec: Int, repeatCode: String, broadcastingType: Int,
-                serviceID: Int, qualityCode: Int, eventID: Int? = nil) {
+                serviceID: Int, qualityCode: Int, eventID: Int? = nil, destination: String = "HDD") {
         self.title = title
         self.start = start
         self.durationSec = durationSec
@@ -26,6 +28,7 @@ public struct ReservationRequest: Equatable, Sendable {
         self.serviceID = serviceID
         self.qualityCode = qualityCode
         self.eventID = eventID
+        self.destination = destination
     }
 }
 
@@ -43,14 +46,17 @@ public extension ReservationRequest {
     }
 
     /// What would be sent to change the mode or the repeat of a reservation the device holds. Everything
-    /// else is the reservation's own -- the title, the times, the channel and the programme id -- so one that
-    /// follows its programme goes on following it, and one made by time stays as it was.
+    /// else is the reservation's own -- the title, the times, the channel, the programme id and the disk -- so
+    /// one that follows its programme goes on following it, and one made by time stays as it was. The disk as
+    /// much as the rest: a reservation on the USB disk changed with the internal disk's id goes to the internal
+    /// disk without a word, as the recorder was seen to do (the other way round has not been tried).
     init?(changing reservation: Reservation, quality: String, repeating: String) {
         guard let qualityCode = Codes.quality[quality],
               let repeatCode = Codes.repeatCodes[repeating] else { return nil }
         self.init(title: reservation.title, start: reservation.start, durationSec: reservation.durationSec,
                   repeatCode: repeatCode, broadcastingType: reservation.broadcastingType,
-                  serviceID: reservation.serviceID, qualityCode: qualityCode, eventID: reservation.eventID)
+                  serviceID: reservation.serviceID, qualityCode: qualityCode, eventID: reservation.eventID,
+                  destination: reservation.destination)
     }
 }
 
@@ -154,7 +160,8 @@ public enum XsrsElements {
     }
 
     /// The `<Elements>` payload for `X_CreateRecordSchedule`, identical to what the official app sends.
-    /// Element order, the `channelType` attribute and the `+09:00` offset all matter.
+    /// Element order, the `channelType` attribute and the `+09:00` offset all matter. Only the disk may differ
+    /// from it: the recorder takes `USBHDD` in place of `HDD`, with everything else as it is.
     public static func create(_ request: ReservationRequest) -> String {
         let matching = request.eventID.map {
             "<desiredMatchingID type=\"SI_PROGRAMID\">,,\(hex(request.serviceID)),\(hex($0))</desiredMatchingID>"
@@ -169,12 +176,15 @@ public enum XsrsElements {
             + matching
             + "<desiredQualityMode>\(request.qualityCode)</desiredQualityMode>"
             + "<priorityFlag>0</priorityFlag>"
-            + "<recordDestinationID>HDD</recordDestinationID>"
+            // Escaped like the title: on a change it is the recorder's own text, read back and sent again.
+            + "<recordDestinationID>\(Soap.escape(request.destination, quotes: false))</recordDestinationID>"
             + "<portableRecordFile target=\"preselect\" transferPath=\"none\"></portableRecordFile>"
             + "</item></xsrs>"
     }
 
     /// `X_UpdateRecordSchedule` takes the same item with its id filled in, and changes quality or repeat in place.
+    /// A reservation on the USB disk sent back naming the internal disk was seen to move there, which is why a change
+    /// carries the reservation's own disk.
     public static func update(id: String, _ request: ReservationRequest) -> String {
         create(request).replacingOccurrences(of: "<item id=\"\">", with: "<item id=\"\(id)\">")
     }

@@ -130,6 +130,11 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
 - `desiredMatchingID` に `,,0x<service>,0x<event>` を入れると番組追従になり、タイトルはレコーダーが EPG から上書きする。
   時間指定（event なし）の予約は後から event_id が補完されることはない。
 - 更新は同じ item に `id` を付けて `X_UpdateRecordSchedule`。画質・毎回録画をその場で変えられる。
+- **更新は録画先も書き換えます。** item の `recordDestinationID`（本体の HDD は `HDD`、USB HDD は `USBHDD`）を
+  `HDD` の決め打ちで送ると、USB HDD への予約が本体の HDD に黙って移ります（実測。逆向きはまだ確かめていません）。
+  変更では、読み直した一覧にあるその予約の値をそのまま送ること（`ReservationRequest(changing:)`）。
+  USB HDD への予約は、作成要求のこの値だけを `USBHDD` に変えれば通ります（時刻指定の予約と番組追従の予約で確認）。
+  `USBHDD` を書いた更新では USB HDD のまま、番組追従も続きます（実測。`LiveRecorderTests.testAChangeKeepsTheUSBDisk`）。
 - 毎週の毎回録画（`w1`〜`w7`）は番組の曜日と一致させる。
 - 一覧は `X_GetRecordScheduleList`、1 回 200 件まで。ソートは `-scheduledStartDateTime`。
 - **予約 ID は振り直されます。** レコーダーが自分のおまかせ・まる録で入れた予約は、番組表を読み直したときに

@@ -5,7 +5,8 @@ import XCTest
 ///
 ///     RECORDER_HOST=192.0.2.63 swift test --filter LiveRecorderTests
 ///
-/// Nothing here writes to the recorder. Reservations and recordings are only read, so running it cannot
+/// Nothing here writes to the recorder unless RECORDER_WRITE=1 is set as well: then the tests that say so make a
+/// reservation and delete it again. Otherwise reservations and recordings are only read, so running it cannot
 /// change what the box is going to record. Compare the printed numbers with the same figures from the Python
 /// server to see that both implementations agree.
 final class LiveRecorderTests: XCTestCase {
@@ -242,6 +243,103 @@ extension LiveRecorderTests {
         let left = try XCTUnwrap(remaining)
         try await client.deleteReservation(id: left.id)
         expectNil(try await mine(), "and it is off the recorder again")
+    }
+
+    /// **Writes to the recorder.** Reserves a programme a few hours out on the recorder's USB disk, following the
+    /// programme as the app's reservations do, changes its quality as the app changes one, reads it back -- still
+    /// on the USB disk, in the new quality, still following the programme -- and deletes it. A change that named
+    /// the internal disk would have moved it there; this is what shows the recorder keeps it where a change says.
+    ///
+    /// It takes a programme at a time no reservation overlaps, so that nothing the recorder already holds can be
+    /// found in place of its own or be put in a clash while it lives, and it deletes what it made on any failure.
+    /// A recorder that turns the reservation down skips it, saying what it answered. Skipped unless
+    /// RECORDER_WRITE=1 as well as RECORDER_HOST, with a USB disk registered on the recorder and connected:
+    ///
+    ///     RECORDER_HOST=192.0.2.63 RECORDER_WRITE=1 swift test --filter LiveRecorderTests/testAChangeKeepsTheUSBDisk
+    ///
+    /// It prints no title: the recorder lists a reservation that follows its programme under the programme's own
+    /// title, not the one sent, so the reservation is told by its time, its channel and its disk.
+    func testAChangeKeepsTheUSBDisk() async throws {
+        guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
+            throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
+        }
+        let client = try liveClient()
+        _ = try await client.describe()
+        guard let services = try await client.guide("td") else { throw XCTSkip("no terrestrial channels") }
+        let before = try await client.reservations()
+        // One read lists at most 200, the latest first: past that the soonest are not seen, and one held at the
+        // chosen time could be taken for this test's own.
+        guard before.count < 200 else { throw XCTSkip("more reservations than one read lists") }
+
+        let soon = Date().addingTimeInterval(4 * 3600)
+        let program = try XCTUnwrap(services
+            .flatMap { $0.programs.filter { !$0.isReference && $0.start > soon && !$0.title.isEmpty } }
+            .filter { program in !before.contains { $0.start < program.end && program.start < $0.end } }
+            .sorted { $0.start < $1.start }.first, "the guide should have a programme no reservation overlaps")
+        let request = ReservationRequest(title: "BD Bridge 検証 USB", start: program.start,
+                                         durationSec: program.durationSec, repeatCode: Codes.repeatCodes["none"]!,
+                                         broadcastingType: Codes.broadcasting["td"]!, serviceID: program.serviceID,
+                                         qualityCode: Codes.quality["LSR"]!, eventID: program.eventID,
+                                         destination: "USBHDD")
+
+        // Only a row that was not there before, on that channel at that time: never one the recorder already held.
+        let held = Set(before.map(\.id))
+        func mine() async throws -> Reservation? {
+            try await client.reservations().first {
+                !held.contains($0.id) && $0.serviceID == program.serviceID && $0.start == program.start
+            }
+        }
+        // What it made goes whatever failed; when it cannot be found and deleted, that is said, since the recorder
+        // then holds a reservation under a real programme's title that nobody asked for.
+        func deleteMine() async {
+            do {
+                if let left = try await mine() { try await client.deleteReservation(id: left.id) }
+            } catch {
+                print("may be left on the recorder: the reservation at \(RecorderTime.format(program.start)) on"
+                      + " USBHDD (\(error))")
+            }
+        }
+
+        do {
+            let clashes = try await client.conflicts(elements: XsrsElements.create(request))
+            print("conflict check to USBHDD, following the programme: accepted, \(clashes.count) clash(es)")
+            // Nothing the recorder holds is to be put in a clash by a reservation made only to be deleted.
+            guard clashes.isEmpty else { throw XCTSkip("the conflict check named a clash") }
+            try await client.create(request)
+        } catch {
+            await deleteMine()
+            guard let refused = error as? RecorderError, case .soap(_, _, let code, _) = refused, code != nil
+            else { throw error }
+            print("the recorder turned the reservation to USBHDD down: \(refused.explanation)")
+            throw XCTSkip("the recorder turned the reservation to USBHDD down")
+        }
+        print("created to USBHDD for \(RecorderTime.format(program.start)); the recorder lists it under the"
+              + " programme's own title")
+        do {
+            let found = try await mine()
+            let made = try XCTUnwrap(found, "the reservation should be in the list")
+            print("listed: destination \(made.destination), quality \(made.qualityName ?? "?"),"
+                  + " following the programme \(made.eventID == program.eventID)")
+            XCTAssertEqual(made.destination, "USBHDD", "the recorder took the USB disk for it")
+
+            let change = try XCTUnwrap(ReservationRequest(changing: made, quality: "SR", repeating: "none"))
+            try await client.updateReservation(id: made.id, change)
+            let after = try await mine()
+            let changed = try XCTUnwrap(after, "it should still be there after the change")
+            print("after the change: destination \(changed.destination), quality \(changed.qualityName ?? "?"),"
+                  + " following the programme \(changed.eventID == program.eventID)")
+            XCTAssertEqual(changed.destination, "USBHDD", "the change kept it on the USB disk")
+            XCTAssertEqual(changed.qualityName, "SR", "the recorder took the new quality")
+            XCTAssertEqual(changed.eventID, program.eventID, "and it still follows the programme")
+            try await client.deleteReservation(id: changed.id)
+        } catch {
+            await deleteMine()
+            throw error
+        }
+        expectNil(try await mine(), "and it is off the recorder again")
+        let after = try await client.reservations()
+        print("reservations before \(before.count), after \(after.count)")
+        XCTAssertEqual(after.count, before.count, "the recorder holds as many reservations as before")
     }
 
     /// The app marks a programme as reserved by matching broadcasting type, service and programme id, so this
