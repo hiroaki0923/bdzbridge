@@ -144,6 +144,71 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertTrue(connection.stopped)
     }
 
+    /// A connection that has come to nothing the wait reads when the time it is given is up -- still on its
+    /// way, as one the system held behind its question without a sign would be -- is said to be held back,
+    /// once, so that the screen says something and leaves its button live. The wait is not over for it, and
+    /// goes on watching the same connection: what that comes to afterwards is the answer.
+    func testAConnectionThatComesToNothingInItsTimeIsSaidToBeHeldBackOnceAndStillWatched() async throws {
+        let connection = PlayedConnection([.onItsWay])
+        let played = Played([connection])
+        let waiting = Task { await played.wait() }
+
+        try await until("the connection was never seen on its way") {
+            played.lines.count == 1 && played.timesGiven.count == 1
+        }
+        XCTAssertEqual(played.timesGiven, [.seconds(LocalNetwork.handshakeSeconds + 2)],
+                       "the connection was not given its handshake's seconds and two more")
+        XCTAssertEqual(played.timesBlocked, 0, "said to be held back before the connection's time was up")
+        played.letTheTimeRunOut()
+        try await until("the wait never said the permission may be in the way when the time was up") {
+            played.timesBlocked == 1
+        }
+        // Long enough for a wait that said so again, ended, or made another connection to have done it.
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(played.timesBlocked, 1, "said more than once for one connection")
+        XCTAssertFalse(played.over, "the wait ended when the connection's time was up")
+        XCTAssertEqual(played.made.count, 1, "another connection was made when the first one's time was up")
+        XCTAssertFalse(connection.stopped, "the connection was ended when its time was up")
+
+        connection.comes(to: .refused)
+        expectEqual(await outcome(of: waiting), .allowed, "what the connection came to afterwards was not the answer")
+
+        XCTAssertEqual(played.timesBlocked, 1)
+        XCTAssertEqual(played.pauses, [])
+        XCTAssertTrue(connection.stopped)
+        XCTAssertEqual(played.lines.map { $0.replacing(/in \d+\.\d\d s$/, with: "in some s") }, [
+            "wait: path satisfied, connection preparing, taken for nothing yet",
+            "wait: come to nothing in 4 s, taken for blocked, still watched",
+            "wait: path satisfied, connection waiting (posix 61), taken for allowed",
+            "wait: ended, allowed, after 2 readings of 1 connections in some s",
+        ])
+    }
+
+    /// A connection that comes to something within its time is not said to be held back for want of it, and
+    /// the time it was given ends with the wait, whichever way the wait ends: answered, or cancelled with the
+    /// connection still on its way. Nothing the wait started is left going after it.
+    func testTheTimeGivenAConnectionEndsWithTheWait() async throws {
+        for cancelled in [false, true] {
+            let ending = cancelled ? "cancelled" : "answered"
+            let connection = PlayedConnection(cancelled ? [.onItsWay] : [.onItsWay, .refused])
+            let played = Played([connection])
+            let waiting = Task { await played.wait() }
+            if cancelled {
+                try await until("\(ending): the connection was never given its time") {
+                    played.timesGiven.count == 1
+                }
+                waiting.cancel()
+            }
+
+            let access = await outcome(of: waiting, "\(ending): the wait")
+
+            XCTAssertEqual(access, cancelled ? .unavailable : .allowed, ending)
+            XCTAssertEqual(played.timesStillGoing, 0, "\(ending): the time given was left going after the wait")
+            XCTAssertTrue(connection.stopped, "\(ending): the connection was left open")
+            XCTAssertEqual(played.timesBlocked, 0, "\(ending): said to be held back")
+        }
+    }
+
     /// A connection that fails outright with the permission in the way is one the system will not try again,
     /// so the wait makes another a second later: three times here, and the fourth is refused by the address,
     /// which is the local network reached.
@@ -374,8 +439,9 @@ private final class PlayedConnection: WatchedConnection, @unchecked Sendable {
 }
 
 /// What a wait under test reaches: the connections it is handed, in order, and what it did meanwhile -- how
-/// often it said the permission was in the way, each pause it asked for, each line it wrote, and whether it
-/// is over. Behind a lock: the wait runs in a task of its own while the test looks.
+/// often it said the permission was in the way, each pause it asked for, the time it gave each connection,
+/// each line it wrote, and whether it is over. Behind a lock: the wait runs in a task of its own while the test
+/// looks.
 private final class Played: @unchecked Sendable {
     private let lock = NSLock()
     private var lined: [PlayedConnection]
@@ -383,6 +449,9 @@ private final class Played: @unchecked Sendable {
     private var connections: [PlayedConnection] = []
     private var blocked = 0
     private var paused: [Duration] = []
+    private var given: [Duration] = []
+    private var stillGiven = 0
+    private var timeRunsOut = false
     private var written: [String] = []
     private var isOver = false
 
@@ -391,14 +460,32 @@ private final class Played: @unchecked Sendable {
         self.rest = rest
     }
 
-    /// The wait, on the connections this hands out, pausing for no time at all.
+    /// The wait, on the connections this hands out, pausing between them for no time at all. The time each
+    /// connection is given to come to something is never up unless the test says so (`letTheTimeRunOut`).
     func wait() async -> LocalNetwork.Access {
         let access = await LocalNetwork.waitForAccess(connecting: { self.connect() },
                                                       pause: { self.paused(for: $0) },
+                                                      timeGiven: { await self.giveTime($0) },
                                                       note: { self.wrote($0) }) { self.saidBlocked() }
         lock.withLock { isOver = true }
         return access
     }
+
+    /// The time a connection is given, as the wait lets it go by: over when the test has let the time run
+    /// out, or when the wait ends it.
+    private func giveTime(_ time: Duration) async {
+        lock.withLock {
+            given.append(time)
+            stillGiven += 1
+        }
+        while !lock.withLock({ timeRunsOut }), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        lock.withLock { stillGiven -= 1 }
+    }
+
+    /// Lets the time given to each connection run out: now for the one waited on, and at once for any after it.
+    func letTheTimeRunOut() { lock.withLock { timeRunsOut = true } }
 
     /// The next connection: one that has already gone, when the test lined up no more.
     func connect() -> PlayedConnection {
@@ -416,6 +503,10 @@ private final class Played: @unchecked Sendable {
     var made: [PlayedConnection] { lock.withLock { connections } }
     var timesBlocked: Int { lock.withLock { blocked } }
     var pauses: [Duration] { lock.withLock { paused } }
+    /// How long each connection was given to come to something, in order.
+    var timesGiven: [Duration] { lock.withLock { given } }
+    /// How many of those times are still going by.
+    var timesStillGoing: Int { lock.withLock { stillGiven } }
     var lines: [String] { lock.withLock { written } }
     var over: Bool { lock.withLock { isOver } }
 }

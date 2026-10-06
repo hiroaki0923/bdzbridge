@@ -58,7 +58,8 @@ extension LocalNetwork {
     /// or the task is cancelled. `.blocked` when the wait has given up with the permission still in the way,
     /// which only the retrying below comes to. `blocked` is called while local network privacy is holding the
     /// app back -- during the system's question and after a "no" alike, possibly more than once -- so that the
-    /// caller can say so and offer the Settings app.
+    /// caller can say so and offer the Settings app; and once for a connection that has come to nothing in the
+    /// time it is given (below).
     ///
     /// There is no time limit while the connection waits: the reader may take as long as they like over the
     /// question, or go to the Settings app and back. A connection the system keeps waiting sends nothing, and
@@ -67,6 +68,17 @@ extension LocalNetwork {
     /// few seconds as it once was. The technote's sign is all it says of the time before the answer; a
     /// session of WWDC20 (10110) adds "Local connections that use NWConnection will stay in the waiting state
     /// until your app gets permission".
+    ///
+    /// A connection that has come to nothing the wait reads by the time its handshake's seconds and two more
+    /// are up -- still being set up, or still on its way -- is another matter. Whether the permission is what
+    /// holds it is not known: nothing Apple has written says what a connection is while the question is up,
+    /// and nobody has seen one held there. But left to wait on it with nothing said, a search would stand on
+    /// the screen as 検索中 0 / 253, frozen, its button held and no word of why, which is the one thing a
+    /// search is never to leave on the screen. So `blocked` is called then, once for that connection, and the
+    /// wait goes on watching it: the screen says what may be in the way, with its way to the Settings app,
+    /// and the button is live; whatever the connection comes to afterwards is still the answer. A reader whose
+    /// permission is given has an answer within the handshake's seconds -- an address that refuses at once,
+    /// one that is silent when its handshake runs out -- and never sees it.
     ///
     /// A connection that has failed outright is another matter: "The connection has irrecoverably closed or
     /// failed" (`Network/connection.h`), and nothing tries it again. With the permission in the way, the wait
@@ -84,6 +96,7 @@ extension LocalNetwork {
                                      blocked: @Sendable () async -> Void) async -> Access {
         await waitForAccess(connecting: { WaitConnection(host: host) },
                             pause: { try? await Task.sleep(for: $0) },
+                            timeGiven: { try? await Task.sleep(for: $0) },
                             note: { ScanLog.note($0) }, blocked: blocked)
     }
 
@@ -97,10 +110,17 @@ extension LocalNetwork {
     /// as seen on a Mac's loopback (`LocalNetworkAccessTests`), at an address where nobody answers.
     static let handshakeSeconds = 2
 
-    /// The wait itself, with what it reaches handed in: how a connection is made, how the wait pauses, and
-    /// where it writes.
+    /// How long a connection of the wait's is given to come to something before the wait says the permission
+    /// may be in the way: its handshake's seconds and two more, so that an address that refuses, or one that
+    /// is silent until the handshake runs out, has been read well before.
+    static let secondsToComeToSomething = handshakeSeconds + 2
+
+    /// The wait itself, with what it reaches handed in: how a connection is made, how the wait pauses between
+    /// connections, how it lets the time a connection is given go by, and where it writes.
     static func waitForAccess(connecting: () -> any WatchedConnection, turns: Int = turnsAllowed,
-                              pause: (Duration) async -> Void, note: (String) -> Void,
+                              pause: (Duration) async -> Void,
+                              timeGiven: @escaping @Sendable (Duration) async -> Void,
+                              note: (String) -> Void,
                               blocked: @Sendable () async -> Void) async -> Access {
         let began = ContinuousClock.now
         var written: Set<String> = []
@@ -117,22 +137,47 @@ extension LocalNetwork {
             let connection = connecting()
             var answer: Access?
             denied = false
-            for await sighting in connection.sightings {
-                let taken = settled(sighting)
-                readings += 1
-                // A connection can come to the same thing many times over: a line is written the first time.
-                let line = reading(status: sighting.status, reason: sighting.reason, connection: sighting.state,
-                                   verdict: taken)
-                if written.insert(line).inserted { note("wait: \(line)") }
-                if taken == .blocked {
-                    denied = true
-                    await blocked()
-                } else if let taken {
-                    answer = taken
-                    break
+            // What the connection comes to, raced against the time it is given, in the order they come. Both
+            // are children of this turn: the turn does not end before they have, and it ends them itself once
+            // it has what it waited for, so nothing of a turn outlives it, whichever way it ended.
+            let (events, heard) = AsyncStream.makeStream(of: Watched.self)
+            let given = Duration.seconds(secondsToComeToSomething)
+            await withTaskGroup(of: Void.self) { turnsOwn in
+                turnsOwn.addTask {
+                    for await sighting in connection.sightings { heard.yield(.cameTo(sighting)) }
+                    heard.finish()
                 }
+                turnsOwn.addTask {
+                    await timeGiven(given)
+                    if !Task.isCancelled { heard.yield(.timeUp) }
+                }
+                var cameToSomething = false
+                for await event in events {
+                    guard case .cameTo(let sighting) = event else {
+                        // One time given for each connection, so this is said at most once for it.
+                        guard !cameToSomething, !Task.isCancelled else { continue }
+                        note("wait: come to nothing in \(secondsToComeToSomething) s, taken for blocked, still watched")
+                        await blocked()
+                        continue
+                    }
+                    let taken = settled(sighting)
+                    readings += 1
+                    // A connection can come to the same thing many times over: a line is written the first time.
+                    let line = reading(status: sighting.status, reason: sighting.reason,
+                                       connection: sighting.state, verdict: taken)
+                    if written.insert(line).inserted { note("wait: \(line)") }
+                    if taken != nil { cameToSomething = true }
+                    if taken == .blocked {
+                        denied = true
+                        await blocked()
+                    } else if let taken {
+                        answer = taken
+                        break
+                    }
+                }
+                connection.stop()
+                turnsOwn.cancelAll()
             }
-            connection.stop()
             guard !Task.isCancelled else { return ended("cancelled", after: turn, .unavailable) }
             switch answer {
             case .allowed?: return ended("allowed", after: turn, .allowed)
@@ -144,6 +189,12 @@ extension LocalNetwork {
         }
         return denied ? ended("blocked still, and given up on", after: turns, .blocked)
             : ended("no connection came to anything, and given up on", after: turns, .unavailable)
+    }
+
+    /// What a turn of the wait hears: what its connection came to, or that the time it was given is up.
+    private enum Watched: Sendable {
+        case cameTo(Sighting)
+        case timeUp
     }
 
     /// What a connection had come to when it said so: its state, and its path at that moment.

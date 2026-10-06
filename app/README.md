@@ -258,7 +258,9 @@ said of itself.
 The wait itself is the package's to try (`LocalNetworkAccessTests`). On connections the tests play: one that
 is answered or refused is allowed, and so is one left unanswered until its handshake ran out, with nothing
 said of the permission; one kept waiting for the permission is said to be, and stayed on until the system
-tries it again, when what it comes to is the answer; one that fails outright is made again a second later, a
+tries it again, when what it comes to is the answer; one that has come to nothing when the time it is given is
+up is said to be held back, once, and still watched, and what it comes to afterwards is the answer, while the
+time given ends with the wait, answered or cancelled; one that fails outright is made again a second later, a
 hundred and twenty at most, and then the wait gives up, blocked when the last was denied and without a yes
 when none came to anything; a wait that is cancelled ends its connection; and no path for another reason ends
 it without a word of the permission. Every wait a test awaits has a limit of its own, so that a fault of the
@@ -488,6 +490,13 @@ stays on that connection for as long as it takes. Ready or refused is an answer 
 the search starts. Unanswered for the two seconds its handshake is given is taken for the local network
 reached as well, since nothing tells it from an address where nobody lives; whether the system can hold a
 connection behind its question until then has not been seen.
+
+A connection that has come to nothing by four seconds -- the handshake's two and two more -- is said to be
+held back too, once, and the wait goes on watching it. The permission is not known to be what holds it, and
+nobody has seen a connection held so; but waiting on it with nothing said would leave 検索中 0 / 253 frozen on
+the screen, the button held and no word of why, which a search is never to do. The notice says what may be in
+the way and the button is live; what the connection comes to afterwards is still the answer. A reader whose
+permission is given has had an answer well before, and never sees it.
 
 The wait as it was written for 0.3 read the path the first time there was one, before the connection has tried
 anything. That path is satisfied on a Mac's loopback, and is taken to have been satisfied on the phone
