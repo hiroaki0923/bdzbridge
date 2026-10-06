@@ -10,7 +10,7 @@ extension AppModel {
     /// Shows the invented recorder, offered in the tutorial to anyone with no recorder to hand (`DemoData`).
     func enterDemo() async {
         guard !demo, canChangeRecorder else { return }
-        // A scan still waiting on the local network question has nothing to do with the invented recorder,
+        // A scan still asking behind the local network question has nothing to do with the invented recorder,
         // and the demo is exactly the path that must never raise that question.
         stopScanning()
         // The real television is let go of for the demo's length, or it would answer beside the invented recorder.
@@ -142,42 +142,52 @@ extension AppModel {
 
     /// Looks through the subnet this device is on for a recorder, as a task of its own that `stopScanning`
     /// can end. One short request per address, and the first time, iOS asks the reader whether the app may
-    /// reach the local network. The scan waits for that answer before it starts
-    /// (`LocalNetwork.waitForAccess`): the system "may deny the operation immediately, before the user has
-    /// responded to the alert" (TN3179), and a scan made there has said, on a phone, that it found nobody
-    /// while the question was still up. Then it looks through the addresses once, and what it found is said as
-    /// soon as it has.
+    /// reach the local network. A press looks through the addresses of the Wi-Fi the device is on, once and at
+    /// once, with nothing asked before it, and what it found is said as soon as it has. With no Wi-Fi the scan
+    /// says so and asks nobody.
     ///
-    /// The addresses are those of the Wi-Fi the device is on when the look is made, read again after the wait
-    /// and not taken from the press: a reader may be minutes over the system's question, and the device off
-    /// the Wi-Fi or on another by the end of them. With none by then the scan says there is no Wi-Fi and asks
-    /// nobody, whatever the wait answered short of giving up.
+    /// Unless that look was turned away (`ScanTally.Counts.mostTurnedAway`): the requests of it the system
+    /// turned away outnumber all the rest together, which on a subnet, where the addresses nobody lives at time
+    /// out, is taken for a look of which nothing left the device but what the system lets through unasked. The
+    /// system "may deny the operation immediately, before the user has responded to the alert" (TN3179), and on
+    /// one phone, on 2026-10-06, a first press's look came back with 252 requests turned away at once and one
+    /// refused (`docs/porting.md`). A look that found a recorder is said all the same, whatever its counts:
+    /// something got out, as it should when the permission is given while the look goes (not seen). Otherwise
+    /// nothing is said of having looked. The notice about the permission goes up, and the scan asks again, once
+    /// a second, at the address the look saw turned away first (`ScanTally.turnedAwayAt`,
+    /// `Discovery.turnedAway`) until a request is let out: for what cannot wait for connectivity, the technote
+    /// says "add appropriate retry logic". Then the notice comes down and it looks again, and what that look
+    /// comes to is treated the same way.
     ///
-    /// Unless that look was turned away whole (`ScanTally.Counts.turnedAwayWhole`): not one request of it
-    /// answered, timed out, cancelled for outliving its time, refused or dropped, which on a subnet, where the
-    /// addresses nobody lives at time out, is taken for a look of which nothing left the device. The wait can
-    /// be wrong behind the system's question -- what its connection is while the question is up is not in
-    /// what Apple has written (`docs/porting.md`) -- and this is the net under it. Nothing is said of having
-    /// looked. The notice about the permission goes up, and the scan asks one address once a second
-    /// (`Discovery.turnedAway`) until a request is let out; then the notice comes down and it looks again, and
-    /// what that look comes to is treated the same way. The Wi-Fi is read again before each of those
-    /// requests, which goes to the neighbour on it, and before the look after one that got out.
+    /// Never at the address that refused, nor at one fixed beforehand. The one address on a subnet that was let
+    /// through behind the question, on that phone, was the one that refused, and the technote names such
+    /// addresses: "If your device's DNS server is on a local network, traffic to it doesn't require local
+    /// network access." A request to an address the system turned away is turned away while the permission is
+    /// in the way, and is let out once it is given, as the technote says of every operation: "If your program
+    /// has local network access, the system allows the operation. If not, the system blocks it." Not yet seen
+    /// on a phone for the request asked again.
+    ///
+    /// The Wi-Fi is read again before each of those requests, and before the look after one that got out: the
+    /// reader may be minutes over the system's question, and the device off the Wi-Fi or on another by the end
+    /// of them. With none, the scan says there is no Wi-Fi and asks nobody more. On another subnet, nothing
+    /// is sent to the one the look was made on: the look is made again at once on the new one, in place of
+    /// that turn's request, and what it comes to is treated the same way.
     ///
     /// That does not go on without end. The loop is a `for` over the single requests one press is allowed
-    /// (`singleRequestsAllowed`): each turn of it makes one of them and at most one look after it, and
-    /// nothing gives a turn back, so a press comes to at most that many single requests and one look more
-    /// than that. Then the scan ends as it does when the wait gives up: the notice stays, nothing is said of
-    /// having looked, and the button is the reader's.
+    /// (`singleRequestsAllowed`): each turn of it makes at most one single request and at most one look, and
+    /// nothing gives a turn back, so after its first look a press comes to at most that many single requests
+    /// and that many looks. Then the scan ends: the notice stays, nothing is said of having looked, and the
+    /// button is the reader's.
     ///
-    /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: what the system does
-    /// behind its question is seen nowhere but on a phone.
+    /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes, the single requests'
+    /// among them -- how the one that got out came back, and the first turned away -- since what the system
+    /// does behind its question is seen nowhere but on a phone.
     func scanForRecorders() {
         scanTask?.cancel()
         scanTask = Task { await scan() }
     }
 
-    /// Ends a scan wherever it has got to: the wait for the permission, a look, and the single requests
-    /// after one that was turned away.
+    /// Ends a scan wherever it has got to: a look, and the single requests after one that was turned away.
     func stopScanning() {
         if scanTask != nil { surroundings.scanLog("stopped") }
         scanTask?.cancel()
@@ -187,9 +197,8 @@ extension AppModel {
         scanBlocked = false
     }
 
-    /// How many single requests one press may come to after a look that was turned away whole: two minutes
-    /// of them, a second apart, which is as long as the wait for the permission goes on making connections
-    /// (`LocalNetwork.turnsAllowed`).
+    /// How many single requests one press may come to after a look that was turned away: two minutes of them, a
+    /// second apart.
     static let singleRequestsAllowed = 120
 
     private func scan() async {
@@ -200,8 +209,8 @@ extension AppModel {
         scanOutcome = nil
         scanBlocked = false
         found = []
-        // The interfaces, the wait, the transport and the pause are the surroundings' (`Surroundings`), the
-        // device's own in the app: a test presses the button on a Wi-Fi it has invented.
+        // The interfaces, the transport and the pause are the surroundings' (`Surroundings`), the device's own
+        // in the app: a test presses the button on a Wi-Fi it has invented.
         guard let pressed = wifiToLookRound() else {
             surroundings.scanLog("press: no Wi-Fi to look round")
             // No scan is under way once this is said, here and where it is said later (`wifiStillThere`): the
@@ -211,70 +220,60 @@ extension AppModel {
             return
         }
         let active = appIsActive ? "active" : "not active"
-        surroundings.scanLog("press: \(pressed.hosts.count) addresses to ask, the app \(active)")
-        scanning = (0, pressed.hosts.count)
-        let access = await surroundings.waitForLocalNetwork(pressed.neighbour) { @MainActor [weak self] in
-            guard let self, self.scanRun == run else { return }
-            self.scanBlocked = true
-        }
-        guard scanRun == run, !Task.isCancelled else { return }
-        let over = switch access {
-        case .allowed: "allowed"
-        case .blocked: "given up, the permission still in the way"
-        case .unavailable: "no path, and not for the permission"
-        }
-        surroundings.scanLog("the wait for the permission is over: \(over)")
-        // The wait has given up with the permission still in the way. Nobody was asked, so nothing is said
-        // of having looked: the notice the wait put up stays, with its way to the Settings app, and the
-        // button is the reader's again.
-        if access == .blocked {
-            scanning = nil
-            scanTask = nil
-            return
-        }
-        scanBlocked = false
-        // Whatever else the wait answered: allowed, or no path for another reason than the permission. Either
-        // way the Wi-Fi may have gone or changed since the press. Where it is still there the look is made,
-        // through the addresses it has now, and read as any other.
-        guard let wifi = wifiStillThere() else { return }
-        guard await look(through: wifi.hosts, run) == .turnedAway else { return }
-        // The look was turned away whole, and the notice is up. One address is asked, a second apart, through
-        // a transport of the scan's own kind, until a request is let out; nothing in between takes the notice
-        // down, and the look that follows puts it back if it is turned away as well.
+        surroundings.scanLog("press: \(pressed.count) addresses to ask, the app \(active)")
+        guard case .turnedAway(var asking) = await look(through: pressed, run) else { return }
+        // The look was turned away, and the notice is up. The address it saw turned away first is asked, a
+        // second apart, through a transport of the scan's own kind, until a request is let out; nothing in
+        // between takes the notice down, and a look that follows puts it back if it is turned away as well. How
+        // a request came back goes to the log in its status or code: the one that got out, and the first turned
+        // away, which the rest that are would only repeat.
         let transport = surroundings.scanTransport()
+        var turnedAwayWritten = false
         for single in 1...Self.singleRequestsAllowed {
             await surroundings.scanPause(.seconds(1))
-            guard scanRun == run, !Task.isCancelled, let asking = wifiStillThere() else { return }
-            let turnedAway = await Discovery.turnedAway(at: asking.neighbour, transport: transport)
+            guard scanRun == run, !Task.isCancelled, let wifi = wifiStillThere() else { return }
+            // The device is on another subnet now, or the address is its own: nothing of the last look is
+            // asked of it. The look is made again on the Wi-Fi it is on, as this turn's.
+            guard wifi.contains(asking) else {
+                surroundings.scanLog("single request: none, on another Wi-Fi; looked again, turn \(single)")
+                guard case .turnedAway(let next) = await look(through: wifi, run) else { return }
+                asking = next
+                continue
+            }
+            let request = ScanTally(transport)
+            let turnedAway = await Discovery.turnedAway(at: asking, transport: request)
             // A request ended by the scan being stopped comes back as one that was out.
             guard scanRun == run, !Task.isCancelled else { return }
-            guard !turnedAway else { continue }
-            surroundings.scanLog("single request: got out, after \(single)")
+            let cameBack = await request.counts.statusesAndCodes
+            guard !turnedAway else {
+                if !turnedAwayWritten {
+                    surroundings.scanLog("single request: turned away (\(cameBack)), written for the first only")
+                    turnedAwayWritten = true
+                }
+                continue
+            }
+            surroundings.scanLog("single request: got out (\(cameBack)), after \(single)")
             scanBlocked = false
             guard let again = wifiStillThere() else { return }
-            guard await look(through: again.hosts, run) == .turnedAway else { return }
+            guard case .turnedAway(let next) = await look(through: again, run) else { return }
+            asking = next
         }
         // Every single request the press is allowed has been made. The notice stays, nothing is said of
-        // having looked, and the button is the reader's, as when the wait gives up.
+        // having looked, and the button is the reader's.
         surroundings.scanLog("single requests: given up after \(Self.singleRequestsAllowed)")
         scanning = nil
         scanTask = nil
     }
 
-    /// The Wi-Fi the device is on at this moment, as a scan needs it: somebody on it to aim at
-    /// (`LocalNetwork.neighbour`), and the addresses to ask. Nil on none.
-    private func wifiToLookRound() -> (neighbour: String, hosts: [String])? {
-        let lan = surroundings.lanInterfaces()
-        let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
-        guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
-            return nil
-        }
-        return (neighbour, hosts)
+    /// The addresses of the Wi-Fi the device is on at this moment, for a scan to ask. Nil on none.
+    private func wifiToLookRound() -> [String]? {
+        let hosts = surroundings.lanInterfaces().flatMap { LocalNetwork.hosts(around: $0) }
+        return hosts.isEmpty ? nil : hosts
     }
 
     /// The same, for a scan that has got past the press. On none the scan is over: that is said, nobody is
     /// asked, and the notice about the permission comes down, since what is in the way is the Wi-Fi.
-    private func wifiStillThere() -> (neighbour: String, hosts: [String])? {
+    private func wifiStillThere() -> [String]? {
         if let wifi = wifiToLookRound() { return wifi }
         surroundings.scanLog("no Wi-Fi left to look round")
         scanBlocked = false
@@ -284,16 +283,17 @@ extension AppModel {
         return nil
     }
 
-    /// How one look through the addresses ended: over, with what it found said or the scan stopped
-    /// meanwhile, or turned away whole, with nothing said and the notice about the permission up.
+    /// How one look through the addresses ended: over, with what it found said or the scan stopped meanwhile,
+    /// or turned away, with nothing said, the notice about the permission up, and the address it saw turned
+    /// away first, to ask again.
     private enum Look {
         case over
-        case turnedAway
+        case turnedAway(at: String)
     }
 
-    /// One look through the addresses, each asked once, and what was found said as soon as it is over.
-    /// A look that was turned away whole says nothing and puts the notice about the permission up instead:
-    /// the scan is still under way then, and what comes next is the caller's.
+    /// One look through the addresses, each asked once, and what was found said as soon as it is over. A look
+    /// that was turned away says nothing and puts the notice about the permission up instead: the scan is still
+    /// under way then, and what comes next is the caller's.
     private func look(through hosts: [String], _ run: Int) async -> Look {
         scanning = (0, hosts.count)
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
@@ -314,16 +314,19 @@ extension AppModel {
         // How the requests came back, how many recorders that made and how long it took, for the log.
         let seconds = String(format: "%.2f", (ContinuousClock.now - began) / .seconds(1))
         let counts = await transport.counts
+        let turnedAwayAt = await transport.turnedAwayAt
         let stopped = scanRun != run || Task.isCancelled
         surroundings.scanLog("search: \(counts.summary); recorders \(result.count); \(seconds) s"
                              + (stopped ? "; stopped" : ""))
         guard !stopped else { return .over }
-        // Nobody answered a look that was turned away whole, so it found nobody, and that is not to be said:
-        // nothing of it is taken to have left the device.
-        if counts.turnedAwayWhole {
-            surroundings.scanLog("search: turned away whole, nothing said; one address is asked a second")
+        // A look that was turned away and found nobody is not to be said: nothing of it is taken to have left
+        // the device but what the system lets through unasked. One that found a recorder is said, whatever the
+        // counts. A look turned away has at least one address the system turned away, the first of which the
+        // tally kept, to ask again.
+        if counts.mostTurnedAway, result.isEmpty, let turnedAwayAt {
+            surroundings.scanLog("search: turned away, nothing said; one address is asked a second")
             scanBlocked = true
-            return .turnedAway
+            return .turnedAway(at: turnedAwayAt)
         }
         // The list stays in the order the recorders answered, which the reader has been looking at while the
         // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
@@ -331,6 +334,8 @@ extension AppModel {
         for recorder in result where !found.contains(where: { $0.host == recorder.host }) {
             found.append(recorder)
         }
+        // A look made again on another Wi-Fi is made with the notice up; what it found is said in its place.
+        scanBlocked = false
         scanning = nil
         scanTask = nil
         surroundings.scanLog(found.isEmpty ? "said: nothing found" : "said: found \(found.count)")

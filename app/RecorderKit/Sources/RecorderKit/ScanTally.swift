@@ -4,9 +4,12 @@ import Foundation
 /// line in the log (`ScanLog`): answered, by status; timed out; failed in transit, by the system's code. To the
 /// search itself every one of those but a 200 is an address where no recorder lives (`Discovery.probe`), and
 /// which of them it was is the one thing that tells a subnet with nobody on it from a phone that let nothing
-/// out: a search reads that off the counts too (`Counts.turnedAwayWhole`).
+/// out: a search reads that off the counts too (`Counts.mostTurnedAway`).
 ///
-/// Only counts are kept. Which address a request was for is not, and nothing of what was answered.
+/// Beside the counts it keeps one address: the first whose request the system turned away (`turnedAwayAt`),
+/// for a search whose look was turned away to ask again. It is kept in memory for as long as the tally,
+/// which a search makes for one look, and it is in neither the counts nor their summary, so nothing of it
+/// reaches the log. No other address is kept, and nothing of what was answered.
 public actor ScanTally: HTTPTransport {
     public struct Counts: Sendable, Equatable {
         /// Requests that were answered, by HTTP status.
@@ -26,36 +29,67 @@ public actor ScanTally: HTTPTransport {
             answered.values.reduce(0, +) + timedOut + failed.values.reduce(0, +) + other
         }
 
-        /// Whether the requests counted here were turned away whole: at least one was made, and not one of
-        /// them was answered, timed out, was cancelled, or was refused or dropped by an address.
+        /// Whether the system turned away most of the requests counted here: those it turned away outnumber
+        /// all the rest together, answered ones included. A search reads its look through a subnet so, and the
+        /// one request it sends again to an address that look saw turned away (`Discovery.turnedAway`), of
+        /// which most is all.
         ///
-        /// Each of those four is a request that was out for its time or got an answer of a kind. An answer,
-        /// whatever its status. A timeout (-1001), which is how an address where nobody lives comes back: a
-        /// search gives each a little over a second. A cancellation (-999), which is how the same silence
-        /// comes back when the request has outlived that time and the search has ended it (`Discovery.probe`
-        /// races each against a deadline of its own, since one was seen not to end on an iPhone). A
-        /// connection the address refused (-1004) or dropped (-1005). On a subnet there are always addresses
-        /// where nobody lives, so a look through one that came back with none of these is taken not to have
-        /// reached the network: every request failed some other way.
+        /// The system turned a request away when it failed with a code of the system's that is none of the
+        /// ways a request that was out comes back (`turnedAway(_:)`). An answer, whatever its status. A timeout
+        /// (-1001), which is how an address where nobody lives comes back: a search gives each a little over a
+        /// second. A cancellation (-999), which is how the same silence comes back when the request has
+        /// outlived that time and the search has ended it (`Discovery.probe` races each against a deadline of
+        /// its own, since one was seen not to end on an iPhone). A connection an address refused (-1004) or
+        /// dropped (-1005). A failure with no code of the system's says nothing of the system either.
         ///
-        /// Written by what is absent, and not by the code such a failure carries. The one to expect is -1009:
-        /// a session that does not wait for connectivity "fails immediately with an error, such as
-        /// NSURLErrorNotConnectedToInternet" (Apple, `URLSessionConfiguration.waitsForConnectivity`), and
-        /// "such as" names no list. Which code the system gives a request it turns away behind its question
-        /// about the local network is in none of Apple's pages read for this (the technote TN3179, that
-        /// property's page and its delegate call's), and has not been read off a phone.
+        /// By most, and not by every request, because some addresses are let through without the permission:
+        /// "If your device's DNS server is on a local network, traffic to it doesn't require local network
+        /// access." and "If your device uses a network proxy and that proxy is on a local network, traffic to
+        /// it doesn't require local network access." (Apple's TN3179). Such an address comes back as it would
+        /// with the permission given while every other request is turned away. On one phone, on 2026-10-06, a
+        /// look made behind the system's question came back with 252 requests failed -1009 and one -1004. One
+        /// that drops the port where that one refused it comes back as a timeout, and a home may have both.
+        /// With the permission given, "the system allows the operation" (the technote), and none of the looks
+        /// that phone made with it came back with a request turned away. So a subnet where every address
+        /// refused at once is not turned away, nor a look most of whose requests were out and a few turned
+        /// away.
+        ///
+        /// Read off the ways of having been out, and not off the code a request turned away carries. The one
+        /// seen is -1009, on that phone, and the one to expect: a session that does not wait for connectivity
+        /// "fails immediately with an error, such as NSURLErrorNotConnectedToInternet" (Apple,
+        /// `URLSessionConfiguration.waitsForConnectivity`), and "such as" names no list.
         ///
         /// What this cannot tell: requests the system held and then let time out. Those count as timeouts,
-        /// and a look made of them is a subnet with nobody on it.
-        public var turnedAwayWhole: Bool {
-            let wereOut = answered.values.reduce(0, +) + timedOut
-                + Self.codesOfARequestThatWasOut.reduce(0) { $0 + failed[$1, default: 0] }
-            return asked > 0 && wereOut == 0
+        /// and a look made of them is a subnet with nobody on it. Nor a request that failed at once for another
+        /// reason than the permission: the same page gives "the device might require a VPN connection but none
+        /// is available", and a look made where that is so reads as turned away with the permission given.
+        /// Neither has been seen.
+        public var mostTurnedAway: Bool {
+            let turnedAway = failed.reduce(0) { Self.turnedAway($1.key) ? $0 + $1.value : $0 }
+            return turnedAway > asked - turnedAway
         }
 
-        /// The system's codes for a failure that says the request was out for its time or reached an
-        /// address: timed out, should one be counted by its code; cancelled; refused; dropped.
-        private static let codesOfARequestThatWasOut = [-1001, -999, -1004, -1005]
+        /// The system's codes for a failure that says the request was out for its time: timed out, should one
+        /// be counted by its code; cancelled.
+        private static let codesOfARequestThatWasOut = [-1001, -999]
+
+        /// The system's codes for a request an address turned down: refused; dropped.
+        private static let codesOfAnAddressThatTurnedItDown = [-1004, -1005]
+
+        /// Whether a failure with this code of the system's is the system turning the request away: none of
+        /// the ways a request that was out, or that an address turned down, comes back.
+        static func turnedAway(_ code: Int) -> Bool {
+            !(codesOfARequestThatWasOut + codesOfAnAddressThatTurnedItDown).contains(code)
+        }
+
+        /// The statuses the requests counted here were answered with and the system's codes they failed with,
+        /// each once and in order, a timeout's -1001 among them, and "no code" for a failure with none. For a
+        /// line in the log about one request, of which the summary's heads would say little more than that.
+        public var statusesAndCodes: String {
+            var numbers = Set(answered.keys).union(failed.keys)
+            if timedOut > 0 { numbers.insert(ScanTally.timedOut) }
+            return (numbers.sorted().map(String.init) + (other > 0 ? ["no code"] : [])).joined(separator: ", ")
+        }
 
         /// The counts in one line, the statuses and the codes in order.
         public var summary: String {
@@ -70,6 +104,11 @@ public actor ScanTally: HTTPTransport {
     private let transport: any HTTPTransport
     public private(set) var counts = Counts()
 
+    /// The address of the first request the system turned away (`Counts.turnedAway`), or nil while none has
+    /// been. Not one refused or dropped: that came from an address, which may be one the system lets through
+    /// unasked. Not one that failed with no code of the system's: nothing says the system turned it away.
+    public private(set) var turnedAwayAt: String?
+
     public init(_ transport: any HTTPTransport) {
         self.transport = transport
     }
@@ -83,7 +122,9 @@ public actor ScanTally: HTTPTransport {
         } catch {
             switch Self.systemCode(of: error) {
             case Self.timedOut?: counts.timedOut += 1
-            case let code?: counts.failed[code, default: 0] += 1
+            case let code?:
+                counts.failed[code, default: 0] += 1
+                if turnedAwayAt == nil, Counts.turnedAway(code) { turnedAwayAt = request.url.host() }
             case nil: counts.other += 1
             }
             throw error

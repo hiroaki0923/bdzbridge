@@ -8,15 +8,15 @@ import XCTest
 /// are reserved for documentation, and its requests go to the bench's subnet and nowhere else: nothing is put
 /// on the network the tests run on.
 ///
-/// The first press on a phone raises the system's question about the local network, and the search waits for
-/// the answer before it asks anybody (`LocalNetwork.waitForAccess`, which the package tries on connections of
-/// its own). Here the wait is the bench's to hold and to end each of the three ways it ends. Behind it the
-/// search is one look through the addresses, said at once, whatever the app's phase did meanwhile: the tests
-/// tell the model its phase as the first screen does, and nothing goes by it but the log.
+/// A press is one look through the addresses, made at once with nothing asked before it, and said at once,
+/// whatever the app's phase did meanwhile: the tests tell the model its phase as the first screen does, and
+/// nothing goes by it but the log.
 ///
-/// Unless that look was turned away whole, as the bench's subnet turns one away when a test tells it to: then
-/// nothing is said, the notice about the permission goes up, and the search asks one address after each pause
-/// until a request is let out or the press has had all it is allowed. The pauses are the bench's to hold.
+/// Unless that look was turned away -- more of its requests turned away than all the rest -- as the bench's
+/// subnet turns one away when a test tells it to, and as the system did behind its question about the local
+/// network on one phone: then nothing is said, the notice about the permission goes up, and the search asks
+/// again, after each pause, at an address the look saw turned away, until a request is let out or the press
+/// has had all it is allowed. The pauses are the bench's to hold.
 @MainActor
 final class ScanTests: XCTestCase {
     /// The addresses of the Wi-Fi a bench's phone is put on: a /24 without the network's own, the broadcast
@@ -74,21 +74,20 @@ final class ScanTests: XCTestCase {
         expectNoSearchUnderWay(model, on: bench)
     }
 
-    /// Nobody there. The search waited for the permission, and the app stopped being active meanwhile, as it
-    /// may for the system's question (not seen; the log's phase lines will say): let go, the search looks
-    /// through the addresses once and says at once that it found nobody. Nothing is made of the app's phase,
-    /// then or afterwards.
+    /// Nobody there, and the app stopped being active while the look went through the addresses, as it may
+    /// for the system's question (not seen; the log's phase lines will say): the search looks through them
+    /// once and says at once that it found nobody. Nothing is made of the app's phase, then or afterwards.
     func testNothingFoundIsSaidAtOnceAfterOneLookWhateverTheAppsPhaseDid() async throws {
         let bench = try aBench()
-        bench.holdThePermission()
         let subnet = bench.joinWiFi()
+        await subnet.hold()
         let model = await aModel(on: bench)
 
         model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        try await until("the look never began", within: 3) { await subnet.asked > 0 }
         leave(model)
         comeBack(model)
-        bench.letThePermissionGo(allowed: true)
+        await subnet.letGo()
         try await until("the search never asked everybody") { await subnet.asked >= addresses }
         try await until("nothing found was not said at once", within: 0.5) { model.scanOutcome != nil }
 
@@ -102,178 +101,48 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(model.scanOutcome, .nothing)
     }
 
-    // MARK: - the wait for the local network permission
-
-    /// The system's question is up when a search comes to it. The search waits there: nobody is asked behind
-    /// the question, and the screen says what is in the way with the search still going. Allowed, the search
-    /// is made and finds the recorder.
-    func testASearchWaitsForThePermissionBeforeItAsksAnybody() async throws {
+    /// The permission given, a press looks through the addresses at once, with nothing asked before the look
+    /// -- no wait for the permission, no request to an address fixed beforehand -- and what it found is said
+    /// at once: no pause, no single request, no notice. The look's first requests are out together before any
+    /// has come back, and the look is all the subnet is asked.
+    func testWithThePermissionGivenAPressLooksAtOnceWithNothingBeforeItAndSaysAtOnce() async throws {
         let bench = try aBench()
-        bench.holdThePermission()
         let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.hold()
         let model = await aModel(on: bench)
+        let hosts = (1...254).filter { $0 != 20 }.map { "192.0.2.\($0)" }
+        let atOnce = 48
 
         model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        // Long enough for a search that went on behind the question to have asked.
+        try await until("the look's first requests were not out at once", within: 1) {
+            await subnet.asked == atOnce
+        }
+        let first = await subnet.askedOf
+        XCTAssertEqual(Set(first), Set(hosts.prefix(atOnce)), "something was asked before the look")
+        XCTAssertFalse(model.scanBlocked, "the notice went up over a look under way")
+        XCTAssertTrue(model.scanHoldsTheButton, "the button was live while the look went through the addresses")
+        await subnet.letGo()
+        try await until("the search never asked everybody") { await subnet.asked >= addresses }
+        try await until("what was found was not said at once", within: 0.5) { model.scanOutcome != nil }
+        // Long enough for a single request, or another look, to have been made.
         try await Task.sleep(for: .milliseconds(200))
-        XCTAssertTrue(model.scanBlocked, "the screen stopped saying the permission is in the way")
-        XCTAssertNotNil(model.scanning, "the search was not shown as still going")
-        XCTAssertNil(model.scanOutcome, "something was said behind the system's question")
-        expectEqual(await subnet.asked, 0, "somebody was asked behind the system's question")
-
-        bench.letThePermissionGo(allowed: true)
-        try await until("the search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(1))
-        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
+        XCTAssertFalse(model.scanBlocked, "the notice about the permission is up")
         XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, addresses, "each address of the subnet is asked once")
-    }
-
-    /// The wait ends without the permission, and the Wi-Fi has gone meanwhile: that is what is said, rather
-    /// than look through its addresses and say nobody was found. Nobody is asked, and no search is under way
-    /// afterwards.
-    func testAWaitThatEndsWithTheWiFiGoneSaysThereIsNoWiFi() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        bench.leaveWiFi()
-        bench.letThePermissionGo(allowed: false)
-        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
-
-        XCTAssertEqual(model.scanOutcome, .noWiFi)
-        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
-        XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, 0, "the addresses of a Wi-Fi the phone has left were asked")
-        XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round")
-        expectNoSearchUnderWay(model, on: bench)
-    }
-
-    /// The wait ends with the permission given, and the Wi-Fi has gone meanwhile: the reader may be a long
-    /// time over the system's question. The Wi-Fi is read again after the wait, whatever it answered short of
-    /// giving up, so that is what is said. Nobody is asked, and no search is under way afterwards.
-    func testAWaitAllowedAfterTheWiFiHasGoneSaysThereIsNoWiFi() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        bench.leaveWiFi()
-        bench.letThePermissionGo(allowed: true)
-        try await until("the search never ended", within: 3) { model.scanOutcome != nil }
-
-        XCTAssertEqual(model.scanOutcome, .noWiFi)
-        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
-        XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, 0, "the addresses of a Wi-Fi the phone has left were asked")
-        XCTAssertEqual(bench.scanLog.last, "no Wi-Fi left to look round")
-        expectNoSearchUnderWay(model, on: bench)
-    }
-
-    /// And the phone has gone to another Wi-Fi meanwhile, with a recorder of its own there: the look goes
-    /// through that Wi-Fi's addresses, and through none of the one the press was made on.
-    func testAWaitAnsweredOnAnotherWiFiLooksThroughThatWiFisAddresses() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let left = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        let recorderElsewhere = "198.51.100.10"
-        let joined = bench.joinWiFi(with: [recorderElsewhere: NamedRecorder(2)], as: Bench.phoneElsewhere)
-        bench.letThePermissionGo(allowed: true)
-        try await until("the search never ended") { model.scanOutcome != nil }
-
-        XCTAssertEqual(model.scanOutcome, .found(1))
-        XCTAssertEqual(model.found.map(\.host), [recorderElsewhere])
-        expectEqual(await left.asked, 0, "the Wi-Fi the phone had left was looked through")
-        let askedOf = await joined.askedOf
-        XCTAssertEqual(askedOf.count, addresses, "each address of the Wi-Fi the phone is on is asked once")
-        XCTAssertEqual(askedOf.filter { !$0.hasPrefix("198.51.100.") }, [],
-                       "addresses of the Wi-Fi the press was made on were asked")
-    }
-
-    /// The wait ends with no path for another reason than the permission, and the Wi-Fi is still there: the
-    /// search goes on. It looks through the addresses once and says what it found.
-    func testAWaitWithNoPathOnAWiFiStillThereLooksOnceAndSaysWhatItFound() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        bench.letThePermissionGo(allowed: false)
-        try await until("the search never ended") { model.scanOutcome != nil }
-
-        XCTAssertEqual(model.scanOutcome, .found(1))
-        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
-        XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, addresses, "each address of the subnet is asked once")
+        expectEqual(await subnet.askedOf.sorted(), hosts.sorted(), "not the one look, each address asked once")
+        XCTAssertEqual(bench.scanPauses, [], "a pause was made")
         XCTAssertEqual(bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
             "press: 253 addresses to ask, the app active",
-            "the wait for the permission is over: no path, and not for the permission",
             "search: asked 253; answered [200: 1]; timed out 252; failed []; other 0; recorders 1; some s",
             "said: found 1",
-        ])
+        ], "something was done between the press and the look, or after it")
     }
 
-    /// The screen that asked goes away while the search waits for the permission, as the tutorial does when
-    /// it is closed with the question up. The search is over: nobody is asked and nothing is said, though the
-    /// reader allows the local network afterwards and the recorder is there.
-    func testLeavingTheScreenEndsASearchWaitingForThePermission() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        let search = try XCTUnwrap(model.scanTask)
-        model.stopScanning()
-        // The bench's wait ends only when the test lets it go; the app's ends when its task is cancelled.
-        XCTAssertTrue(search.isCancelled, "the search's task was left waiting after the screen had gone")
-        XCTAssertFalse(model.scanBlocked, "the screen still says the permission is in the way")
-        XCTAssertNil(model.scanning, "the search was shown as still going after the screen had gone")
-        bench.letThePermissionGo(allowed: true)
-        try await within(2, "the search that was stopped never ended") { await search.value }
-
-        expectEqual(await subnet.asked, 0, "the search was made after the screen had gone")
-        XCTAssertNil(model.scanOutcome, "something was said after the screen had gone")
-        XCTAssertEqual(model.found, [])
-        XCTAssertNil(model.scanning)
-        XCTAssertFalse(model.scanBlocked)
-    }
-
-    /// The app's own surroundings hand its search the package's wait for the permission
-    /// (`LocalNetwork.waitForAccess`), and not one that lets it straight through: every other test here has
-    /// the bench's. Called in a task cancelled before it begins, the package's wait is over at once, without a
-    /// yes and before it has made a connection, where a wait that let everything through would say allowed.
-    /// Aimed at this machine's loopback all the same.
-    func testTheAppsSearchWaitsWithThePackagesOwnWait() async throws {
-        let wait = Surroundings.app.waitForLocalNetwork
-        let waiting = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            return await wait("127.0.0.1") {}
-        }
-
-        let access = try await within(2, "the app's wait never ended") { await waiting.value }
-
-        XCTAssertEqual(access, .unavailable, "the app's search does not wait with the package's wait")
-    }
-
-    /// And they hand it the app's own pause and transport, which every other test here has the bench's for: a
-    /// pause before a single request lasts as long as the search asks, where one left out takes no time, and
-    /// the requests go through the real session (`URLSessionTransport`), where one left out reaches nobody. The
-    /// pause is only waited out and the transport only made: nothing is sent.
+    /// The app's own surroundings hand the search the app's own pause and transport, which every other test
+    /// here has the bench's for: a pause before a single request lasts as long as the search asks, where one
+    /// left out takes no time, and the requests go through the real session (`URLSessionTransport`), where one
+    /// left out reaches nobody. The pause is only waited out and the transport only made: nothing is sent.
     func testTheAppsSearchPausesForAsLongAsItAsksAndSendsThroughTheRealSession() async throws {
         let app = Surroundings.app
         let pause = app.scanPause
@@ -287,79 +156,29 @@ final class ScanTests: XCTestCase {
                       "the app's search does not send through the real session")
     }
 
-    /// The wait gives up with the permission still in the way. The search is over without having asked
-    /// anybody and says nothing of having looked: the notice about the permission stays, and the button is
-    /// the reader's again.
-    func testAWaitThatGivesUpLeavesTheNoticeAndSaysNothingWasLookedFor() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
+    // MARK: - a look that was turned away
 
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        bench.giveUpOnThePermission()
-        try await until("the search never ended", within: 3) { model.scanning == nil }
-        // Long enough for a search that went on all the same to have asked.
-        try await Task.sleep(for: .milliseconds(200))
-
-        XCTAssertTrue(model.scanBlocked, "the notice about the permission was taken down")
-        XCTAssertNil(model.scanOutcome, "something was said of a search that asked nobody")
-        XCTAssertEqual(model.found, [])
-        expectEqual(await subnet.asked, 0, "somebody was asked with the permission still in the way")
-        XCTAssertEqual(bench.scanLog.last,
-                       "the wait for the permission is over: given up, the permission still in the way")
-        expectNoSearchUnderWay(model, on: bench)
-    }
-
-    /// And a press after that starts over. The notice the last press left comes down with the press, before
-    /// the wait has said anything of its own -- its connection is on its way, here for as long as the test
-    /// holds it -- and once the permission is there the search is made and finds the recorder.
-    func testAPressAfterTheWaitGaveUpStartsOver() async throws {
-        let bench = try aBench()
-        bench.holdThePermission()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        let model = await aModel(on: bench)
-        model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        bench.giveUpOnThePermission()
-        try await until("the first press's search never ended", within: 3) { model.scanning == nil }
-        XCTAssertTrue(model.scanBlocked)
-
-        bench.holdThePermission(sayingSo: false)
-        model.scanForRecorders()
-        try await until("the second press's search never began", within: 3) { model.scanning != nil }
-        XCTAssertFalse(model.scanBlocked, "the last press's notice stood over a wait that had said nothing yet")
-        bench.letThePermissionGo(allowed: true)
-        try await until("the second press's search never ended") { model.scanOutcome != nil }
-
-        XCTAssertEqual(model.scanOutcome, .found(1))
-        XCTAssertFalse(model.scanBlocked)
-        XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, addresses, "each address of the subnet is asked once")
-    }
-
-    // MARK: - a look that was turned away whole
-
-    /// The wait said the local network was reached, and the look that followed was turned away whole, as it
-    /// is if the wait was wrong behind the system's question: every request failed at once for want of a
-    /// network to send on. Nothing is said of having looked. The notice about the permission goes up, and it
-    /// stays up while the search asks one address -- the neighbour on the Wi-Fi the phone is on, read again
-    /// before each request -- once after each pause of a second: at a pause, and with a single request out.
-    /// When a request is let out the notice comes down, the addresses are looked through again, and the
-    /// recorder is found with no other press.
-    func testALookTurnedAwayWholeIsMadeAgainOnceASingleRequestGetsOut() async throws {
+    /// The first press on one phone, on 2026-10-06, as its log has it: the look made behind the system's
+    /// question came back with 252 requests turned away at once (-1009) and one refused (-1004), by the
+    /// address the system let through unasked. Nothing is said of having looked, nothing red: the notice about
+    /// the permission goes up and the button is live. It stays up while the search asks again, once after
+    /// each pause of a second, at one address the look saw turned away and never at the one that refused: at
+    /// a pause, and with a single request out. When a request is let out the notice comes down, the addresses
+    /// are looked through again with the search shown going, and the recorder is found with no other press.
+    func testALookTurnedAwayButForOneRefusalIsAskedAgainWhereTurnedAwayAndFindsTheRecorder() async throws {
         let bench = try aBench()
         bench.holdTheSingleRequests()
-        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
-        await subnet.turnEverythingAway()
+        let letThrough = "192.0.2.1"
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)], refusing: [letThrough])
+        await subnet.turnEverythingAway(but: letThrough)
         let model = await aModel(on: bench)
 
         model.scanForRecorders()
         try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
         try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
-        XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away whole")
+        XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
         XCTAssertNotNil(model.scanning, "the search was over with the look turned away")
+        XCTAssertFalse(model.scanHoldsTheButton, "the button was held back behind the notice")
         expectEqual(await subnet.asked, addresses, "somebody was asked before the first pause was over")
 
         await subnet.hold()
@@ -376,7 +195,16 @@ final class ScanTests: XCTestCase {
         XCTAssertNil(model.scanOutcome, "something was said while every request was being turned away")
 
         await subnet.letEverythingOut()
+        // The single request goes, and the look after it is held.
+        await subnet.hold(after: 1)
         bench.letSingleRequestsGo()
+        try await until("the look after the request that got out never began", within: 3) {
+            await subnet.asked > addresses + 3
+        }
+        XCTAssertFalse(model.scanBlocked, "the notice stayed up over the look after a request got out")
+        XCTAssertNotNil(model.scanning, "the look after a request got out was not shown as going")
+        XCTAssertNil(model.scanOutcome, "something was said before the look after a request got out was over")
+        await subnet.letGo()
         try await until("the search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(1))
@@ -388,16 +216,64 @@ final class ScanTests: XCTestCase {
         // Read only where there are that many, so that a search that asked fewer fails above and does not
         // stop the test host here.
         if askedOf.count >= addresses + 3 {
-            XCTAssertEqual(Array(askedOf[addresses..<addresses + 3]), Array(repeating: "192.0.2.1", count: 3),
-                           "the single requests were not for the neighbour on the Wi-Fi the phone is on")
+            let singles = Array(askedOf[addresses..<addresses + 3])
+            XCTAssertFalse(singles.contains(letThrough), "a single request was for the address that refused")
+            XCTAssertEqual(Set(singles).count, 1, "the single requests were for more than one address: \(singles)")
+            XCTAssertTrue(singles.allSatisfy(askedOf.prefix(addresses).contains), "not for an address of the look")
         }
         XCTAssertEqual(bench.scanPauses, Array(repeating: .seconds(1), count: 3), "a second before each single request")
+        // The address asked again is the first the look saw turned away, which may be the recorder's: let out,
+        // that one answers and any other is silent.
+        let gotOut = askedOf.count > addresses && askedOf[addresses] == Bench.host ? "200" : "-1001"
         XCTAssertEqual(bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
             "press: 253 addresses to ask, the app active",
-            "the wait for the permission is over: allowed",
-            "search: asked 253; answered []; timed out 0; failed [-1009: 253]; other 0; recorders 0; some s",
-            "search: turned away whole, nothing said; one address is asked a second",
-            "single request: got out, after 3",
+            "search: asked 253; answered []; timed out 0; failed [-1009: 252, -1004: 1]; other 0; recorders 0;"
+                + " some s",
+            "search: turned away, nothing said; one address is asked a second",
+            "single request: turned away (-1009), written for the first only",
+            "single request: got out (\(gotOut)), after 3",
+            "search: asked 253; answered [200: 1]; timed out 251; failed [-1004: 1]; other 0; recorders 1; some s",
+            "said: found 1",
+        ])
+    }
+
+    /// The same where the address let through unasked is silent on the port rather than refusing it, as a DNS
+    /// server or a proxy behind a firewall may be: one request of the look times out and the rest are turned
+    /// away. More were turned away than got out, so nothing is said and the notice goes up; the search asks
+    /// again at an address the look saw turned away, never the silent one, and finds the recorder once let out.
+    func testALookTurnedAwayButForOneTimeoutIsAskedAgainWhereTurnedAwayAndFindsTheRecorder() async throws {
+        let bench = try aBench()
+        bench.holdTheSingleRequests()
+        let letThrough = "192.0.2.1"
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingAway(but: letThrough)
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
+        XCTAssertFalse(model.scanHoldsTheButton, "the button was held back behind the notice")
+        bench.letSingleRequestsGo()
+        try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
+        XCTAssertTrue(model.scanBlocked, "the notice came down with every request turned away")
+        await subnet.letEverythingOut()
+        bench.letSingleRequestsGo()
+        try await until("the search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .found(1))
+        XCTAssertFalse(model.scanBlocked, "the notice stayed up over a search that had got out")
+        let askedOf = await subnet.askedOf
+        XCTAssertEqual(askedOf.count, addresses + 2 + addresses, "a look, two single requests, and one look more")
+        XCTAssertFalse(askedOf.dropFirst(addresses).prefix(2).contains(letThrough),
+                       "a single request was for the address let through")
+        let gotOut = askedOf.count > addresses && askedOf[addresses] == Bench.host ? "200" : "-1001"
+        XCTAssertEqual(bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
+            "press: 253 addresses to ask, the app active",
+            "search: asked 253; answered []; timed out 1; failed [-1009: 252]; other 0; recorders 0; some s",
+            "search: turned away, nothing said; one address is asked a second",
+            "single request: turned away (-1009), written for the first only",
+            "single request: got out (\(gotOut)), after 2",
             "search: asked 253; answered [200: 1]; timed out 252; failed []; other 0; recorders 1; some s",
             "said: found 1",
         ])
@@ -429,8 +305,9 @@ final class ScanTests: XCTestCase {
         expectNoSearchUnderWay(model, on: bench)
     }
 
-    /// And a press after that starts over: the notice the last press left comes down with it, and with the
-    /// requests let out the search is made and finds the recorder.
+    /// And a press after that starts over: the notice the last press left comes down with it, before its look
+    /// has come back -- held here for as long as the test holds it -- and with the requests let out the look
+    /// finds the recorder.
     func testAPressAfterASearchTurnedAwayToTheEndStartsOver() async throws {
         let bench = try aBench()
         let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
@@ -443,11 +320,12 @@ final class ScanTests: XCTestCase {
         let askedByTheFirst = await subnet.asked
 
         await subnet.letEverythingOut()
-        bench.holdThePermission(sayingSo: false)
+        await subnet.hold()
         model.scanForRecorders()
-        try await until("the second press's search never began", within: 3) { model.scanning != nil }
-        XCTAssertFalse(model.scanBlocked, "the last press's notice stood over a wait that had said nothing yet")
-        bench.letThePermissionGo(allowed: true)
+        try await until("the second press's look never began", within: 3) { await subnet.asked > askedByTheFirst }
+        XCTAssertFalse(model.scanBlocked, "the last press's notice stood over a look that had said nothing yet")
+        XCTAssertNotNil(model.scanning, "the second press's look was not shown as going")
+        await subnet.letGo()
         try await until("the second press's search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(1))
@@ -461,37 +339,70 @@ final class ScanTests: XCTestCase {
     /// is said at once, as it was before a look could be turned away: no notice, no pause, no single request
     /// and no second look.
     func testALookThatGotOutAndFoundNobodyIsSaidAtOnceWithNoSingleRequest() async throws {
-        try await expectNothingFoundIsSaidAtOnce(nobody: .silent, cameBack: "timed out 253; failed []")
+        try await expectSaidAtOnce(.nothing, cameBack: "answered []; timed out 253; failed []")
     }
 
-    /// Nor is a look turned away when every address refused the connection: each of them was reached.
-    func testALookEveryAddressRefusedIsNotTurnedAwayAndIsSaidAtOnce() async throws {
-        try await expectNothingFoundIsSaidAtOnce(nobody: .refusing, cameBack: "timed out 0; failed [-1004: 253]")
+    /// Nor is a look turned away whose addresses timed out or refused, with nobody answering: a home with no
+    /// recorder and a few hosts that turn down the port. The timeouts are requests that were out.
+    func testALookOfTimeoutsAndRefusalsIsNotTurnedAwayAndIsSaidAtOnce() async throws {
+        let refusing = Set((101...106).map { "192.0.2.\($0)" })
+        try await expectSaidAtOnce(.nothing, refusing: refusing,
+                                   cameBack: "answered []; timed out 247; failed [-1004: 6]")
     }
 
-    private func expectNothingFoundIsSaidAtOnce(nobody: Subnet.Nobody, cameBack: String,
-                                                file: StaticString = #filePath, line: UInt = #line) async throws {
+    /// Nor a look most of whose requests got out and a few were turned away, as when the permission is given
+    /// while the look goes: those sent before it turned away, and the rest out, silent.
+    func testALookMostOfWhichGotOutIsNotTurnedAwayForAFewTurnedAwayAndIsSaidAtOnce() async throws {
+        try await expectSaidAtOnce(.nothing, turnedAwayBefore: 5,
+                                   cameBack: "answered []; timed out 248; failed [-1009: 5]")
+    }
+
+    /// And a look that found the recorder is said at once whatever its counts: the permission given late in
+    /// the look, the requests sent before it turned away, which are most of them, and the rest out, the
+    /// recorder's among them.
+    func testALookThatFoundTheRecorderIsSaidAtOnceThoughMostOfItWasTurnedAway() async throws {
+        try await expectSaidAtOnce(.found(1), recorders: ["192.0.2.250": NamedRecorder(1)], turnedAwayBefore: 200,
+                                   cameBack: "answered [200: 1]; timed out 52; failed [-1009: 200]")
+    }
+
+    /// A press whose one look is said at once, as `said`: no notice, no pause, no single request and no second
+    /// look. `turnedAwayBefore` has the system turn away the look's first requests, so many, and let out every
+    /// one after them, as it does when the permission is given while a look goes.
+    private func expectSaidAtOnce(_ said: AppModel.ScanOutcome, recorders: [String: any HTTPTransport] = [:],
+                                  refusing: Set<String> = [], turnedAwayBefore: Int = 0, cameBack: String,
+                                  file: StaticString = #filePath, line: UInt = #line) async throws {
         let bench = try aBench()
-        let subnet = bench.joinWiFi(nobody: nobody)
+        let subnet = bench.joinWiFi(with: recorders, refusing: refusing)
+        if turnedAwayBefore > 0 {
+            await subnet.turnEverythingAway()
+            await subnet.hold(after: turnedAwayBefore)
+        }
         let model = await aModel(on: bench)
 
         model.scanForRecorders()
+        if turnedAwayBefore > 0 {
+            try await until("the look never got past the requests turned away", within: 3) {
+                await subnet.asked > turnedAwayBefore
+            }
+            await subnet.letEverythingOut()
+            await subnet.letGo()
+        }
         try await until("the search never asked everybody") { await subnet.asked >= self.addresses }
-        try await until("nothing found was not said at once", within: 0.5) { model.scanOutcome != nil }
+        try await until("what the look found was not said at once", within: 0.5) { model.scanOutcome != nil }
         // Long enough for a single request, or another look, to have been made.
         try await Task.sleep(for: .milliseconds(200))
 
-        XCTAssertEqual(model.scanOutcome, .nothing, file: file, line: line)
+        XCTAssertEqual(model.scanOutcome, said, file: file, line: line)
         XCTAssertFalse(model.scanBlocked, "the notice about the permission is up", file: file, line: line)
         XCTAssertNil(model.scanning, "the button was left held back after the search", file: file, line: line)
         expectEqual(await subnet.asked, addresses, "somebody was asked again after a look that had got out",
                     file: file, line: line)
         XCTAssertEqual(bench.scanPauses, [], "a pause was made, as before a single request", file: file, line: line)
+        let recorders = if case .found(let count) = said { count } else { 0 }
         XCTAssertEqual(bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
             "press: 253 addresses to ask, the app active",
-            "the wait for the permission is over: allowed",
-            "search: asked 253; answered []; \(cameBack); other 0; recorders 0; some s",
-            "said: nothing found",
+            "search: asked 253; \(cameBack); other 0; recorders \(recorders); some s",
+            recorders > 0 ? "said: found \(recorders)" : "said: nothing found",
         ], file: file, line: line)
     }
 
@@ -579,10 +490,12 @@ final class ScanTests: XCTestCase {
         }
     }
 
-    /// The phone moves to another Wi-Fi while the search is asking one address after a look that was turned
-    /// away whole. The Wi-Fi is read again before each single request, so the next one goes to the neighbour on
-    /// the Wi-Fi the phone is on now, and not to the one the press was made on and the wait aimed at.
-    func testASingleRequestAfterTheWiFiChangedGoesToTheNeighbourOnTheNewWiFi() async throws {
+    /// The phone moves to another subnet while the search is asking again after a look that was turned away
+    /// whole. The Wi-Fi is read again before each single request, so nothing more is asked of an address of
+    /// the subnet the look was made on: the look is made again at once on the new one, in place of that
+    /// turn's single request. Turned away there too, the next single request is for an address that look saw
+    /// turned away; let out, the recorder on the new Wi-Fi is found.
+    func testTheWiFiMovedWhileOneAddressIsAskedIsLookedThroughInPlaceOfTheRequest() async throws {
         let bench = try aBench()
         bench.holdTheSingleRequests()
         let left = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
@@ -592,29 +505,69 @@ final class ScanTests: XCTestCase {
         model.scanForRecorders()
         try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
         try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
-        let joined = bench.joinWiFi(as: Bench.phoneElsewhere)
+        let recorderElsewhere = "198.51.100.10"
+        let joined = bench.joinWiFi(with: [recorderElsewhere: NamedRecorder(2)], as: Bench.phoneElsewhere)
         await joined.turnEverythingAway()
         bench.letSingleRequestsGo()
         try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
 
-        // Read off both subnets: which one carried the request is the bench's affair, where it was for is not.
-        let leftSince = Array(await left.askedOf.dropFirst(addresses))
-        let joinedSince = await joined.askedOf
-        XCTAssertEqual(leftSince + joinedSince, ["198.51.100.1"],
-                       "the single request was not for the neighbour on the Wi-Fi the phone is on now")
-        XCTAssertTrue(model.scanBlocked, "the notice came down with the request turned away")
+        expectEqual(await left.asked, addresses, "a single request was made in the turn the Wi-Fi moved in")
+        let lookedAgain = await joined.askedOf
+        XCTAssertEqual(lookedAgain.count, addresses, "the new Wi-Fi was not looked through once in that turn")
+        XCTAssertEqual(lookedAgain.filter { !$0.hasPrefix("198.51.100.") }, [], "the old subnet's addresses were asked")
+        XCTAssertTrue(model.scanBlocked, "the notice came down with the new Wi-Fi's look turned away")
         XCTAssertNil(model.scanOutcome, "something was said while every request was being turned away")
+
+        // The permission is the phone's, whichever subnet carries the request: both let it out.
+        await left.letEverythingOut()
+        await joined.letEverythingOut()
+        bench.letSingleRequestsGo()
+        try await until("the search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .found(1))
+        XCTAssertEqual(model.found.map(\.host), [recorderElsewhere])
+        // Read off both subnets: which one carried the request is the bench's affair, where it was for is not.
+        let since = Array(await left.askedOf.dropFirst(addresses)) + Array(await joined.askedOf.dropFirst(addresses))
+        XCTAssertEqual(since.count, 1 + addresses, "a single request and one look more")
+        XCTAssertEqual(since.filter { !$0.hasPrefix("198.51.100.") }, [], "the old subnet's addresses were asked")
+        XCTAssertTrue(lookedAgain.contains(since.first ?? ""), "the single request was not for an address of the look")
+    }
+
+    /// The phone moves to another subnet while the search is asking again, and the look made there in place
+    /// of that turn's single request gets out: the notice comes down, and what it found is said, with no other
+    /// press and nothing more asked of the old subnet.
+    func testTheLookOnANewWiFiThatGetsOutTakesTheNoticeDownAndSaysWhatItFound() async throws {
+        let bench = try aBench()
+        bench.holdTheSingleRequests()
+        let left = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await left.turnEverythingAway()
+        let model = await aModel(on: bench)
+
+        model.scanForRecorders()
+        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        let recorderElsewhere = "198.51.100.10"
+        let joined = bench.joinWiFi(with: [recorderElsewhere: NamedRecorder(2)], as: Bench.phoneElsewhere)
+        bench.letSingleRequestsGo()
+        try await until("the search never ended") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .found(1))
+        XCTAssertEqual(model.found.map(\.host), [recorderElsewhere])
+        XCTAssertFalse(model.scanBlocked, "the notice stayed up over what the new Wi-Fi's look found")
+        XCTAssertNil(model.scanning, "the button was left held back after the search")
+        expectEqual(await left.asked, addresses, "the old subnet was asked after the move")
+        expectEqual(await joined.asked, addresses, "the new Wi-Fi was not looked through once")
+        XCTAssertEqual(bench.scanPauses.count, 1, "a pause was made after the look that got out")
     }
 
     // MARK: - the button
 
     /// レコーダーを探す is held back, with its spinner, only while a search is under way with no notice about
     /// the permission up (`scanHoldsTheButton`, which both screens read): through a look, and not before the
-    /// press, nor behind the notice -- while the wait says the permission is in the way, while one address is
-    /// asked after a look that was turned away whole, and once those requests are used up.
+    /// press, nor behind the notice -- while one address is asked again after a look that was turned away
+    /// whole, and once those requests are used up.
     func testTheButtonIsHeldBackOnlyWhileASearchGoesWithNoNoticeUp() async throws {
         let bench = try aBench()
-        bench.holdThePermission()
         bench.holdTheSingleRequests()
         let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
         await subnet.turnEverythingAway()
@@ -623,11 +576,6 @@ final class ScanTests: XCTestCase {
         XCTAssertFalse(model.scanHoldsTheButton, "held back before any press")
 
         model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
-        XCTAssertNotNil(model.scanning)
-        XCTAssertFalse(model.scanHoldsTheButton, "held back behind the notice while the wait waits")
-
-        bench.letThePermissionGo(allowed: true)
         try await until("the look never began", within: 3) { await subnet.asked > 0 }
         XCTAssertFalse(model.scanBlocked)
         XCTAssertTrue(model.scanHoldsTheButton, "live while a look went through the addresses")
@@ -644,57 +592,71 @@ final class ScanTests: XCTestCase {
         XCTAssertFalse(model.scanHoldsTheButton, "held back once the single requests were used up")
     }
 
-    /// With the notice up the button is the reader's, and a press while the wait is still held starts over:
-    /// the search under way is ended, its task cancelled, and only the second press's search asks anybody once
-    /// the permission comes.
+    /// With the notice up the button is the reader's, and a press while the search is asking again after a
+    /// look that was turned away starts over: the search under way is ended, its task cancelled, and only the
+    /// second press's search asks anybody after the press.
     func testAPressWhileTheNoticeIsUpStartsOver() async throws {
         let bench = try aBench()
-        bench.holdThePermission()
+        bench.holdTheSingleRequests()
         let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        await subnet.turnEverythingAway()
         let model = await aModel(on: bench)
         model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
         let first = try XCTUnwrap(model.scanTask)
 
+        await subnet.letEverythingOut()
         model.scanForRecorders()
         XCTAssertTrue(first.isCancelled, "the first press's search was left running")
-        bench.letThePermissionGo(allowed: true)
+        bench.letEverySingleRequestGo()
         try await within(2, "the first press's search never ended") { await first.value }
         try await until("the second press's search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(1))
         XCTAssertFalse(model.scanBlocked)
         XCTAssertNil(model.scanning, "the button was left held back after the search")
-        expectEqual(await subnet.asked, addresses, "the addresses were looked through for both presses")
+        expectEqual(await subnet.asked, addresses + addresses, "the first press's search asked again after the press")
     }
 
     // MARK: - what a search leaves in the log
 
-    /// The course of a first press as the log has it, for reading off a phone afterwards: the press, each
-    /// change of the app's phase while the search waits for the permission, as the system's question may make
-    /// them, the end of the wait, the search with how its requests came back, and what was said. In counts
-    /// and codes: no line has an address in it, nor anything the recorder said of itself.
+    /// The course of a first press as the log has it, for reading off a phone afterwards, in the phone's own
+    /// case: the press, the look with how its requests came back, its being turned away, each change of the
+    /// app's phase while the search asks again behind the system's question, as the question may make them, the
+    /// single request that got out and how it came back, the look after it, and what was said. In counts and
+    /// codes: no line has an address in it -- not the one the search asks again, which it keeps -- nor anything
+    /// the recorder said of itself.
     func testASearchWritesItsCourseToTheLogInCountsAndCodes() async throws {
         let bench = try aBench()
-        bench.holdThePermission()
-        bench.joinWiFi(with: [Bench.host: NamedRecorder(1)])
+        bench.holdTheSingleRequests()
+        let letThrough = "192.0.2.1"
+        let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)], refusing: [letThrough])
+        await subnet.turnEverythingAway(but: letThrough)
         let model = await aModel(on: bench)
 
         model.scanForRecorders()
-        try await until("the search never said the permission was in the way", within: 3) { model.scanBlocked }
+        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
         leave(model)
         comeBack(model)
-        bench.letThePermissionGo(allowed: true)
+        await subnet.letEverythingOut()
+        bench.letSingleRequestsGo()
         try await until("the search never ended") { model.scanOutcome != nil }
 
-        // How long a search took is the one thing in a line that is not the same at every run.
+        // How long a search took is the one thing in a line that is not the same at every run. The address
+        // asked again may be the recorder's, which answers once let out, where any other is silent.
         let lines = bench.scanLog.map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }
+        let askedOf = await subnet.askedOf
+        let gotOut = askedOf.count > addresses && askedOf[addresses] == Bench.host ? "200" : "-1001"
         XCTAssertEqual(lines, [
             "press: 253 addresses to ask, the app active",
+            "search: asked 253; answered []; timed out 0; failed [-1009: 252, -1004: 1]; other 0; recorders 0;"
+                + " some s",
+            "search: turned away, nothing said; one address is asked a second",
             "phase: not active",
             "phase: active",
-            "the wait for the permission is over: allowed",
-            "search: asked 253; answered [200: 1]; timed out 252; failed []; other 0; recorders 1; some s",
+            "single request: got out (\(gotOut)), after 1",
+            "search: asked 253; answered [200: 1]; timed out 251; failed [-1004: 1]; other 0; recorders 1; some s",
             "said: found 1",
         ])
         let recorder = try XCTUnwrap(model.found.first)
