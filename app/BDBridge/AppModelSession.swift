@@ -351,15 +351,16 @@ extension AppModel {
     }
 
     /// Waits for the reader to allow the local network, then tells the link. The screens say so from
-    /// `connectBlocked`.
+    /// `connectBlocked`. A wait that has given up with the permission still in the way ends for the link as
+    /// one that found no path: it is told the permission did not come, and connecting again is the reader's.
     func waitForPermission(at host: String) {
         accessWatch?.cancel()
         accessWatch = Task { [weak self] in
-            let allowed = await LocalNetwork.waitForAccess(probing: host) {}
+            let access = await LocalNetwork.waitForAccess(probing: host) {}
             guard let self, !Task.isCancelled else { return }
             // cleared before the link connects, since connecting stops whatever wait is still set
             self.accessWatch = nil
-            await self.recorder.permissionArrived(allowed, at: host)
+            await self.recorder.permissionArrived(access == .allowed, at: host)
         }
     }
 

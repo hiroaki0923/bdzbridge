@@ -73,7 +73,7 @@ struct Surroundings {
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
                      tvCredentials: KeychainTVCredentials(),
                      lanInterfaces: LocalNetwork.lanInterfaces,
-                     waitForLocalNetwork: LocalNetwork.waitForAccess(probing:blocked:),
+                     waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0, blocked: $1) == .allowed },
                      scanTransport: { URLSessionTransport() },
                      scanLog: { ScanLog.note($0) })
     }
