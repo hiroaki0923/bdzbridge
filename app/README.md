@@ -498,7 +498,8 @@ held back too, once, and the wait goes on watching it. The permission is not kno
 nobody has seen a connection held so; but waiting on it with nothing said would leave 検索中 0 / 253 frozen on
 the screen, the button held and no word of why, which a search is never to do. The notice says what may be in
 the way and the button is live; what the connection comes to afterwards is still the answer. A reader whose
-permission is given has had an answer well before, and never sees it.
+permission is given does not see it where the connection answers as it does on a Mac's loopback; one waiting on
+a path that says nothing yet, such as a VPN that comes up on demand, would. Neither has been seen on a phone.
 
 The wait as it was written for 0.3 read the path the first time there was one, before the connection has tried
 anything. That path is satisfied on a Mac's loopback, and is taken to have been satisfied on the phone

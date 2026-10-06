@@ -71,14 +71,17 @@ extension LocalNetwork {
     ///
     /// A connection that has come to nothing the wait reads by the time its handshake's seconds and two more
     /// are up -- still being set up, or still on its way -- is another matter. Whether the permission is what
-    /// holds it is not known: nothing Apple has written says what a connection is while the question is up,
-    /// and nobody has seen one held there. But left to wait on it with nothing said, a search would stand on
+    /// holds it is not known: nothing of Apple's that has been read (TN3179, `Network/connection.h`,
+    /// `Network/path.h`, WWDC20 10110) says what a connection is while the question is up, and nobody has seen
+    /// one held there. But left to wait on it with nothing said, a search would stand on
     /// the screen as 検索中 0 / 253, frozen, its button held and no word of why, which is the one thing a
     /// search is never to leave on the screen. So `blocked` is called then, once for that connection, and the
     /// wait goes on watching it: the screen says what may be in the way, with its way to the Settings app,
     /// and the button is live; whatever the connection comes to afterwards is still the answer. A reader whose
-    /// permission is given has an answer within the handshake's seconds -- an address that refuses at once,
-    /// one that is silent when its handshake runs out -- and never sees it.
+    /// permission is given does not see it where the connection answers as it does on a Mac's loopback --
+    /// an address that refuses at once, one that is silent when its handshake runs out. One that waits on a
+    /// path that says nothing yet, such as a VPN that comes up on demand, would show it after four seconds.
+    /// Neither has been seen on a phone.
     ///
     /// A connection that has failed outright is another matter: "The connection has irrecoverably closed or
     /// failed" (`Network/connection.h`), and nothing tries it again. With the permission in the way, the wait
