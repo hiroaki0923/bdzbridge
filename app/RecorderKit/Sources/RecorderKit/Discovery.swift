@@ -84,6 +84,24 @@ public enum Discovery {
         }
     }
 
+    /// One request of a search's kind to one address, read for how it came back and not for who lives there:
+    /// whether it was turned away before it could have been out for its time (`ScanTally.Counts`'s
+    /// `turnedAwayWhole`, of the one request).
+    ///
+    /// For a search whose look through the subnet was turned away whole, which is what the system's question
+    /// about the local network may do to it: "it may deny the operation immediately, before the user has
+    /// responded to the alert", and for requests that cannot be made through an API that waits for
+    /// connectivity, "add appropriate retry logic" (Apple's TN3179). A search's requests cannot: a session
+    /// that waits also waits, without end, on an address that refuses (`docs/porting.md`). So the search asks
+    /// one address until a request is let out, and looks again then. The asking, and how often, is the
+    /// caller's; this is the one request and the reading of it.
+    public static func turnedAway(at host: String, transport: any HTTPTransport = URLSessionTransport(),
+                                  port: Int = Upnp.port, timeout: TimeInterval = 1.2) async -> Bool {
+        let tally = ScanTally(transport)
+        _ = await probe(host, transport: tally, port: port, timeout: timeout)
+        return await tally.counts.turnedAwayWhole
+    }
+
     /// Reads a candidate's `description.xml`. Returns nil for anything that is not a Sony recorder with the
     /// reservation service, which is how televisions and other DLNA servers on the LAN are filtered out.
     public static func parseDescription(_ xml: String, host: String, port: Int = Upnp.port,

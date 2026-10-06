@@ -112,7 +112,8 @@ final class AppModel: LinkHost {
     /// which every screen shows as a failure.
     var scanOutcome: ScanOutcome?
     /// Set while a scan is held up by local network privacy -- the system's question is on screen, or was
-    /// answered no -- so that the screens can say so and offer the Settings app.
+    /// answered no -- or is taken to be, its look through the subnet having been turned away whole
+    /// (`scanForRecorders`), so that the screens can say so and offer the Settings app.
     var scanBlocked = false
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
     /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.

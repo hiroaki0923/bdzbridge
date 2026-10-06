@@ -3,7 +3,8 @@ import RecorderKit
 
 /// What `AppModel` reaches beyond itself: where it keeps its settings and its database, how its requests get
 /// to the recorder, which network it takes itself to be on, what it does on that network and on the
-/// screen of its own accord, and what a search for a recorder looks round, waits on and asks through.
+/// screen of its own accord, and what a search for a recorder looks round, waits on, asks through and
+/// pauses by.
 ///
 /// The app has one of these, `app`, and passes no other. It is here for the unit tests (`BDBridgeTests`),
 /// which make models of their own: settings in a suite they throw away, a database in a folder of their own,
@@ -53,6 +54,10 @@ struct Surroundings {
     /// What one search sends its requests through, to every address of the subnet: made anew for each search,
     /// as the app's session is. Nobody answers unless a test says otherwise.
     var scanTransport: () -> any HTTPTransport = { NoRecorderAnywhere() }
+    /// How a search lets time go by between one single request and the next, after a look through the
+    /// subnet that was turned away whole (`AppModel.scanForRecorders`): for as long as the search says, a
+    /// second, in the app. Not at all, unless a test holds the search there.
+    var scanPause: @Sendable (Duration) async -> Void = { _ in }
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
     /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
     var scanLog: @MainActor (String) -> Void = { _ in }
@@ -69,6 +74,7 @@ struct Surroundings {
                      lanInterfaces: LocalNetwork.lanInterfaces,
                      waitForLocalNetwork: LocalNetwork.waitForAccess(probing:blocked:),
                      scanTransport: { URLSessionTransport() },
+                     scanPause: { try? await Task.sleep(for: $0) },
                      scanLog: { ScanLog.note($0) })
     }
 }

@@ -147,6 +147,21 @@ extension AppModel {
     /// scan made there has said it found nobody while the question was still up. Then it looks through the
     /// addresses once, and what it found is said as soon as it has.
     ///
+    /// Unless that look was turned away whole (`ScanTally.Counts.turnedAwayWhole`): not one request of it
+    /// answered, timed out, refused or dropped, which on a subnet, where the addresses nobody lives at time
+    /// out, is taken for a look of which nothing left the device. The wait can be wrong behind the system's
+    /// question -- what its connection is while the question is up is not in what Apple has written
+    /// (`docs/porting.md`) -- and this is the net under it. Nothing is said of having looked. The notice
+    /// about the permission goes up, and the scan asks one address once a second (`Discovery.turnedAway`)
+    /// until a request is let out; then the notice comes down and it looks again, and what that look comes
+    /// to is treated the same way.
+    ///
+    /// That does not go on without end. The loop is a `for` over the single requests one press is allowed
+    /// (`singleRequestsAllowed`): each turn of it makes one of them and at most one look after it, and
+    /// nothing gives a turn back, so a press comes to at most that many single requests and one look more
+    /// than that. Then the scan ends as it does when the wait gives up: the notice stays, nothing is said of
+    /// having looked, and the button is the reader's.
+    ///
     /// What the scan did goes to the log as it goes (`ScanLog`), in counts and codes: what the system does
     /// behind its question is seen nowhere but on a phone.
     func scanForRecorders() {
@@ -154,7 +169,8 @@ extension AppModel {
         scanTask = Task { await scan() }
     }
 
-    /// Ends a scan wherever it has got to, the wait for the permission included.
+    /// Ends a scan wherever it has got to: the wait for the permission, a look, and the single requests
+    /// after one that was turned away.
     func stopScanning() {
         if scanTask != nil { surroundings.scanLog("stopped") }
         scanTask?.cancel()
@@ -164,6 +180,11 @@ extension AppModel {
         scanBlocked = false
     }
 
+    /// How many single requests one press may come to after a look that was turned away whole: two minutes
+    /// of them, a second apart, which is as long as the wait for the permission goes on making connections
+    /// (`LocalNetwork.turnsAllowed`).
+    static let singleRequestsAllowed = 120
+
     private func scan() async {
         scanRun += 1
         let run = scanRun
@@ -172,8 +193,8 @@ extension AppModel {
         scanOutcome = nil
         scanBlocked = false
         found = []
-        // The interfaces, the wait and the transport are the surroundings' (`Surroundings`), the device's own
-        // in the app: a test presses the button on a Wi-Fi it has invented.
+        // The interfaces, the wait, the transport and the pause are the surroundings' (`Surroundings`), the
+        // device's own in the app: a test presses the button on a Wi-Fi it has invented.
         let lan = surroundings.lanInterfaces()
         let hosts = lan.flatMap { LocalNetwork.hosts(around: $0) }
         guard let neighbour = lan.lazy.compactMap(LocalNetwork.neighbour(on:)).first, !hosts.isEmpty else {
@@ -215,6 +236,41 @@ extension AppModel {
             report(.noWiFi)
             return
         }
+        guard await look(through: hosts, run) == .turnedAway else { return }
+        // The look was turned away whole, and the notice is up. One address is asked, a second apart, through
+        // a transport of the scan's own kind, until a request is let out; nothing in between takes the notice
+        // down, and the look that follows puts it back if it is turned away as well.
+        let transport = surroundings.scanTransport()
+        for single in 1...Self.singleRequestsAllowed {
+            await surroundings.scanPause(.seconds(1))
+            guard scanRun == run, !Task.isCancelled else { return }
+            let turnedAway = await Discovery.turnedAway(at: neighbour, transport: transport)
+            // A request ended by the scan being stopped comes back as one that was out.
+            guard scanRun == run, !Task.isCancelled else { return }
+            guard !turnedAway else { continue }
+            surroundings.scanLog("single request: got out, after \(single)")
+            scanBlocked = false
+            guard await look(through: hosts, run) == .turnedAway else { return }
+        }
+        // Every single request the press is allowed has been made. The notice stays, nothing is said of
+        // having looked, and the button is the reader's, as when the wait gives up.
+        surroundings.scanLog("single requests: given up after \(Self.singleRequestsAllowed)")
+        scanning = nil
+        scanTask = nil
+    }
+
+    /// How one look through the addresses ended: over, with what it found said or the scan stopped
+    /// meanwhile, or turned away whole, with nothing said and the notice about the permission up.
+    private enum Look {
+        case over
+        case turnedAway
+    }
+
+    /// One look through the addresses, each asked once, and what was found said as soon as it is over.
+    /// A look that was turned away whole says nothing and puts the notice about the permission up instead:
+    /// the scan is still under way then, and what comes next is the caller's.
+    private func look(through hosts: [String], _ run: Int) async -> Look {
+        scanning = (0, hosts.count)
         // a recorder shows up the moment it answers, so the reader can take it while the rest of the
         // subnet is still being tried
         let transport = ScanTally(surroundings.scanTransport())
@@ -236,7 +292,14 @@ extension AppModel {
         let stopped = scanRun != run || Task.isCancelled
         surroundings.scanLog("search: \(counts.summary); recorders \(result.count); \(seconds) s"
                              + (stopped ? "; stopped" : ""))
-        guard !stopped else { return }
+        guard !stopped else { return .over }
+        // Nobody answered a look that was turned away whole, so it found nobody, and that is not to be said:
+        // nothing of it is taken to have left the device.
+        if counts.turnedAwayWhole {
+            surroundings.scanLog("search: turned away whole, nothing said; one address is asked a second")
+            scanBlocked = true
+            return .turnedAway
+        }
         // The list stays in the order the recorders answered, which the reader has been looking at while the
         // scan ran: the scan's own list is in the order of the addresses as text, and would move the row
         // under a finger about to tap it. Anything it found whose row has not arrived yet goes at the end.
@@ -247,6 +310,7 @@ extension AppModel {
         scanTask = nil
         surroundings.scanLog(found.isEmpty ? "said: nothing found" : "said: found \(found.count)")
         report(found.isEmpty ? .nothing : .found(found.count))
+        return .over
     }
 
     /// Whether a recorder a scan found is the one the app is set to. By its UDN as well as its address, so
