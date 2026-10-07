@@ -199,21 +199,39 @@ final class RecorderDiskTests: XCTestCase {
 
     // MARK: - the attach
 
-    /// A recorder that describes itself as the recorder of the vectors does, answers the slot as it is told, and
-    /// refuses everything else an attach reads, which the attach does without. What it answers the slot can be
-    /// changed between two attaches, as a disk put in or taken out would change it, and it counts the slot's reads.
+    /// A recorder that describes itself as the recorder of the vectors does, under that one's UDN or the one it is
+    /// given, answers the slot as it is told, and refuses everything else an attach reads, which the attach does
+    /// without. What it answers the slot, and which recorder it says it is, can be changed between two attaches, as
+    /// a disk put in or taken out, or another recorder at the address, would change them. It counts the slot's
+    /// reads, and can hold them, once it has let a number through, until the test lets them go: a read held is
+    /// counted as it arrives, and answered as the slot is by the time it goes.
     private actor SlotRecorder: HTTPTransport {
         enum Slot { case answer(HTTPResponse), silence }
         private var slot: Slot
-        private let description: String
+        private var description = ""
         private(set) var slotReads = 0
+        private var throughBeforeHolding: Int?
+        private var held: [CheckedContinuation<Void, Never>] = []
 
-        init(_ slot: Slot) {
+        init(_ slot: Slot, udn: String = RecorderDiskTests.vectorUDN) {
             self.slot = slot
-            description = (try? Vectors.load("description.json"))?.string("description_xml") ?? ""
+            description = Self.describing(udn)
+        }
+
+        private static func describing(_ udn: String) -> String {
+            ((try? Vectors.load("description.json"))?.string("description_xml") ?? "")
+                .replacingOccurrences(of: RecorderDiskTests.vectorUDN, with: udn)
         }
 
         func answer(_ slot: Slot) { self.slot = slot }
+        func become(udn: String) { description = Self.describing(udn) }
+        func holdSlotReads(after count: Int) { throughBeforeHolding = count }
+
+        func letGo() {
+            throughBeforeHolding = nil
+            for read in held { read.resume() }
+            held = []
+        }
 
         func send(_ request: HTTPRequest) async throws -> HTTPResponse {
             if request.url.lastPathComponent == "description.xml" {
@@ -223,12 +241,24 @@ final class RecorderDiskTests: XCTestCase {
                 return HTTPResponse(statusCode: 500)
             }
             slotReads += 1
+            if let through = throughBeforeHolding {
+                if through > 0 {
+                    throughBeforeHolding = through - 1
+                } else {
+                    await withCheckedContinuation { held.append($0) }
+                }
+            }
             switch slot {
             case .answer(let response): return response
             case .silence: throw RecorderError.transport("The request timed out.")
             }
         }
     }
+
+    /// The UDN of the recorder of the vectors, all zeroes, and another recorder's: Sony's OUI and the rest zeroed,
+    /// as everywhere in this repository, with a last digit of its own.
+    nonisolated static let vectorUDN = "uuid:00000000-0000-0000-0000-000000000000"
+    nonisolated static let anotherUDN = "uuid:00000000-0000-0000-0000-f84e17000002"
 
     private func connected(to slot: SlotRecorder.Slot) async -> (DeviceLink, LinkWorld) {
         await connected(to: SlotRecorder(slot))
@@ -288,8 +318,8 @@ final class RecorderDiskTests: XCTestCase {
         }
     }
 
-    /// Each attach reads the slot afresh: another disk put in it is the one known after the next attach, and a
-    /// slot that then refuses, or answers nothing, leaves none known, the recorder still connected.
+    /// Each attach reads the slot afresh: another disk put in it is the one known after the next attach, and so is
+    /// the first disk put back, a disk answered being taken at once. What one answer of none leaves is below.
     func testEveryAttachReadsTheSlotAfresh() async {
         let first = Stub.soap("X_GetMediaInfo", result: Self.slot())
         let recorder = SlotRecorder(.answer(first))
@@ -302,18 +332,199 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertEqual(link.session.usbDisk, Self.disk(registered: "2026-02-03T04:05:06+0900"),
                        "the disk read before was kept")
 
-        let gone: [(String, HTTPResponse)] = [
-            ("refused", Stub.fault("803")),
-            ("an empty result", Stub.soap("X_GetMediaInfo", result: "")),
-        ]
-        for (what, answer) in gone {
-            await recorder.answer(.answer(first))
-            await link.connect()
-            XCTAssertEqual(link.session.usbDisk, Self.disk(), what)
-            await recorder.answer(.answer(answer))
-            await link.connect()
-            XCTAssertNil(link.session.usbDisk, "a disk no longer in the slot was kept: \(what)")
-            XCTAssertTrue(link.session.connected, what)
+        await recorder.answer(.answer(first))
+        await link.connect()
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+        XCTAssertTrue(link.session.connected)
+    }
+
+    // MARK: - the slot right after a waking
+
+    /// What the slot answered right after a waking, with a disk registered and connected: a disk with no name and
+    /// no registration, not mounted and of no size, which is to say none.
+    static let wakingAnswer = Stub.soap("X_GetMediaInfo",
+                                        result: slot(name: "", mount: "0", remain: "0", total: "0", registered: ""))
+
+    /// Waits for a read left for later to be over, a few seconds at most.
+    private func untilOver(_ read: Task<Void, Never>, within seconds: TimeInterval = 3) async {
+        let over = expectation(description: "the read left for later is over")
+        Task {
+            await read.value
+            over.fulfill()
         }
+        await fulfillment(of: [over], timeout: seconds)
+    }
+
+    /// A link whose recorder answered the slot with a disk at one attach and with `none` at the next, so that the
+    /// slot is left to be read again after `delay`; with the recorder and the world, which the link's owner is.
+    /// `holding` has the recorder hold that read when it comes, until the test lets it go.
+    private func waitingToReadAgain(after delay: Duration, cache: GuideStore? = nil,
+                                    none: HTTPResponse = wakingAnswer, holding: Bool = false) async
+        -> (link: DeviceLink, recorder: SlotRecorder, world: LinkWorld) {
+        let recorder = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        let world = LinkWorld()
+        world.slotReadAgainAfter = delay
+        world.cache = cache
+        let (link, _) = await connected(to: recorder, in: world)
+        await recorder.answer(.answer(none))
+        if holding { await recorder.holdSlotReads(after: 1) }
+        await link.connect()
+        return (link, recorder, world)
+    }
+
+    /// A disk known outlasts one answer of none -- as the slot answers right after a waking, and a refusal too --
+    /// and is kept, in the session as it was read and with the cache, while the slot is left to be read again.
+    /// Read again and answering none once more, the disk goes, from the session and from the cache, and the
+    /// recorder is still connected.
+    func testAKnownDiskOutlastsOneAnswerOfNoneAndGoesWhenReadAgainFindsNone() async throws {
+        let nones: [(String, HTTPResponse)] = [("as right after a waking", Self.wakingAnswer),
+                                               ("refused", Stub.fault("803"))]
+        for (what, none) in nones {
+            let cache = try temporaryStore()
+            let (link, recorder, world) = await waitingToReadAgain(after: .milliseconds(1), cache: cache, none: none,
+                                                                   holding: true)
+            XCTAssertEqual(link.session.usbDisk, Self.disk(), "let go of on one answer of none: \(what)")
+            expectEqual(try await cache.knownUSBDisk(), Self.disk(), what)
+            let later = try XCTUnwrap(link.readLeftForLater, "the slot was not left to be read again: \(what)")
+
+            await recorder.letGo()
+            await untilOver(later)
+            XCTAssertNil(link.session.usbDisk, "kept after the slot answered none twice: \(what)")
+            expectNil(try await cache.knownUSBDisk(), what)
+            expectEqual(await recorder.slotReads, 3, what)
+            XCTAssertTrue(link.session.connected, what)
+            XCTAssertNil(world.problem, what)
+        }
+    }
+
+    /// Read again and answering the disk, the disk is taken as it answers now, in the session and in the cache.
+    func testAKnownDiskIsTakenAsItAnswersWhenReadAgainFindsIt() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, _) = await waitingToReadAgain(after: .milliseconds(1), cache: cache, holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot(remain: "100000"))))
+        await recorder.letGo()
+        await untilOver(later)
+
+        var fuller = Self.disk()
+        fuller.freeMB = 100_000
+        XCTAssertEqual(link.session.usbDisk, fuller, "the read again was not taken")
+        expectEqual(try await cache.knownUSBDisk(), fuller)
+    }
+
+    /// Silence on the read again changes nothing: the disk known stays, in the session and in the cache, and the
+    /// recorder is neither lost nor said to be.
+    func testSilenceOnTheReadAgainChangesNothing() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .milliseconds(1), cache: cache,
+                                                               holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+
+        await recorder.answer(.silence)
+        await recorder.letGo()
+        await untilOver(later)
+
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "silence was taken for no disk")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        XCTAssertTrue(link.session.connected)
+        XCTAssertFalse(link.session.unreachable)
+        XCTAssertNil(world.problem)
+    }
+
+    /// The read left for later goes with the device: when the device is let go of, and when another recorder
+    /// describes itself at the address, though that attach gets no further than the description. Nor is a
+    /// recorder given up on since asked: that stands until the network changes or the reader asks.
+    func testTheReadLeftForLaterGoesWithTheDevice() async throws {
+        let (forgotten, forgottenRecorder, _) = await waitingToReadAgain(after: .seconds(60))
+        let forgottenRead = try XCTUnwrap(forgotten.readLeftForLater)
+        forgotten.forgetTheDevice()
+        XCTAssertTrue(forgottenRead.isCancelled, "the device let go of")
+        await untilOver(forgottenRead)
+        expectEqual(await forgottenRecorder.slotReads, 2)
+
+        let (replaced, replacing, _) = await waitingToReadAgain(after: .seconds(60))
+        let replacedRead = try XCTUnwrap(replaced.readLeftForLater)
+        await replacing.become(udn: Self.anotherUDN)
+        await replacing.answer(.silence)
+        await replaced.connect()
+        XCTAssertTrue(replacedRead.isCancelled, "another recorder")
+        await untilOver(replacedRead)
+
+        // Long enough for the test to give the recorder up first.
+        let (lost, lostRecorder, _) = await waitingToReadAgain(after: .milliseconds(300))
+        let lostRead = try XCTUnwrap(lost.readLeftForLater)
+        lost.lost()
+        await untilOver(lostRead)
+        expectEqual(await lostRecorder.slotReads, 2, "a recorder given up on was asked")
+    }
+
+    /// With no disk known, an answer of none is all there is: nothing is left for later, and the slot is asked
+    /// once an attach and no more.
+    func testNothingIsLeftForLaterWithNoDiskKnown() async throws {
+        let world = LinkWorld()
+        world.slotReadAgainAfter = .seconds(60)
+        world.cache = try temporaryStore()
+        let recorder = SlotRecorder(.answer(Self.wakingAnswer))
+        let (link, _) = await connected(to: recorder, in: world)
+        await link.connect()
+
+        XCTAssertNil(link.session.usbDisk)
+        XCTAssertNil(link.readLeftForLater, "the slot was left to be read again with no disk known")
+        expectEqual(await recorder.slotReads, 2)
+    }
+
+    /// The disk known is kept with the cache for the next launch, whose first attach -- usually a waking one --
+    /// then has a disk to keep through the slot's answer of none, as it was read. Another recorder taking the cache
+    /// over takes it out of the cache and out of the session, and nothing is left for later.
+    func testADiskKnownAtAnEarlierLaunchOutlastsTheFirstAnswerOfNoneAndGoesWithTheCache() async throws {
+        let cache = try temporaryStore()
+        let earlier = LinkWorld()
+        earlier.cache = cache
+        let (_, earlierWorld) = await connected(to: SlotRecorder(.answer(Stub.soap("X_GetMediaInfo",
+                                                                                   result: Self.slot()))),
+                                                in: earlier)
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        _ = earlierWorld
+
+        let world = LinkWorld()
+        world.slotReadAgainAfter = .seconds(60)
+        world.cache = cache
+        let recorder = SlotRecorder(.answer(Self.wakingAnswer))
+        let (link, _) = await connected(to: recorder, in: world)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the disk kept with the cache was not taken up")
+        let later = try XCTUnwrap(link.readLeftForLater)
+
+        await recorder.become(udn: Self.anotherUDN)
+        await link.connect()
+        XCTAssertTrue(later.isCancelled)
+        XCTAssertNil(link.session.usbDisk)
+        expectNil(try await cache.knownUSBDisk(), "the last recorder's disk was kept for another")
+        XCTAssertNil(link.readLeftForLater)
+    }
+
+    /// A disk known in memory goes when the cache is made over to another recorder, though the session did not
+    /// know the last one for another: it had not said which recorder it was, and the cache took it for its own.
+    func testADiskKnownGoesWhenTheCacheIsMadeOver() async throws {
+        let cache = try temporaryStore()
+        let owner = LinkWorld()
+        owner.cache = cache
+        let (_, ownerWorld) = await connected(to: SlotRecorder(.answer(Self.wakingAnswer)), in: owner)
+        expectEqual(try await cache.owner(), Self.vectorUDN)
+        _ = ownerWorld
+
+        let world = LinkWorld()
+        world.slotReadAgainAfter = .seconds(60)
+        world.cache = cache
+        let recorder = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())), udn: "")
+        let (link, _) = await connected(to: recorder, in: world)
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+
+        await recorder.become(udn: Self.anotherUDN)
+        await recorder.answer(.answer(Self.wakingAnswer))
+        await link.connect()
+        XCTAssertEqual(world.count("another device"), 0, "the session knew the last recorder for another")
+        XCTAssertNil(link.session.usbDisk, "the disk known stayed through the cache made over")
+        XCTAssertNil(link.readLeftForLater)
     }
 }

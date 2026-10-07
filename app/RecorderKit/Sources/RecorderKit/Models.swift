@@ -109,8 +109,9 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
 /// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in
 /// its USB slot. The slot is one id: with one disk registered and connected it was that disk's, and every other id
 /// tried was refused. What it names with another disk, or with two connected at once, has not been seen, so the
-/// disk behind it is taken to change: unplugged, swapped, or renamed on the recorder's own screen.
-public struct RecorderDisk: Equatable, Sendable {
+/// disk behind it is taken to change: unplugged, swapped, or renamed on the recorder's own screen. Codable so
+/// that the USB disk last known can be kept with the cache for the next launch (`GuideStore.knownUSBDisk`).
+public struct RecorderDisk: Equatable, Sendable, Codable {
     /// The recorder's id for it: `internalID` or `usbID`.
     public var destination: String
     /// The name the recorder gives the disk, which its owner can change on the recorder; empty for its own.

@@ -19,6 +19,16 @@ final class USBDiskTests: XCTestCase {
             + "<recordableRemain>654321</recordableRemain></xsrs>"
     }
 
+    /// The disk `slot()` describes, as the app reads it.
+    static let disk = RecorderDisk(destination: "USBHDD", name: "録画用ディスク", mounted: true, freeMB: 123_456,
+                                   totalMB: 2_000_398, registered: "2026-01-02T03:04:05+0900")
+
+    /// The slot as it answered right after a waking, with a disk registered and connected: no name and no
+    /// registration, not mounted and of no size.
+    static let wakingSlot = "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\">"
+        + "<name></name><mount>0</mount><remain>0</remain><total>0</total><registeredTime></registeredTime>"
+        + "<recordableRemain>0</recordableRemain></xsrs>"
+
     /// A model started and connected to a recorder that answers the slot with `slot`, or as the demo's does when
     /// it is nil.
     private func connected(answering slot: String?) async throws -> (bench: Bench, recorder: NamedRecorder,
@@ -139,6 +149,84 @@ final class USBDiskTests: XCTestCase {
         XCTAssertFalse(fetched)
         expectEqual(await recorder.heard(since: before).last, "X_GetMediaInfo", "the run went on past the slot")
         expectEqual(await told.said, [])
+    }
+
+    /// The overnight run never lets a disk known go: a slot it reads as none -- as it is right after a waking,
+    /// which the run often is -- means no USB notice that night and nothing more, and the disk kept with the cache
+    /// stays for the screens to settle.
+    func testTheNightRunKeepsTheDiskKnown() async throws {
+        let (bench, recorder, _) = try await connected(answering: Self.slot())
+        expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk)
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.wakingSlot), times: 1000)
+        let told = Told()
+
+        // No MAC, as above.
+        _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
+                                         store: try GuideStore(path: bench.guidePath), mac: nil,
+                                         telling: telling(told))
+
+        expectEqual(await told.said, ["free space"])
+        expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk,
+                    "the night let the disk known go")
+    }
+
+    /// A disk known at an earlier launch is kept with the cache, and the first attach of the next -- usually a
+    /// waking one, when the slot answers as if no disk were registered -- shows it as it was read, not as away,
+    /// with the slot left to be read again. The app leaving ends that read before it is made, and the disk stays.
+    /// Another recorder answering takes the disk away, from the screens and from the cache.
+    func testADiskKnownAtAnEarlierLaunchIsShownThroughTheFirstWakingAndGoesWithTheCache() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        do {
+            let earlier = NamedRecorder(1)
+            await earlier.answer("X_GetMediaInfo", with: .result(Self.slot()), times: 1000)
+            let before = bench.model(recorders: [Bench.host: earlier])
+            await before.start()
+            try await untilConnected(before)
+            expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk)
+        }
+
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.wakingSlot), times: 1000)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        XCTAssertEqual(model.usbDisk, Self.disk, "the disk known at the earlier launch was not taken up")
+        XCTAssertEqual(SettingsScreen.storageRows(storage: model.storage, usb: model.usbDisk).last,
+                       .init(label: "録画用ディスク", value: "残り 123.5 GB / 2000.4 GB"))
+        let later = try XCTUnwrap(model.recorder.readLeftForLater, "the slot was not left to be read again")
+
+        model.wentToBackground()
+        XCTAssertTrue(later.isCancelled, "the read again outlived the app's leaving")
+        try await within(5, "the read again never ended") { await later.value }
+        expectEqual(await recorder.asked("X_GetMediaInfo"), 1)
+        XCTAssertEqual(model.usbDisk, Self.disk)
+
+        await recorder.become(2)
+        await model.returnedToForeground()
+        await reconnect(model)
+        XCTAssertNil(model.usbDisk, "the last recorder's disk was shown for another")
+        expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
+    }
+
+    /// The slot is read again once the surroundings' time has gone by -- the app's minute, a moment here -- and a
+    /// second answer of none lets the disk go, from the screens and from the cache.
+    func testTheSlotIsReadAgainOnceTheSurroundingsTimeHasGoneBy() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        bench.slotReadAgainAfter = .milliseconds(50)
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.slot()), times: 1)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        XCTAssertEqual(model.usbDisk, Self.disk)
+
+        // The demo's answer from here on, which is none.
+        await reconnect(model)
+        try await until("the slot was not read again", within: 5) { model.usbDisk == nil }
+        expectEqual(await recorder.asked("X_GetMediaInfo"), 3)
+        expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
     }
 
     /// The USB disk's warning is given once per fall below the line, for the disk in the slot: a disk that was

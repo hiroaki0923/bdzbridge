@@ -298,6 +298,8 @@ enum BackgroundWork {
         // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
         // Read through the one rule the screens use: only a disk the recorder registered counts. It lets only
         // silence out, and silence ends the run here: the free space and the guide would each wait it out again.
+        // An answer of none, which a recorder just woken gives with a disk in the slot, means no USB notice
+        // tonight and nothing more: the disk kept with the cache stays for the screens to settle.
         let usb: RecorderDisk?
         do {
             usb = try await RecorderDriver.usbDisk(of: client)

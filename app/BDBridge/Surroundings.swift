@@ -37,6 +37,9 @@ struct Surroundings {
     /// How long a write to the cache waits for another connection's: five seconds, shortened only by a test that
     /// holds the lock on purpose and has no reason to wait them out.
     var storeBusyTimeoutMilliseconds: Int32 = 5000
+    /// How long after an attach found the recorder's USB slot answering no disk, while one was known, the slot is
+    /// read again: the driver's minute, shortened only by a test, which has no minute to wait.
+    var slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter
     /// How requests reach the television at an address: a transport that keeps no cookies of its own, since
     /// the client sends its registration's by hand. Nothing answers unless a test says otherwise.
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }

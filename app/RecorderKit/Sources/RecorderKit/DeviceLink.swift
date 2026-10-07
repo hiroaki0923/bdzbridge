@@ -31,19 +31,25 @@ public struct LinkEnvironment {
     public var hostsNear: (_ host: String) -> [String]
     /// Looks through `hosts` for the recorder whose UDN ends with `mac`.
     public var findRecorder: (_ mac: String, _ hosts: [String]) async -> RecorderDescription?
+    /// How long after an attach found the recorder's USB slot answering no disk, while one was known, the slot is
+    /// read again: the driver's minute (`RecorderDriver.slotReadAgainAfter`), unless a test, which has no minute
+    /// to wait, gives less.
+    public var slotReadAgainAfter: Duration
 
     public init(transport: @escaping (_ host: String) -> any HTTPTransport,
                 networkSignature: @escaping () -> String,
                 sendPacket: @escaping (_ mac: String, _ host: String) -> Void,
                 lanIsBlocked: @escaping (_ host: String) async -> Bool,
                 hostsNear: @escaping (_ host: String) -> [String],
-                findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?) {
+                findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?,
+                slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter) {
         self.transport = transport
         self.networkSignature = networkSignature
         self.sendPacket = sendPacket
         self.lanIsBlocked = lanIsBlocked
         self.hostsNear = hostsNear
         self.findRecorder = findRecorder
+        self.slotReadAgainAfter = slotReadAgainAfter
     }
 }
 
@@ -186,6 +192,12 @@ public final class DeviceLink {
     /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
     /// from it when the device is up.
     public private(set) var wakeCheck: Task<NotUp?, Never>?
+    /// A read the driver has left for later (`readLater`), while it waits or is out; nil otherwise. It goes with
+    /// the device: when another describes itself, when the device is let go of, and when the app leaves
+    /// (`endTheReadLeftForLater`).
+    @ObservationIgnored public private(set) var readLeftForLater: Task<Void, Never>?
+    /// Counts the reads left for later, so that one that has ended does not take the place of the next.
+    @ObservationIgnored private var readsLeftForLater = 0
     @ObservationIgnored private var settling: Task<Void, Never>?
     @ObservationIgnored public weak var owner: (any LinkHost)?
     @ObservationIgnored public let driver: any LinkDriver
@@ -301,7 +313,31 @@ public final class DeviceLink {
     public func forgetTheDevice() {
         session.forgotTheDevice()
         client = nil
+        endTheReadLeftForLater()
         owner?.stopWaitingForPermission()
+    }
+
+    // MARK: - a read left for later
+
+    /// Runs `read` once `delay` has gone by, in a task of the link's own that holds the link only while `read`
+    /// runs: a link let go of goes, and the read with it. One at a time, a second taking the first's place. It
+    /// does not hold back whatever is under way, and nothing waits for it.
+    public func readLater(after delay: Duration, _ read: @escaping @MainActor (DeviceLink) async -> Void) {
+        endTheReadLeftForLater()
+        readsLeftForLater += 1
+        let this = readsLeftForLater
+        readLeftForLater = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            if !Task.isCancelled, let self { await read(self) }
+            if let self, self.readsLeftForLater == this { self.readLeftForLater = nil }
+        }
+    }
+
+    /// Ends the read left for later, if there is one: one still waiting is not made, and one that is out is
+    /// cancelled, which the driver's read takes as the word to leave its answer.
+    public func endTheReadLeftForLater() {
+        readLeftForLater?.cancel()
+        readLeftForLater = nil
     }
 
     // MARK: - making sure before an operation

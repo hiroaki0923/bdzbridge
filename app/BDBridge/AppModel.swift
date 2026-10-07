@@ -85,8 +85,9 @@ final class AppModel: LinkHost {
     /// the series need not give them: see `RecorderDriver.attach`.
     var firmware: String { session.firmware }
     var storage: (free: Int, total: Int)? { session.storage }
-    /// The disk in the recorder's USB slot, when the last attach found one the recorder has registered; nil in a
-    /// home with no USB disk, which is then shown nothing of one (`RecorderDriver.usbDisk`).
+    /// The disk in the recorder's USB slot as last known, a registered one; nil in a home with no USB disk, which
+    /// is then shown nothing of one (`RecorderDriver.usbDisk`). Shown as it was read while the slot, right after a
+    /// waking, answers none and is to be read again (`SessionState.usbDisk`).
     var usbDisk: RecorderDisk? { session.usbDisk }
     var counts: [String: GuideCounts] = [:]
     var channels: [Channel] = []

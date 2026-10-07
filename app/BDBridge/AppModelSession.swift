@@ -139,6 +139,9 @@ extension AppModel {
         // one about another recorder.
         closeQueueReport()
         anotherTookOver = false
+        // The slot's read again goes with the app: made after a return, it would come beside the return's own
+        // reads. The disk known stays as it was read until an attach reads the slot again.
+        recorder.endTheReadLeftForLater()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends
@@ -206,7 +209,8 @@ extension AppModel {
                 guard let self, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else { return [] }
                 return LocalNetwork.hostsToScan(near: host)
             },
-            findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) })
+            findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) },
+            slotReadAgainAfter: surroundings.slotReadAgainAfter)
     }
 
     /// What the link has until the model is made: nothing reaches anything.
