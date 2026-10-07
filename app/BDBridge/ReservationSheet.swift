@@ -94,9 +94,10 @@ struct ReservationSheet: View {
                                 saved = await model.update(reservation, quality: quality, repeating: repeating,
                                                            disk: moved)
                                 if !saved { failure = whatWentWrong }
-                                // A move to a disk no longer offered is forgotten: the reservation stays where
+                                // A move to a disk that cannot be had -- no longer offered, or not answered by
+                                // the slot while it was waited for -- is forgotten: the reservation stays where
                                 // the recorder holds it, and the picker offers what is left.
-                                if let moved, !RecorderDisk.offers(moved, with: model.usbDisk) { movedTo = nil }
+                                if let moved, model.diskCannotBeHad(moved) { movedTo = nil }
                             }
                         }
                         .disabled(model.isBusy(for: reservation.device))

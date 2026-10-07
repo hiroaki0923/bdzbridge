@@ -40,14 +40,27 @@ extension AppModel {
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
     ///
     /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
-    /// refused before anything is sent, as a reservation's is (`reserve`). A condition is never changed, so one
-    /// made to a disk the reader did not pick could only be deleted and made again.
+    /// refused before anything is sent, as a reservation's is (`reserve`), and so is one kept through an answer of
+    /// none that the slot does not answer while it is waited for (`slotWithholds`). A condition is never changed,
+    /// so one made to a disk the reader did not pick could only be deleted and made again.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
+        diskNotHad = nil
         guard let client else { return false }
         guard RecorderDisk.offers(request.destination, with: usbDisk) else {
             problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
             return false
+        }
+        // To the slot, the recorder is made sure of before the line of the registration goes up: waking it leaves
+        // the disk kept, and the slot is waited for then.
+        if request.destination == RecorderDisk.usbID {
+            guard await wakeIfDozing() else { return false }
+            if let withheld = await slotWithholds(request.destination) {
+                if withheld == .noDisk {
+                    problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
+                }
+                return false
+            }
         }
         let made = await run("レコーダーに登録中", sending: true) {
             _ = try await client.createRecorderRule(request)

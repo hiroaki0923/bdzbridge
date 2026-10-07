@@ -191,6 +191,9 @@ struct RecorderRuleSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                // The wait for the USB slot before a condition to it is sent, which the screen's strip under the
+                // sheet cannot be seen to say.
+                WakingSection(saysTheWaking: false)
                 Section {
                     ForEach($keywords) { $word in
                         WordRow(placeholder: "キーワード", text: $word.text,
@@ -288,9 +291,10 @@ struct RecorderRuleSheet: View {
                                 dismiss()
                             } else {
                                 failure = model.problem ?? "レコーダーがエラーを返しました"
-                                // Refused for a disk no longer offered: the sheet goes back to the internal disk,
+                                // Refused for a disk that cannot be had -- no longer offered, or not answered by
+                                // the slot while it was waited for: the sheet goes back to the internal disk,
                                 // named, for the reader to send again or leave.
-                                if !RecorderDisk.offers(request.destination, with: model.usbDisk) {
+                                if model.diskCannotBeHad(request.destination) {
                                     chosenDisk = RecorderDisk.internalID
                                 }
                             }
