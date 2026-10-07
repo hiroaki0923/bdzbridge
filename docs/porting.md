@@ -147,8 +147,8 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
 **録画タイトル**
 - `X_GetTitleList` は、本体の HDD なら SearchCriteria を空で（公式クライアントと同じ）、USB HDD なら
   `recordDestinationID="USBHDD"`（空白なし、引用符つき）で検索し、1 回 200 件まで。`TotalMatches` を見て、各ページが
-  返した件数ずつ進めて繰り返す。レコーダーは読めない条件を「全件」と読むので、各行の `recordDestinationID` で
-  絞り直す（本体の一覧からは `USBHDD` の行だけを除く。USB HDD の無い機体では何も変わらない）。
+  返した件数ずつ進めて繰り返す。レコーダーは読めない条件を「全件」と読むので、録画先を指定して読むときは各行の
+  `recordDestinationID` で絞り直す。指定しないときは返った行をすべて残す（アプリの録画一覧はこれで、以前と同じ）。
 - `lastPlaybackTime` は未再生だと本文が `notplayed`。`resumePoint` 属性が再生位置（秒）。
 - `genreID` は ARIB のレベル1×16＋レベル2。
 - `X_UpdateTitle` は `<item id>` と変える要素だけを送る（`titleProtectFlag`、`titleNewFlag`、`title`）。
@@ -166,12 +166,14 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
   レコーダーは `powerstatus` を返さない。待っても入らなければ 880 のまま返り、手で電源を入れるボタンが出る。
 - 残容量は ContentDirectory の `X_HDLnkGetRecordDestinationInfo`（バイト単位）。`RecordDestinationInfo` 要素の中に
   エスケープされた XML があり、その `totalCapacity` / `availableCapacity` 属性が値。何を渡しても本体の HDD の値。
-- **USB HDD は `X_PvrControl` の `X_GetMediaInfo(USBHDD)` だけが言います**（形は `xsrs-api.md` の「USB HDD」）。
-  `remain` / `total` は MB（10^6 バイトと推定）。`registeredTime` のある、登録済みのディスクだけを USB HDD とし、
-  断り、読めない答え、`mount` の無い答え、登録時刻の無い答えは「無し」にします。ディスクを外したときと、一度も
-  登録していない機体の答えは未確認です。アプリは接続のたびと深夜の処理でこれを 1 回読みます。USB HDD の無い家
-  でも 1 回増えるのは、ほかに USB HDD があると知る手段が無いためです。ディスクの見分けは、id と登録時刻と名前が
-  すべて同じかどうか（`RecorderDisk.isSameDisk`。名前を変えたディスクは別のディスクと見る）。
+- **USB HDD は、確かめた経路では `X_PvrControl` の `X_GetMediaInfo(USBHDD)` だけが言いました**（形と、確かめた
+  経路は `xsrs-api.md` の「USB HDD」。DLNA のツリーはまだ見ていない）。`remain` / `total` は MB（10^6 バイトと推定）。
+  `registeredTime` のある、登録済みのディスクだけを USB HDD とし、断り、読めない答え、`mount` の無い答え、登録時刻の
+  無い答えは「無し」にします。ディスクを外したとき、一度も登録していない機体、起こした直後の答えは未確認です。
+  アプリは接続のたびと深夜の処理でこれを 1 回読みます。接続では送信待ちを送ったあとに読み、遅くても無応答でも
+  送信待ちを止めません（無応答なら接続は失敗）。深夜の処理は、ここで無応答なら残容量も番組表も取らずに終わります。
+  USB HDD の無い家でも 1 回増えるのは、確かめた経路にほかの手段が無かったためです。ディスクの見分けは、id と
+  登録時刻と名前がすべて同じかどうか（`RecorderDisk.isSameDisk`。名前を変えたディスクは別のディスクと見る）。
 - サムネイルは全タイトル共通のダミー画像なので出さない。番組内容は `X_GetTitleDetail`（summary と detail 群）。
 - DLNA ツリーにはシリーズ ID がない。「まとめ」はタイトル文字列から `series.py` の規則で作る。公式クライアントも
   同じくクライアント側でタイトル文字列から鍵を作っている。

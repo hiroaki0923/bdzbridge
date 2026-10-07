@@ -835,11 +835,15 @@ does; with no USB disk the notice says what it always has. The settings then lis
 disk, in the words the television's USB disk is described in.
 
 Whether a USB disk is there is read once at every attach and in every overnight run (`X_GetMediaInfo`), and by
-nothing else the screens do: the recorder lists no other destination, and its capacity call answers with the
-internal disk's figures whatever it is asked. So a home with no USB disk pays that one request and sees
-nothing else new. Only a disk the recorder has registered counts (`RecorderDriver.usbDisk`); a refusal, an
-answer that cannot be read, and a disk with no registration are all no disk. What the slot answers with the
-disk unplugged, and what a recorder that never registered one answers, have not been seen.
+nothing else the screens do. Of the calls looked at, it is the only one that told: with a disk connected the
+recorder listed no other destination, and its capacity call answered with the internal disk's figures whatever
+it was asked; its DLNA tree has not been looked at for one. So a home with no USB disk pays that one request and
+sees nothing else new. An attach reads it after what waits has been sent, so that a slot slow to answer or
+silent holds back no reservation, and an overnight run that meets silence there stops rather than wait it out
+again for the free space and the guide. Only a disk the recorder has registered counts
+(`RecorderDriver.usbDisk`); a refusal, an answer that cannot be read, and a disk with no registration are all
+no disk. What the slot answers with the disk unplugged, just after a wake, and from a recorder that never
+registered one, has not been seen; it was read once in network standby, and answered as with the recorder on.
 
 ### Coming back to the app
 

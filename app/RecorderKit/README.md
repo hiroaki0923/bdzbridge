@@ -69,7 +69,9 @@ RECORDER_HOST=<recorder ip> swift test --filter LiveRecorderTests
 ```
 
 It only reads, so it cannot change what the recorder is going to record. Compare its printed figures with the
-same ones from the Python server to see that both agree.
+same ones from the Python server to see that both agree. A recorder that has left the network answers
+nothing; with `RECORDER_MAC=<the recorder's MAC>` set as well, each test first wakes it as the app does and
+waits up to a minute for it to answer, printing how long that took. The MAC is never printed.
 
 ## What is not here
 
