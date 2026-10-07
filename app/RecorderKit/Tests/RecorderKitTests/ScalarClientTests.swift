@@ -844,6 +844,143 @@ final class ScalarClientTests: XCTestCase {
         }
     }
 
+    // MARK: - changing a reservation
+
+    /// A change is `addSchedule` in the version that takes the list's id, at the service a create goes to and
+    /// with the cookie, and its parameters are one object: the row's id, type, uri, title, start, length and
+    /// programme, each as the list gave it, and the new repeat as it is handed in. The title goes in the
+    /// television's form whatever is in it -- a character outside the BMP, an ideographic space, a slash, a
+    /// quotation mark -- and is not escaped into ASCII. The start goes back as the string read, one spelled
+    /// with a colon in its offset as well, and the programme as text. No mode, though the row has one, and
+    /// nothing else the list alone gives.
+    func testAChangeSendsTheRowAsItWasReadWithItsNewRepeat() async throws {
+        let title = "\u{1F211}サンプル劇場\u{3000}第５話/前編 \"夜\""
+        let listed: [[String: Any]] = [
+            ["id": "recording.31", "type": "recording", "uri": Self.uri, "title": title, "channelName": "サンプルテレビ",
+             "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 3541, "repeatType": "1",
+             "overlapStatus": "fullyOverlapped", "recordingStatus": "notStarted", "quality": "DR", "eventId": "12345"],
+            ["id": "recording.34", "type": "recording", "uri": Self.uri, "title": "サンプル天気",
+             "channelName": "サンプルテレビ", "startDateTime": "2026-11-02T06:30:00+09:00", "durationSec": 900,
+             "repeatType": "w1", "overlapStatus": "notOverlapped", "recordingStatus": "notStarted", "quality": "DR",
+             "eventId": "12346"],
+        ]
+        let list = try JSONSerialization.data(withJSONObject: ["result": [listed], "id": 1])
+        let transport = StubTransport { _, index in
+            HTTPResponse(statusCode: 200, body: index == 0 ? list : Data(#"{"result":[{"annotation":0}],"id":2}"#.utf8))
+        }
+        let (tv, _) = client(transport, Self.kept)
+
+        let rows = try await tv.schedules()
+        try await tv.changeSchedule(rows[0], repeatType: "w7")
+        try await tv.changeSchedule(rows[1], repeatType: "title")
+
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, Array(repeating: "/sony/recording", count: 3))
+        XCTAssertEqual(sent[1].headers["Cookie"], "auth=kept")
+        let change = try json(sent[1])
+        XCTAssertEqual(change["method"] as? String, "addSchedule")
+        XCTAssertEqual(change["version"] as? String, "1.2")
+        XCTAssertEqual(change["params"] as? NSArray, [[
+            "id": "recording.31", "type": "recording", "uri": Self.uri, "title": title,
+            "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 3541, "repeatType": "w7", "eventId": "12345",
+        ]] as NSArray)
+        expectTrue(await transport.bodies[1].contains("\u{1F211}サンプル劇場\u{3000}第５話/前編"), "escaped")
+        XCTAssertEqual(try json(sent[2])["params"] as? NSArray, [[
+            "id": "recording.34", "type": "recording", "uri": Self.uri, "title": "サンプル天気",
+            "startDateTime": "2026-11-02T06:30:00+09:00", "durationSec": 900, "repeatType": "title",
+            "eventId": "12346",
+        ]] as NSArray)
+    }
+
+    /// A reservation made by its times was read with no programme, and its change sends none: seven fields,
+    /// and no empty programme in place of one. A row that came with no title sends an empty one, the field
+    /// being one the method is always given.
+    func testAChangeOfARowMadeByItsTimesSendsNoProgramme() async throws {
+        let list = ok(#"""
+        [[{"id":"recording.36","type":"recording","uri":"\#(Self.uri)","startDateTime":"2026-11-03T05:00:00+0900",
+           "durationSec":1800,"repeatType":"1","overlapStatus":"notOverlapped","recordingStatus":"notStarted",
+           "quality":"DR"}]]
+        """#)
+        let taken = ok(#"[{"annotation":0}]"#)
+        let transport = StubTransport { _, index in index == 0 ? list : taken }
+        let (tv, _) = client(transport, Self.kept)
+
+        let row = try await tv.schedules()[0]
+        try await tv.changeSchedule(row, repeatType: "d")
+
+        XCTAssertNil(row.eventId)
+        XCTAssertNil(row.title)
+        let sent = await transport.requests
+        XCTAssertEqual(try json(sent[1])["params"] as? NSArray, [[
+            "id": "recording.36", "type": "recording", "uri": Self.uri, "title": "",
+            "startDateTime": "2026-11-03T05:00:00+0900", "durationSec": 1800, "repeatType": "d",
+        ]] as NSArray)
+    }
+
+    /// A change hands back the number its answer says, as a create does, and nothing when it says none. A
+    /// row the television no longer has is error 41200, read as that; error 7 says nothing of the
+    /// reservation in this method, and holds nothing back for good. Nothing is sent a second time for
+    /// silence or for a cookie the television does not take -- but for a 403 when another client has renewed
+    /// the cookie in between, sent again once with the newer one, and only once however often it is renewed.
+    func testAChangeHandsBackWhatItsAnswerSaysAndIsSentOnce() async throws {
+        let row = TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                                startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800, title: "サンプル劇場",
+                                repeatType: "1", eventId: "12345")
+        let answers: [(String, Int?)] = [
+            (#"[{"annotation":0}]"#, 0), (#"[{"annotation":1}]"#, 1), ("[{}]", nil), ("[]", nil),
+        ]
+        for (answer, expected) in answers {
+            let transport = StubTransport(always: ok(answer))
+            let (tv, _) = client(transport, Self.kept)
+            expectEqual(try await tv.changeSchedule(row, repeatType: "w7"), expected, answer)
+            expectEqual(await transport.requests.count, 1, answer)
+        }
+
+        let gone = StubTransport(always: failed(41200, "Unmatched Request"))
+        let illegal = StubTransport(always: failed(7, "Illegal State"))
+        let silent = StubTransport { _, _ in throw RecorderError.transport("The request timed out.") }
+        let refusing = StubTransport(always: HTTPResponse(statusCode: 403))
+        let cases: [(String, StubTransport, DeviceFailure)] = [
+            ("41200", gone, .unknownItem),
+            ("7", illegal, .unexpected("テレビがエラーを返しました (7: addSchedule)")),
+            ("silence", silent, .silent), ("a cookie not taken", refusing, .needsPairing),
+        ]
+        for (name, transport, expected) in cases {
+            let (tv, _) = client(transport, Self.kept)
+            expectEqual(await failure { try await tv.changeSchedule(row, repeatType: "w7") }, expected, name)
+            expectEqual(await transport.requests.count, 1, "sent again after \(name)")
+        }
+        do {
+            let (tv, _) = client(illegal, Self.kept)
+            _ = try await tv.changeSchedule(row, repeatType: "w7")
+            XCTFail("an error was taken for a change made")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error, .rpc(method: "addSchedule", version: "1.2", code: 7, message: "Illegal State"))
+            XCTAssertFalse(error.failure.turnsTheRequestDown, "an unknown code held a change back for good")
+        }
+
+        // Renewed by another client after each 403: sent again once with the newer cookie, and no more.
+        let store = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "renewed-0"))
+        let renewing = StubTransport { _, index in
+            store.save(TVCredentials(clientID: "BDBridge:test", cookie: "renewed-\(index + 1)"))
+            return HTTPResponse(statusCode: 403)
+        }
+        let tv = ScalarClient(host: Stub.host, transport: renewing, credentials: store)
+        expectEqual(await failure { try await tv.changeSchedule(row, repeatType: "w7") }, .needsPairing)
+        expectEqual(await renewing.requests.map { $0.headers["Cookie"] }, ["auth=renewed-0", "auth=renewed-1"])
+        let taken = ok(#"[{"annotation":0}]"#)
+        let renewed = StubTransport { _, index in
+            guard index > 0 else {
+                store.save(TVCredentials(clientID: "BDBridge:test", cookie: "newer"))
+                return HTTPResponse(statusCode: 403)
+            }
+            return taken
+        }
+        let again = ScalarClient(host: Stub.host, transport: renewed, credentials: store)
+        expectEqual(try await again.changeSchedule(row, repeatType: "w7"), 0)
+        expectEqual(await renewed.requests.count, 2)
+    }
+
     /// The bytes of a request are the same every time it is written: the keys in order at every depth, so
     /// that what a television was sent once is what it is sent ever after. Each request the client has, by
     /// what goes on the wire.
@@ -873,6 +1010,10 @@ final class ScalarClientTests: XCTestCase {
                                                   startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800,
                                                   title: "サンプル劇場"))
         _ = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+        try await tv.changeSchedule(TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
+                                                  startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800,
+                                                  title: "サンプル劇場", repeatType: "1", eventId: "12345"),
+                                    repeatType: "w7")
 
         let reservation = #""repeatType":"1","startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","#
         expectEqual(await transport.bodies, [
@@ -889,6 +1030,9 @@ final class ScalarClientTests: XCTestCase {
                 + #""uri":"\#(Self.uri)"}]],"version":"1.1"}"#,
             #"{"id":8,"method":"actRegister","params":[{"clientid":"BDBridge:test","level":"private","#
                 + #""nickname":"BD Bridge"},[{"function":"WOL","value":"no"}]],"version":"1.0"}"#,
+            #"{"id":9,"method":"addSchedule","params":[{"durationSec":1800,"eventId":"12345","id":"recording.31","#
+                + #""repeatType":"w7","startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","#
+                + #""type":"recording","uri":"\#(Self.uri)"}],"version":"1.2"}"#,
         ])
     }
 
@@ -1062,7 +1206,7 @@ final class ScalarClientTests: XCTestCase {
             expectEqual(try await refusal(by: television, "recording", "addSchedule", "1.1", body),
                         DemoTV.inventedError, name)
         }
-        for (service, version) in [("recording", "1.0"), ("recording", "1.2"), ("avContent", "1.1")] {
+        for (service, version) in [("recording", "1.0"), ("avContent", "1.1")] {
             expectEqual(try await refusal(by: television, service, "addSchedule", version, create), 12,
                         "\(service) \(version)")
         }
@@ -1085,5 +1229,58 @@ final class ScalarClientTests: XCTestCase {
         expectEqual(await television.schedules, [], "something was made of a request it does not take")
         expectNil(try await refusal(by: television, "recording", "addSchedule", "1.1", create))
         expectEqual(await television.schedules.map(\.id), ["recording.1"])
+    }
+
+    /// The invented television takes a change only as the app writes one: the row as it holds it, in the
+    /// version that takes the id. Each of the six fields held against the row otherwise than as held -- a
+    /// title that is the same text in other scalars, a start that names the same time in another spelling,
+    /// a programme as a number -- a field left out, a field more, a programme sent for a row made by its
+    /// times or left off one that follows a programme, a repeat it does not take, and a create's body sent
+    /// in this version, which has no id: each is answered with an error no real one gives, and nothing is
+    /// changed. A cookie it does not know is refused, as for a create. Sent as written, the change is made.
+    func testTheInventedTelevisionTakesAChangeOnlyAsItHoldsTheRow() async throws {
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        let followed = DemoTV.Schedule(id: "recording.24", start: Self.start, eventId: 12345)
+        let timed = DemoTV.Schedule(id: "recording.25", start: Self.start.addingTimeInterval(7200))
+        await television.put([followed, timed])
+        let change: [String: Any] = [
+            "id": "recording.24", "type": "recording", "uri": Self.uri, "title": "サンプル番組",
+            "startDateTime": "2026-11-01T21:00:00+0900", "durationSec": 1800, "repeatType": "w7", "eventId": "12345",
+        ]
+        let byItsTimes = change.merging(["id": "recording.25", "startDateTime": "2026-11-01T23:00:00+0900"]) { $1 }
+            .filter { $0.key != "eventId" }
+        var changes: [(String, [String: Any])] = change.keys.sorted().map { field in
+            ("no \(field)", change.filter { $0.key != field })
+        }
+        changes += [
+            ("another type", ["type": "reminder"]), ("another station", ["uri": Self.uri + "2"]),
+            ("the title in other scalars", ["title": "サンフ\u{309A}ル番組"]),
+            ("the start as the recorder spells one", ["startDateTime": "2026-11-01T21:00:00+09:00"]),
+            ("another length", ["durationSec": 1801]), ("the length as text", ["durationSec": "1800"]),
+            ("another programme", ["eventId": "12346"]), ("the programme as a number", ["eventId": 12345]),
+            ("a mode among them", ["quality": "DR"]), ("an override", ["override": true]),
+            ("a repeat as the recorder spells it", ["repeatType": "S001"]), ("the id as a number", ["id": 24]),
+        ].map { ($0.0, change.merging($0.1) { $1 }) }
+        changes += [
+            ("a programme sent for a row made by its times", byItsTimes.merging(["eventId": "12345"]) { $1 }),
+            ("a create's body", change.filter { $0.key != "id" }),
+        ]
+        XCTAssertEqual(DemoTV.Schedule(id: "x", start: Self.start).uri, Self.uri)
+        for (name, body) in changes {
+            expectEqual(try await refusal(by: television, "recording", "addSchedule", "1.2", body),
+                        DemoTV.inventedError, name)
+            expectEqual(await television.schedules, [followed, timed], name)
+        }
+
+        let stale = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "stale"))
+        let stranger = ScalarClient(host: Stub.host, transport: television, credentials: stale)
+        expectEqual(await failure { try await stranger.changeSchedule(followed.row, repeatType: "w7") }, .needsPairing)
+        expectEqual(await television.schedules, [followed, timed])
+
+        expectNil(try await refusal(by: television, "recording", "addSchedule", "1.2", change))
+        expectNil(try await refusal(by: television, "recording", "addSchedule", "1.2", byItsTimes))
+        expectEqual(await television.schedules.map(\.repeatType), ["w7", "w7"])
+        expectEqual(await television.schedules.map(\.id), ["recording.24", "recording.25"])
     }
 }
