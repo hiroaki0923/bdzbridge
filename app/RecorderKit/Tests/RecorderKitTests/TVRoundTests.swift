@@ -298,7 +298,7 @@ final class TVRoundTests: XCTestCase {
         }
 
         let once = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
-            + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+            + "毎回録画にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
         let daily = row("サンプル劇場", 50101, on: 0, at: begun, repeating: "d")
         let recording = await self.bench(holding: [owned("recording.31", on: 0, "サンプル劇場", at: begun,
                                                          programme: 50101)])
@@ -367,9 +367,9 @@ final class TVRoundTests: XCTestCase {
     /// for there already.
     func testARepeatIsNotThereAlreadyWhereTheTelevisionHoldsLessOfItsProgramme() async throws {
         let once = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
-            + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+            + "毎回録画にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
         let fewer = "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
-            + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+            + "選んだ設定にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
         // What each is held with, where what the television holds falls short of it.
         let pairs: [(name: String, asked: String, held: String, reason: String?)] = [
             ("once asked, once held", "1", "1", nil),
@@ -956,10 +956,10 @@ final class TVRoundTests: XCTestCase {
         XCTAssertEqual(ScalarClient.saidThereNotListed,
                        "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。")
         XCTAssertEqual(ScalarClient.reservedOnceOnly, "テレビにはこの番組の 1 回だけの予約がすでにあります。"
-                       + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。")
+                       + "毎回録画にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。")
         XCTAssertEqual(ScalarClient.reservedOnFewerDays,
                        "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
-                       + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。")
+                       + "選んだ設定にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。")
         XCTAssertEqual(ScalarClient.diskNotFound, "録画用の USB HDD が見つからないため、テレビへの予約は送っていません")
         XCTAssertEqual(ScalarClient.refusals.keys.sorted(), [7])
         XCTAssertEqual(ScalarClient.slot, .tv)

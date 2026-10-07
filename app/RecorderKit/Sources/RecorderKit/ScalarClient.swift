@@ -585,17 +585,19 @@ extension ScalarClient {
     /// Written on a reservation that asks for a repeat, when the television holds a recording of its
     /// programme once (`TVScheduleRow.fallsShort`). It is not taken for there already: the programmes after
     /// this one would go unreserved with nothing said. Nor can it be made beside the one held, which a
-    /// television answers as held already whatever the repeat, and nothing here changes a television's
-    /// reservation: so the reader is told what would get the repeat made.
+    /// television answers as held already whatever the repeat. So the reader is told what would get the
+    /// repeat made: the repeat of the reservation the television holds changed, which keeps the programme
+    /// reserved throughout, as a delete before the row is sent again would not (`TVDriver.update`). Sent
+    /// again then, the row is found there and not made a second time.
     static let reservedOnceOnly = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
-        + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        + "毎回録画にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
     /// Written on a reservation that asks for a repeat, when the television holds a repeat of its programme
     /// that takes in some of that repeat's days and not all of them (`TVScheduleRow.fallsShort`): a weekly
     /// one, say, where every day was asked for. It is held as against a programme reserved once, and for
     /// the same reasons: taken for there already, the other days would go unreserved with nothing said.
     /// The sentence is its own, since what the television holds is no reservation for once.
     static let reservedOnFewerDays = "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
-        + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        + "選んだ設定にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
     /// The codes a television answers a create with that turn the reservation itself down, each with what is
     /// written on the row: asked again, it would be answered the same. Of `addSchedule` alone: the same code
     /// means other things in other methods.
