@@ -368,7 +368,7 @@ final class LocalNetworkAccessTests: XCTestCase {
 
     /// A look whose task is cancelled says nothing, and ends its connection and the time it was given:
     /// cancelled while the connection is on its way, and cancelled just as the connection has been kept waiting
-    /// for the permission -- the device let go of at that moment -- when the look has an answer to hand.
+    /// for the permission -- the caller's task cancelled at that moment -- when the look has an answer to hand.
     func testACancelledLookSaysNothingAndEndsItsConnection() async throws {
         for asItAnswers in [false, true] {
             let ending = asItAnswers ? "cancelled as it answered" : "cancelled on the way"
@@ -387,6 +387,41 @@ final class LocalNetworkAccessTests: XCTestCase {
             XCTAssertTrue(connection.stopped, "\(ending): the connection was left open")
             XCTAssertEqual(played.timesStillGoing, 0, "\(ending): the time given outlived the look")
         }
+    }
+
+    /// What a look leaves in the log, one line however it ends: the first thing its connection came to that
+    /// says anything of the permission, in the words of a wait's reading, past what came before it and not what
+    /// came after; or that it came to nothing, in the time it was given, before its connection had gone, or
+    /// before its task was cancelled; and how long it took. The address is not handed to it.
+    func testALookWritesWhatItReadOrThatItCameToNothingAndHowLongItTook() async throws {
+        let answered = Played([PlayedConnection([.settingUp, .onItsWay, .denied, .refused])])
+        _ = await outcome(of: Task { await answered.look() }, "the answered look")
+
+        // Nothing it comes to says anything, so whether the time or the connection is heard first, it is the time.
+        let timeUp = Played([PlayedConnection([.settingUp, .onItsWay])])
+        timeUp.letTheTimeRunOut()
+        _ = await outcome(of: Task { await timeUp.look(within: .seconds(7)) }, "the look whose time was up")
+
+        let gone = Played([PlayedConnection([.onItsWay], thenGoes: true)])
+        _ = await outcome(of: Task { await gone.look() }, "the look whose connection had gone")
+
+        let cancelled = Played([PlayedConnection([.onItsWay])])
+        let looking = Task { await cancelled.look() }
+        try await until("the cancelled look was never given its time") { cancelled.timesGiven.count == 1 }
+        looking.cancel()
+        _ = await outcome(of: looking, "the cancelled look")
+
+        // How long the look took is the one thing in a line that is not the same at every run.
+        let written = [answered, timeUp, gone, cancelled].map {
+            $0.lines.map { $0.replacing(/after \d+\.\d\d s$/, with: "after some s") }
+        }
+        XCTAssertEqual(written, [
+            ["look: path unsatisfied (localNetworkDenied), connection waiting (posix 50), taken for blocked, "
+                + "after some s"],
+            ["look: come to nothing in 7 s, no answer, after some s"],
+            ["look: its connection gone without coming to anything, no answer, after some s"],
+            ["look: cancelled, no answer, after some s"],
+        ])
     }
 
     // MARK: - the wait and the look, on this machine's loopback
@@ -429,7 +464,7 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertGreaterThan(ContinuousClock.now - began, .milliseconds(1500),
                              "answered before the connection had come to anything")
         // A look given only the handshake's seconds races it, and this machine was seen to answer in time even
-        // so: the second more is held as it is written.
+        // so: the second more is held as it is written, and the public default naming it by reading only.
         XCTAssertGreaterThan(LocalNetwork.secondsALookIsGiven, LocalNetwork.handshakeSeconds,
                              "the look is given no longer than its connection's handshake")
     }
@@ -519,8 +554,8 @@ private extension LocalNetwork.Sighting {
 
 /// A connection the test plays: it comes to what the test says, when the test says, and has gone once the
 /// wait or the look ends it or, `thenGoes`, by itself after the last of what it was made with.
-/// `cancelsItsWatcherWhenStopped` has ending it cancel the task that ends it, as letting go of a device at that
-/// moment would.
+/// `cancelsItsWatcherWhenStopped` has ending it cancel the task that ends it, as the caller's task cancelled at
+/// that moment would.
 private final class PlayedConnection: WatchedConnection, @unchecked Sendable {
     let sightings: AsyncStream<LocalNetwork.Sighting>
     private let continuation: AsyncStream<LocalNetwork.Sighting>.Continuation
@@ -584,7 +619,8 @@ private final class Played: @unchecked Sendable {
     /// The one look, on the first connection this hands out, given `limit`, which is up only when the test
     /// says so (`letTheTimeRunOut`).
     func look(within limit: Duration = .seconds(3)) async -> LocalNetwork.Access? {
-        let access = await LocalNetwork.access(on: connect(), within: limit, timeGiven: { await self.giveTime($0) })
+        let access = await LocalNetwork.access(on: connect(), within: limit, timeGiven: { await self.giveTime($0) },
+                                               note: { self.wrote($0) })
         lock.withLock { isOver = true }
         return access
     }
