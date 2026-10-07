@@ -45,6 +45,60 @@ final class XsrsVectorTests: XCTestCase {
         XCTAssertEqual(built, vector.string("elements"))
     }
 
+    /// The recorder takes a reservation to its USB disk in the very request the official app sends for the
+    /// internal disk, with that one value changed: anything else that moved would be refused.
+    func testAReservationToTheUSBDiskIsTheOfficialRequestWithOnlyItsDiskChanged() throws {
+        let captured = try XCTUnwrap(Vectors.load("xsrs.json").dictionaries("create_elements")
+            .first { $0.string("name").hasPrefix("captured") })
+        let official = captured.string("elements")
+        XCTAssertEqual(official.components(separatedBy: ">HDD<").count, 2, "the internal disk is named once")
+        var request = try request(from: captured.dictionary("input"))
+        request.destination = "USBHDD"
+
+        XCTAssertEqual(XsrsElements.create(request),
+                       official.replacingOccurrences(of: "<recordDestinationID>HDD</recordDestinationID>",
+                                                     with: "<recordDestinationID>USBHDD</recordDestinationID>"))
+    }
+
+    /// A change sends back the disk the recorder named, now read from the recorder's own text. For the internal
+    /// disk that has to come out as the official app sends it, or the recorder refuses the change.
+    func testAChangeOfAReservationReadFromTheRecorderSendsTheInternalDiskAsCaptured() throws {
+        let vector = try Vectors.load("xsrs.json").dictionary("parse_reservation")
+        let held = try XCTUnwrap(XsrsParse.reservation(try XmlNode.parse(vector.string("item"))))
+        let change = try XCTUnwrap(ReservationRequest(changing: held, quality: try XCTUnwrap(held.qualityName),
+                                                      repeating: try XCTUnwrap(held.repeatName)))
+
+        let elements = XsrsElements.update(id: held.id, change)
+        XCTAssertEqual(elements.components(separatedBy: "<recordDestinationID>").count, 2, elements)
+        XCTAssertTrue(elements.contains("<recordDestinationID>HDD</recordDestinationID>"), elements)
+    }
+
+    /// The same item as the recorder lists one on the USB disk: the disk is read from it, not taken for the internal
+    /// one when the parser fails to see it, so the change sends it back.
+    func testAChangeOfAReservationReadOnTheUSBDiskSendsThatDisk() throws {
+        let vector = try Vectors.load("xsrs.json").dictionary("parse_reservation")
+        let item = vector.string("item")
+        let onUSB = item.replacingOccurrences(of: "<recordDestinationID>HDD</recordDestinationID>",
+                                              with: "<recordDestinationID>USBHDD</recordDestinationID>")
+        XCTAssertNotEqual(onUSB, item, "the captured item names its disk")
+        let held = try XCTUnwrap(XsrsParse.reservation(try XmlNode.parse(onUSB)))
+        let change = try XCTUnwrap(ReservationRequest(changing: held, quality: try XCTUnwrap(held.qualityName),
+                                                      repeating: try XCTUnwrap(held.repeatName)))
+
+        let elements = XsrsElements.update(id: held.id, change)
+        XCTAssertTrue(elements.contains("<recordDestinationID>USBHDD</recordDestinationID>"),
+                      "the disk the recorder listed was not read: \(elements)")
+    }
+
+    /// On a change the disk is text the recorder wrote, sent back, so it is escaped as the title is.
+    func testADisksValueIsEscaped() {
+        let request = ReservationRequest(title: "サンプル番組", start: Date(timeIntervalSince1970: 1_790_000_000),
+                                         durationSec: 1800, repeatCode: "1", broadcastingType: 2,
+                                         serviceID: 0x400, qualityCode: 240, destination: "A&B<C>")
+        let elements = XsrsElements.create(request)
+        XCTAssertTrue(elements.contains("<recordDestinationID>A&amp;B&lt;C&gt;</recordDestinationID>"), elements)
+    }
+
     func testTitleUpdateElementsCarryOnlyTheChanges() throws {
         let cases = try Vectors.load("xsrs.json").dictionaries("title_update_elements")
         XCTAssertFalse(cases.isEmpty)

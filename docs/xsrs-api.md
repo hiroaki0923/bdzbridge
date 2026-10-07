@@ -61,9 +61,18 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 | `desiredMatchingID` | `,,0x<service_id>,0x<event_id>`（16 進、桁詰めなし）。付けると番組追従（放送時間の変更に追従）になる。省略すると時刻指定 |
 | `desiredQualityMode` | 録画モード（下表） |
 | `genreID` | ジャンル。ARIB コンテント記述子の先頭ペアを level1×16＋level2 の十進で持つ（48 = ドラマ、112 = アニメ／特撮など）。予約にも録画済みタイトルにも付く。`type` 属性は放送種別 |
-| `priorityFlag`, `recordDestinationID`, `portableRecordFile` | 上記の値で固定。省略すると 402 |
+| `priorityFlag`, `portableRecordFile` | 上記の値で固定。省略すると 402 |
+| `recordDestinationID` | 録画先。本体は `HDD`、USB HDD は `USBHDD`。更新ではその予約の値を送る（下記）。省略で 402 |
 
 振る舞い:
+- `recordDestinationID` を `USBHDD` にした作成要求は、ほかを 1 バイトも変えずに受け付けられ、一覧にも
+  `USBHDD` で載る（時刻指定の予約と、番組追従の予約で確認）。同じ要求での重複確認（`X_GetConflictList`）も通る。
+- **更新は録画先も書き換える。** USB HDD への予約を `HDD` を書いた item で `X_UpdateRecordSchedule` すると、
+  何も言わずに本体の HDD に移る（実測）。逆向き（本体の HDD への予約を `USBHDD` を書いた item で更新して USB HDD に
+  移るか）は、まだ確かめていない。
+  録画先を変えない更新では、一覧で読み直したその予約の値をそのまま送る。番組追従の予約を `USBHDD` に作り、
+  `USBHDD` を書いた更新で画質を変えると、録画先は `USBHDD` のまま、番組追従も続く（実測。
+  `LiveRecorderTests.testAChangeKeepsTheUSBDisk`、書き込みあり）。
 - `desiredMatchingID` を付けて作成すると、`title` はレコーダー自身の番組表の番組名で上書きされる。
 - 時刻指定で作成した予約に、レコーダーが後から event_id を補うことはない。
 - 一覧の item には上記に加えて `conflictID`、`recordingFlag`（録画中）、`reservationCreatorID`、`recordSize`（MB）などが付く。一覧に付く `mediaRemainAlertID`・`recordSize`・`portableRecordFile`（値付き）などを作成要求に含めると 402 になる。

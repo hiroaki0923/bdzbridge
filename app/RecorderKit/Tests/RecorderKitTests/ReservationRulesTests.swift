@@ -8,12 +8,12 @@ final class ReservationRulesTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func reservation(id: String, broadcastingType: Int = 2, serviceID: Int = 0x400, start: Date? = nil,
-                             eventID: Int? = 0x311f, qualityCode: Int = 240, repeatCode: String = "1")
-        -> Reservation {
+                             eventID: Int? = 0x311f, qualityCode: Int = 240, repeatCode: String = "1",
+                             destination: String = "HDD") -> Reservation {
         Reservation(id: id, title: "サンプル番組", start: start ?? self.start, durationSec: 1800,
                     repeatCode: repeatCode, broadcastingType: broadcastingType, serviceID: serviceID,
                     eventID: eventID, qualityCode: qualityCode, recording: false, conflict: false,
-                    destination: "HDD", sizeMB: nil, creator: "1100", genreCode: nil)
+                    destination: destination, sizeMB: nil, creator: "1100", genreCode: nil)
     }
 
     // MARK: - finding it again
@@ -108,6 +108,16 @@ final class ReservationRulesTests: XCTestCase {
         let held = reservation(id: "0x1", eventID: nil)
         let request = try XCTUnwrap(ReservationRequest(changing: held, quality: "DR", repeating: "none"))
         XCTAssertNil(request.eventID)
+    }
+
+    /// The disk is the reservation's own as well: one on the USB disk, changed with the internal disk's name, was
+    /// seen to go to the internal disk.
+    func testAChangeKeepsTheReservationsDisk() throws {
+        let held = reservation(id: "0x1", destination: "USBHDD")
+        let request = try XCTUnwrap(ReservationRequest(changing: held, quality: "SR", repeating: "none"))
+        XCTAssertEqual(request.destination, "USBHDD")
+        let elements = XsrsElements.update(id: held.id, request)
+        XCTAssertTrue(elements.contains("<recordDestinationID>USBHDD</recordDestinationID>"), elements)
     }
 
     func testAChangeToNamesTheTablesDoNotKnowMakesNoRequest() {
