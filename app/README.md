@@ -15,9 +15,10 @@
   stands on it, and so does a television's read of its reservations. A television, once added in the
   settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
   `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
-  its reservations -- is kept by that host and goes with its link; reading and deleting them are the driver's
-  steps, and `AppModelReservations` only puts the two devices' lists together for the screens and sends a
-  change or a delete to the device that holds the row. Sending what waits in the phone's queue for the
+  its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
+  driver's steps, and `AppModelReservations` only puts the two devices' lists together for the screens and
+  sends a change or a delete to the device that holds the row -- a change through the one entry a sheet
+  changes a reservation by, whichever device it is (`change`). Sending what waits in the phone's queue for the
   television is the driver's too (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and
   keeps what it came to for the strip, which says it after what the recorder's sending came to
   (`AppModel.queueReport`). So are reserving a programme on the television and sending a waiting row again
@@ -407,20 +408,26 @@ use and on the very programmes they reserve, and the line to the television can 
 rehearsal fails if a check leaves a row, deletes one it did not make, sends a create a second time or without
 the question before it, makes something without leave, or names a programme, a station or a row.
 
-Three more checks are for changing a reservation the television holds, which nothing in the app does yet:
-the request it is to send for that (`ScalarClient.changeSchedule`, `addSchedule` in the version that takes
-the list's id, with the row sent back as the list gave it and only its repeat new) meeting a real one, held
-with the television on. One makes a reservation and changes its repeat a request at a time -- through every
-repeat a sheet offers, the same one twice, and a weekday's code that is not its programme's -- reading each
-back; then it deletes it and sends the change once more for the id just deleted, by the path a create
-goes, which a television was seen to refuse without making anything. One changes, and changes back, a
-reservation the owner made with the remote and named by its start, which it never deletes and which is to
-read as it began. And one adds a daily repeat by a change to a reservation the day before two others at
-its time, to see whether the list marks what that costs on the later day and whether the question names
-it. A change writes nothing in the ledger, since it makes nothing; it is sent to no row but the check's own
-and the one the owner named; and after silence nothing is sent again. They are rehearsed like the others,
-on an invented television that takes a change only as the app writes one: the row as it holds it, scalar
-for scalar, a repeat it takes, and a programme id only on a row that has one.
+Three more checks are for changing a reservation the television holds, which the app does from a reservation's
+sheet (below, under changing a reservation): the request it sends for that (`ScalarClient.changeSchedule`,
+`addSchedule` in the version that takes the list's id, with the row sent back as the list gave it and only its
+repeat new) meeting a real one, held with the television on. One makes a reservation and changes its repeat a
+request at a time -- through every repeat a sheet offers, the same one twice, and a weekday's code that is not
+its programme's -- reading each back; then it deletes it and sends the change once more for the id just
+deleted, by the path a create goes, which a television was seen to refuse without making anything. One
+changes, and changes back, a reservation the owner made with the remote and named by its start, which it never
+deletes and which is to read as it began. And one adds a daily repeat by a change to a reservation the day
+before two others at its time, to see whether the list marks what that costs on the later day and whether the
+question names it. A change writes nothing in the ledger, since it makes nothing; it is sent to no row but the
+check's own and the one the owner named; and after silence nothing is sent again. They are rehearsed like the
+others, on an invented television that takes a change only as the app writes one: the row as it holds it,
+scalar for scalar, a repeat it takes, and a programme id only on a row that has one. Two of the three were
+held with the television on. The change in place went through for every repeat a sheet offers, with the id,
+the count and every other value of the row kept; another weekday's code was refused with error 7, the row left
+as it was; the id just deleted was refused with 41200 and nothing was made; and a daily repeat added by a
+change to a reservation the day before two others at its time left the first-made of those two marked in the
+list as the one that loses. The check of a reservation made with the remote was not held, there being none to
+change, so a reservation made by its times is not changed by the app yet.
 
 ## On a real iPhone
 
@@ -840,6 +847,27 @@ over are shown but not editable.
 
 The reservation is found again by channel and start time before the change is sent, because the recorder
 renumbers the reservations its own automatic recording made, in blocks; the same reason a deletion does it.
+
+A television's reservation is changed from the same sheet, and its repeat is all that can be changed: a
+television records in its one mode. Its 毎回録画 is a picker over what the driver offers
+(`TVDriver.repeats(changing:)`) -- until the programme begins, by its start, the repeats a programme starting
+then is sent, with the row's own after them where it is not among them -- and the sheet has no rule of its
+own. A reservation made by its times is not offered a change, nor is one whose repeat has no name here. The
+programme's sheet offers 予約を変更する in its テレビ section on the same terms, which opens this sheet. The
+change is one request, `addSchedule` in the version that takes the list's id, sent the row as the list just
+gave it with only the repeat new (`TVDriver.update`): the programme is never left unreserved. The rules are
+asked again of the row as listed before anything is sent, and the list is read after it to see the repeat
+there. What it came to is a value with its sentence (`Altered`), said in the sheet's one alert: made with
+nothing to add closes the sheet; made and leaving a recording marked as losing is said under テレビの予約, the
+changed row itself in the create's sentence and any other by its name; anything else is said under エラー,
+and closing that closes the sheet over the list read on the way. Silence is said as for a delete -- it may
+have arrived, and is not sent again -- and the television is given up on. While the change or a delete is out
+to the television its line is on the sheet, nothing on it can be pressed and the sheet cannot be closed. The
+model has one entry for a change on either device (`AppModel.change`): a television's row goes to its host
+and the recorder is asked nothing; the recorder's goes through `update`, unchanged, and is read into the same
+value with the very sentence the sheet said before. With the recorder alone the sheet reads as it always has.
+A change asks the television nothing first about what it would stop from recording and is never kept on the
+phone to go later, as the recorder's change does not and is not.
 
 ### Notifications
 
