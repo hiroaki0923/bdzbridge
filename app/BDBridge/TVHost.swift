@@ -284,7 +284,16 @@ final class TVHost: LinkHost {
         await loadReservations()
     }
 
-    func anotherAnsweredTheCheck() {}
+    /// The check before an operation met something at the television's address that is not the television
+    /// saved (`TVDriver.check`): nothing was sent, and nothing that needs the registration is asked from now
+    /// on. Said in the line for another device, whatever answered: what the reader asked for was not done
+    /// because something other than the television is at its address, and that is what they are to know. The
+    /// list stays, the television's and no longer read (`staleSince`), and nothing else is done here: the next
+    /// connect asks again and looks past what answered, where a recorder's host connects at once to take the
+    /// newcomer up.
+    func anotherAnsweredTheCheck() {
+        problem = TVDriver.anotherAnswered
+    }
 
     func sayNotConnected() {
         problem = TVDriver.notConnected

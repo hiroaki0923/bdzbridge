@@ -85,4 +85,23 @@ final class TVDiscoveryTests: XCTestCase {
         XCTAssertNil(found)
         XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the request, ended the look")
     }
+
+    /// A probe that begins once its look is over sends nothing, as the probes not yet begun when the look finds
+    /// the television: here the whole look is cancelled before it begins, and no address hears anything.
+    func testAProbeBegunOnceTheLookIsOverSendsNothing() async throws {
+        let transport = StubTransport { _, _ in Self.wakesOn(DemoTV.mac) }
+        let look = Task {
+            try? await Task.sleep(for: .seconds(60))   // ended by the cancellation below, so the look begins after it
+            return await TVDiscovery.find(mac: DemoTV.mac, among: ["192.0.2.10", "192.0.2.11"], transport: transport)
+        }
+        look.cancel()
+
+        let found = await look.value
+        // A probe's request goes from a task of its own, which the look does not wait for: given the time, it would
+        // have been heard by now.
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertNil(found)
+        expectEqual(await transport.requests.count, 0, "a probe begun after the look was over sent its request")
+    }
 }

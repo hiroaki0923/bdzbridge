@@ -139,7 +139,8 @@ final class TVDriverTests: XCTestCase {
 
         XCTAssertEqual(world.events.last, "read 2")
         let calls = await television.calls
-        XCTAssertFalse(calls.contains { $0.hasPrefix("getPowerStatus") }, "made sure of inside its own connect")
+        XCTAssertEqual(calls.filter { $0.hasPrefix("getSystemSupportedFunction") }.count, 1,
+                       "made sure of inside its own connect")
     }
 
     /// A cookie past half its life is renewed by a connect, after the read that shows the registration is
@@ -211,22 +212,32 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(calls.count, 1, "asked again after silence")
     }
 
-    /// The check before an operation asks whether it is on, and silence there is given up on as well.
-    func testTheCheckBeforeAnOperationAsksWhetherItIsOn() async {
+    /// The check before an operation asks which television answers, one request with no cookie, and silence
+    /// there is given up on as well. A television not known by its MAC, as one that gives none, is taken for
+    /// the one saved, as its attach took it.
+    func testTheCheckBeforeAnOperationAsksWhichTelevisionAnswers() async {
         let television = DemoTV()
         let (link, _, world) = makeLink(television, await registered(with: television))
         await link.connect()
+        let before = await television.calls.count
 
         let up = await link.ensureUp(evenIfRecent: true)
         XCTAssertTrue(up)
         let calls = await television.calls
-        XCTAssertEqual(calls.last, "getPowerStatus cookie=no pin=no")
+        XCTAssertEqual(Array(calls.dropFirst(before)), ["getSystemSupportedFunction cookie=no pin=no"])
 
         await television.goSilent()
         let down = await link.ensureUp(evenIfRecent: true)
         XCTAssertFalse(down)
         XCTAssertTrue(link.session.gaveUp)
         XCTAssertEqual(world.count("packet"), 0)
+
+        let unnamed = DemoTV(mac: "")
+        let (unknown, _, _) = makeLink(unnamed, await registered(with: unnamed))
+        await unknown.connect()
+        XCTAssertNil(unknown.session.device)
+        let madeSure = await unknown.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(madeSure, "a television known by no MAC was refused by the check")
     }
 
     // MARK: - its reservations, after the attach
@@ -244,6 +255,8 @@ final class TVDriverTests: XCTestCase {
     /// A cookie the television never gave.
     private nonisolated static let stale = TVCredentials(clientID: "BDBridge:test", cookie: "stale")
     private static let read = "getScheduleList", delete = "deleteSchedule"
+    /// What the check before an operation asks: which television answers.
+    private static let asksWhich = "getSystemSupportedFunction"
     private static let left = "前の操作の失敗"
 
     /// A television holding the three, a link connected to it, and between them a gate for what a test has
@@ -1264,14 +1277,14 @@ final class TVDriverTests: XCTestCase {
         // its line going up shows.
         let unsure = try await attachedThenQueued()
         await unsure.television.goSilent()
-        await unsure.gate.before("getPowerStatus") { @MainActor in
+        await unsure.gate.before(Self.asksWhich) { @MainActor in
             for _ in 0..<100_000 where !unsure.world.begun.contains(TVDriver.sendingLine) { await Task.yield() }
         }
         asked = await unsure.gate.asked
         let checking = Task { await unsure.link.ensureUp(evenIfRecent: true) }
         expectNil(await unsure.driver.sendWhatWaits(), "being made sure of")
         expectFalse(await checking.value)
-        expectEqual(Array(await unsure.gate.asked.dropFirst(asked.count)), ["getPowerStatus"])
+        expectEqual(Array(await unsure.gate.asked.dropFirst(asked.count)), [Self.asksWhich])
     }
 
     /// What an attach's sending left when its round stopped: what stopped it, the reason on each row still
@@ -1703,7 +1716,7 @@ final class TVDriverTests: XCTestCase {
         // A check is in flight as the reservation is asked for, and its ask is held until the reservation has
         // been kept and its line is up, so that the first read to fail is the round's.
         let other = try Sqlite(path: path)
-        await bench.gate.before("getPowerStatus") { @MainActor in
+        await bench.gate.before(Self.asksWhich) { @MainActor in
             for _ in 0..<100_000 where !bench.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
             try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
         }
@@ -1721,7 +1734,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(kept.map(\.problem), [nil])
         XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: unanswered) })
         XCTAssertEqual(list?.map(\.eventID), [])
-        expectEqual(Array(await bench.gate.asked.dropFirst(before)), ["getPowerStatus", Self.read])
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.asksWhich, Self.read])
         expectEqual(await bench.television.schedules, [])
     }
 
@@ -1831,7 +1844,7 @@ final class TVDriverTests: XCTestCase {
         // The check's ask is kept from failing until the reservation has been kept and its line is up.
         let unsure = try await attachedQueueBench()
         await unsure.television.goSilent()
-        await unsure.gate.before("getPowerStatus") { @MainActor in
+        await unsure.gate.before(Self.asksWhich) { @MainActor in
             for _ in 0..<100_000 where !unsure.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
         }
         let asked = await unsure.gate.asked
@@ -1844,7 +1857,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(kept.map(\.problem), [nil])
         XCTAssertEqual(reserved, kept.first.map { Reserved.waiting($0, saying: Self.waitsNotConnected) })
         XCTAssertNil(list)
-        expectEqual(Array(await unsure.gate.asked.dropFirst(asked.count)), ["getPowerStatus"])
+        expectEqual(Array(await unsure.gate.asked.dropFirst(asked.count)), [Self.asksWhich])
         XCTAssertEqual(unsure.world.problem, unsure.driver.noAnswerLine)
     }
 
@@ -2512,7 +2525,7 @@ final class TVDriverTests: XCTestCase {
         try await store.queue(clashing)
         unreadable.world.cache = store
         let other = try Sqlite(path: path)
-        await unreadable.gate.before("getPowerStatus") { @MainActor in
+        await unreadable.gate.before(Self.asksWhich) { @MainActor in
             for _ in 0..<100_000 where !unreadable.world.begun.contains(TVDriver.sendingLine) { await Task.yield() }
             try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
         }
@@ -2524,7 +2537,7 @@ final class TVDriverTests: XCTestCase {
         let came = await unreadable.driver.resend(clashing).came
         expectTrue(await checking.value)
         XCTAssertEqual(came, .waiting(clashing, saying: notConnected), "a round that could not read the queue")
-        expectEqual(Array(await unreadable.gate.asked.dropFirst(before)), ["getPowerStatus", Self.read])
+        expectEqual(Array(await unreadable.gate.asked.dropFirst(before)), [Self.asksWhich, Self.read])
         expectEqual(try await store.pendingReservations(), [clashing])
     }
 

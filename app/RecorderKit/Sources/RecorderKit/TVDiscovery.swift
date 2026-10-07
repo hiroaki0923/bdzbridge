@@ -31,12 +31,19 @@ public enum TVDiscovery {
     /// one at a time, and none dropped for its caller being cancelled (`SerialQueue`) -- so a probe that waited
     /// for its request would hold the look for as long as that request lasts, which is what the deadline is
     /// there to stop. The request goes on by itself, and its answer is dropped.
+    ///
+    /// A probe that begins once the look is over -- its task cancelled before it started, which hands the wait
+    /// its nil at once -- sends nothing: the task that would ask is a task of its own, which knows nothing of
+    /// that cancellation, so it asks only while the wait is still open.
     static func leftWhenCancelled<Value: Sendable>(_ ask: @escaping @Sendable () async -> Value?) async -> Value? {
         let answer = FirstAnswer<Value>()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { waiting in
                 answer.wait(waiting)
-                Task { answer.give(await ask()) }
+                Task {
+                    guard !answer.ended else { return }
+                    answer.give(await ask())
+                }
             }
         } onCancel: {
             answer.give(nil)
@@ -50,6 +57,9 @@ private final class FirstAnswer<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var waiting: CheckedContinuation<Value?, Never>?
     private var given: Value??
+
+    /// Whether one end has come already.
+    var ended: Bool { lock.withLock { given != nil } }
 
     func wait(_ continuation: CheckedContinuation<Value?, Never>) {
         let ready: Value?? = lock.withLock {

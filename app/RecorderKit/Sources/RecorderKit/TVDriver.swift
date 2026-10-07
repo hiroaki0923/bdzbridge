@@ -17,11 +17,12 @@ public final class TVFacts {
     public init() {}
 }
 
-/// What is particular to a Sony BRAVIA in a link. It is asked whether it is on (`getPowerStatus`, which it
-/// answers in standby) and never woken: one that does not answer could only be sent a magic packet, which may
-/// light it, and the app does not light it unasked. It is told from any other by the MAC it wakes on. An attach
-/// reads that, its model, and its USB disk -- the read that needs a registration, so the one that says whether
-/// there is one -- and renews the cookie when it is past half its life.
+/// What is particular to a Sony BRAVIA in a link. It is asked which television it is, by the MAC it wakes on
+/// (`getSystemSupportedFunction`, which it answers in standby), and never woken: one that does not answer could
+/// only be sent a magic packet, which may light it, and the app does not light it unasked. The MAC tells it
+/// from any other, at an attach and at the check before an operation. An attach reads that, its model, and its
+/// USB disk -- the read that needs a registration, so the one that says whether there is one -- and renews the
+/// cookie when it is past half its life.
 ///
 /// What is asked of a television after its attach is here as well (`reservations`, `refreshReservations`,
 /// `cancel`, `update`, `sendWhatWaits`, `reserve`, `resend`): the steps, what each can come to, and the
@@ -104,19 +105,12 @@ public final class TVDriver: LinkDriver {
         defer { if let activity { owner?.endActivity(activity) } }
         do {
             let identity: String
-            do {
-                identity = (try await client.wakeOnLANAddress(timeout: timeout)).flatMap(WakeOnLan.normalise) ?? ""
-            } catch let error as any DeviceError {
-                // An HTTP status a television does not give, an answer it does not write, a code this client
-                // does not know: a printer, a NAS or a router's page. A 401 or 403, a 503, a code a television
-                // is known to give and silence are a television's, and are read below as ever.
-                guard case .unexpected = error.failure else { throw error }
-                notThere(link, answered: error.explanation)
-                return false
-            }
-            guard link.session.recognises(identity: identity) != .another else {
+            switch try await whoAnswers(client, on: link, timeout: timeout) {
+            case .saved(let which):
+                identity = which
+            case .stranger(let line):
                 // Its cookie would not be good here, and what waits was made for the television registered.
-                notThere(link, answered: Self.anotherAnswered)
+                notThere(link, answered: line)
                 return false
             }
             // It said it is the television saved: a look that found nothing is worth making again.
@@ -154,6 +148,36 @@ public final class TVDriver: LinkDriver {
         }
     }
 
+    /// Who answers at the client's address, as the first ask of an attach and the check before an operation
+    /// both ask it.
+    private enum Answering {
+        /// The television saved, or one the session cannot tell from it: the MAC it wakes on, normalised,
+        /// empty when it gives none.
+        case saved(String)
+        /// Something that is not the television saved, with the line that says what answered.
+        case stranger(String)
+    }
+
+    /// Asks `getSystemSupportedFunction`, which needs no registration and which a television answers in
+    /// standby, for the MAC it wakes on, and holds that against the session's by `SessionState.recognition`:
+    /// one known by no MAC, or giving none, is taken for the one saved. A stranger is another television, by
+    /// its MAC, or a device that is no television, by an answer no television gives this method -- an HTTP
+    /// status a television does not give, an answer it does not write, a code this client does not know: a
+    /// printer, a NAS or a router's page. A 401 or 403, a 503, a code a television is known to give and
+    /// silence are a television's, and are thrown as ever, for the caller to read.
+    private func whoAnswers(_ client: ScalarClient, on link: DeviceLink,
+                            timeout: TimeInterval?) async throws -> Answering {
+        let identity: String
+        do {
+            identity = (try await client.wakeOnLANAddress(timeout: timeout)).flatMap(WakeOnLan.normalise) ?? ""
+        } catch let error as any DeviceError {
+            guard case .unexpected = error.failure else { throw error }
+            return .stranger(error.explanation)
+        }
+        guard link.session.recognises(identity: identity) != .another else { return .stranger(Self.anotherAnswered) }
+        return .saved(identity)
+    }
+
     /// What answered the first ask is not the television saved: left as silence leaves the session, with what
     /// answered on the line. Not connected to it, and not taken for anything of the television's.
     private func notThere(_ link: DeviceLink, answered line: String) {
@@ -164,7 +188,9 @@ public final class TVDriver: LinkDriver {
 
     public static let connectingLine = "テレビに接続中"
 
-    /// Said when the device at the television's address is another one.
+    /// Said when the device at the television's address is another one: by an attach that met another
+    /// television, and by the host whenever the check before an operation met something that is not the
+    /// television saved (`check`), a device that is no television included.
     public nonisolated static let anotherAnswered = "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"
 
     /// Never: see the type's description.
@@ -984,10 +1010,25 @@ public final class TVDriver: LinkDriver {
 
     // MARK: - the check before an operation
 
+    /// Asks which television answers, as an attach asks it first (`whoAnswers`). The address may have changed
+    /// hands while the app stayed connected -- the lease handed to another device, the phone on another Wi-Fi
+    /// with the same subnet -- and what the reader asked for goes with the cookie. The one request is all the
+    /// check costs: it needs no registration and is answered in standby, so an answer says the television is
+    /// there to ask, which is all the check read of `getPowerStatus`, asked here before.
+    ///
+    /// Something that is not the television saved is a stranger: the session is left not connected, so that
+    /// nothing that needs the registration is asked from then on (`canBeAsked`), and the link tells the host
+    /// (`anotherAnsweredTheCheck`). Nothing that carries the cookie has gone to it. It answered, so it is not
+    /// silence and nothing is given up: the next connect asks again, and looks past it (`findElsewhere`). A
+    /// television the session knows by no MAC, one that gives none, is taken for the one saved, as an attach
+    /// takes it.
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
         guard let client = client as? ScalarClient else { return (.unexpected("not a television's client"), false) }
         do {
-            _ = try await client.powerStatus(timeout: probeTimeout)
+            guard case .saved = try await whoAnswers(client, on: link, timeout: probeTimeout) else {
+                link.session.strangerAnswered()
+                return (nil, true)
+            }
             return (nil, false)
         } catch {
             return ((error as? any DeviceError)?.failure ?? .unexpected(String(describing: error)), false)

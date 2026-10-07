@@ -144,6 +144,31 @@ final class TVLinkTests: XCTestCase {
         XCTAssertFalse(calls.contains { $0.hasPrefix("getStorageList") }, "the cookie went to another television")
     }
 
+    /// Another television where the one connected to was, heard by the check before an operation -- the address
+    /// handed to it while the app stayed open -- is said on the television's line, in the words for another
+    /// device, and nothing that needs the registration is asked of it from then on: the list is not read, and
+    /// the cookie does not go to it.
+    func testAnotherTelevisionHeardByTheCheckIsSaidAndNotAsked() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let television = DemoTV()
+        let model = bench.model(recorder: DemoRecorder(), television: television,
+                                credentials: await registered(with: television))
+        await model.start()
+        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+
+        await television.becomeAnother(mac: "f8:4e:17:00:00:0b")
+        let before = await television.calls.count
+        let up = await model.tv?.ensureUp(evenIfRecent: true)
+        await model.tvHost?.loadReservations()
+
+        XCTAssertEqual(up, false)
+        XCTAssertEqual(model.tvHost?.problem, TVDriver.anotherAnswered)
+        XCTAssertEqual(model.tvDriver?.canBeAsked, false)
+        let after = await television.calls.dropFirst(before)
+        XCTAssertEqual(Array(after), ["getSystemSupportedFunction cookie=no pin=no"])
+    }
+
     /// A registration writes down the MAC the television gave as it registered: the link made next knows the
     /// television by it. A television that gives no MAC leaves none saved: the one from before would be kept as
     /// its own. Another television takes the place of the one saved only after テレビを外す

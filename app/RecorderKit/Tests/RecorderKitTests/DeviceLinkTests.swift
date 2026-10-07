@@ -403,9 +403,10 @@ final class DeviceLinkTests: XCTestCase {
     private static let askedWhich = "getSystemSupportedFunction cookie=no pin=no"
 
     /// A television silent where it was saved is looked for once on its subnet, by the MAC it wakes on, with the
-    /// strip saying so while the look is out; found, it is the television the app had: the address moves --
-    /// written down -- and a client of its own attaches there, asking which television it is before anything
-    /// carries the cookie. Nothing is woken and nothing registers.
+    /// strip saying so while the look is out and the line of what went wrong taken down until the look is over;
+    /// found, it is the television the app had: the address moves -- written down -- and a client of its own
+    /// attaches there, asking which television it is before anything carries the cookie. Nothing is woken and
+    /// nothing registers.
     func testATelevisionSilentWhereItWasIsFoundByItsMACAndFollowed() async {
         let world = LinkWorld()
         let television = await registeredTelevision(in: world)
@@ -418,7 +419,9 @@ final class DeviceLinkTests: XCTestCase {
         world.devices[Self.moved] = television
         world.devices[Self.nobodyHere] = StubTransport { _, _ in
             let line = await world.line
+            let problem = await world.problem
             await world.put("line while looking: \(line ?? "none")")
+            await world.put("problem while looking: \(problem ?? "none")")
             throw RecorderError.transport("Nothing is here.")
         }
         world.near = [Self.nobodyHere, Self.moved]
@@ -435,6 +438,7 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertEqual(world.count("search for television"), 1)
         XCTAssertTrue(world.events.contains("address \(Self.moved)"), "the new address was not written down")
         XCTAssertTrue(world.events.contains("line while looking: \(TVDriver.lookingLine)"), "the strip said nothing")
+        XCTAssertTrue(world.events.contains("problem while looking: none"), "the silence was said while looking")
         XCTAssertNil(world.line, "a line was left up")
         XCTAssertEqual(world.count("packet"), 0)
         let heard = Array(await television.calls.dropFirst(calls))
@@ -501,8 +505,8 @@ final class DeviceLinkTests: XCTestCase {
 
     /// With the television nowhere on the subnet, what answered at its address is not taken up and the app gives
     /// up as on silence, saying what answered: another television, or the status of a device that is no
-    /// television. A television that asks for the registration at its first ask is the television, and is
-    /// neither looked past nor given up on.
+    /// television. A television that refuses its first ask as a television does -- asking for the registration,
+    /// busy, in standby with its display off -- is the television, and is neither looked past nor given up on.
     func testWhatAnswersWhereTheTelevisionWasIsSaidWhenItIsNotFound() async {
         let page = ScalarError.http(status: 404, method: "getSystemSupportedFunction").explanation
         let strangers: [(String, any HTTPTransport, String)] = [
@@ -523,17 +527,27 @@ final class DeviceLinkTests: XCTestCase {
             XCTAssertEqual(world.problem, line, what)
         }
 
-        let world = LinkWorld()
-        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 401))
-        world.near = [Stub.host, Self.nobodyHere]
-        let link = makeTVLink(world)
+        let method = "getSystemSupportedFunction"
+        let displayOff = HTTPResponse(statusCode: 200, body: Data(#"{"error":[40005,"display off"],"id":1}"#.utf8))
+        let refusals: [(String, HTTPResponse, ScalarError)] = [
+            ("asking for the registration", HTTPResponse(statusCode: 401), .http(status: 401, method: method)),
+            ("busy", HTTPResponse(statusCode: 503), .http(status: 503, method: method)),
+            ("its display off", displayOff, .rpc(method: method, version: "1.0", code: 40005, message: "display off")),
+        ]
+        for (what, answer, error) in refusals {
+            let world = LinkWorld()
+            world.devices[Stub.host] = StubTransport(always: answer)
+            world.near = [Stub.host, Self.nobodyHere]
+            let link = makeTVLink(world)
 
-        await link.connect()
+            await link.connect()
 
-        XCTAssertFalse(link.session.gaveUp, "a television asking for the registration was given up on")
-        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
-        XCTAssertEqual(world.problem, ScalarError.http(status: 401, method: "getSystemSupportedFunction").explanation)
-        XCTAssertEqual(world.count("search for television"), 0)
+            XCTAssertFalse(link.session.gaveUp, "a television \(what) was given up on")
+            XCTAssertFalse(link.session.unreachable, what)
+            XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, error.failure == .needsPairing, what)
+            XCTAssertEqual(world.problem, error.explanation, what)
+            XCTAssertEqual(world.count("search for television"), 0, "a television \(what) was looked past")
+        }
     }
 
     /// Nothing is looked for while the session does not know which television this is: one that gave no MAC
@@ -629,6 +643,83 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertEqual(world.count("packet"), 0)
         let calls = await television.calls
         XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") || $0.hasPrefix("setPowerStatus") })
+    }
+
+    /// What makes a look worth making again is the television saying it is the one saved, which it does before
+    /// anything needs the registration: one that then turns the cookie down has still said it, and its next
+    /// silence is looked past.
+    func testALookIsMadeAgainOnceTheTelevisionSaidWhichItIsThoughItWantsTheRegistration() async {
+        let world = LinkWorld()
+        let television = DemoTV()   // knows no cookie of the app's
+        world.devices[Stub.host] = television
+        await television.goSilent()
+        world.near = [Self.nobodyHere]
+        let link = makeTVLink(world)
+        await link.connect()
+        XCTAssertEqual(world.count("search for television"), 1)
+
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
+        XCTAssertEqual(world.count("search for television"), 1)
+
+        await television.goSilent()
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 2, "not looked for after it said which it is")
+    }
+
+    /// An address as a router hands it out: what is behind it now answers each request, to a client made before
+    /// the change as well.
+    private actor Address: HTTPTransport {
+        private var device: any HTTPTransport
+
+        init(_ device: any HTTPTransport) { self.device = device }
+
+        func handTo(_ device: any HTTPTransport) { self.device = device }
+
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse { try await device.send(request) }
+    }
+
+    /// The address changing hands while the app is connected, and the phone then joining another Wi-Fi with the
+    /// same subnet: the check that follows asks which television answers, and reads another television -- one
+    /// that would take the very cookie -- or a device that is no television as something else in its place. The
+    /// host is told, the app is not connected to it and not given up on, and nothing that needs the registration
+    /// is asked from then on: the next operation is refused, and its check too. What answered heard which
+    /// television it is and nothing else, never the cookie.
+    func testTheCookieGoesToNothingThatTookTheAddressWhileConnected() async {
+        let other = DemoTV(mac: Self.otherTV)
+        await other.knows("BDBridge:test", cookie: "kept")
+        let strangers: [(String, any HTTPTransport)] = [
+            ("another television", other),
+            ("a page on port 80", StubTransport(always: HTTPResponse(statusCode: 404))),
+        ]
+        for (what, stranger) in strangers {
+            let world = LinkWorld()
+            let address = Address(await registeredTelevision(at: nil, in: world))
+            world.devices[Stub.host] = address
+            let link = makeTVLink(world)
+            let driver = link.driver as? TVDriver
+            await link.connect()
+            XCTAssertEqual(driver?.canBeAsked, true, what)
+
+            let heard = StubTransport { request, _ in try await stranger.send(request) }
+            await address.handTo(heard)
+            world.network = "another"
+            world.events = []
+            await link.networkChangedWhileOpen()
+
+            XCTAssertEqual(world.count("another device on the check"), 1, "\(what): the host was not told")
+            XCTAssertEqual(driver?.canBeAsked, false, what)
+            XCTAssertFalse(link.session.connected, what)
+            XCTAssertFalse(link.session.gaveUp, "\(what) was given up on as silence")
+            expectNil(await driver?.reservations(), "\(what): the list was read")
+            let up = await link.ensureUp(evenIfRecent: true)
+            XCTAssertFalse(up, "\(what): the next check let the operation through")
+            let asked = await heard.requests
+            XCTAssertFalse(asked.isEmpty, "\(what) was not asked which television it is")
+            XCTAssertTrue(onlyAskedWhichItIs(asked), "\(what) was asked more than which television it is")
+        }
     }
 
     // MARK: - letting go

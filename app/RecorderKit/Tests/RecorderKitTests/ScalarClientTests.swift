@@ -289,26 +289,31 @@ final class ScalarClientTests: XCTestCase {
         expectEqual(await asked.requests.map(\.timeout), [5, ScalarClient.timeout, 2, ScalarClient.timeout])
     }
 
-    /// With a television saved, one that answers with another MAC is refused before it is asked to register:
-    /// it would not be taken up once registered, and no PIN is to come up on its panel for a registration the
-    /// app then refuses. Nothing is kept. The MAC saved spelled otherwise is the same television, which
-    /// registers as one does with none saved; so does a television that gives no MAC, taken for the one saved
-    /// as an attach takes it.
+    /// With a television saved, one that answers with another MAC is refused before it is asked to register, at
+    /// the first press with no PIN as with the PIN: it would not be taken up once registered, and no PIN is to
+    /// come up on its panel for a registration the app then refuses. Nothing is kept. The MAC saved
+    /// spelled otherwise is the same television, which registers as one does with none saved; so does a
+    /// television that gives no MAC, taken for the one saved as an attach takes it.
     func testAnotherTelevisionThanTheOneSavedIsRefusedBeforeItIsAskedToRegister() async {
         let first = "getSystemSupportedFunction cookie=no pin=no", withPIN = "actRegister cookie=no pin=yes"
         let saved = DemoTV.mac.uppercased().replacingOccurrences(of: ":", with: "-")
         let other = "f8:4e:17:00:00:0b"
-        let cases: [(String, DemoTV, String?, TVEnrolment, [String])] = [
-            ("another", DemoTV(power: "active", mac: other), saved, .failed(ScalarClient.anotherTelevision), [first]),
-            ("the one saved", DemoTV(power: "active"), saved, .registered(mac: DemoTV.mac), [first, withPIN]),
-            ("no MAC given", DemoTV(power: "active", mac: ""), saved, .registered(mac: nil), [first, withPIN]),
-            ("none saved", DemoTV(power: "active", mac: other), nil, .registered(mac: other), [first, withPIN]),
+        let refused = TVEnrolment.failed(ScalarClient.anotherTelevision)
+        let cases: [(String, DemoTV, String?, String?, TVEnrolment, [String])] = [
+            ("another", DemoTV(power: "active", mac: other), saved, DemoTV.pin, refused, [first]),
+            ("another, at the first press", DemoTV(power: "active", mac: other), saved, nil, refused, [first]),
+            ("the one saved", DemoTV(power: "active"), saved, DemoTV.pin, .registered(mac: DemoTV.mac),
+             [first, withPIN]),
+            ("no MAC given", DemoTV(power: "active", mac: ""), saved, DemoTV.pin, .registered(mac: nil),
+             [first, withPIN]),
+            ("none saved", DemoTV(power: "active", mac: other), nil, DemoTV.pin, .registered(mac: other),
+             [first, withPIN]),
         ]
-        for (name, television, expecting, expected, sent) in cases {
+        for (name, television, expecting, pin, expected, sent) in cases {
             let store = MemoryTVCredentials()
             let tv = ScalarClient(host: Stub.host, transport: television, credentials: store)
 
-            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: DemoTV.pin,
+            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: pin,
                                        expecting: expecting), expected, name)
 
             expectEqual(await television.calls, sent, name)
