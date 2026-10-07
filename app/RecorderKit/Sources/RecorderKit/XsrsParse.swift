@@ -95,10 +95,10 @@ public enum XsrsParse {
         )
     }
 
-    /// A disk as `X_GetMediaInfo` describes it, for the disk asked about. Its elements are read by name wherever
-    /// they are under the root, since how the recorder wraps them has not been kept whole, and so an answer
-    /// describing two disks gives the first. Nil for an empty answer, one that is not XML, and one without
-    /// `<mount>`, none of which describes a disk.
+    /// A disk as `X_GetMediaInfo` describes it, for the disk asked about. A BDZ-FBT4100 puts the elements straight
+    /// under an `<xsrs>` root. They are read by name wherever they are under the root, so that another model's
+    /// wrapping reads as well, and an answer describing two disks, which has not been seen, gives the first. Nil
+    /// for an empty answer, one that is not XML, and one without `<mount>`, none of which describes a disk.
     public static func disk(_ result: String, destination: String) -> RecorderDisk? {
         guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let root = try? XmlNode.parse(result),

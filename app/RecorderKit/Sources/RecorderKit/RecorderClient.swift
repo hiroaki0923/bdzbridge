@@ -137,21 +137,17 @@ public actor RecorderClient {
         try await titlePage(count: count, start: start, on: destination).titles
     }
 
-    /// Every recording on one disk, newest first. One call returns at most 200, so this follows `TotalMatches`,
-    /// by each page's own count. Only the disk asked for is kept, by the disk each row names: the recorder takes
-    /// a criteria it does not know for one that matches everything, and so may answer the slot's with the internal
-    /// disk's rows. The internal disk's keeps every row but the slot's, so a recorder with no USB disk gives the
-    /// same list as before whatever its rows say.
-    public func allTitles(pageSize: Int = 200,
-                          on destination: String = RecorderDisk.internalID) async throws -> [RecordedTitle] {
+    /// Every recording, newest first, asked for as the internal disk's always were. One call returns at most 200,
+    /// so this follows `TotalMatches`, by each page's own count. With no disk named every row the recorder gives
+    /// is kept, as it always was: which list the recordings screen shows is not this function's to narrow. With
+    /// one named, only the rows that say they are on it are kept, since the recorder takes a criteria it does not
+    /// know for one that matches everything and so may answer the slot's with the internal disk's rows.
+    public func allTitles(pageSize: Int = 200, on destination: String? = nil) async throws -> [RecordedTitle] {
         var all: [RecordedTitle] = []
         var start = 0
         while true {
-            let page = try await titlePage(count: pageSize, start: start, on: destination)
-            all += page.titles.filter {
-                destination == RecorderDisk.internalID ? $0.destination != RecorderDisk.usbID
-                    : $0.destination == destination
-            }
+            let page = try await titlePage(count: pageSize, start: start, on: destination ?? RecorderDisk.internalID)
+            all += page.titles.filter { destination == nil || $0.destination == destination }
             start += page.count
             if page.count == 0 || start >= page.total { return all }
         }

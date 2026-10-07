@@ -58,8 +58,8 @@ public final class RecorderDriver: LinkDriver {
     /// Reads what the recorder says about itself. Only the description decides whether the app is connected. The
     /// firmware, the MAC, the free space and the disk in the USB slot are read too, but another model may refuse
     /// one or answer in a shape of its own, and that must not fail the attach: what cannot be read is left
-    /// unknown. Silence still ends it. What waits is sent last, and an attach that met silence there has not
-    /// reached anything to show.
+    /// unknown. Silence still ends it. What waits is sent before the slot is read, and an attach that met silence
+    /// in either has not reached anything to show.
     ///
     /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet.
     public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
@@ -86,13 +86,15 @@ public final class RecorderDriver: LinkDriver {
                 owner?.keepMAC(settings.mac)
             }
             link.session.learned(storage: try await Self.storage(of: client))
-            link.session.learned(usbDisk: try await Self.usbDisk(of: client))
             link.session.answered()
             owner?.problem = nil
             await owner?.sendWhatWaits()
             // The recorder can go quiet in the middle of sending the queue, which leaves the app offline like any
             // other silence; a connect that ended there has not reached anything to show.
             guard !link.session.unreachable else { return false }
+            // After what waits, so that a slot slow to answer, or silent, does not hold back a reservation, in a
+            // home with no USB disk as much as in one with. Its silence still ends the attach.
+            link.session.learned(usbDisk: try await Self.usbDisk(of: client))
             link.session.attached()
             return true
         } catch {

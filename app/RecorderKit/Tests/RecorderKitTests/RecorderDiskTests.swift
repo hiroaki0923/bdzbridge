@@ -7,16 +7,15 @@ import XCTest
 /// disk, and the attach that reads the slot.
 @MainActor
 final class RecorderDiskTests: XCTestCase {
-    /// The slot as `X_GetMediaInfo` might describe a disk: the elements a BDZ-FBT4100 was seen to give, with the
-    /// name, the time and the sizes made up. How the recorder wraps them has not been seen whole, and the reading
-    /// does not look at the root's name. An element given as nil is left out.
+    /// The slot as `X_GetMediaInfo` describes a disk: the root, the elements and their order as a BDZ-FBT4100
+    /// gives them, with the name, the time and the sizes made up. An element given as nil is left out.
     static func slot(name: String = "録画用ディスク", mount: String? = "1", remain: String = "123456",
                      total: String = "2000398", registered: String? = "2026-01-02T03:04:05+0900") -> String {
-        var xml = "<mediaInfo><name>\(name)</name>"
+        var xml = "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name>\(name)</name>"
         if let mount { xml += "<mount>\(mount)</mount>" }
         xml += "<remain>\(remain)</remain><total>\(total)</total>"
         if let registered { xml += "<registeredTime>\(registered)</registeredTime>" }
-        return xml + "<recordableRemain>654321</recordableRemain></mediaInfo>"
+        return xml + "<recordableRemain>654321</recordableRemain></xsrs>"
     }
 
     static func disk(name: String = "録画用ディスク", mounted: Bool = true, total: Int? = 2_000_398,
@@ -113,8 +112,8 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertNil(Self.disk(total: 0).totalBytes)
     }
 
-    /// The slot is one id for whatever disk is in it. A disk is the one read before when the slot, its
-    /// registration and its name are all the same, so a renamed disk counts as another.
+    /// The slot is one id, and the disk behind it is taken to change. A disk is the one read before when the slot,
+    /// its registration and its name are all the same, so a renamed disk counts as another.
     func testTheSameDiskIsTheSameSlotRegistrationAndName() {
         let disk = Self.disk()
         XCTAssertTrue(disk.isSameDisk(as: Self.disk()))
@@ -167,15 +166,20 @@ final class RecorderDiskTests: XCTestCase {
         }
     }
 
-    /// Each disk's list keeps the rows that say they are on it, read through every page by the page's own count.
-    /// The internal disk's keeps all but the slot's, a row that names no disk among them.
+    /// A disk's list keeps the rows that say they are on it, read through every page by the page's own count; a
+    /// row that names no disk is the internal disk's. With no disk named every row is kept, as it always was,
+    /// whatever disk the rows say they are on.
     func testTheSlotsListKeepsOnlyTheSlotsRows() async throws {
         let usb = try await RecorderClient(host: Stub.host, transport: Self.mixedPages())
             .allTitles(pageSize: 2, on: RecorderDisk.usbID)
         XCTAssertEqual(usb.map(\.id), ["0x3"])
 
-        let own = try await RecorderClient(host: Stub.host, transport: Self.mixedPages()).allTitles(pageSize: 2)
+        let own = try await RecorderClient(host: Stub.host, transport: Self.mixedPages())
+            .allTitles(pageSize: 2, on: RecorderDisk.internalID)
         XCTAssertEqual(own.map(\.id), ["0x1", "0x2", "0x4"])
+
+        let every = try await RecorderClient(host: Stub.host, transport: Self.mixedPages()).allTitles(pageSize: 2)
+        XCTAssertEqual(every.map(\.id), ["0x1", "0x2", "0x3", "0x4"], "a list with no disk named was narrowed")
     }
 
     /// The USB disk's recordings are asked for by its id, quoted with no spaces as the official client asks;
@@ -196,16 +200,20 @@ final class RecorderDiskTests: XCTestCase {
     // MARK: - the attach
 
     /// A recorder that describes itself as the recorder of the vectors does, answers the slot as it is told, and
-    /// refuses everything else an attach reads, which the attach does without.
+    /// refuses everything else an attach reads, which the attach does without. What it answers the slot can be
+    /// changed between two attaches, as a disk put in or taken out would change it, and it counts the slot's reads.
     private actor SlotRecorder: HTTPTransport {
         enum Slot { case answer(HTTPResponse), silence }
-        private let slot: Slot
+        private var slot: Slot
         private let description: String
+        private(set) var slotReads = 0
 
         init(_ slot: Slot) {
             self.slot = slot
             description = (try? Vectors.load("description.json"))?.string("description_xml") ?? ""
         }
+
+        func answer(_ slot: Slot) { self.slot = slot }
 
         func send(_ request: HTTPRequest) async throws -> HTTPResponse {
             if request.url.lastPathComponent == "description.xml" {
@@ -214,6 +222,7 @@ final class RecorderDiskTests: XCTestCase {
             guard request.headers["SOAPACTION"]?.contains("#X_GetMediaInfo") == true else {
                 return HTTPResponse(statusCode: 500)
             }
+            slotReads += 1
             switch slot {
             case .answer(let response): return response
             case .silence: throw RecorderError.transport("The request timed out.")
@@ -222,8 +231,12 @@ final class RecorderDiskTests: XCTestCase {
     }
 
     private func connected(to slot: SlotRecorder.Slot) async -> (DeviceLink, LinkWorld) {
-        let world = LinkWorld()
-        world.devices[Stub.host] = SlotRecorder(slot)
+        await connected(to: SlotRecorder(slot))
+    }
+
+    private func connected(to recorder: SlotRecorder,
+                           in world: LinkWorld = LinkWorld()) async -> (DeviceLink, LinkWorld) {
+        world.devices[Stub.host] = recorder
         let link = DeviceLink(host: Stub.host, session: SessionState(),
                               driver: RecorderDriver(holdingTheQueueWith: "held", wakingLimit: 0.05,
                                                      wakingInterval: .milliseconds(10), busyRetryDelay: 0...0),
@@ -252,5 +265,55 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertFalse(silent.session.connected)
         XCTAssertTrue(silent.session.unreachable)
         XCTAssertEqual(silent.session.timesAttached, 0)
+    }
+
+    /// What waits is sent before the slot is read, so that a slot slow to answer, or silent, does not hold back a
+    /// reservation: with a disk in the slot and with silence there alike.
+    func testWhatWaitsIsSentBeforeTheSlotIsRead() async {
+        let slots: [(String, SlotRecorder.Slot)] = [
+            ("a disk", .answer(Stub.soap("X_GetMediaInfo", result: Self.slot()))),
+            ("silence", .silence),
+        ]
+        for (what, slot) in slots {
+            let recorder = SlotRecorder(slot)
+            let world = LinkWorld()
+            var slotReadsWhenSent: [Int] = []
+            world.onSendWhatWaits = { slotReadsWhenSent.append(await recorder.slotReads) }
+
+            _ = await connected(to: recorder, in: world)
+
+            XCTAssertEqual(slotReadsWhenSent, [0], "what waits was not sent first, or not at all: \(what)")
+            let reads = await recorder.slotReads
+            XCTAssertEqual(reads, 1, what)
+        }
+    }
+
+    /// Each attach reads the slot afresh: another disk put in it is the one known after the next attach, and a
+    /// slot that then refuses, or answers nothing, leaves none known, the recorder still connected.
+    func testEveryAttachReadsTheSlotAfresh() async {
+        let first = Stub.soap("X_GetMediaInfo", result: Self.slot())
+        let recorder = SlotRecorder(.answer(first))
+        let (link, _) = await connected(to: recorder)
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo",
+                                                result: Self.slot(registered: "2026-02-03T04:05:06+0900"))))
+        await link.connect()
+        XCTAssertEqual(link.session.usbDisk, Self.disk(registered: "2026-02-03T04:05:06+0900"),
+                       "the disk read before was kept")
+
+        let gone: [(String, HTTPResponse)] = [
+            ("refused", Stub.fault("803")),
+            ("an empty result", Stub.soap("X_GetMediaInfo", result: "")),
+        ]
+        for (what, answer) in gone {
+            await recorder.answer(.answer(first))
+            await link.connect()
+            XCTAssertEqual(link.session.usbDisk, Self.disk(), what)
+            await recorder.answer(.answer(answer))
+            await link.connect()
+            XCTAssertNil(link.session.usbDisk, "a disk no longer in the slot was kept: \(what)")
+            XCTAssertTrue(link.session.connected, what)
+        }
     }
 }

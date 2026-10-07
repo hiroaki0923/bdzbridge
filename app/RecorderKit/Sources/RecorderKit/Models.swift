@@ -107,8 +107,9 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
 }
 
 /// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in
-/// its USB slot. The slot is one id however many disks the recorder has registered, so the disk behind it can
-/// change: unplugged, swapped, or renamed on the recorder's own screen.
+/// its USB slot. The slot is one id: with one disk registered and connected it was that disk's, and every other id
+/// tried was refused. What it names with another disk, or with two connected at once, has not been seen, so the
+/// disk behind it is taken to change: unplugged, swapped, or renamed on the recorder's own screen.
 public struct RecorderDisk: Equatable, Sendable {
     /// The recorder's id for it: `internalID` or `usbID`.
     public var destination: String
@@ -120,7 +121,8 @@ public struct RecorderDisk: Equatable, Sendable {
     public var freeMB: Int?
     public var totalMB: Int?
     /// `<registeredTime>` as the recorder writes it, offset and all. Never read as a time, only compared: it is
-    /// what tells one registered disk from another. Empty for a disk the recorder has not registered.
+    /// what tells one registered disk from another. The recorder's own disk has the element, empty; what a USB
+    /// disk it has not registered is given has not been seen, and empty is read as not registered.
     public var registered: String
 
     public init(destination: String, name: String, mounted: Bool, freeMB: Int?, totalMB: Int?, registered: String) {
