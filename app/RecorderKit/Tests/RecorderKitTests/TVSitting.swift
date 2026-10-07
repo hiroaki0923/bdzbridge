@@ -2192,7 +2192,10 @@ extension TVSitting {
 
         watching?.step = "the create"
         let body = try body(pick, on: station)
-        let created = try await create(leave(for: body, "the create: "), of: pick)
+        let leave = try await leave(for: body, "the create: ")
+        // What the television said it is after the question is read before anything is written or made.
+        try stillInStandby()
+        let created = try await create(leave, of: pick)
         say("the create: \(created.answer); rows made: \(created.rows.count)")
         for row in created.rows { say("the row read back: \(Self.held(row, against: body))") }
         guard created.taken, created.rows.count == 1 else { throw Stopped(what: "the create did not make one row") }
