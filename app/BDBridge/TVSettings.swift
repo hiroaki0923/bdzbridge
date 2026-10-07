@@ -1,16 +1,26 @@
 import RecorderKit
 import SwiftUI
 
-/// The television in the settings: a way to add one, and once added, what is known of it and the ways to
-/// reconnect, register again or take it away. Not in the demo, whose recorder is invented.
+/// What the television's sheet is put up for: the address it opens on, and whether it goes straight on to
+/// テレビに接続 -- a television a scan found, tapped -- or waits for the reader's tap, for an address to be typed
+/// or a registration again. One value, so that the one presenter on a screen can be handed either.
+struct TVSheetRequest: Identifiable {
+    let id = UUID()
+    var host: String
+    var connectAtOnce: Bool
+}
+
+/// The television in the settings: a way to add one by its address, and once added, what is known of it and
+/// the ways to reconnect, register again or take it away. Not in the demo, whose recorder is invented. A
+/// television is found by the search above it; this is the way in for one the search did not find.
 struct TVSection: View {
     @Environment(AppModel.self) private var model
-    /// Whether the sheet that adds a television, or registers with it again, is up. Only set here: the sheet
-    /// is the settings screen's, hung on its form. Hung on this section it was hung on each of the section's
-    /// rows -- a modifier on a group goes to each of its children, and a section in a form hands it on to
-    /// each of its rows -- and with several presenters on the one state the sheet went by itself at the first
-    /// press, and again as a registration turned the section from one form to the other under it.
-    @Binding var registering: Bool
+    /// The sheet that adds a television, or registers with it again, asked for. Only set here: the sheet is
+    /// the settings screen's, hung on its form. Hung on this section it was hung on each of the section's rows
+    /// -- a modifier on a group goes to each of its children, and a section in a form hands it on to each of
+    /// its rows -- and with several presenters on the one state the sheet went by itself at the first press,
+    /// and again as a registration turned the section from one form to the other under it.
+    @Binding var sheet: TVSheetRequest?
     @State private var removing = false
     /// How many reservations wait for the television, read as the question goes up, for it to say and for
     /// 外す to be held to. Nil when they could not be counted.
@@ -33,7 +43,7 @@ struct TVSection: View {
                                                              totalBytes: storage.totalMB.map { $0 * 1_000_000 }))
                     }
                     if model.tvDriver?.facts.needsPairing == true {
-                        Button("登録する") { registering = true }
+                        Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false) }
                     } else if !tv.session.connected {
                         Button("再接続") { Task { await tv.connect() } }
                             .disabled(tv.session.connecting)
@@ -64,11 +74,12 @@ struct TVSection: View {
                 }
             } else if !model.demo {
                 Section {
-                    Button("テレビを追加") { registering = true }
+                    Button("アドレスを入力して追加") { sheet = TVSheetRequest(host: "", connectAtOnce: false) }
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    Text("ソニーのテレビを登録します。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
+                    Text("テレビは、上の「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
+                         + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
                 }
             }
         }
@@ -96,14 +107,29 @@ struct TVSection: View {
 /// The PIN appears only when the television is on and showing something -- in standby it says nothing to look
 /// at, and once it did not appear while the television was on either -- so a television in standby is asked to be
 /// turned on first, and the PIN step says what to do when none appears.
+///
+/// Opened for a television a scan found (`connectAtOnce`), it goes straight on to テレビに接続 as it appears:
+/// the reader tapped the television, and a second tap would only stand between them and its number.
 struct TVRegisterSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State var host: String
+    @State private var host: String
+    private let connectAtOnce: Bool
     @State private var askingForPIN = false
     @State private var pin = ""
     @State private var working = false
     @State private var message: String?
+    /// The step under way, from a button or from the sheet's appearing, kept so that closing the sheet ends
+    /// it: a registration is not asked for, nor a number put on a panel, for a sheet that is no longer there.
+    @State private var step: Task<Void, Never>?
+    /// Whether the step the sheet's appearing starts has been started: nothing promises that a view appears
+    /// once, and the step is not to be sent twice.
+    @State private var begun = false
+
+    init(host: String, connectAtOnce: Bool = false) {
+        _host = State(initialValue: host)
+        self.connectAtOnce = connectAtOnce
+    }
 
     var body: some View {
         NavigationStack {
@@ -133,7 +159,7 @@ struct TVRegisterSheet: View {
                     Section { Text(message).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
-                    Button(askingForPIN ? "登録する" : "テレビに接続") { Task { await next() } }
+                    Button(askingForPIN ? "登録する" : "テレビに接続") { start() }
                         .disabled(working || !RecorderAddress.isUsable(tidied) || (askingForPIN && pin.count != 4))
                     if working { ProgressView() }
                 }
@@ -145,10 +171,21 @@ struct TVRegisterSheet: View {
                     Button("キャンセル") { dismiss() }
                 }
             }
+            .onAppear {
+                guard connectAtOnce, !begun else { return }
+                begun = true
+                start()
+            }
+            .onDisappear { step?.cancel() }
         }
     }
 
     private var tidied: String { RecorderAddress.tidy(host).host }
+
+    private func start() {
+        guard !working else { return }
+        step = Task { await next() }
+    }
 
     private func next() async {
         // A second tap before the button is drawn disabled would send the whole of it again.
@@ -174,6 +211,8 @@ struct TVRegisterSheet: View {
         case .standby:
             message = "テレビの電源が切れています。テレビの電源を入れて、放送を映してから、もう一度お試しください。"
         case .on:
+            // The sheet was closed while what is at the address was asked: no number on a panel for nobody.
+            guard !Task.isCancelled else { return }
             switch await model.registerTV(at: tidied, pin: nil) {
             case .pinNeeded: askingForPIN = true
             case .registered: dismiss()

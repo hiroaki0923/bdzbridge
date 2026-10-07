@@ -10,8 +10,9 @@ struct SettingsScreen: View {
     @State private var typedMac = ""
     @State private var showingGuide = false
     @State private var showingDisclaimer = false
-    /// The television's sheet: its section asks for it (`TVSection`), and this screen puts it up.
-    @State private var registeringTV = false
+    /// The television's sheet: its section asks for it (`TVSection`), and so does a television the search
+    /// found, tapped (`FoundTelevisionsSection`); this screen puts it up.
+    @State private var tvSheet: TVSheetRequest?
     @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
@@ -97,7 +98,7 @@ struct SettingsScreen: View {
                 }
 
                 Section {
-                    Button("レコーダーを探す") {
+                    Button("レコーダーとテレビを探す") {
                         model.scanForDevices()
                     }
                     .disabled(model.scanHoldsTheButton || model.busy != nil)
@@ -123,7 +124,12 @@ struct SettingsScreen: View {
                         ScanOutcomeText(outcome: outcome)
                     }
                 } footer: {
-                    Text("同じ Wi-Fi 上のレコーダーを探します。見つかったものを選ぶと、そのレコーダーに切り替わります。")
+                    // In the demo the search finds the invented recorder alone, and nothing real.
+                    Text(model.demo
+                         ? "サンプルデータの表示中は、架空のレコーダーだけが見つかります。"
+                           + "実際の機器を探すときは、先にサンプルを終了してください。"
+                         : "同じ Wi-Fi 上のレコーダーとテレビを探します。レコーダーを選ぶとそのレコーダーに切り替わり、"
+                           + "テレビを選ぶとテレビの登録を始めます。")
                 }
 
                 if !model.found.isEmpty {
@@ -140,6 +146,7 @@ struct SettingsScreen: View {
                         }
                     }
                 }
+                FoundTelevisionsSection(sheet: $tvSheet)
 
                 if let info = model.info {
                     Section("接続中のレコーダー") {
@@ -158,7 +165,7 @@ struct SettingsScreen: View {
                     }
                 }
 
-                TVSection(registering: $registeringTV)
+                TVSection(sheet: $tvSheet)
 
                 Section {
                     NavigationLink("チャンネルの表示と並び順") {
@@ -237,7 +244,7 @@ struct SettingsScreen: View {
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.
-            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "") }
+            .sheet(item: $tvSheet) { TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce) }
         }
     }
 
