@@ -27,7 +27,7 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 | `X_UpdateRecordSchedule` | Elements（`id` 付き） | 予約変更 |
 | `X_DeleteRecordSchedule` | RecordScheduleID | 予約削除 |
 | `X_GetConflictList` | Elements | 作成前の競合確認。重なる既存予約の item を返す（無ければ空） |
-| `X_GetTitleList` | SearchCriteria（例 `recordDestinationID=HDD`）, … | 録画済みタイトル一覧 |
+| `X_GetTitleList` | SearchCriteria（本体の HDD は空、USB HDD は `recordDestinationID="USBHDD"`）, … | 録画済みタイトル一覧 |
 | `X_DeleteTitle` | TitleID | 録画済みタイトルの削除（保護中・録画中は失敗） |
 | `X_UpdateTitle` | Elements | 録画済みタイトルの変更。`<item id="…">` に変更したい要素だけを入れる: `title`, `titleProtectFlag`（0/1、保護）, `titleNewFlag`, `markingID` |
 | `X_DeleteTitle` / `X_UpdateTitle` | TitleID / Elements | 録画済みタイトルの削除・更新（本プロジェクト未使用） |
@@ -355,11 +355,52 @@ LAN から作った条件は、本体の画面でもそのまま条件として�
 | `X_GetLiveChList(BroadcastType, SkipChannel)` | チャンネル（service_id）の `_` 区切り一覧。BroadcastType は 2/3/4 |
 | `X_InputRemoteKey(RemoteKey)` | リモコンキー送信。確認済みのキー名: `BACK`, `CH_UP`, `PROGRAM_LIST`, `TITLE_INFO` |
 | `X_GetTitleDetail(Id)` / `X_GetTitleInfo(TitleID)` | 録画済みタイトルの番組内容 / チャプター情報 |
-| `X_GetMediaInfo(recordDestinationID)` | `remain`（MB）と `total`（MB）。バイト単位が欲しいときは ContentDirectory の `X_HDLnkGetRecordDestinationInfo(RecordDestinationID)` が `totalCapacity` / `availableCapacity` を返す |
+| `X_GetMediaInfo(recordDestinationID)` | 録画先 1 つの様子（下記）。本体の HDD のバイト単位の残容量は ContentDirectory の `X_HDLnkGetRecordDestinationInfo(RecordDestinationID)` が `totalCapacity` / `availableCapacity` で返す（何を渡しても本体の HDD の値） |
 | `X_PlayControlTitle(TitleID, Operation, Position)` | レコーダーに接続したテレビで再生。Operation は小文字の `play` / `pause` / `stop`（`pause` は再送で再生に戻るトグル。`resume` は 803）。`play` に Position を付けても先頭から始まる。ネットワークスタンバイ中は 880 |
 
 エラーコード: 401 Invalid Action、402 Invalid Args（形式不正）、501/701 該当なし、803/820 アクション失敗。
 実測した一覧は `upnp/service-sweep.md` にあります。
+
+### USB HDD（`X_GetMediaInfo`）
+
+USB HDD がつながっているかとその残容量を 3 つの経路で確かめ、言ったのは `X_GetMediaInfo(USBHDD)` だけでした。
+`X_HDLnkGetRecordDestinations` は USB HDD をつないで登録しても `HDD` しか返さず、
+`X_HDLnkGetRecordDestinationInfo` は何を渡しても本体の HDD の値を返しました。DLNA のツリー（`USBV_`）はまだ
+見ていません。USB HDD を 1 台つないで登録したとき、その id は `USBHDD` で、試したほかの id はすべて 803 でした。
+別のディスクをつないだとき、2 台を同時につないだときの id は未確認です。
+
+| 要素 | 内容 |
+|---|---|
+| `name` | レコーダーがディスクに付けた名前。レコーダーの画面で変えられる。本体の HDD は空 |
+| `mount` | `1` でつながっている |
+| `remain` / `total` | 空きと全体（MB）。1 MB = 10^6 バイトと推定（USB HDD の全体と、本体の HDD の空きがこの値で合う）。未加工のバイト数と並べた確認はまだ |
+| `registeredTime` | USB HDD を登録した時刻（`2026-01-02T03:04:05+0900` の形）。ディスクを見分ける手がかりになる。本体の HDD では空の要素 |
+| `recordableRemain` | 意味は未確定。USB HDD では `remain` と同じ値、本体の HDD では `remain` より大きい |
+
+- `Result` は `<?xml version="1.0"?><xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">` の直下に、上の要素が
+  `name`、`mount`、`remain`、`total`、`registeredTime`、`recordableRemain` の順に並ぶ形です。アプリは要素を名前で
+  探して読みます（ほかの機種の包み方でも読めるように。2 台分が書かれていれば 1 つめ。2 台分の答えは未確認）。
+- ネットワークスタンバイ中に一度読んだときは、電源が入っているときと同じ答えでした。
+- **起こした直後は、登録したディスクがつながっていても「無し」と答えました**（一度。ネットワークから外れていた
+  レコーダーをマジックパケットで起こし、パケットから約 8 秒で説明が返った直後に読んだもの）。`name` と
+  `registeredTime` が空、`mount` が `0`、`remain` と `total` が `0` で、アプリが「無し」と読む答えです。
+  5 秒ごとに読んで時間を測った別の一度では、レコーダーが答えはじめてから 5 秒後の読み取りでディスクを答えました。
+  アプリは、知っている USB HDD があるときの「無し」をすぐには信じず、ディスクをそのまま見せて、30 秒後に
+  一度だけ読み直し、そこでも「無し」のときにはじめて外れたとします（30 秒は、測った 5 秒に、回転の遅いディスクの
+  ための余裕を見たもの）。読み直しが無応答のときと、送り直しても 503（ほかの要求を処理中）のときは何も変えません。
+  知っている USB HDD は番組表キャッシュに残し、起動して最初の接続（たいていは起こしてからの接続）でも使います
+  （`RecorderDriver.learnTheSlot`）。深夜の処理は、「無し」と読んでも知っている USB HDD を手放しません。
+  それが録画できるディスクなら、内蔵 HDD の通知には「HDD」と名前を付け、番組表を取ったあとにもう一度だけ読み、
+  ディスクを答えれば USB HDD の通知を出します（`BackgroundWork.refresh`）。
+- **ディスクを外したとき、一度も登録していない機体、つないだが登録していないディスクの答えは未確認**です。
+  アプリは `registeredTime` のある（登録済みの）ディスクだけを USB HDD とし、断り、読めない答え、`mount` の
+  無い答え、登録時刻の無い答えは、どれも「USB HDD なし」と読みます（`RecorderDriver.usbDisk`）。登録済みで
+  `mount` が `0` のディスクは、つながっていないものとして扱います。
+- 実機での読み取りは `LiveRecordingDestinationTests`（読むだけ。`RECORDER_HOST` を指定したときだけ動く）。
+  各ディスクの答えを、件数とコード、要素の並びだけで出します（名前や時刻、録画中のタイトルのチャンネルは、長さと
+  要約値に置き換える）。`RECORDER_MAC` も指定すると、アプリと同じマジックパケットでまずレコーダーを起こし、
+  答えるまでにかかった時間を出します。起こしてから USB HDD を答えるまでの時間は `LiveSlotAfterAWakeTests`
+  （読むだけ。5 秒ごとに最長 3 分読み、読むたびの経過時間と、登録済みのディスクがあったかどうかだけを出す）。
 
 ### 受信できないチャンネルは番組指定で予約できない（831）
 

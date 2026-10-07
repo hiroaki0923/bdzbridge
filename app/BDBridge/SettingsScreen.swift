@@ -150,9 +150,10 @@ struct SettingsScreen: View {
                             LabeledContent("ファームウェア", value: model.firmware)
                         }
                         LabeledContent("番組表", value: info.epgCapable ? "対応" : "非対応")
-                        if let storage = model.storage {
-                            LabeledContent("残り容量",
-                                           value: "\(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))")
+                        // By position: a disk the owner named HDD on the recorder would share the internal one's label.
+                        ForEach(Array(Self.storageRows(storage: model.storage, usb: model.usbDisk).enumerated()),
+                                id: \.offset) { _, row in
+                            LabeledContent(row.label, value: row.value)
                         }
                     }
                 }
@@ -297,6 +298,32 @@ struct SettingsScreen: View {
                      + "レコーダーにもテレビにも何もしません。")
             }
         }
+    }
+
+    /// One row of the recorder's free space.
+    struct StorageRow: Equatable {
+        var label: String
+        var value: String
+    }
+
+    /// The recorder's free space as this screen lists it. With its own disk alone, the one row it has always
+    /// had. Once a USB disk is known, a row to a disk, each under the recorder's word for it and in the words the
+    /// television's USB disk is described in, and the internal disk's only when it said how full it is, as before.
+    static func storageRows(storage: (free: Int, total: Int)?, usb: RecorderDisk?) -> [StorageRow] {
+        var rows: [StorageRow] = []
+        if let storage {
+            rows.append(usb == nil
+                ? StorageRow(label: "残り容量",
+                             value: "\(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))")
+                : StorageRow(label: RecorderDisk.label(RecorderDisk.internalID, named: nil),
+                             value: Format.storage(mounted: true, freeBytes: storage.free, totalBytes: storage.total)))
+        }
+        if let usb {
+            rows.append(StorageRow(label: RecorderDisk.label(usb.destination, named: usb.name),
+                                   value: Format.storage(mounted: usb.mounted, freeBytes: usb.freeBytes,
+                                                         totalBytes: usb.totalBytes)))
+        }
+        return rows
     }
 
     private static func permissionLabel(_ status: UNAuthorizationStatus) -> String {

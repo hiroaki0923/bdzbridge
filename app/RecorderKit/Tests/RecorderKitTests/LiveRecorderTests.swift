@@ -8,8 +8,13 @@ import XCTest
 /// Nothing here writes to the recorder unless RECORDER_WRITE=1 is set as well: then the tests that say so make a
 /// reservation and delete it again. Otherwise reservations and recordings are only read, so running it cannot
 /// change what the box is going to record. Compare the printed numbers with the same figures from the Python
-/// server to see that both implementations agree.
+/// server to see that both implementations agree. With RECORDER_MAC set as well, each test wakes the recorder
+/// first (`LiveWaking`).
 final class LiveRecorderTests: XCTestCase {
+    override func setUp() async throws {
+        try await LiveWaking.wakeTheRecorderIfAsked()
+    }
+
     /// Station logos and the grouping of real recorded titles, which is where the heuristic earns its keep.
     /// Writes both out when RECORDER_EPG_DUMP is set, so the Python side can be run over the same input.
     func testDecodesTheLogosAndGroupsTheRecordings() async throws {

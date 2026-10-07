@@ -260,7 +260,10 @@ enum BackgroundWork {
         var heldBack: @Sendable () async -> Void
         /// What became of the queue.
         var flushed: @Sendable (PendingQueue.Outcome) async -> Void
-        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int) async -> Void
+        /// The internal disk's free space, with its label while a USB disk beside it takes recordings.
+        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
+        /// The USB disk's, when it takes recordings.
+        var usbSpace: @Sendable (RecorderDisk) async -> Void
         /// A guide was fetched, at this time.
         var fetched: @Sendable (Date) -> Void
 
@@ -268,7 +271,8 @@ enum BackgroundWork {
         static let system = Telling(
             heldBack: { await Notify.queueHeldBack() },
             flushed: { await Notify.queueFlushed($0) },
-            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1) },
+            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
+            usbSpace: { await Notify.lowSpace(on: $0) },
             fetched: {
                 UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
             })
@@ -291,14 +295,38 @@ enum BackgroundWork {
         let outcome = await PendingQueue.flush(client: client, store: store)
         await telling.flushed(outcome)
         guard !Task.isCancelled else { return false }
-        if let capacity = try? await client.recordDestinationInfo() {
-            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes)
+        // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
+        // Read through the one rule the screens use: only a disk the recorder registered counts. It lets only
+        // silence out, and silence ends the run here: the free space and the guide would each wait it out again.
+        // An answer of none, which a recorder just woken gives with a disk in the slot, lets no disk go: the disk
+        // kept with the cache stays for the screens to settle. While that disk takes recordings there are still
+        // two disks, so the internal disk's notice names its disk as the screens do, and the slot is read once
+        // more after the guide, which gives the disk a while to come up, for the USB disk's notice. One request
+        // more on such a night, and none in a home with no USB disk known.
+        let usb: RecorderDisk?
+        do {
+            usb = try await RecorderDriver.usbDisk(of: client)
+        } catch {
+            return false
         }
+        let second = usb?.takesRecordings == true ? usb : nil
+        let known = usb == nil ? (try? await store.knownUSBDisk()) : nil
+        let readAgain = known?.takesRecordings == true
+        if let capacity = try? await client.recordDestinationInfo() {
+            let naming = second != nil || readAgain ? RecorderDisk.label(RecorderDisk.internalID, named: nil) : nil
+            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes, naming)
+        }
+        if let second { await telling.usbSpace(second) }
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
         // connect: nothing marks it fetched.
         guard let refresh = try? await GuideRefresh.run(client: client, store: store) else { return false }
         if !refresh.answered.isEmpty { telling.fetched(Date()) }
+        // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
+        if readAgain, !Task.isCancelled, let again = try? await RecorderDriver.usbDisk(of: client),
+           again.takesRecordings {
+            await telling.usbSpace(again)
+        }
         return refresh.stored > 0
     }
 

@@ -26,6 +26,11 @@ public final class SessionState {
     /// Empty, and `storage` nil, when the device would not say. Both are only shown.
     public private(set) var firmware = ""
     public private(set) var storage: (free: Int, total: Int)?
+    /// The disk in a recorder's USB slot as last known: the last registered disk the slot answered with
+    /// (`RecorderDriver.usbDisk`), which one answer of none does not take away until the slot has been read again
+    /// (`RecorderDriver.learnTheSlot`); nil when none is known. Only shown, as `storage` is, and it goes where
+    /// `storage` goes.
+    public private(set) var usbDisk: RecorderDisk?
     /// Set when the last ask got no answer at all, which is the only case worth sending a magic packet for.
     public private(set) var unreachable = false
     /// Set once the device has been given every chance and did not answer, or while the local network
@@ -107,6 +112,7 @@ public final class SessionState {
         if who == .another {
             firmware = ""
             storage = nil
+            usbDisk = nil
             needsPower = false
         }
         info = description
@@ -137,6 +143,7 @@ public final class SessionState {
         if who == .another {
             firmware = ""
             storage = nil
+            usbDisk = nil
             needsPower = false
         }
         named = true
@@ -153,6 +160,7 @@ public final class SessionState {
 
     public func learned(firmware: String) { self.firmware = firmware }
     public func learned(storage: (free: Int, total: Int)?) { self.storage = storage }
+    public func learned(usbDisk: RecorderDisk?) { self.usbDisk = usbDisk }
     /// It answered everything asked of it so far.
     public func answered() { unreachable = false }
     /// The attach is through.
@@ -232,6 +240,7 @@ public final class SessionState {
         named = false
         firmware = ""
         storage = nil
+        usbDisk = nil
         unreachable = false
         gaveUp = false
         connectBlocked = false

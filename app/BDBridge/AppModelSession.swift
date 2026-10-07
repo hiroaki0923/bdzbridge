@@ -139,6 +139,10 @@ extension AppModel {
         // one about another recorder.
         closeQueueReport()
         anotherTookOver = false
+        // The slot's read again goes with the app: made after a return, it would come beside the return's own
+        // reads. A return that makes no attach leaves it for later again, and the disk known stays as it was read
+        // until then.
+        recorder.setTheReadLeftForLaterAside()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends
@@ -206,7 +210,8 @@ extension AppModel {
                 guard let self, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else { return [] }
                 return LocalNetwork.hostsToScan(near: host)
             },
-            findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) })
+            findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) },
+            slotReadAgainAfter: surroundings.slotReadAgainAfter)
     }
 
     /// What the link has until the model is made: nothing reaches anything.
@@ -277,10 +282,11 @@ extension AppModel {
         if wasConnected { listsToReadAgain = had }
     }
 
-    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The two
-    /// marks the defaults keep about one disk and one guide go with it.
+    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
+    /// the defaults keep about its disks and its guide go with it.
     func cacheMadeOver() async {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
+        defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
         await reloadFromCache()
         await loadPending()

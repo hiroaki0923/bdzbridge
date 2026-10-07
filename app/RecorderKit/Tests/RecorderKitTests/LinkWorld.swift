@@ -15,6 +15,9 @@ final class LinkWorld: LinkHost {
     var near: [String] = []
     /// What a search of them finds.
     var found: RecorderDescription?
+    /// How long a read of the USB slot left for later waits: a moment, unless a test that ends one before it is
+    /// made gives the app's minute. Read as the link is made.
+    var slotReadAgainAfter: Duration = .milliseconds(1)
 
     var problem: String?
     var macReadAt: String?
@@ -35,7 +38,8 @@ final class LinkWorld: LinkHost {
             findRecorder: { mac, _ in
                 self.events.append("search for \(mac)")
                 return self.found
-            })
+            },
+            slotReadAgainAfter: slotReadAgainAfter)
     }
 
     func put(_ event: String) { events.append(event) }

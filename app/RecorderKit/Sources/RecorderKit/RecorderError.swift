@@ -63,8 +63,8 @@ public enum RecorderError: Error, Equatable, Sendable {
 }
 
 public extension RecorderError {
-    /// Runs a read the app can do without -- the firmware version and the free space, which are only shown,
-    /// and the MAC, which is only kept for later -- and lets nothing out of it but silence.
+    /// Runs a read the app can do without -- the firmware version, the free space and the disk in the USB slot,
+    /// which are only shown, and the MAC, which is only kept for later -- and lets nothing out of it but silence.
     ///
     /// A BDZ-FBT4100 answers every call this package makes, but the rest of the series need not, or not in the
     /// same shape. A recorder that refuses such a read, or gives an answer that cannot be read, is there, and

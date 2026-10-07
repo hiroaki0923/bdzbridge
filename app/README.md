@@ -625,10 +625,10 @@ is sent (`RecorderKit/RecorderAddress.swift`). The client used to force such a U
 the address is saved as it is set, it crashed again at every launch, before the settings could come up to
 correct it.
 
-Whether the app is connected is decided by the recorder's description alone. The firmware version, the MAC
-and the free space read after it are only shown; one the recorder refuses, or answers in a shape the app does
-not know, is left unknown rather than failing the connect. Only the BDZ-FBT4100 has been tried, and the rest
-of the series need not answer the same.
+Whether the app is connected is decided by the recorder's description alone. The firmware version, the MAC,
+the free space and the disk in the USB slot read after it are only shown; one the recorder refuses, or
+answers in a shape the app does not know, is left unknown rather than failing the connect. Only the
+BDZ-FBT4100 has been tried, and the rest of the series need not answer the same.
 
 Choosing a recorder in the tutorial closes it as soon as the recorder answers, not once its guide is in: the
 first guide is four broadcasting types and their logos, and takes a while. The guide screen says it is being fetched, and
@@ -826,6 +826,41 @@ who only used it at home never heard about the disk. The low-space warning is sa
 line, not once a night, and only counts as said when notifications were allowed to carry it. A recorder that
 does not say how big its disk is -- an answer in a shape the app cannot read, or a size of nothing -- is not
 warned about: reading such an answer as no room at all warned about a full disk that was not.
+
+A USB disk registered on the recorder is warned about in the same way, under a notification of its own, so
+that neither takes the other's place, and with a mark of its own that says which disk was warned about: another
+disk put in the slot, already low, has not been warned about yet. While there are two disks the internal
+disk's notice names it 「HDD」, the recorder's word for it, and the USB disk's names the disk as the recorder
+does; with no USB disk the notice says what it always has. The settings then list the free space a row to a
+disk, in the words the television's USB disk is described in.
+
+Whether a USB disk is there is read once at every attach and in every overnight run (`X_GetMediaInfo`), and by
+nothing else the screens do. Of the calls looked at, it is the only one that told: with a disk connected the
+recorder listed no other destination, and its capacity call answered with the internal disk's figures whatever
+it was asked; its DLNA tree has not been looked at for one. So a home with no USB disk pays that one request and
+sees nothing else new. An attach reads it after what waits has been sent, so that a slot slow to answer or
+silent holds back no reservation, and an overnight run that meets silence there stops rather than wait it out
+again for the free space and the guide. Only a disk the recorder has registered counts
+(`RecorderDriver.usbDisk`); a refusal, an answer that cannot be read, and a disk with no registration are all
+no disk. What the slot answers with the disk unplugged, and from a recorder that never registered one, has not
+been seen; it was read once in network standby, and answered as with the recorder on.
+
+Read once right after a wake, the slot answered as if no disk were registered, with one connected, and
+answered the disk later: timed once with the slot read every five seconds, by the read five seconds after the
+recorder first answered. The waking attach is the app's common one, so a disk known is not let go of on one answer
+of none: it stays, shown as it was read, and the slot is read once more thirty seconds later (the five seconds
+measured, with room for a slower disk). Only a second answer of none lets it go; a disk answered, the same or
+another, is taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`) and holds
+back nothing. Only an answer settles it, a refusal included: silence, and a recorder still busy with another
+client's request after the client's tries, change nothing, and an answer that comes back once the link asks
+through another client, a connect under way, is left. It goes with the recorder: another answering, the recorder
+let go of. The app leaving ends it too, and a return that makes no attach leaves it for later again, so that a
+disk gone is not kept for as long as the reader comes back inside the minute in which a return does not
+reconnect. The disk known is kept with the recorder's cache, so that the first attach after a launch has one to
+keep, and goes where the cache goes. The overnight run never lets it go either. When it reads none while the
+disk known takes recordings, the internal disk's notice still names its disk, and the slot is read once more
+after the guide, the USB disk's notice following if the disk answers then: one request more on such a night,
+none in a home with no USB disk.
 
 ### Coming back to the app
 

@@ -291,6 +291,28 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(session.described(description(udn: Self.anotherUDN)), .same, "it is the one known now")
     }
 
+    /// The disk in a recorder's USB slot is that recorder's, as its free space is: it stands through the same
+    /// recorder answering again and through silence, and goes with another device's answer, whichever way that
+    /// device says who it is, and with the device forgotten.
+    func testTheUSBDiskGoesWhereTheFreeSpaceGoes() {
+        let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true,
+                                freeMB: 1_000, totalMB: 2_000, registered: "2026-01-02T03:04:05+0900")
+        let forgetting: [(String, (SessionState) -> Void)] = [
+            ("another recorder", { $0.described(self.description(udn: Self.anotherUDN)) }),
+            ("another identity", { $0.identified(as: "f8:4e:17:00:00:02") }),
+            ("forgotten", { $0.forgotTheDevice() }),
+        ]
+        for (what, forget) in forgetting {
+            let session = attached()
+            session.learned(usbDisk: disk)
+            session.described(description(host: "192.0.2.11"))
+            session.wentSilent(on: "home")
+            XCTAssertEqual(session.usbDisk, disk, "the same recorder, then silence: \(what)")
+            forget(session)
+            XCTAssertNil(session.usbDisk, what)
+        }
+    }
+
     /// A UDN is a UUID, which reads the same in either case: a device that spells its own another way is the
     /// one known. Which device it is stays written as it was first given, for a caller that compares it.
     func testADeviceIsTheSameHoweverItsUDNIsCased() {
