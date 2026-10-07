@@ -116,7 +116,7 @@ final class TVDriverTests: XCTestCase {
         await bench.link.connect()
         let list = await bench.driver.reservations()
 
-        XCTAssertEqual(bench.world.events.last, "not asked meanwhile")
+        XCTAssertEqual(bench.world.events.last { $0.hasSuffix("asked meanwhile") }, "not asked meanwhile")
         XCTAssertNil(list)
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), ["getSystemSupportedFunction"])
         XCTAssertFalse(bench.driver.facts.needsPairing)
@@ -194,7 +194,8 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(Array(afterLaunch), ["getSystemSupportedFunction cookie=no pin=no"])
     }
 
-    /// Silence is given up on at once: a television is not woken, nor looked for elsewhere.
+    /// Silence is given up on at once: a television is not woken, nor, with no addresses to look through, looked
+    /// for elsewhere.
     func testASilentTelevisionIsGivenUpWithoutWaking() async {
         let television = DemoTV()
         await television.goSilent()

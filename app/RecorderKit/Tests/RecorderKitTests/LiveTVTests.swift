@@ -26,6 +26,15 @@ import XCTest
 /// or in standby; no answer; an error's code -- and never the television's model or an error as it came,
 /// which can have the address in it.
 ///
+/// One more needs no registration and changes nothing: the look a connect makes for a television that did
+/// not answer where it was saved, run over the subnet of the address given, with the Mac on the same Wi-Fi
+/// and the television in standby for a few minutes, its panel and its lamp watched while it runs:
+///
+///     TV_HOST=192.0.2.20 swift test --filter LiveTVTests/testFindingTheTelevisionByItsMAC
+///
+/// It says whether the television was found at the address given, how many addresses were asked and how many
+/// seconds that took: never a MAC, and no address but the one given.
+///
 /// ## The sitting
 ///
 /// The rest are the checks with which the three requests that reserve on a television -- its stations, the
@@ -379,6 +388,33 @@ final class LiveTVTests: XCTestCase {
         }
     }
 
+    /// The look a connect makes for a television that did not answer where it was saved (`TVDiscovery.find`,
+    /// which the app's link is given): the MAC read at the address given, as an attach reads it, and then that
+    /// MAC looked for over the subnet the address is on, through the session the app sends a television with,
+    /// which keeps no cookie and follows no redirect. Every address is sent the one request that needs no
+    /// registration. It is found where it is: the pass is that it is found at the address given, and that the
+    /// panel and the lamp stay as they were.
+    func testFindingTheTelevisionByItsMAC() async throws {
+        let client = try liveClient(MemoryTVCredentials())
+        var given: String?
+        await byItsKind("the MAC to find it by") { given = try await client.wakeOnLANAddress(timeout: 5) }
+        let mac = try XCTUnwrap(given, "the television gives no MAC to find it by")
+        let hosts = LocalNetwork.hostsToScan(near: client.host)
+        guard !hosts.isEmpty else { return XCTFail("this Mac is on no Wi-Fi whose subnet the address is on") }
+        let counted = AddressesAsked(URLSessionTransport.withoutCookies())
+
+        let started = Date()
+        let found = await TVDiscovery.find(mac: mac, among: hosts, transport: counted)
+        let seconds = Date().timeIntervalSince(started)
+        let asked = await counted.count
+
+        print("found at the address given: \(found == client.host ? "yes" : "no")")
+        print("addresses asked: \(asked) of \(hosts.count)")
+        print("seconds: \(String(format: "%.1f", seconds))")
+        // Not said by value: a failure would print another address.
+        XCTAssertTrue(found == client.host, "not found at the address given")
+    }
+
     /// Sends what `requests` sends, and fails the test by the kind of what went wrong (`TVSitting.said`),
     /// never with the error as it came: a television's error can carry the address it was sent to, and
     /// XCTest prints whatever a test throws.
@@ -592,6 +628,21 @@ final class LiveTVTests: XCTestCase {
             throw XCTSkip("Set TV_JAR to a file to keep the registration in, outside what the repository tracks.")
         }
         return FileTVCredentials(file)
+    }
+}
+
+/// Counts the addresses a look sent anything to, and keeps nothing else of them.
+private actor AddressesAsked: HTTPTransport {
+    private let transport: any HTTPTransport
+    private var asked: Set<String> = []
+
+    init(_ transport: any HTTPTransport) { self.transport = transport }
+
+    var count: Int { asked.count }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        asked.insert(request.url.host() ?? "")
+        return try await transport.send(request)
     }
 }
 

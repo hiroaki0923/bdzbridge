@@ -17,29 +17,43 @@ public enum Discovery {
                             progress: (@Sendable (Int, Int) -> Void)? = nil,
                             found onFound: (@Sendable (RecorderDescription) -> Void)? = nil,
                             until: (@Sendable (RecorderDescription) -> Bool)? = nil) async -> [RecorderDescription] {
+        let found = await look(hosts: hosts, atOnce: atOnce, progress: progress, found: onFound, until: until) { host in
+            await probe(host, transport: transport, port: port, timeout: timeout).map { [$0] } ?? []
+        }
+        return found.sorted { $0.host < $1.host }
+    }
+
+    /// The loop of every look through the addresses, whatever it asks each one: `probe` is the asking, and hands
+    /// back what the address turned out to be, nothing for most. `atOnce` addresses are asked at a time, the next
+    /// begun as one is done. `progress` counts the addresses done, `found` hears of each thing as its address
+    /// answers, and `until` ends the look at the first thing it accepts: the probes still out are cancelled and no
+    /// more addresses are asked. What was found comes back in the order it answered.
+    static func look<Found: Sendable>(hosts: [String], atOnce: Int,
+                                      progress: (@Sendable (Int, Int) -> Void)? = nil,
+                                      found onFound: (@Sendable (Found) -> Void)? = nil,
+                                      until: (@Sendable (Found) -> Bool)? = nil,
+                                      probe: @escaping @Sendable (String) async -> [Found]) async -> [Found] {
         guard !hosts.isEmpty else { return [] }
-        var found: [RecorderDescription] = []
+        var found: [Found] = []
         var done = 0
 
-        await withTaskGroup(of: RecorderDescription?.self) { group in
+        await withTaskGroup(of: [Found].self) { group in
             var next = 0
             var stopped = false
             func add() {
                 guard !stopped, next < hosts.count else { return }
                 let host = hosts[next]
                 next += 1
-                group.addTask {
-                    await probe(host, transport: transport, port: port, timeout: timeout)
-                }
+                group.addTask { await probe(host) }
             }
             for _ in 0..<min(atOnce, hosts.count) { add() }
-            for await candidate in group {
+            for await answers in group {
                 done += 1
                 progress?(done, hosts.count)
-                if let candidate {
-                    found.append(candidate)
-                    onFound?(candidate)
-                    if until?(candidate) == true {
+                for answer in answers {
+                    found.append(answer)
+                    onFound?(answer)
+                    if until?(answer) == true {
                         stopped = true
                         group.cancelAll()
                     }
@@ -47,7 +61,7 @@ public enum Discovery {
                 add()
             }
         }
-        return found.sorted { $0.host < $1.host }
+        return found
     }
 
     /// Looks through the addresses for one recorder, the one whose UDN ends with `mac` (see
@@ -61,19 +75,26 @@ public enum Discovery {
         return found.first { $0.hasMAC(mac) }
     }
 
-    /// One address: a recorder, or nothing. The request's own timeout is not the only clock: on an iPhone a
-    /// scan was seen to stop at its last address and stay there, one request having outlived the timeout it was
-    /// given. A scan must end, so the probe is also raced against a deadline of its own.
+    /// One address: a recorder, or nothing. Raced against a deadline of its own (`raced`).
     public static func probe(_ host: String, transport: any HTTPTransport = URLSessionTransport(),
                              port: Int = Upnp.port, timeout: TimeInterval = 1.5) async -> RecorderDescription? {
         let location = "http://\(host):\(port)/description.xml"
         guard let url = URL(string: location) else { return nil }
-        return await withTaskGroup(of: RecorderDescription?.self) { group in
-            group.addTask {
-                guard let response = try? await transport.send(HTTPRequest(url: url, timeout: timeout)),
-                      response.statusCode == 200 else { return nil }
-                return parseDescription(response.text, host: host, port: port, location: location, via: "scan")
-            }
+        return await raced(timeout) {
+            guard let response = try? await transport.send(HTTPRequest(url: url, timeout: timeout)),
+                  response.statusCode == 200 else { return nil }
+            return parseDescription(response.text, host: host, port: port, location: location, via: "scan")
+        }
+    }
+
+    /// What `ask` hands back, or nothing once `timeout` and a second more have gone by, for the probe of one
+    /// address of a look. The request's own timeout is not the only clock: on an iPhone a scan was seen to stop
+    /// at its last address and stay there, one request having outlived the timeout it was given. A look must
+    /// end, so every probe of one is also raced against a deadline of its own.
+    static func raced<Value: Sendable>(_ timeout: TimeInterval,
+                                       _ ask: @escaping @Sendable () async -> Value?) async -> Value? {
+        await withTaskGroup(of: Value?.self) { group in
+            group.addTask { await ask() }
             group.addTask {
                 try? await Task.sleep(for: .seconds(timeout + 1))
                 return nil

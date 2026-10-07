@@ -81,8 +81,16 @@ public final class TVDriver: LinkDriver {
     /// is there and is not given up on, but nothing can be asked of it until it is registered again. What waits
     /// is sent last, as a recorder's attach does.
     ///
-    /// An attach that fails says why on the host's line, but for one: silence, where the line is what a
-    /// create or a delete that met silence left there. Silence is said once (`takesSilenceOnARead`). That
+    /// Something that answers the first ask and is not the television saved -- another television, by its MAC,
+    /// or a device that is no television, by an answer no television gives a method that needs no registration
+    /// -- is the television not being there, to the connect: the session is left as silence leaves it, so the
+    /// connect goes on to look for it elsewhere (`findElsewhere`), and gives up, as on silence, when it is not
+    /// found. A lease handed to another device is the ordinary way a television's address changes, and port 80
+    /// is answered by many. Nothing that carries the cookie has been sent to it by then. Its line says what
+    /// answered, until a look finds the television.
+    ///
+    /// An attach that fails otherwise says why on the host's line, but for one: silence, where the line is what
+    /// a create or a delete that met silence left there. Silence is said once (`takesSilenceOnARead`). That
     /// sentence says the request may have arrived, which is all the reader has to go by until the television
     /// answers, and that the television is silent still adds nothing to it. An attach that goes through
     /// clears the line.
@@ -95,13 +103,24 @@ public final class TVDriver: LinkDriver {
         if what != nil { activity = owner?.beginActivity(Self.connectingLine) }
         defer { if let activity { owner?.endActivity(activity) } }
         do {
-            let identity = (try await client.wakeOnLANAddress(timeout: timeout)).flatMap(WakeOnLan.normalise) ?? ""
-            guard link.session.recognises(identity: identity) != .another else {
-                // Its cookie would not be good here, and what waits was made for the television registered.
-                link.session.strangerAnswered()
-                owner?.problem = Self.anotherAnswered
+            let identity: String
+            do {
+                identity = (try await client.wakeOnLANAddress(timeout: timeout)).flatMap(WakeOnLan.normalise) ?? ""
+            } catch let error as any DeviceError {
+                // An HTTP status a television does not give, an answer it does not write, a code this client
+                // does not know: a printer, a NAS or a router's page. A 401 or 403, a 503, a code a television
+                // is known to give and silence are a television's, and are read below as ever.
+                guard case .unexpected = error.failure else { throw error }
+                notThere(link, answered: error.explanation)
                 return false
             }
+            guard link.session.recognises(identity: identity) != .another else {
+                // Its cookie would not be good here, and what waits was made for the television registered.
+                notThere(link, answered: Self.anotherAnswered)
+                return false
+            }
+            // It said it is the television saved: a look that found nothing is worth making again.
+            lookedInVain = []
             link.session.identified(as: identity)
             owner?.keepAddress(link.host)
             if !identity.isEmpty { owner?.keepMAC(identity) }
@@ -135,6 +154,14 @@ public final class TVDriver: LinkDriver {
         }
     }
 
+    /// What answered the first ask is not the television saved: left as silence leaves the session, with what
+    /// answered on the line. Not connected to it, and not taken for anything of the television's.
+    private func notThere(_ link: DeviceLink, answered line: String) {
+        link.session.strangerAnswered()
+        link.session.attachFailed(.silent)
+        link.owner?.problem = line
+    }
+
     public static let connectingLine = "テレビに接続中"
 
     /// Said when the device at the television's address is another one.
@@ -143,8 +170,55 @@ public final class TVDriver: LinkDriver {
     /// Never: see the type's description.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool { false }
 
-    /// Not looked for at another address yet.
-    public func findElsewhere(_ link: DeviceLink) async -> DeviceFailure? { .silent }
+    /// On the strip while a television that did not answer at its address is looked for at the others.
+    public static let lookingLine = "テレビを探しています"
+
+    /// The networks on which a look found nothing, since the television last said it is the one saved: no look
+    /// is made on them again until it does. The driver's, so that it lasts as long as the link: a launch, a
+    /// registration and the end of the demo start without it.
+    ///
+    /// A recorder is looked for after every waking that failed, and a waking that fails is rare. A television
+    /// is never woken, and is looked for after any silence; one that is silent in standby would cost a look
+    /// through the whole subnet -- a request to port 80 of every address, and the strip saying so for some
+    /// seconds -- at every launch, return and pull. A television that comes back at another address while the
+    /// app stays open on the same network is found at the next launch.
+    private var lookedInVain: Set<String> = []
+
+    /// Looks for the television at the other addresses of its subnet, by the MAC it wakes on, which is what
+    /// tells it from any other, and attaches where it answers. Reached from a connect alone, once its first ask
+    /// met silence or something that is not the television (`attach`) and the local network permission was not
+    /// why: the check before an operation and the runs with no screen never look elsewhere.
+    ///
+    /// Nothing is looked for when the session does not know which television this is, when the app gives
+    /// nowhere to look (the demo, the background, a Wi-Fi the address is not on), or when a look on this network
+    /// has already found nothing (`lookedInVain`). Found, the address moves -- and is written down by the host
+    /// -- and a client of its own attaches there, which asks the MAC before anything carries the cookie, as
+    /// every attach does. Not found, the line of what went wrong is put back.
+    public func findElsewhere(_ link: DeviceLink) async -> DeviceFailure? {
+        guard let identity = link.session.device, !identity.isEmpty else { return .silent }
+        // Where it was asked, not where the phone is once the look is over.
+        let network = link.environment.networkSignature()
+        guard !lookedInVain.contains(network) else { return .silent }
+        let hosts = link.environment.hostsNear(link.host)
+        guard !hosts.isEmpty else { return .silent }
+        let owner = link.owner
+        // What went wrong at the address is not the last word yet: it is put back if the look finds nothing.
+        let failure = owner?.problem
+        owner?.problem = nil
+        let activity = owner?.beginActivity(Self.lookingLine)
+        let found = await link.environment.findTelevision(identity, hosts)
+        if let activity { owner?.endActivity(activity) }
+        guard let found else {
+            owner?.problem = failure
+            lookedInVain.insert(network)
+            return .silent
+        }
+        link.host = found
+        let client = makeClient(for: link)
+        link.client = client
+        return await attach(link, client: client, what: "接続中", timeout: probeTimeout, quiet: false)
+            ? nil : link.whyNotAttached
+    }
 
     // MARK: - after the attach
 

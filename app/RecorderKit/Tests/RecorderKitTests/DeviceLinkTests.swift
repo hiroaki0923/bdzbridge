@@ -364,6 +364,273 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertTrue(link.offline)
     }
 
+    // MARK: - a television that has moved
+
+    /// Another television's MAC: Sony's OUI and the rest zeroed, with a last digit of its own.
+    static let otherTV = "f8:4e:17:00:00:0b"
+    /// An address of the subnet where nothing answers, beside the one the television moves to.
+    static let nobodyHere = "192.0.2.19"
+
+    /// The television, saved by its MAC as a launch has it, registered with a cookie it gave out a moment ago:
+    /// no renewal is due, so a registration sent to anything is a wrong one.
+    private func registeredTelevision(at host: String? = Stub.host, in world: LinkWorld) async -> DemoTV {
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        if let host { world.devices[host] = television }
+        return television
+    }
+
+    /// A link to the television saved at `Stub.host`, known by the MAC saved with it unless `saved` is nil.
+    private func makeTVLink(saved: String? = DemoTV.mac, _ world: LinkWorld) -> DeviceLink {
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                            cookieReceived: Date(), cookieMaxAge: 1_209_600))
+        let link = DeviceLink(host: Stub.host, session: SessionState(device: saved),
+                              driver: TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true }),
+                              environment: world.environment)
+        link.owner = world
+        return link
+    }
+
+    /// What a device that is not the television heard, as long as it asked nothing but which television it is:
+    /// a request of the one method that needs no registration, with no cookie and no PIN.
+    private func onlyAskedWhichItIs(_ heard: [HTTPRequest]) -> Bool {
+        heard.allSatisfy { request in
+            request.headers["Cookie"] == nil && request.headers["Authorization"] == nil
+                && String(decoding: request.body ?? Data(), as: UTF8.self).contains(#""getSystemSupportedFunction""#)
+        }
+    }
+
+    private static let askedWhich = "getSystemSupportedFunction cookie=no pin=no"
+
+    /// A television silent where it was saved is looked for once on its subnet, by the MAC it wakes on, with the
+    /// strip saying so while the look is out; found, it is the television the app had: the address moves --
+    /// written down -- and a client of its own attaches there, asking which television it is before anything
+    /// carries the cookie. Nothing is woken and nothing registers.
+    func testATelevisionSilentWhereItWasIsFoundByItsMACAndFollowed() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(in: world)
+        let link = makeTVLink(world)
+        await link.connect()
+        XCTAssertTrue(link.session.connected)
+        let before = link.client
+
+        world.devices[Stub.host] = nil
+        world.devices[Self.moved] = television
+        world.devices[Self.nobodyHere] = StubTransport { _, _ in
+            let line = await world.line
+            await world.put("line while looking: \(line ?? "none")")
+            throw RecorderError.transport("Nothing is here.")
+        }
+        world.near = [Self.nobodyHere, Self.moved]
+        world.events = []
+        let calls = await television.calls.count
+        await link.connect()
+
+        XCTAssertEqual(link.host, Self.moved)
+        XCTAssertEqual(link.client?.host, Self.moved)
+        XCTAssertFalse(link.client === before, "the last client was kept")
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        XCTAssertFalse(link.session.gaveUp)
+        XCTAssertNil(world.problem)
+        XCTAssertEqual(world.count("search for television"), 1)
+        XCTAssertTrue(world.events.contains("address \(Self.moved)"), "the new address was not written down")
+        XCTAssertTrue(world.events.contains("line while looking: \(TVDriver.lookingLine)"), "the strip said nothing")
+        XCTAssertNil(world.line, "a line was left up")
+        XCTAssertEqual(world.count("packet"), 0)
+        let heard = Array(await television.calls.dropFirst(calls))
+        XCTAssertEqual(Array(heard.prefix(2)), [Self.askedWhich, Self.askedWhich], "the look, then the attach")
+        XCTAssertEqual(heard.dropFirst(2).first, "getInterfaceInformation cookie=no pin=no")
+        XCTAssertFalse(heard.contains { $0.hasPrefix("actRegister") || $0.hasPrefix("setPowerStatus") })
+    }
+
+    /// Another television on the subnet, and only that, is not the one saved: nothing is taken, the app gives up
+    /// as on silence, and the line the attach left is put back. It was asked which television it is, and
+    /// nothing else.
+    func testAnotherTelevisionOnTheSubnetIsNotTakenForTheOneSaved() async {
+        let world = LinkWorld()
+        let other = DemoTV(mac: Self.otherTV)
+        await other.knows("BDBridge:test", cookie: "kept")
+        world.devices[Self.moved] = other
+        world.near = [Self.moved]
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(link.host, Stub.host)
+        XCTAssertFalse(link.session.connected)
+        XCTAssertTrue(link.session.gaveUp)
+        XCTAssertEqual(world.count("search for television"), 1)
+        XCTAssertEqual(world.problem, ScalarError.transport("no answer").explanation)
+        XCTAssertEqual(world.count("address"), 0, "an address was written down")
+        expectEqual(await other.calls, [Self.askedWhich])
+    }
+
+    /// Something that is not the television saved, answering at its address, is the television not being there:
+    /// another television, by its MAC, or a device that is no television -- a printer, a router's page --
+    /// which answers on port 80 with a status no television gives. The television is looked for past it and
+    /// followed, and what answered at the old address was asked which television it is and nothing else: no
+    /// cookie, no PIN, at most twice (the attach, and the look).
+    func testATelevisionIsFollowedPastWhateverAnswersWhereItWas() async {
+        let strangers: [(String, any HTTPTransport)] = [
+            ("another television", DemoTV(mac: Self.otherTV)),
+            ("a page on port 80", StubTransport(always: HTTPResponse(statusCode: 404))),
+        ]
+        for (what, stranger) in strangers {
+            let world = LinkWorld()
+            let television = await registeredTelevision(at: Self.moved, in: world)
+            let heard = StubTransport { request, _ in try await stranger.send(request) }
+            world.devices[Stub.host] = heard
+            world.near = [Stub.host, Self.nobodyHere, Self.moved]
+            let link = makeTVLink(world)
+
+            await link.connect()
+
+            XCTAssertEqual(link.host, Self.moved, what)
+            XCTAssertTrue(link.session.connected, "\(what): \(world.problem ?? "no reason given")")
+            XCTAssertNil(world.problem, what)
+            XCTAssertEqual(world.count("search for television"), 1, what)
+            let asked = await heard.requests
+            XCTAssertTrue(onlyAskedWhichItIs(asked), "\(what) was asked more than which television it is")
+            XCTAssertLessThanOrEqual(asked.count, 2, what)
+            let calls = await television.calls
+            XCTAssertEqual(calls.first, Self.askedWhich, what)
+            XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") }, what)
+            XCTAssertEqual(world.count("packet"), 0, what)
+        }
+    }
+
+    /// With the television nowhere on the subnet, what answered at its address is not taken up and the app gives
+    /// up as on silence, saying what answered: another television, or the status of a device that is no
+    /// television. A television that asks for the registration at its first ask is the television, and is
+    /// neither looked past nor given up on.
+    func testWhatAnswersWhereTheTelevisionWasIsSaidWhenItIsNotFound() async {
+        let page = ScalarError.http(status: 404, method: "getSystemSupportedFunction").explanation
+        let strangers: [(String, any HTTPTransport, String)] = [
+            ("another television", DemoTV(mac: Self.otherTV), TVDriver.anotherAnswered),
+            ("a page on port 80", StubTransport(always: HTTPResponse(statusCode: 404)), page),
+        ]
+        for (what, stranger, line) in strangers {
+            let world = LinkWorld()
+            world.devices[Stub.host] = stranger
+            world.near = [Stub.host, Self.nobodyHere]
+            let link = makeTVLink(world)
+
+            await link.connect()
+
+            XCTAssertFalse(link.session.connected, what)
+            XCTAssertTrue(link.session.gaveUp, what)
+            XCTAssertEqual(world.count("search for television"), 1, what)
+            XCTAssertEqual(world.problem, line, what)
+        }
+
+        let world = LinkWorld()
+        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 401))
+        world.near = [Stub.host, Self.nobodyHere]
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertFalse(link.session.gaveUp, "a television asking for the registration was given up on")
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
+        XCTAssertEqual(world.problem, ScalarError.http(status: 401, method: "getSystemSupportedFunction").explanation)
+        XCTAssertEqual(world.count("search for television"), 0)
+    }
+
+    /// Nothing is looked for while the session does not know which television this is: one that gave no MAC
+    /// when it was registered.
+    func testNoLookForATelevisionNotKnownByItsMAC() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: Self.moved, in: world)
+        world.near = [Self.moved]
+        let link = makeTVLink(saved: nil, world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 0)
+        XCTAssertEqual(link.host, Stub.host)
+        XCTAssertTrue(link.session.gaveUp)
+        expectEqual(await television.calls, [])
+    }
+
+    /// Nor where the app gives nowhere to look: in the demo, in the background, on a Wi-Fi the address is not on.
+    func testNoLookForATelevisionWithNowhereToLook() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: Self.moved, in: world)
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 0)
+        XCTAssertNil(world.line, "the strip said it was looking")
+        XCTAssertEqual(link.host, Stub.host)
+        XCTAssertTrue(link.session.gaveUp)
+        expectEqual(await television.calls, [])
+    }
+
+    /// A connect looks once, and a second time only when the network changed under its first attempt, which it
+    /// then makes again; the check before an operation never looks elsewhere.
+    func testATelevisionIsLookedForOncePerAttemptAndNeverByTheCheck() async {
+        let world = LinkWorld()
+        world.devices[Self.nobodyHere] = StubTransport { _, _ in
+            await MainActor.run { world.network = "another" }
+            throw RecorderError.transport("Nothing is here.")
+        }
+        world.near = [Self.nobodyHere]
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 2, "not looked for again on the network it moved to")
+        XCTAssertTrue(link.session.gaveUp)
+
+        let checked = LinkWorld()
+        let television = await registeredTelevision(in: checked)
+        let checking = makeTVLink(checked)
+        await checking.connect()
+        XCTAssertTrue(checking.session.connected)
+        await television.goSilent()
+        _ = await registeredTelevision(at: Self.moved, in: checked)
+        checked.near = [Self.moved]
+
+        let up = await checking.ensureUp(evenIfRecent: true)
+
+        XCTAssertFalse(up)
+        XCTAssertEqual(checked.count("search for television"), 0)
+        XCTAssertEqual(checking.host, Stub.host)
+        XCTAssertTrue(checking.session.gaveUp)
+    }
+
+    /// A look that found nothing is not made again on the same network, whatever brings the next connect, until
+    /// the television has said it is the one saved: a television silent in standby would otherwise cost a look
+    /// through the subnet at every launch, return and pull. Once it has answered, its next silence is looked
+    /// past again; and another network is looked on afresh.
+    func testALookThatFoundNothingIsNotMadeAgainOnTheSameNetwork() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(in: world)
+        await television.goSilent()
+        world.near = [Self.nobodyHere]
+        let link = makeTVLink(world)
+
+        await link.connect()
+        await link.connect()
+        XCTAssertEqual(world.count("search for television"), 1, "looked again on a network that had nothing")
+
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertTrue(link.session.connected)
+        await television.goSilent()
+        await link.connect()
+        await link.connect()
+        XCTAssertEqual(world.count("search for television"), 2, "not looked for after it answered and went silent")
+
+        world.network = "another"
+        await link.connect()
+        XCTAssertEqual(world.count("search for television"), 3, "not looked for on another network")
+        XCTAssertEqual(world.count("packet"), 0)
+        let calls = await television.calls
+        XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") || $0.hasPrefix("setPowerStatus") })
+    }
+
     // MARK: - letting go
 
     /// A link goes when the app lets go of it, though its driver is kept: the link holds the driver, and the

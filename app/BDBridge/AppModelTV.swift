@@ -83,8 +83,11 @@ extension AppModel {
         tvHost = nil
     }
 
-    /// The LAN as the television's link sees it: requests by the television's transport, and nothing else. It is
-    /// never woken or looked for elsewhere, and the permission is asked about as the recorder's link asks.
+    /// The LAN as the television's link sees it: requests by the television's transport, the permission asked
+    /// about as the recorder's link asks, and a television that moved looked for as the recorder's link looks for
+    /// a recorder -- never in the demo or in the background, and only on a Wi-Fi whose subnet the address saved
+    /// belongs to -- through one session for the whole look that keeps no cookies and follows no redirect, as
+    /// every request to a television does. It is never woken.
     func tvLinkEnvironment() -> LinkEnvironment {
         LinkEnvironment(
             transport: { [weak self] host in self?.surroundings.tvTransport(host) ?? NoTelevision() },
@@ -94,8 +97,14 @@ extension AppModel {
                 guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
                 return await LocalNetwork.access(probing: host) == .blocked
             },
-            hostsNear: { _ in [] },
-            findRecorder: { _, _ in nil })
+            hostsNear: { [weak self] host in
+                guard let self, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else { return [] }
+                return LocalNetwork.hostsToScan(near: host)
+            },
+            findRecorder: { _, _ in nil },
+            findTelevision: { mac, hosts in
+                await TVDiscovery.find(mac: mac, among: hosts, transport: URLSessionTransport.withoutCookies())
+            })
     }
 
     // MARK: - adding one
