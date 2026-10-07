@@ -105,6 +105,40 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(sent[1].contains("<recordDestinationID>HDD</recordDestinationID>"), sent[1])
     }
 
+    /// A row waiting for the USB disk that the recorder turns down, for a reason the disk could be behind, is
+    /// told what to do: it cannot be sent to another disk as it waits, so it is to be deleted and reserved again
+    /// to another. Its row names the disk on the line above, so the reason does not. A row for the internal
+    /// disk, and one turned down for a cause of its own, keep the recorder's own sentence, character for
+    /// character.
+    func testAWaitingRowTurnedDownOffTheInternalDiskIsToldToBeReservedAgainElsewhere() async throws {
+        let store = try temporaryStore()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        var unreceived = pending("受信できない局の番組", eventID: 3, start: now.addingTimeInterval(10800))
+        unreceived.request.destination = "USBHDD"
+        for one in [usb, own, unreceived] { try await store.queue(one) }
+
+        let transport = StubTransport { request, _ in
+            Stub.fault(String(decoding: request.body ?? Data(), as: UTF8.self).contains("受信できない局") ? "831" : "402")
+        }
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.refused.count, 3)
+        let reasons = try await store.pendingReservations().reduce(into: [String: String]()) {
+            $0[$1.request.title] = $1.problem
+        }
+        XCTAssertEqual(reasons["USBに録る番組"], "レコーダーがこの録画先への予約を受け付けませんでした。"
+                           + "この予約を消して、別の録画先で予約し直してください (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(reasons["本体に録る番組"], "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)",
+                       "the internal disk")
+        XCTAssertEqual(reasons["受信できない局の番組"], "このチャンネルは受信できないため、番組を指定した予約はできません。"
+                           + "契約状況やアンテナの設定を確認してください (831: X_CreateRecordSchedule)",
+                       "a channel the recorder cannot receive")
+    }
+
     /// The recorder is sent what waits for the recorder. What waits for another device is not asked of it,
     /// and is as it was afterwards: still waiting, with no reason written on it. One whose programme is over
     /// is left as well: whether it is dropped is for whatever sends that device its own.

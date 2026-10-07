@@ -130,10 +130,12 @@ public extension ReservationTarget {
 
     /// The create, and what its failure says of the row (`DeviceFailure`). Silence ends the round: the device
     /// has gone, and the row may have been made. A refusal with a reason of the device's own
-    /// (`DeviceFailure.turnsTheRequestDown`) is the row's, and is written on it. A failure that says nothing
-    /// about the reservation -- a 503, an answer with no code -- passes it over; an answer that the device holds
-    /// it already (`DeviceFailure.alreadyThere`) is among those, as it always was: no recorder's answer says
-    /// it. `consented` is not read: the device is asked nothing before the create that the reader could have
+    /// (`DeviceFailure.turnsTheRequestDown`) is the row's, and is written on it -- for a row off the internal
+    /// disk turned down for what its disk could be behind, with what to do about a row that cannot change its
+    /// disk (`RecorderDisk.waitingRowTurnedDown`). A failure that says nothing about the reservation -- a 503,
+    /// an answer with no code -- passes it over; an answer that the device holds it already
+    /// (`DeviceFailure.alreadyThere`) is among those, as it always was: no recorder's answer says it.
+    /// `consented` is not read: the device is asked nothing before the create that the reader could have
     /// answered. And a reservation made is said with nothing beside it: all such a device says of one is
     /// that it was taken.
     func send(_ waiting: PendingReservation, consented: Bool,
@@ -144,7 +146,8 @@ public extension ReservationTarget {
         } catch let error as any DeviceError where error.failure == .silent {
             return (.stopped(.silent(afterSending: true), passedOver: false), round)
         } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
-            return (.refused(reason: error.explanation), round)
+            let reason = RecorderDisk.waitingRowTurnedDown(error, sentTo: waiting.request.destination)
+            return (.refused(reason: reason), round)
         } catch {
             // Nothing written on it: a reason on the row is what holds a reservation back, and nothing here
             // says this one is wrong.

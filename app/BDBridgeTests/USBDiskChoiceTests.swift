@@ -166,7 +166,7 @@ final class USBDiskChoiceTests: XCTestCase {
                     .notDone(Self.slotGone))
         expectFalse(await model.update(onTheInternalDisk, quality: "DR", repeating: "none", disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, Self.slotGone)
+        XCTAssertEqual(model.problem, "USBHDDはいま使えません。録画先はHDDのままです。")
         expectFalse(await model.addRecorderRule(Self.condition(to: "USBHDD")),
                     "a condition to a disk no longer offered was made")
         XCTAssertEqual(model.problem, Self.slotGone)
@@ -176,6 +176,52 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
         XCTAssertNil(model.reservation(for: program))
         XCTAssertTrue(model.pending.isEmpty, "a reservation to a disk no longer offered was kept to be sent")
+    }
+
+    /// What a picker shows of the disk the reader picked: that disk while it is offered, and the internal disk
+    /// once it has been let go of, as when nothing was picked.
+    func testAPickerShowsThePickedDiskOnlyWhileItIsOffered() async throws {
+        let (_, _, model) = try await connected(times: 1, readAgainAfter: .milliseconds(50))
+        XCTAssertEqual(model.diskOffered("USBHDD"), "USBHDD", "a disk offered was not shown")
+        XCTAssertEqual(model.diskOffered("HDD"), "HDD")
+        XCTAssertEqual(model.diskOffered(nil), "HDD", "nothing picked")
+
+        // The demo's answer from here on, which is none, twice.
+        await reconnect(model)
+        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        XCTAssertEqual(model.diskOffered("USBHDD"), "HDD", "a disk let go of was still shown")
+        XCTAssertEqual(model.diskOffered(nil), "HDD", "nothing picked, the disk let go of")
+    }
+
+    /// A move to a disk let go of is refused, and said by what the reservation's sheet has left to offer. One on
+    /// the internal disk is offered no other disk once the USB disk has gone, and is told that it stays where it
+    /// is rather than asked for a choice its sheet does not show. One left on the gone disk still has the
+    /// internal disk to go to, and is asked for another. Nothing is sent for either.
+    func testAMoveRefusedIsSaidByWhatTheSheetHasLeftToOffer() async throws {
+        let (_, recorder, model) = try await connected(times: 1, readAgainAfter: .milliseconds(50))
+        let programs = try await programmesNotReserved(model, 2)
+        expectTrue(await model.reserve(programs[0], quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
+        expectTrue(await model.reserve(programs[1], quality: "DR", repeating: "none", disk: "USBHDD"),
+                   model.problem ?? "no reason given")
+        // The demo's answer from here on, which is none, twice.
+        await reconnect(model)
+        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        let onTheInternalDisk = try XCTUnwrap(model.reservation(for: programs[0]))
+        let onTheSlot = try XCTUnwrap(model.reservation(for: programs[1]))
+        XCTAssertEqual(model.diskChoices(for: onTheInternalDisk), [], "the internal disk's sheet offers a disk")
+        let before = await recorder.asked
+
+        expectFalse(await model.update(onTheInternalDisk, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    "a move to a disk no longer offered was made")
+        XCTAssertEqual(model.problem, "USBHDDはいま使えません。録画先はHDDのままです。")
+        expectFalse(await model.update(onTheSlot, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    "a move to a disk no longer offered was made")
+        XCTAssertEqual(model.problem, Self.slotGone, "a reservation with the internal disk left to it")
+
+        expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: before), 0)
+        XCTAssertEqual(model.reservation(for: programs[0])?.destination, "HDD")
+        XCTAssertEqual(model.reservation(for: programs[1])?.destination, "USBHDD")
     }
 
     /// A reservation to the USB disk made while the recorder is away is kept with its disk, named after it while
@@ -242,6 +288,36 @@ final class USBDiskChoiceTests: XCTestCase {
         }
     }
 
+    /// A reservation on the television reads no disk of the recorder's, whatever disk it is handed: with the USB
+    /// disk let go of, one asked for with the slot is not refused for the slot, and is the television's.
+    func testATelevisionsReservationIsNotRefusedForTheRecordersDisk() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        bench.slotReadAgainAfter = .milliseconds(50)
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1)
+        let television = DemoTV()
+        let model = bench.model(recorder: recorder, television: television,
+                                credentials: await registered(with: television))
+        await model.start()
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk)
+        // The demo's answer from here on, which is none, twice.
+        await reconnect(model)
+        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        let program = try await programmesNotReserved(model, 1)[0]
+        await television.receives([DemoTV.Station(scheme: program.broadcasting == "bs" ? "isdbbs" : "isdbt",
+                                                  serviceID: program.serviceID, name: program.serviceName)])
+
+        let came = await model.reserve(program, on: .tv, quality: "DR", repeating: "none", disk: "USBHDD")
+
+        XCTAssertNotEqual(came, .notDone(Self.slotGone), "the television's reservation was refused for the slot")
+        XCTAssertEqual(came, .made(saying: nil))
+        expectEqual(await television.schedules.map(\.eventId), [program.eventID])
+        XCTAssertEqual(model.reservations(for: program).map(\.device), [.tv])
+    }
+
     /// A condition made to the USB disk is made there, is read back with that disk, and names it on its row.
     func testAConditionToTheUSBDiskIsMadeThereAndNamed() async throws {
         let (_, recorder, model) = try await connected()
@@ -261,7 +337,7 @@ final class USBDiskChoiceTests: XCTestCase {
     func testARefusalOfTheUSBDiskSaysWhichDiskAndWhatToDo() async throws {
         let (_, recorder, model) = try await connected()
         let programs = try await programmesNotReserved(model, 2)
-        let refused = "レコーダーが録画用ディスクを録画先として受け付けませんでした。別の録画先を選んでください"
+        let refused = "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
 
         await recorder.answer("X_CreateRecordSchedule", with: .fault(402))
         expectFalse(await model.reserve(programs[0], quality: "DR", repeating: "none", disk: "USBHDD"))

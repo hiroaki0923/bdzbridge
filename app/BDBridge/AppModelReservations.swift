@@ -581,7 +581,10 @@ extension AppModel {
     ///
     /// `disk` is where the reader moved the reservation, nil where they did not: the disk the recorder holds it
     /// on as the change goes out is then kept, whatever the sheet was opened on. A disk moved to and no longer
-    /// offered is refused before the list is read, as a new reservation's is (`reserve`).
+    /// offered is refused before the list is read, as a new reservation's is (`reserve`), and said by what the
+    /// sheet has left to offer (`diskChoices(for:)`): another disk, and the reader is asked to choose it; or
+    /// none but the reservation's own, the picker gone, and the reader is told where it stays rather than asked
+    /// for a choice the sheet does not show.
     func update(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Bool {
         if reservation.device == .tv {
@@ -590,7 +593,9 @@ extension AppModel {
         await start()
         guard client != nil else { return false }
         if let disk, !RecorderDisk.offers(disk, with: usbDisk) {
-            problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
+            let another = diskChoices(for: reservation).contains { $0.destination != reservation.destination }
+            problem = another ? RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
+                : RecorderDisk.stays(on: reservation.destination, notMovedTo: disk, usb: usbDisk)
             return false
         }
         // Sending would only wait out a timeout, from a list that could not be read again first.

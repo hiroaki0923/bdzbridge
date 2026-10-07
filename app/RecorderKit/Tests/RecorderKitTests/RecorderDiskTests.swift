@@ -235,11 +235,10 @@ final class RecorderDiskTests: XCTestCase {
         }
         let usb = Self.disk()
         XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: usb),
-                       "レコーダーが録画用ディスクを録画先として受け付けませんでした。別の録画先を選んでください"
+                       "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
                            + " (402: X_CreateRecordSchedule)")
         XCTAssertEqual(RecorderDisk.turnedDown(fault("701", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
-                       "レコーダーがUSBHDDを録画先として受け付けませんでした。別の録画先を選んでください"
-                           + " (701: X_UpdateRecordSchedule)", "no disk known")
+                       "レコーダーがエラーを返しました (701: X_UpdateRecordSchedule, HTTP 500)", "no disk known")
         XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "HDD", usb: usb),
                        "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)", "the internal disk")
         XCTAssertEqual(RecorderDisk.turnedDown(fault("831"), sentTo: "USBHDD", usb: usb), fault("831").explanation,
@@ -248,6 +247,59 @@ final class RecorderDiskTests: XCTestCase {
                       .busy(action: "X_CreateRecordSchedule")] {
             XCTAssertEqual(RecorderDisk.turnedDown(other, sentTo: "USBHDD", usb: usb), other.explanation, "\(other)")
         }
+    }
+
+    /// Which refusals the disk could be behind, for a sheet's sentence and a waiting row's alike: any code the
+    /// recorder turns a request down with, named after the disk, but those that name a cause of their own -- 831,
+    /// a channel it cannot receive; 501 and 701, no such item; 804, an id no longer the reservation's -- which
+    /// keep the recorder's own sentence, as the internal disk's refusals and anything that is no refusal do. A
+    /// waiting row is told to be reserved again elsewhere, its disk unnamed: its row names it.
+    func testOnlyARefusalTheDiskCouldBeBehindNamesTheDisk() {
+        func fault(_ code: String, _ action: String = "X_CreateRecordSchedule") -> RecorderError {
+            .soap(action: action, status: 500, code: code, body: "")
+        }
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: usb),
+                       "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
+                       "レコーダーがUSBHDDへの予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_UpdateRecordSchedule)", "no disk known")
+        XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(fault("402"), sentTo: "USBHDD"),
+                       "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
+                           + " (402: X_CreateRecordSchedule)")
+
+        for code in ["831", "501", "701", "804"] {
+            let error = fault(code)
+            XCTAssertEqual(RecorderDisk.turnedDown(error, sentTo: "USBHDD", usb: usb), error.explanation, code)
+            XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(error, sentTo: "USBHDD"), error.explanation,
+                           "a waiting row, \(code)")
+        }
+
+        let plain = "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)"
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "HDD", usb: usb), plain, "the internal disk")
+        XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(fault("402"), sentTo: "HDD"), plain,
+                       "a waiting row on the internal disk")
+
+        let noCode = RecorderError.soap(action: "X_CreateRecordSchedule", status: 500, code: nil, body: "")
+        for other in [fault("880"), noCode, RecorderError.transport("timed out"),
+                      .busy(action: "X_CreateRecordSchedule")] {
+            XCTAssertEqual(RecorderDisk.turnedDown(other, sentTo: "USBHDD", usb: usb), other.explanation, "\(other)")
+            XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(other, sentTo: "USBHDD"), other.explanation,
+                           "a waiting row, \(other)")
+        }
+    }
+
+    /// A move to a disk no longer offered, from a sheet with no other disk left to offer, says the disk cannot be
+    /// had and where the reservation stays, each disk named as the sheet names it. Pinned as written, for the
+    /// review of the wording.
+    func testAMoveWithNothingElseToOfferSaysWhereTheReservationStays() {
+        XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: nil),
+                       "USBHDDはいま使えません。録画先はHDDのままです。", "no disk known")
+        XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: Self.disk(mounted: false)),
+                       "録画用ディスクはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(RecorderDisk.stays(on: "USBHDD", notMovedTo: "BD", usb: Self.disk(mounted: false)),
+                       "BDはいま使えません。録画先は録画用ディスクのままです。", "its own disk named after the disk known")
     }
 
     // MARK: - the recordings of one disk
