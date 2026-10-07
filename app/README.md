@@ -846,11 +846,11 @@ no disk. What the slot answers with the disk unplugged, and from a recorder that
 been seen; it was read once in network standby, and answered as with the recorder on.
 
 Read once right after a wake, the slot answered as if no disk were registered, with one connected, and
-answered the disk when read again a minute and a half or so later; when in between it changed was not timed.
-The waking attach is the app's common one, so a disk known is not let go of on one answer of none: it stays,
-shown as it was read, and the slot is read once more a minute later (a minute, between the eight seconds and the
-minute and a half seen). Only a second answer of none lets it go; a disk answered, the same or another, is
-taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`) and holds
+answered the disk later: timed once with the slot read every five seconds, by the read five seconds after the
+recorder first answered. The waking attach is the app's common one, so a disk known is not let go of on one answer
+of none: it stays, shown as it was read, and the slot is read once more thirty seconds later (the five seconds
+measured, with room for a slower disk). Only a second answer of none lets it go; a disk answered, the same or
+another, is taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`) and holds
 back nothing. Only an answer settles it, a refusal included: silence, and a recorder still busy with another
 client's request after the client's tries, change nothing, and an answer that comes back once the link asks
 through another client, a connect under way, is left. It goes with the recorder: another answering, the recorder

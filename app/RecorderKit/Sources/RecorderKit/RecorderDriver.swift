@@ -177,11 +177,12 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// How long after an attach found the slot answering no disk, while one was known, the slot is read again.
-    /// Read once right after a waking, a BDZ-FBT4100 that had described itself eight seconds after the packet
-    /// answered the slot as if no disk were registered, and answered the disk when read again a minute and a half
-    /// or so later; when in between it changed was not timed. A minute lies between the two. Handed to the link
-    /// with its surroundings (`LinkEnvironment.slotReadAgainAfter`), where a test gives less.
-    public nonisolated static let slotReadAgainAfter: Duration = .seconds(60)
+    /// Right after a waking, a BDZ-FBT4100 that had described itself about eight seconds after the packet answered
+    /// the slot as if no disk were registered; timed once with the slot read every five seconds, it answered the disk
+    /// by the read five seconds after it first answered at all. Thirty seconds leaves room for a slower disk while
+    /// a disk that is really gone is let go of soon. Handed to the link with its surroundings
+    /// (`LinkEnvironment.slotReadAgainAfter`), where a test gives less.
+    public nonisolated static let slotReadAgainAfter: Duration = .seconds(30)
 
     /// What an attach makes of the slot's answer. A disk answered, the one known or another, is taken at once.
     /// No disk answered while one is known -- by this run, or kept with the cache by an earlier one -- does not
