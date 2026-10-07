@@ -723,19 +723,19 @@ an earlier build left in Application Support itself is moved in, write-ahead log
 opens it. Both the screens and the overnight run open it, and a write waits up to five seconds for the other's
 rather than failing with "database is locked".
 
-The television's registration -- the client id the app made, which gets a cookie from the television with no
-PIN, and the cookie -- is one Keychain item, readable once the phone has been unlocked after a restart, so that
-the overnight run and the Shortcuts action can send with the phone locked, and kept on this device only
+The television's registration -- the client id the app made, which gets a cookie from the television with no PIN,
+and the cookie -- is one Keychain item, readable once the phone has been unlocked after a restart, so that the
+overnight run and the Shortcuts action can send with the phone locked, and kept on this device only
 (`KeychainTVCredentials`). The item holds the credentials sealed (AES-GCM, CryptoKit) with a key kept in
 `Application Support/television.key`, outside the guide's folder, so that it is backed up with the app's data.
-Deleting the app deletes the key with the rest of its data. What becomes of a Keychain item when its app is
-deleted Apple documents neither way; one that stays opens for nobody, the app installed again included, which
-asks for the number on the television's panel again, and the television keeps the earlier 「BD Bridge」 in its
-list until it is deleted there. A restore to the same phone brings back the item and the key; on another phone
-there is no item, and the number is asked. Reading changes nothing: before the first unlock neither can be read,
-which reads as no registration with both left as they are; an item that does not open with the key reads as
-none and is left for the next registration to write over. A save with no key writes the key first and the item only once the key is
-on disk, and a key file that cannot be read holds both as they are. テレビを外す deletes the item and the key.
+Deleting the app deletes the key with the rest of its data. What becomes of a Keychain item when its app is deleted
+Apple documents neither way; one that stays opens for nobody, the app installed again included, which asks for the
+number on the television's panel again, and the television keeps the earlier 「BD Bridge」 in its list until it is
+deleted there. A restore to the same phone brings back the item and the key; on another phone there is no item, and
+the number is asked. Reading changes nothing: before the first unlock neither can be read, which reads as no
+registration with both left as they are; an item that does not open with the key reads as none and is left for the
+next registration to write over. A save with no key writes the key first and the item only once the key is on disk,
+and a key file that cannot be read holds both as they are. テレビを外す deletes the item and the key.
 
 Searching, over any of three lists: programmes still to come, whose title, description or details contain the
 words, across every broadcasting type and all eight days; the reservations the recorder holds; and the

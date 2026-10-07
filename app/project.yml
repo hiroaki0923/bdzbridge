@@ -79,6 +79,8 @@ targets:
         # encryption needs puts "Your app uses encryption limited to that within the Apple operating system"
         # under "No documentation required in App Store Connect", and this key is NO for an app that "only
         # uses forms of encryption that are exempt from export compliance documentation requirements".
+        # Whether a year-end self-classification report is owed (an app with exempt encryption "might
+        # alternatively be required to submit" one, Apple says) is the owner's to settle, not this file's.
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: 自宅のレコーダーを見つけて、番組表と録画予約をやりとりします。
         # the overnight guide refresh; the identifier has to be listed for BGTaskScheduler to accept it

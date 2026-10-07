@@ -38,6 +38,33 @@ final class TVCredentialStoreTests: XCTestCase {
         XCTAssertEqual(try kept.key()?.count, 32)
     }
 
+    /// A save with a key on disk seals with that key and writes no other: a renewal that wrote a new key and
+    /// was cut short before the item would leave an item no key on disk opens.
+    func testASaveWithAKeyOnDiskKeepsThatKey() throws {
+        let kept = try aKeychain()
+        kept.store.save(Self.registration)
+        let key = try XCTUnwrap(kept.key())
+
+        kept.store.save(Self.another)
+
+        XCTAssertEqual(try kept.key(), key, "a save with a key on disk wrote another")
+        XCTAssertEqual(kept.store.load(), Self.another)
+    }
+
+    /// The key's folder is made where it is not there yet: on a phone, Application Support is made only when the
+    /// guide first opens, and a registration may come before that.
+    func testAKeyIsKeptInAFolderNotYetMade() throws {
+        let kept = try aKeychain()
+        let notYet = kept.folder.appendingPathComponent("not-yet", isDirectory: true)
+            .appendingPathComponent("television.key")
+        let store = KeychainTVCredentials(service: kept.service, keyFile: notYet)
+
+        store.save(Self.registration)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: notYet.path), "no key was written")
+        XCTAssertEqual(store.load(), Self.registration)
+    }
+
     /// The key file gone, as deleting the app takes it: the item left behind loads as nothing, and is left as it
     /// was, though the same store opened it a moment before. A registration then makes a new key and writes over
     /// that item, and a store made afresh opens it.

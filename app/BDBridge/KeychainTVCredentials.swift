@@ -22,7 +22,7 @@ final class KeychainTVCredentials: TVCredentialStore {
     private static let account = "registration"
     private static let keyBytes = 32
 
-    let service: String
+    private let service: String
     /// Where the key is kept: `Application Support/television.key` in the app. Backed up with the app's data, so
     /// that a restore to the same phone, which brings the item back, can open it; on another phone there is no
     /// item for it to open. Not in the guide's folder, which is left out of backups, nor in Caches or tmp, which
