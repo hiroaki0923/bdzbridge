@@ -307,6 +307,14 @@ words, and SwiftUI tells UIKit nothing of a row's words until accessibility is o
 public switch there; a UI test finds it by its words in the supported way, but needs a television's section in
 the demo, which the demo does not have yet.
 
+`TVCredentialStoreTests` is the one place a test reaches the simulator's own: its Keychain, under a service of
+the test's own, and a key file in a folder of the test's own, both removed when it ends; the app's own item and
+key file are never touched. It holds where and how the registration is kept (below, under what works): sealed,
+the key gone as a deleted app leaves it, the plain item of earlier builds, a key file that cannot be read, one of
+another length, and one that cannot be written. Not the key file's protection: the simulator enforces none, and
+reports the default whatever the file was written with. That, a read before the first unlock, a deleted app and
+a restore are a phone's to show.
+
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
 wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
 permission itself and the link's wait for it, and the search for a recorder the router has moved.
@@ -466,6 +474,13 @@ every tagged version up to v0.3.1 -- knows only the recorder. Run on a phone who
 for a television, it sends them to the recorder. Before putting such a build on a phone that has been
 reserving on a television, delete what waits for the television on the reservations tab, or take the
 television away in the settings, which deletes it.
+
+**Coming from an earlier TestFlight build.** The builds before the registration was sealed (below, under what
+works) kept it in the Keychain as plain JSON. This build reads that item as no registration and leaves it as it
+is, so a phone with a television registered says 登録が必要です once: 登録する, with the television showing a
+broadcast, asks for the number on its panel once, and the registration made then is sealed over the old item.
+The television then lists a second 「BD Bridge」 beside the first. An earlier build put back reads the sealed item
+as no registration in its turn, and asks for the number again.
 
 ## TestFlight
 
@@ -707,6 +722,20 @@ reservations waiting to be sent, which a restore to another phone therefore does
 an earlier build left in Application Support itself is moved in, write-ahead log first, the first time the app
 opens it. Both the screens and the overnight run open it, and a write waits up to five seconds for the other's
 rather than failing with "database is locked".
+
+The television's registration -- the client id the app made, which gets a cookie from the television with no
+PIN, and the cookie -- is one Keychain item, readable once the phone has been unlocked after a restart, so that
+the overnight run and the Shortcuts action can send with the phone locked, and kept on this device only
+(`KeychainTVCredentials`). The item holds the credentials sealed (AES-GCM, CryptoKit) with a key kept in
+`Application Support/television.key`, outside the guide's folder, so that it is backed up with the app's data.
+Deleting the app deletes the key with the rest of its data. What becomes of a Keychain item when its app is
+deleted Apple documents neither way; one that stays opens for nobody, the app installed again included, which
+asks for the number on the television's panel again, and the television keeps the earlier 「BD Bridge」 in its
+list until it is deleted there. A restore to the same phone brings back the item and the key; on another phone
+there is no item, and the number is asked. Reading changes nothing: before the first unlock neither can be read,
+which reads as no registration with both left as they are; an item that does not open with the key reads as
+none and is left for the next registration to write over. A save with no key writes the key first and the item only once the key is
+on disk, and a key file that cannot be read holds both as they are. テレビを外す deletes the item and the key.
 
 Searching, over any of three lists: programmes still to come, whose title, description or details contain the
 words, across every broadcasting type and all eight days; the reservations the recorder holds; and the
