@@ -860,7 +860,7 @@ asked again of the row as listed before anything is sent, and the list is read a
 there. What it came to is a value with its sentence (`Altered`), said in the sheet's one alert: made with
 nothing to add closes the sheet; made and leaving a recording marked as losing is said under テレビの予約, the
 changed row itself in the create's sentence and any other by its name; anything else is said under エラー,
-and closing that closes the sheet over the list read on the way. Silence is said as for a delete -- it may
+and closing that closes the sheet, whose list may have been read again on the way. Silence is said as for a delete -- it may
 have arrived, and is not sent again -- and the television is given up on. While the change or a delete is out
 to the television its line is on the sheet, nothing on it can be pressed and the sheet cannot be closed. The
 model has one entry for a change on either device (`AppModel.change`): a television's row goes to its host

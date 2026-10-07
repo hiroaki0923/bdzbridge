@@ -786,6 +786,14 @@ final class TVDriverTests: XCTestCase {
                                sent: [read, change, read])) {
             await $0.gate.answer(change, with: taken)
         }
+        // Neither the repeat it had nor the one sent: the change is borne out only by the repeat that was sent.
+        let elsewhere = { var row = Self.film; row.repeatType = "w15"; return row }()
+        try await expect("answered, and a third repeat listed",
+                         .init(altered: .notDone(TVDriver.changeNotReflected), list: ["recording.52 1", "recording.51 w15"],
+                               sent: [read, change, read])) { bench in
+            await bench.gate.answer(change, with: taken)
+            await bench.gate.before(change) { await bench.television.put([elsewhere, Self.filmReminder, Self.news]) }
+        }
         try await expect("answered, and the row gone",
                          .init(altered: .notDone(TVDriver.goneAfterAChange), list: withoutIt,
                                sent: [read, change, read])) { bench in
