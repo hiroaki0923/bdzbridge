@@ -47,6 +47,11 @@ final class AppModel: LinkHost {
         set { recorder.host = newValue }
     }
 
+    /// Whether the app opens on the tutorial: nothing is set up yet, neither a recorder nor a television. A home
+    /// with a television and no recorder has set up what it has, and is not to meet the tutorial at every launch.
+    /// The television's link is made with the model (`makeTVLink`), so this is right before `start()`.
+    var welcomes: Bool { host.isEmpty && tv == nil }
+
     /// Changing it lets go of the channel the list was narrowed to: a channel belongs to one broadcasting
     /// type, and one chosen on another would leave the list empty.
     ///

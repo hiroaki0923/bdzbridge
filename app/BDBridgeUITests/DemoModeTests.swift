@@ -310,14 +310,16 @@ final class DemoModeTests: XCTestCase {
         app.navigationBars.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", heading)).firstMatch
     }
 
-    /// No recorder and no MAC, so the tutorial is the first thing up. `-demoData` is deliberately not passed:
-    /// the argument domain outranks what the app writes, and the app has to be able to turn the demo on
-    /// itself. The broadcasting type and the orders are pinned, since the app keeps them between launches and
-    /// a test that switched to CS would otherwise start the next one there.
+    /// No recorder, no MAC and no television, so the tutorial is the first thing up: a television saved on this
+    /// simulator would keep it down, and ending the demo would connect to that television on the Mac's LAN.
+    /// `-demoData` is deliberately not passed: the argument domain outranks what the app writes, and the app has
+    /// to be able to turn the demo on itself. The broadcasting type and the orders are pinned, since the app
+    /// keeps them between launches and a test that switched to CS would otherwise start the next one there.
     /// `textSize` is a content size category's name, for the reader's text size.
     private func launchWithoutARecorder(textSize: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-recorderHost", "", "-recorderMac", "", "-startTab", "guide", "-guideMode", "list"]
+        app.launchArguments = ["-recorderHost", "", "-recorderMac", "", "-tvHost", "", "-tvMac", "",
+                               "-startTab", "guide", "-guideMode", "list"]
             + ScreenshotTests.pinned
             + (textSize.map { ["-UIPreferredContentSizeCategoryName", $0] } ?? [])
         app.launch()

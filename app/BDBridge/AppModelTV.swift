@@ -134,12 +134,16 @@ extension AppModel {
     /// the client's (`ScalarClient.enrol`). What is the app's is the client id, made once and kept, so that the
     /// PIN goes with the request that asked for it; and, once registered, saving the television and connecting
     /// to it on a link made afresh: an attach still out on the last one, with the last cookie, ends there.
+    ///
+    /// With a television saved, the registration is for that one: another, by the MAC saved with it, is
+    /// refused before anything is asked of it, and what is saved and what waits for the one saved stay as they
+    /// were. Another television takes its place only after テレビを外す, which asks about what waits for it.
     func registerTV(at host: String, pin: String?) async -> TVRegistered {
         let credentials = surroundings.tvCredentials
         let clientID = credentials.load()?.clientID ?? tvClientID ?? "BDBridge:\(UUID().uuidString)"
         tvClientID = clientID
         let client = ScalarClient(host: host, transport: surroundings.tvTransport(host), credentials: credentials)
-        switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin) {
+        switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin, expecting: savedTVMac) {
         case .pinNeeded:
             return .pinNeeded
         case .failed(let why):
@@ -158,6 +162,12 @@ extension AppModel {
             await tv?.connect()
             return .registered
         }
+    }
+
+    /// The MAC saved with the television saved, or nil when none is saved or it gave none.
+    private var savedTVMac: String? {
+        guard let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return nil }
+        return defaults.string(forKey: DefaultsKey.tvMac)
     }
 
     /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play

@@ -144,29 +144,11 @@ final class TVLinkTests: XCTestCase {
         XCTAssertFalse(calls.contains { $0.hasPrefix("getStorageList") }, "the cookie went to another television")
     }
 
-    /// A registration writes down the MAC the television gave as it registered, over whatever was saved: the
-    /// link made next knows the television by it. Over a MAC saved for another television -- this one stands
-    /// where that one did, and was not taken up -- the television registered is connected to with nothing said
-    /// to be wrong, and the MAC saved is its own. A television that gives no MAC leaves none saved: the one
-    /// from before would be kept as its own.
+    /// A registration writes down the MAC the television gave as it registered: the link made next knows the
+    /// television by it. A television that gives no MAC leaves none saved: the one from before would be kept as
+    /// its own. Another television takes the place of the one saved only after テレビを外す
+    /// (`testRegisteringAnotherTelevisionThanTheOneSavedIsRefused`).
     func testARegistrationWritesDownTheMACItRead() async throws {
-        let bench = try aBench()
-        try await bench.cacheAGuide()
-        bench.defaults.set("f8:4e:17:00:00:0b", forKey: DefaultsKey.tvMac)
-        let television = DemoTV()
-        let model = bench.model(recorder: DemoRecorder(), television: television,
-                                credentials: await registered(with: television))
-        await model.start()
-        try await until("the other television was not said to be another") {
-            model.tvHost?.problem == TVDriver.anotherAnswered
-        }
-
-        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .registered)
-
-        XCTAssertEqual(model.tv?.session.connected, true, "the television registered was not taken up")
-        XCTAssertNil(model.problem(for: .tv))
-        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.tvMac), DemoTV.mac)
-
         let other = try aBench()
         other.defaults.set("f8:4e:17:00:00:0b", forKey: DefaultsKey.tvMac)
         let nameless = DemoTV(mac: "")
@@ -177,6 +159,55 @@ final class TVLinkTests: XCTestCase {
 
         XCTAssertEqual(second.tv?.session.connected, true)
         XCTAssertNil(other.defaults.string(forKey: DefaultsKey.tvMac), "the MAC saved before was left for this one")
+    }
+
+    /// Registering where a television answers that is not the one saved -- told by the MAC saved with it -- is
+    /// refused before anything that registers is sent to it, and the sheet says how another television is
+    /// added: テレビを外す first. With the PIN as well: no PIN comes up on its panel for a registration the app
+    /// would refuse. What is saved stays as it was: the address, the MAC, the registration, and what waits for
+    /// the television saved.
+    func testRegisteringAnotherTelevisionThanTheOneSavedIsRefused() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let request = ReservationRequest(title: "サンプル番組", start: Date().addingTimeInterval(3600), durationSec: 1800,
+                                         repeatCode: "1", broadcastingType: 2, serviceID: 1024, qualityCode: 100,
+                                         eventID: 4321)
+        var row = PendingReservation(request: request, serviceName: "サンプルテレビ")
+        row.target = .tv
+        try await GuideStore(path: bench.guidePath).queue(row)
+        bench.defaults.set("f8:4e:17:00:00:0b", forKey: DefaultsKey.tvMac)
+        let television = DemoTV(power: "active")
+        let saved = TVCredentials(clientID: "BDBridge:saved", cookie: "kept")
+        let credentials = MemoryTVCredentials(saved)
+        let model = bench.model(recorder: DemoRecorder(), television: television, credentials: credentials)
+        await model.start()
+        try await until("the other television was not said to be another") {
+            model.tvHost?.problem == TVDriver.anotherAnswered
+        }
+
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .failed(ScalarClient.anotherTelevision))
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: DemoTV.pin), .failed(ScalarClient.anotherTelevision))
+
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.tvHost), Bench.tvHost)
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.tvMac), "f8:4e:17:00:00:0b")
+        XCTAssertEqual(credentials.load(), saved)
+        expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.id), [row.id])
+        let calls = await television.calls
+        XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") }, "the other television was asked to register")
+        XCTAssertEqual(model.tv?.session.connected, false)
+    }
+
+    /// The tutorial is for a phone with nothing set up. A home with a television and no recorder has set up
+    /// what it has, and is not shown the tutorial at every launch; nor is a home with a recorder.
+    func testOnlyAPhoneWithNothingSetUpIsWelcomed() throws {
+        let nothing = try aBench()
+        XCTAssertTrue(nothing.modelWithNoRecorder().welcomes)
+
+        let television = try aBench()
+        XCTAssertFalse(television.modelWithNoRecorder(television: DemoTV(), credentials: MemoryTVCredentials()).welcomes)
+
+        let recorder = try aBench()
+        XCTAssertFalse(recorder.model(recorder: SilentRecorder()).welcomes)
     }
 
     /// What each device is doing is its own: while the television attaches, the recorder is not busy and may be
