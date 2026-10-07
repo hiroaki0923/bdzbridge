@@ -19,7 +19,8 @@ public struct ReservationRequest: Equatable, Sendable {
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
 
     public init(title: String, start: Date, durationSec: Int, repeatCode: String, broadcastingType: Int,
-                serviceID: Int, qualityCode: Int, eventID: Int? = nil, destination: String = "HDD") {
+                serviceID: Int, qualityCode: Int, eventID: Int? = nil,
+                destination: String = RecorderDisk.internalID) {
         self.title = title
         self.start = start
         self.durationSec = durationSec
@@ -76,7 +77,7 @@ public struct RecorderRuleRequest: Equatable, Sendable {
 
     public init(keywords: [String], excluded: [String] = [], logic: String = "OR", genreLevel1: Int? = nil,
                 genreLevel2: Int? = nil, timeScope: String = "ALL", broadcastingScope: String = "ALL",
-                qualityCode: Int, destination: String = "HDD") {
+                qualityCode: Int, destination: String = RecorderDisk.internalID) {
         self.keywords = keywords
         self.excluded = excluded
         self.logic = logic

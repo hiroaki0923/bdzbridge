@@ -106,6 +106,82 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     public var qualityName: String? { Codes.quality(code: qualityCode) }
 }
 
+/// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in
+/// its USB slot. The slot is one id however many disks the recorder has registered, so the disk behind it can
+/// change: unplugged, swapped, or renamed on the recorder's own screen.
+public struct RecorderDisk: Equatable, Sendable {
+    /// The recorder's id for it: `internalID` or `usbID`.
+    public var destination: String
+    /// The name the recorder gives the disk, which its owner can change on the recorder; empty for its own.
+    public var name: String
+    /// `<mount>` is 1.
+    public var mounted: Bool
+    /// `<remain>`, the free space, in the recorder's MB (`bytesPerMB`).
+    public var freeMB: Int?
+    public var totalMB: Int?
+    /// `<registeredTime>` as the recorder writes it, offset and all. Never read as a time, only compared: it is
+    /// what tells one registered disk from another. Empty for a disk the recorder has not registered.
+    public var registered: String
+
+    public init(destination: String, name: String, mounted: Bool, freeMB: Int?, totalMB: Int?, registered: String) {
+        self.destination = destination
+        self.name = name
+        self.mounted = mounted
+        self.freeMB = freeMB
+        self.totalMB = totalMB
+        self.registered = registered
+    }
+
+    /// The recorder's own disk. The literal the official app sends, and what a row that names no disk is on.
+    public static let internalID = "HDD"
+    /// The USB slot. Every other id tried for a USB disk is answered with 803 (docs/upnp/service-sweep.md).
+    public static let usbID = "USBHDD"
+
+    /// Bytes to the recorder's MB. A USB disk's total and the internal disk's free space both read right at a
+    /// million bytes on a BDZ-FBT4100; the figures have not yet been printed undivided beside each other.
+    public static let bytesPerMB = 1_000_000
+
+    /// What could be offered as somewhere to record: there, and of some size. Asked only of a disk already known
+    /// to be registered (`RecorderDriver.usbDisk`).
+    public var takesRecordings: Bool { mounted && (totalMB ?? 0) > 0 }
+
+    /// The sizes in bytes, the unit the internal disk's come in (`RecorderClient.recordDestinationInfo`). Nil for
+    /// a disk of no size, which has not said how full it is, as `RecorderDriver.storage` reads the internal one:
+    /// shown as sizes, it would be a full disk.
+    public var freeBytes: Int? { sized(freeMB) }
+    public var totalBytes: Int? { sized(totalMB) }
+
+    private func sized(_ megabytes: Int?) -> Int? {
+        guard (totalMB ?? 0) > 0 else { return nil }
+        return megabytes.map { $0 * Self.bytesPerMB }
+    }
+
+    /// What tells this disk from another in the same slot, as text a phone can keep: the slot, when it was
+    /// registered and its name. A renamed disk counts as another, which errs the safe way: what was read from the
+    /// one before is read again. Neither id nor time holds a line break, so the three cannot run into each other.
+    public var identity: String { [destination, registered, name].joined(separator: "\n") }
+
+    public func isSameDisk(as other: RecorderDisk?) -> Bool { other?.identity == identity }
+
+    /// What a disk is called on screen: the recorder's own name for it, or, where it gives none, the recorder's
+    /// own id. So the internal disk is `HDD`, as the recorder writes it, and a slot whose disk is not known is
+    /// `USBHDD`. Never a name of the app's own: the owner may have renamed the disk on the recorder.
+    public static func label(_ destination: String, named name: String?) -> String {
+        guard let name, !name.isEmpty else { return destination }
+        return name
+    }
+
+    /// What the low-space notification says of a disk with `freeGB` left. Without a disk to name it is the
+    /// sentence a recorder with its own disk alone has always had; with two disks it says which, by its label.
+    /// The number goes in by itself, so that a `%` in a name the owner gave the disk is not read as a format.
+    public static func lowSpaceBody(freeGB: Double, naming disk: String?) -> String {
+        let left = String(format: "%.0f", freeGB)
+        let advice = "古い録画を整理するか、録画モードを見直してください。"
+        guard let disk else { return "残り \(left) GB です。" + advice }
+        return "\(disk)の残りが \(left) GB です。" + advice
+    }
+}
+
 /// What `description.xml` says about a recorder found on the LAN.
 public struct RecorderDescription: Equatable, Sendable {
     public var host: String

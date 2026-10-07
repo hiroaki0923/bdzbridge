@@ -131,28 +131,40 @@ public actor RecorderClient {
 
     // MARK: - recordings
 
-    public func titles(count: Int = 200, startingAt start: Int = 0) async throws -> [RecordedTitle] {
-        try await titlePage(count: count, start: start).titles
+    /// One page of the recordings asked for by `destination`, as the recorder gives it: rows of any disk.
+    public func titles(count: Int = 200, startingAt start: Int = 0,
+                       on destination: String = RecorderDisk.internalID) async throws -> [RecordedTitle] {
+        try await titlePage(count: count, start: start, on: destination).titles
     }
 
-    /// Every recording, newest first. One call returns at most 200, so this follows `TotalMatches`.
-    public func allTitles(pageSize: Int = 200) async throws -> [RecordedTitle] {
+    /// Every recording on one disk, newest first. One call returns at most 200, so this follows `TotalMatches`,
+    /// by each page's own count. Only the disk asked for is kept, by the disk each row names: the recorder takes
+    /// a criteria it does not know for one that matches everything, and so may answer the slot's with the internal
+    /// disk's rows. The internal disk's keeps every row but the slot's, so a recorder with no USB disk gives the
+    /// same list as before whatever its rows say.
+    public func allTitles(pageSize: Int = 200,
+                          on destination: String = RecorderDisk.internalID) async throws -> [RecordedTitle] {
         var all: [RecordedTitle] = []
         var start = 0
         while true {
-            let page = try await titlePage(count: pageSize, start: start)
-            all += page.titles
+            let page = try await titlePage(count: pageSize, start: start, on: destination)
+            all += page.titles.filter {
+                destination == RecorderDisk.internalID ? $0.destination != RecorderDisk.usbID
+                    : $0.destination == destination
+            }
             start += page.count
             if page.count == 0 || start >= page.total { return all }
         }
     }
 
-    private func titlePage(count: Int, start: Int) async throws -> (titles: [RecordedTitle], count: Int, total: Int) {
-        // No SearchCriteria: the official client sends none for the internal disk, and only
-        // `recordDestinationID="USBHDD"` (no spaces, quoted) when listing a USB one. A criteria the recorder
-        // cannot parse silently matches everything (docs/upnp/service-sweep.md).
+    private func titlePage(count: Int, start: Int,
+                           on destination: String) async throws -> (titles: [RecordedTitle], count: Int, total: Int) {
+        // No SearchCriteria for the internal disk, as the official client sends none, and for any other disk its
+        // id in the form that client sends for a USB one, `recordDestinationID="USBHDD"` (no spaces, quoted). A
+        // criteria the recorder cannot parse silently matches everything (docs/upnp/service-sweep.md).
+        let criteria = destination == RecorderDisk.internalID ? "" : "recordDestinationID=\"\(destination)\""
         let answer = try await resultText(Upnp.xsrsControlURL, Upnp.xsrsService, "X_GetTitleList",
-                                          [("SearchCriteria", ""),
+                                          [("SearchCriteria", criteria),
                                            ("StartingIndex", "\(start)"),
                                            ("RequestedCount", "\(count)"), ("SortCriteria", "-scheduledStartDateTime"),
                                            ("Filter", "*")])
@@ -277,6 +289,14 @@ public actor RecorderClient {
         _ = try await call(Upnp.pvrControlURL, Upnp.pvrService, "X_DeletePrefRecSetting", [("SearchSettingID", id)])
     }
 
+    /// What the recorder says of one of the disks it records to, or nil when its answer describes none. Faults
+    /// are thrown as any call's are. Whether a USB disk is there is `RecorderDriver.usbDisk`'s to decide, which
+    /// lets nothing but silence out.
+    public func disk(_ destination: String) async throws -> RecorderDisk? {
+        let result = try await pvr("X_GetMediaInfo", [("recordDestinationID", destination)])
+        return XsrsParse.disk(result, destination: destination)
+    }
+
     public func liveChannelIDs(broadcastingType: Int) async throws -> [Int] {
         let root = try XmlNode.parse(try await pvr("X_GetLiveChList",
                                                    [("BroadcastType", "\(broadcastingType)"), ("SkipChannel", "0")]))
@@ -286,8 +306,10 @@ public actor RecorderClient {
 
     /// Capacity of a recording destination, in bytes. An answer without both numbers in it is thrown as
     /// `unexpectedAnswer`: read as nothing of either, it would be a full disk on screen and a warning that the
-    /// recorder was running out of room.
-    public func recordDestinationInfo(destination: String = "HDD") async throws -> (totalBytes: Int, freeBytes: Int) {
+    /// recorder was running out of room. Only the internal disk's: whatever id it is given, a BDZ-FBT4100
+    /// answers with its own disk's figures (`disk` reads the USB one).
+    public func recordDestinationInfo(destination: String = RecorderDisk.internalID) async throws
+        -> (totalBytes: Int, freeBytes: Int) {
         let action = "X_HDLnkGetRecordDestinationInfo"
         let root = try await call(Upnp.contentDirectoryControlURL, Upnp.contentDirectoryService, action,
                                   [("RecordDestinationID", destination)])

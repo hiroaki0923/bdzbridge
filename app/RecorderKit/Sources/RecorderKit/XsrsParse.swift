@@ -41,7 +41,7 @@ public enum XsrsParse {
             broadcastingScope: setting?.childText("broadcastTypeScope", default: "ALL") ?? "ALL",
             qualityCode: quality.isEmpty ? nil : Int(quality),
             qualityCode4K: quality4K.isEmpty ? nil : Int(quality4K),
-            destination: object.childText("recordDestinationID", default: "HDD")
+            destination: object.childText("recordDestinationID", default: RecorderDisk.internalID)
         )
     }
 
@@ -61,7 +61,7 @@ public enum XsrsParse {
             qualityCode: Int(item.childText("desiredQualityMode", default: "0")) ?? 0,
             recording: item.childText("recordingFlag", default: "0") == "1",
             conflict: item.childText("conflictID", default: "0") != "0",
-            destination: item.childText("recordDestinationID", default: "HDD"),
+            destination: item.childText("recordDestinationID", default: RecorderDisk.internalID),
             sizeMB: size.isEmpty ? nil : Int(size),
             creator: item.childText("reservationCreatorID").isEmpty ? nil : item.childText("reservationCreatorID"),
             genreCode: genreCode(item)
@@ -86,13 +86,31 @@ public enum XsrsParse {
             protected: item.childText("titleProtectFlag", default: "0") == "1",
             isNew: item.childText("titleNewFlag", default: "0") == "1",
             recording: item.childText("recordingFlag", default: "0") == "1",
-            destination: item.childText("recordDestinationID", default: "HDD"),
+            destination: item.childText("recordDestinationID", default: RecorderDisk.internalID),
             sizeMB: size.isEmpty ? nil : Int(size),
             genreCode: genreCode(item),
             // "notplayed" is what a recording that was never opened carries here.
             lastPlayed: playbackText.first?.isNumber == true ? RecorderTime.parse(playbackText) : nil,
             resumeSec: resume.allSatisfy(\.isNumber) && !resume.isEmpty ? Int(resume) : nil
         )
+    }
+
+    /// A disk as `X_GetMediaInfo` describes it, for the disk asked about. Its elements are read by name wherever
+    /// they are under the root, since how the recorder wraps them has not been kept whole, and so an answer
+    /// describing two disks gives the first. Nil for an empty answer, one that is not XML, and one without
+    /// `<mount>`, none of which describes a disk.
+    public static func disk(_ result: String, destination: String) -> RecorderDisk? {
+        guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let root = try? XmlNode.parse(result),
+              let mount = value(of: "mount", in: root) else { return nil }
+        return RecorderDisk(destination: destination, name: value(of: "name", in: root) ?? "", mounted: mount == "1",
+                            freeMB: value(of: "remain", in: root).flatMap { Int($0) },
+                            totalMB: value(of: "total", in: root).flatMap { Int($0) },
+                            registered: value(of: "registeredTime", in: root) ?? "")
+    }
+
+    private static func value(of name: String, in root: XmlNode) -> String? {
+        root.firstDescendant(name)?.strippedText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// `,,0x400,0x3798` carries the programme id in its last field.

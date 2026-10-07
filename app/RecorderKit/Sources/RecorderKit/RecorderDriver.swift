@@ -2,8 +2,9 @@ import Foundation
 
 /// What is particular to a BDZ recorder in a link: it is woken by a magic packet and waited for, found at another
 /// address by the MAC at the end of its UDN, recognised by that UDN, and read on every attach for its firmware,
-/// its MAC and its free space, which are only shown or kept and must not fail the attach. The runs with no screen,
-/// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
+/// its MAC, its free space and the disk in its USB slot, which are only shown or kept and must not fail the
+/// attach. The runs with no screen, which have no link, make their attempt here too (`reachWithNoScreen`,
+/// `isTheOneKnown`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// Not read yet: the recorder's operations are still the app's, and will be asked of this on its link,
@@ -55,9 +56,10 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - attaching
 
     /// Reads what the recorder says about itself. Only the description decides whether the app is connected. The
-    /// firmware, the MAC and the free space are read too, but another model may refuse one or answer in a shape
-    /// of its own, and that must not fail the attach: what cannot be read is left unknown. Silence still ends it.
-    /// What waits is sent last, and an attach that met silence there has not reached anything to show.
+    /// firmware, the MAC, the free space and the disk in the USB slot are read too, but another model may refuse
+    /// one or answer in a shape of its own, and that must not fail the attach: what cannot be read is left
+    /// unknown. Silence still ends it. What waits is sent last, and an attach that met silence there has not
+    /// reached anything to show.
     ///
     /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet.
     public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
@@ -84,6 +86,7 @@ public final class RecorderDriver: LinkDriver {
                 owner?.keepMAC(settings.mac)
             }
             link.session.learned(storage: try await Self.storage(of: client))
+            link.session.learned(usbDisk: try await Self.usbDisk(of: client))
             link.session.answered()
             owner?.problem = nil
             await owner?.sendWhatWaits()
@@ -143,6 +146,19 @@ public final class RecorderDriver: LinkDriver {
         guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
               capacity.totalBytes > 0 else { return nil }
         return (capacity.freeBytes, capacity.totalBytes)
+    }
+
+    /// The disk in the recorder's USB slot, when the recorder has registered one; nil when the slot is refused, its
+    /// answer cannot be read or describes no disk, or the disk it describes was never registered. The one place
+    /// that decides whether a USB disk is known, for the screens and for the overnight run alike, so that no
+    /// answer from a recorder that never had one draws anything. Throws only silence.
+    ///
+    /// What the slot answers with the disk unplugged has not been seen. A registered disk described as not
+    /// mounted is kept, and offered nowhere (`RecorderDisk.takesRecordings`).
+    public nonisolated static func usbDisk(of client: RecorderClient) async throws -> RecorderDisk? {
+        guard let disk = try await RecorderError.silenceOnly({ try await client.disk(RecorderDisk.usbID) }) ?? nil,
+              !disk.registered.isEmpty else { return nil }
+        return disk
     }
 
     // MARK: - waking
