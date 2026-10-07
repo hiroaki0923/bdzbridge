@@ -282,14 +282,21 @@ fails a test rather than leaving `swift test` waiting. And on this machine's loo
 connection: refused at once at one address, and at another left unanswered until the two seconds its handshake
 is given are up, and not taken for allowed before then, though its path was satisfied from the start; never
 made over the mobile network; and ended when it is stopped. The search no longer waits; the link's two watchers
-do. `ScanTallyTests` holds the rule for a look turned away, by most, case by case: the phone's look, an address
-let through that is silent on the port rather than refusing, two such addresses, every address refusing, a look
-with the permission given, and each way back as the only request made. It holds the reading of the one request
-a search sends again, by the same rule, where a refusal is the request let out, with the status or code it came
-back with for the log; and the one address a tally keeps -- the first the system turned away, never one that
-refused, none in a tally just made, and in none of its counts; and `URLSessionTransportTests` that a silent
-address comes back through the real session as a request that was out: timed out, or cancelled when the search
-ends it first.
+do. The link's one look at the permission is tried there too. On connections the tests play: the first thing
+its connection comes to that says anything is the answer -- answered, refused or left unanswered until its
+handshake ran out is allowed, kept waiting for the permission is blocked whatever the connection comes to after
+it, and no path for another reason is neither --; a path while the connection is set up or on its way is not
+taken for one; nothing by the time the look is given, or a connection gone first, is no answer; and a look that
+is cancelled says nothing, even with an answer to hand; whichever way it ends, its connection and the time it was
+given end with it. And on this machine's loopback: allowed at once at the address that refuses, and at the
+silent one once the handshake has run out, within the time the look is given by default, which is longer than
+the handshake. `ScanTallyTests` holds the rule for a look turned away, by most, case by case: the phone's look, an
+address let through that is silent on the port rather than refusing, two such addresses, every address refusing, a
+look with the permission given, and each way back as the only request made. It holds the reading of the one request
+a search sends again, by the same rule, where a refusal is the request let out, with the status or code it came back
+with for the log; and the one address a tally keeps -- the first the system turned away, never one that refused,
+none in a tally just made, and in none of its counts; and `URLSessionTransportTests` that a silent address comes
+back through the real session as a request that was out: timed out, or cancelled when the search ends it first.
 
 No test puts a screen up, so none holds where the settings hang the sheet for adding a television: on the
 form, and not on the television's section, where a sheet hung on each of the section's rows went by itself at
@@ -601,9 +608,15 @@ archive taken with `log collect --device`, by `log show --predicate 'subsystem =
 How the waiting is done, what the technote says and what is still to be seen, and what the app says when the
 answer is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because
 the permission was taken away is not woken, since no magic packet could leave the phone either; the app says
-what is wrong and connects when it is put back. The look that decides this still reads a connection's path the
-first time there is one, as the wait did, so it can take a permission that is not there for given; it is to
-be mended once the wait has been seen on a phone.
+what is wrong and connects when it is put back. The look that decides this (`LocalNetwork.access`) reads as the
+link's wait does: one connection of the wait's kind towards the device's own address, read only once it has come to
+something, the first thing it comes to that says anything of the permission being the answer. Its path is not read
+while it is set up or on its way, where the look once read it. It is given three seconds, a second longer than the
+connection's handshake, since a recorder that is asleep is silent and its connection comes to something only when
+the handshake runs out; nothing by then is no answer, and the recorder is woken. What a connection to a device's own
+address comes to while the question is up, or after a "no", has not been seen on a phone; the technote says that
+without the permission "the connection enters the `NWConnection.State.waiting(_:)` state and the current path lists
+an unsatisfied reason of `NWPath.UnsatisfiedReason.localNetworkDenied`".
 
 The recorders found stay in the order they answered, the scan's end adding only what had not arrived yet,
 and the one the app is set to -- by address, or by UDN once the router has moved it -- is marked 使用中. A
