@@ -812,7 +812,19 @@ run or the Shortcuts action. Every request to a television, the look's included,
 keeps no cookie and follows no redirect (`URLSessionTransport.withoutCookies`): a 3xx is an answer, so nothing
 goes to an address or a port the app did not choose.
 
-Another television is never taken for the one saved: not at a connect (above), and not at a registration,
+The check before an operation asks which television answers as well (`TVDriver.check`), by the same one
+request, in place of the `getPowerStatus` it asked before, of which it read nothing but that an answer came.
+The address can change hands while the app stays connected -- the lease handed to another device, the phone
+on another Wi-Fi with the same subnet -- and what the reader asked for would go there with the cookie. So
+another television, or a device that is no television (told as a connect tells it), is sent nothing of what
+was asked: the television's line says another device answered (`TVDriver.anotherAnswered`, whatever answered),
+and the app is no longer connected, so nothing that needs the registration is asked and nothing that carries
+the cookie reaches it. Something answered, so nothing is given up: the next connect asks again and looks
+past it, while the check itself never looks. A television not known by its MAC is taken for the one saved, as
+a connect takes it.
+
+Another television is never taken for the one saved: not at a connect or at the check before an operation
+(above), and not at a registration,
 which reads the MAC first and refuses another before anything that registers is sent to it
 (`ScalarClient.enrol(expecting:)`), so no PIN comes up on its panel. The sheet says that another television is
 added after テレビを外す, which asks about what waits for the one saved and deletes it. A television that gives
