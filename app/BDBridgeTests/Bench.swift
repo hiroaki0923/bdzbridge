@@ -19,8 +19,9 @@ final class Bench {
     /// How long after an attach found the USB slot answering none, while a disk was known, a model made here reads
     /// it again: the app's minute, unless a test that waits for that read shortens it before making the model.
     var slotReadAgainAfter = RecorderDriver.slotReadAgainAfter
-    /// How long a model made here waits for the USB slot before something that names it is sent while the disk
-    /// known is kept: the app's two seconds for ten, unless a test that waits for it shortens it first.
+    /// How long a model made here waits for the USB slot before something that names it is sent while the slot has
+    /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
+    /// first.
     var slotSettling = SlotSettling.afterAWaking
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0

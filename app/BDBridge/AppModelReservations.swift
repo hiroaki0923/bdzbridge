@@ -238,11 +238,12 @@ extension AppModel {
         case givenUp
     }
 
-    /// Before something that names `disk` is sent, once the recorder has been made sure of: while the USB disk
-    /// known is kept rather than answered since the recorder woke, the slot is waited for
-    /// (`RecorderDriver.settleTheSlot`). Nil when it may go: nothing had to be waited for -- another disk, a disk
-    /// answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk that is offered,
-    /// which is taken. Otherwise why not, with a disk not had put down for the sheets (`diskCannotBeHad`).
+    /// Before something that names `disk` is sent, once the recorder has been made sure of: while the slot has not
+    /// answered the USB disk known since the recorder last answered -- from the attach on, a waking one above all --
+    /// the slot is waited for (`RecorderDriver.settleTheSlot`). Nil when it may go: nothing had to be waited for --
+    /// another disk, a disk answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk
+    /// that is offered, which is taken. Otherwise why not, with a disk not had put down for the sheets
+    /// (`diskCannotBeHad`): a disk answered that takes no recordings is not had either.
     func slotWithholds(_ disk: String) async -> Withheld? {
         switch await recorderDriver?.settleTheSlot(for: disk) {
         case nil:
@@ -263,9 +264,9 @@ extension AppModel {
 
     /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
     /// it also proves the payload is one the recorder accepts, without recording anything. `disk` is the one the
-    /// sheet shows, so that the clashes are the ones on the disk the reservation would go to: a USB disk kept
-    /// through an answer of none is waited for first (`slotWithholds`), and one not had is said as a reservation
-    /// to it is, with no clashes asked.
+    /// sheet shows, so that the clashes are the ones on the disk the reservation would go to: a USB disk the slot
+    /// has not answered since the recorder last answered is waited for first (`slotWithholds`), and one not had is
+    /// said as a reservation to it is, with no clashes asked.
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
                    disk: String = RecorderDisk.internalID) async -> [Reservation]? {
         await start()
@@ -336,9 +337,9 @@ extension AppModel {
     /// `disk` is the one the reader picked, sent as picked or not at all: a USB disk no longer offered by the
     /// time it is sent -- let go of since the sheet offered it -- is refused before anything is queued or sent,
     /// since sending the internal disk in its place would make a reservation the reader did not agree to. So is
-    /// one kept through an answer of none that the slot does not answer while it is waited for, once the recorder
-    /// is made sure of (`slotWithholds`): the press that woke the recorder is the common case. The row kept for the
-    /// queue carries the disk. A disk the recorder turns down is said by name, with what to do.
+    /// one the slot has not answered since the recorder last answered and does not answer while it is waited for,
+    /// once the recorder is made sure of (`slotWithholds`): the press that woke the recorder is the common case. The
+    /// row kept for the queue carries the disk. A disk the recorder turns down is said by name, with what to do.
     func reserve(_ program: GuideProgramRow, quality: String, repeating: String,
                  disk: String = RecorderDisk.internalID) async -> Bool {
         await start()
@@ -641,8 +642,9 @@ extension AppModel {
     /// on as the change goes out is then kept, whatever the sheet was opened on. A disk moved to and no longer
     /// offered is refused before the list is read, as a new reservation's is (`reserve`), and said by what the
     /// sheet has left to offer (`refuse(_:goingTo:)`). A change that goes to the USB disk -- moved there, or of a
-    /// reservation on it -- while the disk is kept through an answer of none waits for the slot once the list has
-    /// been read, and is refused the same way when the slot does not answer it (`slotWithholds`).
+    /// reservation on it -- while the slot has not answered the disk since the recorder last answered waits for the
+    /// slot once the list has been read, and is refused the same way when the slot does not answer it
+    /// (`slotWithholds`).
     func update(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Bool {
         if reservation.device == .tv {
