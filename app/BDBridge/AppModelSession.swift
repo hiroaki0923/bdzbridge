@@ -201,7 +201,7 @@ extension AppModel {
                 _ = WakeOnLan.wake(mac, addresses: WakeOnLan.addresses(forRecorderAt: host))
             },
             lanIsBlocked: { [weak self] host in
-                // Only after a real recorder was silent, and never in the demo (two seconds at most).
+                // Only after a real recorder was silent, and never in the demo (three seconds at most).
                 guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
                 return await LocalNetwork.access(probing: host) == .blocked
             },
