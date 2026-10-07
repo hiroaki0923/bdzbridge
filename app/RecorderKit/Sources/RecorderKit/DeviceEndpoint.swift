@@ -148,10 +148,10 @@ extension QueueTarget {
     }
 }
 
-/// A device that makes a reservation in one request and reads nothing first: the recorder's way of sending, but
-/// for the USB slot it waits for (`RecorderClient`'s round). Making one says nothing back worth keeping: what the
-/// device made is read from its list afterwards. Sent a waiting row, it is sent that request (below), so a device
-/// with `create` alone is one the queue can send to.
+/// A device that makes a reservation in one request and reads nothing first. Making one says nothing back worth
+/// keeping: what the device made is read from its list afterwards. Sent a waiting row, it is sent that request
+/// (below), so a device with `create` alone is one the queue can send to. The recorder sends the same request
+/// (`sentByCreating`) in a round of its own, which waits for its USB slot (`RecorderClient`'s round).
 public protocol ReservationTarget: QueueTarget where Round == NoRound {
     func create(_ request: ReservationRequest) async throws
 }
@@ -213,11 +213,15 @@ extension RecorderClient: QueueTarget {
     /// it is sent on the strength of a disk it has not answered since the recorder woke, which every round may
     /// follow -- the attach sends what waits before it reads the slot, and the night run and the Shortcuts action
     /// right after the wake. So before the first row that names the slot while a disk is known, the slot is
-    /// settled, once in the round (`RecorderDriver.settle`). A disk answered sends that row and the slot's rows
-    /// after it. None throughout passes them over with nothing written on them, to go at a later flush, and so
-    /// does a round given up on; silence ends the round there, before the row was sent. A row on the internal disk
-    /// is sent as ever, the settling the most it waits. With no disk known the slot is not read, and the recorder's
-    /// answer decides: a disk really gone ends in that answer, not in a row passed over until its programme is over.
+    /// settled, once in the round (`RecorderDriver.settle`), and read as the screens read it: a disk answered that
+    /// takes recordings sends that row and the slot's rows after it. None throughout, or a disk that takes no
+    /// recordings, gives each of them a reason of its own (`RecorderDisk.waitingRowNotAnswered`) with nothing sent:
+    /// passed over in silence, a row could wait until its programme was over, a run with no screen never letting the
+    /// disk known go. The reason holds it for the reader, and is told as a refusal is. Silence ends the round there,
+    /// before the row was sent, with nothing written, as silence anywhere in a round does; a round given up on
+    /// passes the row over. A row on the internal disk is sent as ever, the settling the most it waits. With no disk
+    /// known the slot is not read, and the recorder's answer decides. The slot is read here whatever the screens
+    /// know of it, the runs with no screen knowing nothing: one read more, where the disk answers at once.
     /// `consented` is not read, as for any device with a create alone.
     public func send(_ waiting: PendingReservation, consented: Bool,
                      in round: RecorderRound) async -> (sent: RowSent, round: RecorderRound) {
@@ -226,7 +230,10 @@ extension RecorderClient: QueueTarget {
             if round.slot == nil { round.slot = await RecorderDriver.settle(self, by: slotSettling) }
             switch round.slot {
             case .silent?: return (.stopped(.silent(afterSending: false), passedOver: false), round)
-            case .noDisk?, .cancelled?: return (.passedOver, round)
+            case .cancelled?: return (.passedOver, round)
+            case .noDisk?: return (.refused(reason: RecorderDisk.waitingRowNotAnswered), round)
+            case .answered(let disk)? where !disk.takesRecordings:
+                return (.refused(reason: RecorderDisk.waitingRowNotAnswered), round)
             case .answered?, nil: break
             }
         }

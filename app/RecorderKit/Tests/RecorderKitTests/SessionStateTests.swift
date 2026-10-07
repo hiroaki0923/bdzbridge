@@ -293,7 +293,7 @@ final class SessionStateTests: XCTestCase {
 
     /// The disk in a recorder's USB slot is that recorder's, as its free space is: it stands through the same
     /// recorder answering again and through silence, and goes with another device's answer, whichever way that
-    /// device says who it is, and with the device forgotten.
+    /// device says who it is, and with the device forgotten. So does waiting for the slot to answer it.
     func testTheUSBDiskGoesWhereTheFreeSpaceGoes() {
         let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true,
                                 freeMB: 1_000, totalMB: 2_000, registered: "2026-01-02T03:04:05+0900")
@@ -308,8 +308,27 @@ final class SessionStateTests: XCTestCase {
             session.described(description(host: "192.0.2.11"))
             session.wentSilent(on: "home")
             XCTAssertEqual(session.usbDisk, disk, "the same recorder, then silence: \(what)")
+            XCTAssertTrue(session.usbDiskUnanswered, "a disk kept with no answer was not waited for: \(what)")
             forget(session)
             XCTAssertNil(session.usbDisk, what)
+            XCTAssertFalse(session.usbDiskUnanswered, "a disk let go of was still waited for: \(what)")
+        }
+    }
+
+    /// The slot's answer -- a disk, or none -- ends the wait for it, which the recorder answering with a disk
+    /// known begins.
+    func testTheSlotsAnswerEndsTheWaitTheRecordersAnswerBegins() {
+        let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true,
+                                freeMB: 1_000, totalMB: 2_000, registered: "2026-01-02T03:04:05+0900")
+        for answer in [disk, nil] {
+            let session = attached()
+            session.slotAnswered(disk)
+            XCTAssertFalse(session.usbDiskUnanswered)
+            session.answeredWithAUSBDiskKnown()
+            XCTAssertTrue(session.usbDiskUnanswered)
+            session.slotAnswered(answer)
+            XCTAssertEqual(session.usbDisk, answer)
+            XCTAssertFalse(session.usbDiskUnanswered, "the slot answered \(answer?.name ?? "none")")
         }
     }
 

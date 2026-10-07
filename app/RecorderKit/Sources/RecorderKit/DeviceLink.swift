@@ -35,9 +35,9 @@ public struct LinkEnvironment {
     /// read again: the driver's minute (`RecorderDriver.slotReadAgainAfter`), unless a test, which has no minute
     /// to wait, gives less.
     public var slotReadAgainAfter: Duration
-    /// How long the slot is waited for before something that names it is sent while the disk known there is kept
-    /// rather than answered (`RecorderDriver.settleTheSlot`), and in the queue's round of the clients the link
-    /// makes: the driver's ten seconds, unless a test gives less.
+    /// How long the slot is waited for before something that names it is sent while it has not answered the disk
+    /// known since the recorder last answered (`RecorderDriver.settleTheSlot`), and in the queue's round of the
+    /// clients the link makes: the driver's ten seconds, unless a test gives less.
     public var slotSettling: SlotSettling
 
     public init(transport: @escaping (_ host: String) -> any HTTPTransport,

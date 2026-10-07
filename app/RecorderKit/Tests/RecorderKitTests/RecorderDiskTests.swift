@@ -856,4 +856,83 @@ final class RecorderDiskTests: XCTestCase {
         expectNil(try await recorderDriver(of: answered).settleTheSlot(for: RecorderDisk.usbID))
         expectEqual(await answering.slotReads, answeredReads, "the slot was asked again with its disk answered")
     }
+
+    /// Silence while the slot is waited for loses the recorder and says so, as a read that meets it does, at the
+    /// first read: nothing more is asked, and nothing is kept -- the disk known stays, in the session and with the
+    /// cache, as it was.
+    func testSilenceWhileTheScreensWaitLosesTheRecorderAndKeepsNothing() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let driver = try recorderDriver(of: link)
+        let before = await recorder.slotReads
+        await recorder.answer(.silence)
+
+        let settled = await driver.settleTheSlot(for: RecorderDisk.usbID)
+
+        XCTAssertEqual(settled, .silent)
+        expectEqual(await recorder.slotReads - before, 1, "the slot was read on past the silence")
+        XCTAssertFalse(link.session.connected, "the recorder was not lost")
+        XCTAssertTrue(link.session.unreachable)
+        XCTAssertEqual(world.problem, driver.noAnswerLine)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the disk known was let go of on silence")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        XCTAssertFalse(link.session.settlingTheSlot)
+        XCTAssertNil(world.line)
+    }
+
+    /// From the moment the recorder answers an attach with a disk known, the disk is waited for: though the slot
+    /// answered it at the attach before, a request to the slot made while what waits is sent -- before this attach
+    /// has read the slot, and before anything has been left to read again -- waits for the slot, and finds the
+    /// waking's answer of none. The wait stands once the attach has kept the disk through that answer, and ends
+    /// when the slot answers a disk, after which nothing is waited for.
+    func testTheSlotIsWaitedForFromTheMomentTheRecorderAnswers() async throws {
+        let world = LinkWorld()
+        world.slotReadAgainAfter = .seconds(60)
+        let recorder = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        let (link, _) = await connected(to: recorder, in: world)
+        let driver = try recorderDriver(of: link)
+        XCTAssertFalse(link.session.usbDiskUnanswered, "a disk the slot answered was waited for")
+        await recorder.answer(.answer(Self.wakingAnswer))
+        var asSent: SlotSettled?
+        var readsWhileSent = 0
+        world.onSendWhatWaits = {
+            let before = await recorder.slotReads
+            asSent = await driver.settleTheSlot(for: RecorderDisk.usbID)
+            readsWhileSent = await recorder.slotReads - before
+        }
+
+        await link.connect()
+        world.onSendWhatWaits = nil
+
+        XCTAssertEqual(asSent, .noDisk, "a request to the slot was not held back as the recorder answered")
+        XCTAssertEqual(readsWhileSent, 6)
+        XCTAssertTrue(link.session.usbDiskUnanswered, "the disk kept through an answer of none was not waited for")
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        expectEqual(await driver.settleTheSlot(for: RecorderDisk.usbID), .answered(Self.disk()))
+        XCTAssertFalse(link.session.usbDiskUnanswered, "the disk answered was still waited for")
+        let answered = await recorder.slotReads
+        expectNil(await driver.settleTheSlot(for: RecorderDisk.usbID))
+        expectEqual(await recorder.slotReads, answered)
+    }
+
+    /// A read again that meets silence leaves the disk kept and nothing left to read later, and the slot has still
+    /// not answered since the recorder woke: a request to it waits for the slot all the same.
+    func testTheSlotIsWaitedForThoughTheReadAgainMetSilence() async throws {
+        let (link, recorder, _) = await waitingToReadAgain(after: .milliseconds(1), holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        await recorder.answer(.silence)
+        await recorder.letGo()
+        await untilOver(later)
+        XCTAssertNil(link.readLeftForLater)
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+        let before = await recorder.slotReads
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+
+        let settled = try await recorderDriver(of: link).settleTheSlot(for: RecorderDisk.usbID)
+
+        XCTAssertEqual(settled, .answered(Self.disk()), "a request to the slot was not held back")
+        expectEqual(await recorder.slotReads - before, 1)
+    }
 }

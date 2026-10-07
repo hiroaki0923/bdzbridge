@@ -86,7 +86,12 @@ public final class RecorderDriver: LinkDriver {
                 owner?.keepMAC(settings.mac)
             }
             link.session.learned(storage: try await Self.storage(of: client))
+            // From the moment it answers -- a waking above all, after which the slot answers none with the disk in
+            // it -- a disk known is not to be had until the slot answers it: in the same turn as the answer, before
+            // anything waiting is sent, so that nothing that names the slot goes in between.
+            let diskKnown = await Self.knownUSBDisk(link) != nil
             link.session.answered()
+            if diskKnown { link.session.answeredWithAUSBDiskKnown() }
             owner?.problem = nil
             await owner?.sendWhatWaits()
             // The recorder can go quiet in the middle of sending the queue, which leaves the app offline like any
@@ -186,10 +191,11 @@ public final class RecorderDriver: LinkDriver {
 
     /// What an attach makes of the slot's answer. A disk answered, the one known or another, is taken at once.
     /// No disk answered while one is known -- by this run, or kept with the cache by an earlier one -- does not
-    /// let it go, since the waking attach is the common one: the disk known stays, shown as it was read, and the
-    /// slot is read once more a while later (`readTheSlotAgain`), which lets it go if it answers no disk too. With
-    /// no disk known, no disk is what there is, and nothing is left for later. Whatever was left for later by an
-    /// earlier attach is over: this answer is newer.
+    /// let it go, since the waking attach is the common one: the disk known stays, shown as it was read and waited
+    /// for before anything names it (`SessionState.usbDiskUnanswered`), and the slot is read once more a while
+    /// later (`readTheSlotAgain`), which lets it go if it answers no disk too. With no disk known, no disk is what
+    /// there is, and nothing is left for later. Whatever was left for later by an earlier attach is over: this
+    /// answer is newer.
     private static func learnTheSlot(_ answered: RecorderDisk?, _ link: DeviceLink, client: RecorderClient) async {
         link.endTheReadLeftForLater()
         let known = answered == nil ? await knownUSBDisk(link) : nil
@@ -214,9 +220,10 @@ public final class RecorderDriver: LinkDriver {
     /// attach's client, and only while the link still asks through it and the recorder has not been given up
     /// on since. Only an answer settles it: a disk answered is taken, and no disk answered again, or a refusal,
     /// lets the one known go. Silence, and a recorder still busy with another client's request after the client's
-    /// tries, change nothing, the disk known and the link alike: the next attach reads the slot anyway. An answer
-    /// that comes back after the read was ended is left, since whatever ended it knows better; so is one that comes
-    /// back once the link asks through another client, a connect under way whose attach reads the slot itself.
+    /// tries, change nothing, the disk known and the link alike: the next attach reads the slot anyway, and the
+    /// disk is waited for before anything names it meanwhile (`settleTheSlot`). An answer that comes back after the
+    /// read was ended is left, since whatever ended it knows better; so is one that comes back once the link asks
+    /// through another client, a connect under way whose attach reads the slot itself.
     private static func readTheSlotAgain(_ link: DeviceLink, client: RecorderClient) async {
         guard link.client === client, !link.offline else { return }
         let answered: RecorderDisk?
@@ -232,12 +239,13 @@ public final class RecorderDriver: LinkDriver {
         await keep(answered, link)
     }
 
-    /// Puts `disk` down as the USB disk known, in the session and with the cache, which keeps it for the next
-    /// launch. The cache is written only when the session held something else, so an attach answered as before
-    /// writes nothing; one that cannot be written costs only that launch's first waking.
+    /// Puts `disk`, as the slot answered it, down as the USB disk known, in the session and with the cache, which
+    /// keeps it for the next launch; nothing is waited for once the slot has answered. The cache is written only
+    /// when the session held something else, so an attach answered as before writes nothing; one that cannot be
+    /// written costs only that launch's first waking.
     private static func keep(_ disk: RecorderDisk?, _ link: DeviceLink) async {
         if disk != link.session.usbDisk { try? await link.owner?.cache?.keep(knownUSBDisk: disk) }
-        link.session.learned(usbDisk: disk)
+        link.session.slotAnswered(disk)
     }
 
     // MARK: - before something that names the slot is sent
@@ -270,18 +278,22 @@ public final class RecorderDriver: LinkDriver {
 
     /// Before a screen sends something that names `destination` -- a reservation, a change, a keyword condition, a
     /// clash check -- once the recorder has been made sure of. Nothing is sent to the slot on the strength of a disk
-    /// it has not answered since the recorder woke: while the USB disk known is kept rather than answered (an attach
-    /// found the slot answering none and left it to be read again, `learnTheSlot`), the slot is settled first
-    /// (`settle`), under a line of its own on the host's screen (`settlingLine`, `SessionState.settlingTheSlot`).
+    /// it has not answered since the recorder last answered: from the moment an attach finds the recorder answering
+    /// with a disk known -- what waits being sent, the slot still to be read -- until the slot answers it
+    /// (`SessionState.usbDiskUnanswered`), the slot is settled first (`settle`), under a line of its own on the
+    /// host's screen (`settlingLine`, `SessionState.settlingTheSlot`). That covers the whole time after a wake: the
+    /// attach's own read, the read again half a minute later, and a read again that met silence or a busy recorder
+    /// and left the disk kept with nothing more to read.
     ///
     /// A disk answered is taken as the read again takes one, in the session and with the cache, and the read is
     /// ended -- unless the link asks through another client by then, whose attach reads the slot itself. None
-    /// throughout leaves the disk known and the read as they were, and what to say of it is the caller's, which
-    /// knows what else its screen offers. Silence loses the recorder and says so, as a read that meets it does;
-    /// nothing has been sent. What it came to is handed back. Nil, with nothing asked, for any other destination,
-    /// and for a disk the slot has answered since the recorder woke: in a home with no USB disk nothing is added.
+    /// throughout leaves the disk known and the read as they were, still waited for, and what to say of it is the
+    /// caller's, which knows what else its screen offers. Silence loses the recorder and says so, as a read that
+    /// meets it does; nothing has been sent. What it came to is handed back. Nil, with nothing asked, for any other
+    /// destination, and for a disk the slot has answered since the recorder last answered: in a home with no USB
+    /// disk nothing is added.
     public func settleTheSlot(for destination: String) async -> SlotSettled? {
-        guard destination == RecorderDisk.usbID, let link, link.readLeftForLater != nil, !link.offline,
+        guard destination == RecorderDisk.usbID, let link, link.session.usbDiskUnanswered, !link.offline,
               let client = link.client as? RecorderClient else { return nil }
         let owner = link.owner
         link.session.beganSettlingTheSlot()
