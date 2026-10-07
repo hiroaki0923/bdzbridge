@@ -72,9 +72,13 @@ targets:
         # The recorder is reached over plain HTTP on the LAN, and nowhere else.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        # The answer to the export compliance question every upload otherwise stops to ask. "No
-        # non-exempt encryption" is the truthful answer: the recorder is spoken to over plain HTTP, there
-        # is no TLS anywhere, and nothing here encrypts anything of its own. zlib is compression.
+        # The answer to the export compliance question every upload otherwise stops to ask. The recorder and
+        # the television are spoken to over plain HTTP, there is no TLS anywhere, and zlib is compression.
+        # What the app does encrypt is the television's registration at rest (KeychainTVCredentials): sealed
+        # with AES-GCM by CryptoKit, the operating system's own. Apple's table of the documentation an app's
+        # encryption needs puts "Your app uses encryption limited to that within the Apple operating system"
+        # under "No documentation required in App Store Connect", and this key is NO for an app that "only
+        # uses forms of encryption that are exempt from export compliance documentation requirements".
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: 自宅のレコーダーを見つけて、番組表と録画予約をやりとりします。
         # the overnight guide refresh; the identifier has to be listed for BGTaskScheduler to accept it
