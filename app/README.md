@@ -803,7 +803,11 @@ the connect reads it as the television's silence. The look asks each address of 
 `getSystemSupportedFunction`, 48 at a time, with テレビを探しています on the strip, and stops at the television
 with the MAC saved. Found, the address moves -- the settings, the overnight run and the Shortcuts action use it
 from then on -- and it is attached there, its MAC asked before anything carries the cookie. Not found, the app
-gives up as on silence, and the line says what answered at the old address, or that nothing did. Since a
+gives up as on silence, and the line says what answered at the old address, or that nothing did. A call for a
+PIN (401) at the first ask is looked past the same way while a MAC is saved: that ask needs no registration, a
+television has been seen to answer 401 only to a registration with its panel on, and a router's or a camera's
+login answers so. Found elsewhere, the television is followed; found where the 401 came from, or not found,
+the registration is wanted, as it is with no MAC saved, and nothing is given up. A 403 is not looked past. Since a
 television is looked for after any silence,
 one that is silent in standby would cost a look through the subnet at every launch, return and pull; so a look
 that found nothing is not made again on that network until the television answers, or the app is launched
@@ -815,13 +819,28 @@ goes to an address or a port the app did not choose.
 The check before an operation asks which television answers as well (`TVDriver.check`), by the same one
 request, in place of the `getPowerStatus` it asked before, of which it read nothing but that an answer came.
 The address can change hands while the app stays connected -- the lease handed to another device, the phone
-on another Wi-Fi with the same subnet -- and what the reader asked for would go there with the cookie. So
-another television, or a device that is no television (told as a connect tells it), is sent nothing of what
-was asked: the television's line says another device answered (`TVDriver.anotherAnswered`, whatever answered),
-and the app is no longer connected, so nothing that needs the registration is asked and nothing that carries
-the cookie reaches it. Something answered, so nothing is given up: the next connect asks again and looks
-past it, while the check itself never looks. A television not known by its MAC is taken for the one saved, as
-a connect takes it.
+on another Wi-Fi with the same subnet -- and what the reader asked for would go there with the cookie. So the
+cookie goes only once the television saved has said, by its MAC, that it is the one answering. Another
+television is sent nothing of what was asked: the television's line says another device answered
+(`TVDriver.anotherAnswered`), and the app is no longer connected, so nothing that needs the registration is
+asked and nothing that carries the cookie reaches it. Something answered, so nothing is given up: the next
+connect asks again and looks past it, while the check itself never looks. Any other answer but silence says
+nothing of which device gave it, and nothing that carries the cookie is sent on its strength
+(`TVDriver.heardInstead`). A 401 or 403 is read as a connect reads it: the registration is wanted. Any other
+refusal or fault -- a 503, 40005, an HTTP 500 or a 404 page, an answer that does not read -- is said as itself,
+in the line a connect gives it, and not as another device, which would send the reader to テレビを外す over
+what may be a passing fault of the television's own. Neither is given up on or taken for another device: the
+next operation checks again however lately the address answered, and sends once a check hears the television
+say which it is. A television not known by its MAC -- none saved, or one that gives none -- is taken for the
+one saved, as a connect takes it.
+
+The check is not made before every operation. Within 90 seconds of the television's last answer
+(`LinkRules.dozeAfter`) an operation goes without one unless the network has been seen to change while the
+app was connected and not busy, as a recorder's does; a change while the television was busy, or another
+Wi-Fi that gives the phone the same address and mask, is not seen. An address handed over inside that window
+would be sent that operation, cookie and all. The window is left so: closing it costs a request before every
+operation, or a check at every change of network, which is the link's rule for both devices and would probe
+the recorder at each change too.
 
 Another television is never taken for the one saved: not at a connect or at the check before an operation
 (above), and not at a registration,
