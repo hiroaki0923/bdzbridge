@@ -381,14 +381,15 @@ struct ProgramSheet: View {
 
     /// 予約する: a reservation on `device`, sent with the disk the question named, or the internal disk where it
     /// named none. The mode and the repeat are read now, as the question showed them, and not when the request
-    /// sets out. A disk no longer offered is refused by the model before anything is queued or sent, and the
-    /// sheet goes back to the internal disk, named, with the television beside it under 予約先 where it is free.
+    /// sets out. A disk that cannot be had -- no longer offered, or not answered by the slot while it was waited
+    /// for -- is refused by the model before anything is queued or sent, and the sheet goes back to the internal
+    /// disk, named, with the television beside it under 予約先 where it is free.
     private func reserve(on device: DeviceSlot, disk named: String?) {
         let (quality, repeating) = (quality, repeating)
         let sent = named ?? RecorderDisk.internalID
         request(under: device == .tv ? TVDriver.reservingLine : nil, fresh: true) {
             let came = await model.reserve(program, on: device, quality: quality, repeating: repeating, disk: sent)
-            if !RecorderDisk.offers(sent, with: model.usbDisk) { chosenDisk = RecorderDisk.internalID }
+            if model.diskCannotBeHad(sent) { chosenDisk = RecorderDisk.internalID }
             return came
         }
     }
@@ -562,7 +563,8 @@ struct ProgramSheet: View {
 
     /// Only where 録画予約 is the recorder's: nothing is asked of the recorder on account of a reservation
     /// that goes to the television. Nor for a disk let go of (`checkedDisk`), whose row then shows nothing: the
-    /// clashes said before were for a disk that is no longer the one shown.
+    /// clashes said before were for a disk that is no longer the one shown. A USB disk the slot did not answer
+    /// while it was waited for is said by the model, and the sheet goes back to the internal disk, asked afresh.
     private func check() async {
         guard device == .recorder, !past else { return }
         guard let disk = checkedDisk else {
@@ -577,5 +579,6 @@ struct ProgramSheet: View {
         guard !Task.isCancelled else { return }
         conflicts = found
         checking = false
+        if found == nil, model.diskCannotBeHad(disk) { chosenDisk = RecorderDisk.internalID }
     }
 }

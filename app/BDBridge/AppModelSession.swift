@@ -211,7 +211,8 @@ extension AppModel {
                 return LocalNetwork.hostsToScan(near: host)
             },
             findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) },
-            slotReadAgainAfter: surroundings.slotReadAgainAfter)
+            slotReadAgainAfter: surroundings.slotReadAgainAfter,
+            slotSettling: surroundings.slotSettling)
     }
 
     /// What the link has until the model is made: nothing reaches anything.

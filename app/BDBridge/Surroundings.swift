@@ -40,6 +40,9 @@ struct Surroundings {
     /// How long after an attach found the recorder's USB slot answering no disk, while one was known, the slot is
     /// read again: the driver's minute, shortened only by a test, which has no minute to wait.
     var slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter
+    /// How long the USB slot is waited for before something that names it is sent while the slot has not answered
+    /// the disk known since the recorder last answered: the driver's ten seconds, shortened only by a test.
+    var slotSettling: SlotSettling = .afterAWaking
     /// How requests reach the television at an address: a transport that keeps no cookies of its own, since
     /// the client sends its registration's by hand. Nothing answers unless a test says otherwise.
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }

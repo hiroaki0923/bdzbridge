@@ -328,12 +328,16 @@ struct RecorderActivityBar: View {
 
 /// The waking, said inside a sheet, which covers the strip that says it on the screens and is where much of
 /// what wakes the recorder is asked for. A recording's sheet has the strip itself instead
-/// (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play.
+/// (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play. So is the wait for the
+/// USB slot to answer before something that names it is sent (`AppModel.settlingTheSlot`), which holds a sheet's
+/// request up for some seconds as a waking does.
 struct WakingSection: View {
     @Environment(AppModel.self) private var model
+    /// False on a sheet that has never said the waking, and says only the wait for the slot.
+    var saysTheWaking = true
 
     var body: some View {
-        if model.waking, let busy = model.busy {
+        if saysTheWaking && model.waking || model.settlingTheSlot, let busy = model.busy {
             Section {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

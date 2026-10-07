@@ -104,6 +104,10 @@ public protocol QueueTarget: DeviceEndpoint {
     /// only when the round has a row to send; `waiting` is every row of the round whose programme is not over:
     /// all that wait for the device, or the one row the reader asked to have sent.
     func openRound(for waiting: [PendingReservation]) async -> RoundOpened<Round>
+    /// The same, with what the phone keeps to hand, which the queue sends from: what the queue asks
+    /// (`PendingQueue.flush`). For a device whose round goes by something kept there as well; any other is
+    /// opened as above, and that is what it is given.
+    func openRound(for waiting: [PendingReservation], keeping store: GuideStore) async -> RoundOpened<Round>
     /// Sends one waiting row. `consented`: the reader has said to make it though it stops another reservation
     /// from recording. A request that may have been taken is not sent a second time. The round comes back as it
     /// stands after this row.
@@ -111,9 +115,43 @@ public protocol QueueTarget: DeviceEndpoint {
               in round: Round) async -> (sent: RowSent, round: Round)
 }
 
-/// A device that makes a reservation in one request and reads nothing first: the recorder. Making one says
-/// nothing back worth keeping: what the device made is read from its list afterwards. Sent a waiting row, it is
-/// sent that request (below), so a device with `create` alone is one the queue can send to.
+public extension QueueTarget {
+    func openRound(for waiting: [PendingReservation], keeping store: GuideStore) async -> RoundOpened<Round> {
+        await openRound(for: waiting)
+    }
+}
+
+extension QueueTarget {
+    /// What one waiting row came to when `create` was sent for it, the one request that makes a reservation, and
+    /// what its failure says of the row (`DeviceFailure`). Silence ends the round: the device has gone, and the
+    /// row may have been made. A refusal with a reason of the device's own (`DeviceFailure.turnsTheRequestDown`)
+    /// is the row's, and is written on it -- for a row off the internal disk turned down for what its disk could
+    /// be behind, with what to do about a row that cannot change its disk (`RecorderDisk.waitingRowTurnedDown`).
+    /// A failure that says nothing about the reservation -- a 503, an answer with no code -- passes it over; an
+    /// answer that the device holds it already (`DeviceFailure.alreadyThere`) is among those, as it always was:
+    /// no recorder's answer says it. A reservation made is said with nothing beside it: all such a request says of
+    /// one is that it was taken.
+    func sentByCreating(_ waiting: PendingReservation,
+                        _ create: (ReservationRequest) async throws -> Void) async -> RowSent {
+        do {
+            try await create(waiting.request)
+            return .made(saying: nil)
+        } catch let error as any DeviceError where error.failure == .silent {
+            return .stopped(.silent(afterSending: true), passedOver: false)
+        } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
+            return .refused(reason: RecorderDisk.waitingRowTurnedDown(error, sentTo: waiting.request.destination))
+        } catch {
+            // Nothing written on it: a reason on the row is what holds a reservation back, and nothing here
+            // says this one is wrong.
+            return .passedOver
+        }
+    }
+}
+
+/// A device that makes a reservation in one request and reads nothing first. Making one says nothing back worth
+/// keeping: what the device made is read from its list afterwards. Sent a waiting row, it is sent that request
+/// (below), so a device with `create` alone is one the queue can send to. The recorder sends the same request
+/// (`sentByCreating`) in a round of its own, which waits for its USB slot (`RecorderClient`'s round).
 public protocol ReservationTarget: QueueTarget where Round == NoRound {
     func create(_ request: ReservationRequest) async throws
 }
@@ -128,31 +166,11 @@ public extension ReservationTarget {
         .open(NoRound(), alreadyThere: [])
     }
 
-    /// The create, and what its failure says of the row (`DeviceFailure`). Silence ends the round: the device
-    /// has gone, and the row may have been made. A refusal with a reason of the device's own
-    /// (`DeviceFailure.turnsTheRequestDown`) is the row's, and is written on it -- for a row off the internal
-    /// disk turned down for what its disk could be behind, with what to do about a row that cannot change its
-    /// disk (`RecorderDisk.waitingRowTurnedDown`). A failure that says nothing about the reservation -- a 503,
-    /// an answer with no code -- passes it over; an answer that the device holds it already
-    /// (`DeviceFailure.alreadyThere`) is among those, as it always was: no recorder's answer says it.
-    /// `consented` is not read: the device is asked nothing before the create that the reader could have
-    /// answered. And a reservation made is said with nothing beside it: all such a device says of one is
-    /// that it was taken.
+    /// The create (`sentByCreating`). `consented` is not read: the device is asked nothing before the create that
+    /// the reader could have answered.
     func send(_ waiting: PendingReservation, consented: Bool,
               in round: NoRound) async -> (sent: RowSent, round: NoRound) {
-        do {
-            try await create(waiting.request)
-            return (.made(saying: nil), round)
-        } catch let error as any DeviceError where error.failure == .silent {
-            return (.stopped(.silent(afterSending: true), passedOver: false), round)
-        } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
-            let reason = RecorderDisk.waitingRowTurnedDown(error, sentTo: waiting.request.destination)
-            return (.refused(reason: reason), round)
-        } catch {
-            // Nothing written on it: a reason on the row is what holds a reservation back, and nothing here
-            // says this one is wrong.
-            return (.passedOver, round)
-        }
+        (await sentByCreating(waiting) { try await create($0) }, round)
     }
 }
 
@@ -165,4 +183,60 @@ extension RecorderClient: DeviceEndpoint {
 
 extension RecorderClient: GuideSource {}
 
-extension RecorderClient: ReservationTarget {}
+/// What the recorder's round carries from one row to the next: whether a USB disk is kept with the cache, and what
+/// the slot came to once a row that names it was reached.
+public struct RecorderRound: Sendable {
+    let knowsADisk: Bool
+    /// Nil until the slot is settled in the round, which it is once at most.
+    var slot: SlotSettled?
+}
+
+extension RecorderClient: QueueTarget {
+    /// What waits for the recorder is what a recorder's client is sent.
+    public static let slot = DeviceSlot.recorder
+
+    /// With nothing the phone keeps to hand, no USB disk is known, and every row is sent as it waits.
+    public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<RecorderRound> {
+        .open(RecorderRound(knowsADisk: false), alreadyThere: [])
+    }
+
+    /// Nothing is asked of the recorder, and nothing is looked for there. What is read is the USB disk kept with
+    /// the cache (`GuideStore.knownUSBDisk`), by the screens and by the runs with no screen alike, for the rows
+    /// that name the slot (`send`). A cache that cannot be read knows none.
+    public func openRound(for waiting: [PendingReservation],
+                          keeping store: GuideStore) async -> RoundOpened<RecorderRound> {
+        let known = (try? await store.knownUSBDisk()) != nil
+        return .open(RecorderRound(knowsADisk: known), alreadyThere: [])
+    }
+
+    /// The create (`sentByCreating`), as for a device with a create alone, but for the USB slot. Nothing that names
+    /// it is sent on the strength of a disk it has not answered since the recorder woke, which every round may
+    /// follow -- the attach sends what waits before it reads the slot, and the night run and the Shortcuts action
+    /// right after the wake. So before the first row that names the slot while a disk is known, the slot is
+    /// settled, once in the round (`RecorderDriver.settle`), and read as the screens read it: a disk answered that
+    /// takes recordings sends that row and the slot's rows after it. None throughout, or a disk that takes no
+    /// recordings, gives each of them a reason of its own (`RecorderDisk.waitingRowNotAnswered`) with nothing sent:
+    /// passed over in silence, a row could wait until its programme was over, a run with no screen never letting the
+    /// disk known go. The reason holds it for the reader, and is told as a refusal is. Silence ends the round there,
+    /// before the row was sent, with nothing written, as silence anywhere in a round does; a round given up on
+    /// passes the row over. A row on the internal disk is sent as ever, the settling the most it waits. With no disk
+    /// known the slot is not read, and the recorder's answer decides. The slot is read here whatever the screens
+    /// know of it, the runs with no screen knowing nothing: one read more, where the disk answers at once.
+    /// `consented` is not read, as for any device with a create alone.
+    public func send(_ waiting: PendingReservation, consented: Bool,
+                     in round: RecorderRound) async -> (sent: RowSent, round: RecorderRound) {
+        var round = round
+        if waiting.request.destination == RecorderDisk.usbID, round.knowsADisk {
+            if round.slot == nil { round.slot = await RecorderDriver.settle(self, by: slotSettling) }
+            switch round.slot {
+            case .silent?: return (.stopped(.silent(afterSending: false), passedOver: false), round)
+            case .cancelled?: return (.passedOver, round)
+            case .noDisk?: return (.refused(reason: RecorderDisk.waitingRowNotAnswered), round)
+            case .answered(let disk)? where !disk.takesRecordings:
+                return (.refused(reason: RecorderDisk.waitingRowNotAnswered), round)
+            case .answered?, nil: break
+            }
+        }
+        return (await sentByCreating(waiting) { try await self.create($0) }, round)
+    }
+}

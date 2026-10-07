@@ -19,6 +19,10 @@ final class Bench {
     /// How long after an attach found the USB slot answering none, while a disk was known, a model made here reads
     /// it again: the app's minute, unless a test that waits for that read shortens it before making the model.
     var slotReadAgainAfter = RecorderDriver.slotReadAgainAfter
+    /// How long a model made here waits for the USB slot before something that names it is sent while the slot has
+    /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
+    /// first.
+    var slotSettling = SlotSettling.afterAWaking
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -185,6 +189,7 @@ final class Bench {
             busyRetryDelay: 0...0,
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
+            slotSettling: slotSettling,
             tvTransport: tvTransport,
             tvCredentials: tvCredentials,
             lanInterfaces: { [weak self] in (self?.wifi).map { [$0] } ?? [] },

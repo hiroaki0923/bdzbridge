@@ -31,6 +31,14 @@ public final class SessionState {
     /// (`RecorderDriver.learnTheSlot`); nil when none is known. Only shown, as `storage` is, and it goes where
     /// `storage` goes.
     public private(set) var usbDisk: RecorderDisk?
+    /// Set while the USB disk known has not been answered by the slot since the recorder last answered: from the
+    /// start of a connect with a disk known, whose recorder may be coming up from sleep while it is asked; from an
+    /// attach that finds the recorder answering with a disk known -- in the session, or kept with the cache --
+    /// before anything waiting is sent; and from an answer of none that keeps the disk, until the slot answers a
+    /// disk or none (`slotAnswered`), or the disk is let go of. Right after a waking the slot answers none with the
+    /// disk in it, so while this is set nothing that names the slot is sent on the strength of the disk
+    /// (`RecorderDriver.settleTheSlot`, which waits for the slot then and only then). It goes where `usbDisk` goes.
+    public private(set) var usbDiskUnanswered = false
     /// Set when the last ask got no answer at all, which is the only case worth sending a magic packet for.
     public private(set) var unreachable = false
     /// Set once the device has been given every chance and did not answer, or while the local network
@@ -40,6 +48,10 @@ public final class SessionState {
     /// Set while the app is only waiting for the device to come back from a magic packet, or looking for it
     /// at another address after that.
     public private(set) var waking = false
+    /// Set while a recorder's USB slot is waited for before something that names it is sent
+    /// (`RecorderDriver.settleTheSlot`), some seconds at most: a sheet says so, as it says a waking.
+    public var settlingTheSlot: Bool { slotSettlings > 0 }
+    private var slotSettlings = 0
     public private(set) var connecting = false
     /// Set while the local network permission is why the device cannot be reached, and the app is waiting
     /// for it rather than for the device.
@@ -77,7 +89,12 @@ public final class SessionState {
 
     // MARK: - an attempt
 
-    public func beginConnecting() { connecting = true }
+    /// A connect begins. A disk known is waited for from here: what is sent while the recorder is being asked
+    /// whether it answers goes to a recorder that may be waking, before its attach has read the slot.
+    public func beginConnecting() {
+        connecting = true
+        if usbDisk != nil { usbDiskUnanswered = true }
+    }
     public func endConnecting() { connecting = false }
 
     /// A try is being made, on this network.
@@ -113,6 +130,7 @@ public final class SessionState {
             firmware = ""
             storage = nil
             usbDisk = nil
+            usbDiskUnanswered = false
             needsPower = false
         }
         info = description
@@ -144,6 +162,7 @@ public final class SessionState {
             firmware = ""
             storage = nil
             usbDisk = nil
+            usbDiskUnanswered = false
             needsPower = false
         }
         named = true
@@ -160,9 +179,24 @@ public final class SessionState {
 
     public func learned(firmware: String) { self.firmware = firmware }
     public func learned(storage: (free: Int, total: Int)?) { self.storage = storage }
-    public func learned(usbDisk: RecorderDisk?) { self.usbDisk = usbDisk }
+    /// A USB disk known that the slot has not answered: one kept through an answer of none, which is then waited
+    /// for (`usbDiskUnanswered`), or none, the one known let go of with no answer behind it -- the cache made over
+    /// to another recorder.
+    public func learned(usbDisk: RecorderDisk?) {
+        self.usbDisk = usbDisk
+        usbDiskUnanswered = usbDisk != nil
+    }
+    /// The slot answered: `disk`, the USB disk known from now, or none, which lets the one known go. Either way
+    /// there is nothing left to wait for.
+    public func slotAnswered(_ disk: RecorderDisk?) {
+        usbDisk = disk
+        usbDiskUnanswered = false
+    }
     /// It answered everything asked of it so far.
     public func answered() { unreachable = false }
+    /// It answered with a USB disk known that the slot has not answered since: the disk is waited for from here
+    /// (`usbDiskUnanswered`). Told in the same turn as `answered()`, so that nothing is sent between the two.
+    public func answeredWithAUSBDiskKnown() { usbDiskUnanswered = true }
     /// The attach is through.
     public func attached() { timesAttached += 1 }
 
@@ -216,6 +250,8 @@ public final class SessionState {
 
     public func beginWaking() { waking = true }
     public func endWaking() { waking = false }
+    public func beganSettlingTheSlot() { slotSettlings += 1 }
+    public func endedSettlingTheSlot() { slotSettlings = max(0, slotSettlings - 1) }
     public func powerNeeded(_ needed: Bool) { needsPower = needed }
 
     /// Keeps a MAC for waking the device. Anything that is not one is ignored rather than kept, so a
@@ -241,6 +277,7 @@ public final class SessionState {
         firmware = ""
         storage = nil
         usbDisk = nil
+        usbDiskUnanswered = false
         unreachable = false
         gaveUp = false
         connectBlocked = false

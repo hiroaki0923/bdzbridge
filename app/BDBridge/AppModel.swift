@@ -114,6 +114,23 @@ final class AppModel: LinkHost {
         picked.flatMap { id in diskChoices.contains { $0.destination == id } ? id : nil } ?? RecorderDisk.internalID
     }
 
+    /// Whether a disk the reader picked could not be had when it was last sent: no longer offered, or the slot
+    /// answered no disk while it was waited for (`slotWithholds`). A sheet goes back to the internal disk then.
+    func diskCannotBeHad(_ picked: String) -> Bool {
+        !RecorderDisk.offers(picked, with: usbDisk) || diskNotHad == picked
+    }
+
+    /// The slot, when the last request that could name a disk of the recorder's -- a reservation, a change, a
+    /// condition, a clash check -- was not sent because the slot answered no disk it could record to while it was
+    /// waited for (`slotWithholds`); nil when that request went, or failed for anything else.
+    var diskNotHad: String?
+
+    /// Set while the USB slot is waited for before something that names it is sent, which a sheet says as it says
+    /// a waking (`WakingSection`).
+    var settlingTheSlot: Bool { session.settlingTheSlot }
+
+    var recorderDriver: RecorderDriver? { recorder.driver as? RecorderDriver }
+
     var counts: [String: GuideCounts] = [:]
     var channels: [Channel] = []
     /// Every channel's name and logo, of every broadcasting type, so a reservation or a search result can

@@ -251,10 +251,10 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
     }
 
-    /// The reason a row waiting for `destination` carries when the recorder turns it down (`ReservationTarget`),
-    /// by the same rule as `turnedDown`. A row that waits keeps the disk it was made to, and has no way to another,
-    /// so it is told to be deleted and reserved again elsewhere. It does not name the disk: what sends it does
-    /// not know the disk's name, and the row says its disk on the line above its reason.
+    /// The reason a row waiting for `destination` carries when the recorder turns it down
+    /// (`QueueTarget.sentByCreating`), by the same rule as `turnedDown`. A row that waits keeps the disk it was made
+    /// to, and has no way to another, so it is told to be deleted and reserved again elsewhere. It does not name the
+    /// disk: what sends it does not know the disk's name, and the row says its disk on the line above its reason.
     public static func waitingRowTurnedDown(_ error: any DeviceError, sentTo destination: String) -> String {
         guard destination != internalID, let (code, action) = refusalTheDiskCanBeBehind(error) else {
             return error.explanation
@@ -262,6 +262,15 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
             + " (\(code): \(action))"
     }
+
+    /// The reason a row waiting for the USB slot carries when the slot, waited for before it is sent, answers no
+    /// disk that takes recordings (`RecorderClient`'s round): nothing was sent for it. Passed over in silence, the
+    /// row could wait until its programme was over -- a run with no screen never lets the disk known go, and
+    /// nothing sends the row again when the disk answers later -- so it is held for the reader as a refusal is, and
+    /// told what to do: connect the disk and send it again, or delete it and reserve again elsewhere. It does not
+    /// name the disk, which the row says on the line above it, as `waitingRowTurnedDown` does not.
+    public static let waitingRowNotAnswered = "録画先のディスクが応答しませんでした。"
+        + "つなぎ直してからもう一度送るか、この予約を消して別の録画先で予約し直してください"
 
     /// The code and the action of a recorder turning a request down for a reason the disk could be behind:
     /// any code it refuses with (`DeviceFailure.refused`) but those that name a cause of their own, which

@@ -218,9 +218,10 @@ struct ReservationSheet: View {
             case .done(let more?): said = more
             case .notDone(let why): failure = why
             }
-            // A move to a disk no longer offered is forgotten: the reservation stays where the recorder holds
-            // it, and the picker offers what is left.
-            if let moved, !RecorderDisk.offers(moved, with: model.usbDisk) { movedTo = nil }
+            // A move to a disk that cannot be had -- no longer offered, or not answered by the slot while it was
+            // waited for -- is forgotten: the reservation stays where the recorder holds it, and the picker offers
+            // what is left.
+            if let moved, model.diskCannotBeHad(moved) { movedTo = nil }
         }
     }
 

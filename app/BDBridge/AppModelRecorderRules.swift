@@ -40,21 +40,43 @@ extension AppModel {
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
     ///
     /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
-    /// refused before anything is sent, as a reservation's is (`reserve`). A condition is never changed, so one
-    /// made to a disk the reader did not pick could only be deleted and made again.
+    /// refused before anything is sent, as a reservation's is (`reserve`), and so is one the slot has not answered
+    /// since the recorder last answered and does not answer while it is waited for (`slotWithholds`). A condition
+    /// is never changed, so one made to a disk the reader did not pick could only be deleted and made again.
+    ///
+    /// To the slot, the recorder is made sure of, and the slot waited for, before the registration goes out --
+    /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press, as
+    /// `run` puts its line up before its own check: the sheet holds its button while a line is up, so a second
+    /// press cannot make a second condition meanwhile.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
+        diskNotHad = nil
         guard let client else { return false }
         guard RecorderDisk.offers(request.destination, with: usbDisk) else {
             problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
             return false
         }
-        let made = await run("レコーダーに登録中", sending: true) {
+        let toTheSlot = request.destination == RecorderDisk.usbID
+        let line = toTheSlot ? activities.begin(Self.registering) : nil
+        defer { if let line { activities.end(line) } }
+        if toTheSlot {
+            guard await wakeIfDozing() else { return false }
+            if let withheld = await slotWithholds(request.destination) {
+                if withheld == .noDisk {
+                    problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
+                }
+                return false
+            }
+        }
+        let made = await run(Self.registering, sending: true) {
             _ = try await client.createRecorderRule(request)
         }
         if made { await loadRecorderRules() }
         return made
     }
+
+    /// The line while a condition is registered.
+    private static let registering = "レコーダーに登録中"
 
     /// Delete only, never edit: a condition read over the LAN lacks the channel narrowing the recorder's own
     /// screen can set, and writing it back would erase that. The list is read again afterwards either way,
