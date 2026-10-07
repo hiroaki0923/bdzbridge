@@ -252,7 +252,7 @@ actor TVLine: HTTPTransport {
 /// A mistake in a check leaves a reservation on somebody's television, or deletes one of theirs. So:
 ///
 /// - **Nothing is made unless the sitting may write**, and the television says it is `active`: the sitting
-///   is held with it on. One check is for a television that is off, and makes nothing unless it says
+///   is held with it on. Two checks are for a television that is off, and make nothing unless it says
 ///   `standby`. Nor is anything made while the ledger holds an entry not struck out: something of an earlier
 ///   check may still be on the television, and a check that finds one fails and says so.
 /// - **What a check deletes is only what it made.** The list is read before each create, and the check's own
@@ -292,6 +292,9 @@ actor TVLine: HTTPTransport {
 ///   each flush sent is said, a request at a time, and a second flush of the same reservation that sent a
 ///   create fails the check. As it ends the check asks once more what the television says it is, unless a
 ///   request of its own or of the round's met no answer.
+/// - **The check of a change in standby asks what the television says it is after every request it sends**
+///   (`watched`), and goes no further than taking off what it made once the answer is anything but
+///   `standby`. Nothing is asked after a request that met no answer, nor after anything once one has.
 /// - **Which viewing reservation is the sitting's is said by the owner**, by its start, and never guessed:
 ///   not the newest in the list, and not one found by its title.
 /// - **Each request is sent once.** Nothing here asks again.
@@ -357,6 +360,29 @@ actor TVSitting {
     private var noted: [Int: TVLedger.Entry] = [:]
     /// How many creates the check under way has sent.
     private var sent = 0
+    /// What the check under way keeps of what the television says it is after each of its requests, when it
+    /// is the one that asks that (`aChangeInStandby`); nil for every other check, which asks nothing between
+    /// its requests.
+    private var watching: Watching?
+
+    /// What a check that asks what the television says it is after each of its requests keeps of it.
+    private struct Watching {
+        /// What the check is at, for saying when: the opening, the create, a change, the delete.
+        var step = "the opening"
+        /// How many requests the line had kept when it was last looked at: those after it are the check's
+        /// own, not yet followed by the question.
+        var seen: Int
+        /// How many of the check's own requests have gone, the questions of what the television is aside.
+        var requests = 0
+        /// What the television said it is after each, in order: its status, or what kept it from being read.
+        var readings: [String] = []
+        /// Each point after which it said anything but standby, said as when and what.
+        var otherwise: [String] = []
+        /// Whether a request, the check's own or the question, has met no answer: nothing is asked after that.
+        var silenced = false
+        /// Whether the change was taken in standby, as it is said at the end; nil while it has not been sent.
+        var verdict: String?
+    }
 
     /// `line` is the transport `client` was built on: whoever makes the client makes it on a line and hands
     /// both in. `reminder` is the start of the viewing reservation the owner set for the sitting, for the
@@ -887,6 +913,7 @@ actor TVSitting {
     /// for a television in standby.
     private func making(in power: String = "active", _ check: () async throws -> Void) async throws {
         (mine, found, last, keptOpen, noted, sent) = ([], nil, nil, [], [:], 0)
+        watching = nil
         try await mayMake(in: power)
         var failure: (any Error)?
         do { try await check() } catch { failure = error }
@@ -926,9 +953,65 @@ actor TVSitting {
     }
 
     /// One request, sent once. What goes wrong is thrown by its kind and its code alone: an error as it
-    /// comes can carry the address it was sent to.
+    /// comes can carry the address it was sent to. Followed, in a check that asks it, by the question of what
+    /// the television says it is (`watched`), whatever the answer.
     private func ask<T: Sendable>(_ method: String, _ request: () async throws -> T) async throws -> T {
-        do { return try await request() } catch { throw Stopped(what: "\(method): \(Self.said(error))") }
+        do {
+            let answer = try await request()
+            await watched()
+            return answer
+        } catch {
+            await watched()
+            throw Stopped(what: "\(method): \(Self.said(error))")
+        }
+    }
+
+    /// After a request of a check that asks what the television says it is after each of its requests
+    /// (`watching`): the television is asked, once, and what it said is said beside the request as the line
+    /// kept it, numbered among the check's own. Anything but `standby` is kept with when it was said -- after
+    /// which request, in which step -- and so is a question whose answer could not be read. Nothing is asked
+    /// after a request that met no answer, the check's own or the question, nor after anything once one has:
+    /// after silence nothing is sent but what the rules allow, and this is not among it. It throws nothing: it
+    /// is asked from inside what makes, changes and takes off, whose own rules go on after it, and the check
+    /// reads what was kept between its steps (`stillInStandby`). Several requests since the last question --
+    /// the pages of the stations -- are said together and followed by one.
+    private func watched() async {
+        guard var watch = watching else { return }
+        let kept = await line.sent
+        let new = kept.dropFirst(watch.seen)
+        guard let request = new.last else { return }
+        watch.seen = kept.count
+        watch.requests += new.count
+        let said = "  \(watch.requests). " + new.map(\.said).joined(separator: ", ")
+        if new.contains(where: { $0.answer == TVLine.noAnswer }) { watch.silenced = true }
+        watching = watch
+        guard !watch.silenced else { return say(said + "; nothing is asked after silence") }
+        let reading: String
+        do {
+            reading = try await client.powerStatus()
+            say(said + "; the television says it is: \(reading)")
+        } catch {
+            reading = "not read, \(Self.said(error))"
+            say(said + "; what the television says it is was not read: \(Self.said(error))")
+        }
+        let asked = await line.sent
+        watch.seen = asked.count
+        watch.silenced = asked.last?.answer == TVLine.noAnswer
+        watch.readings.append(reading)
+        if reading != "standby" {
+            watch.otherwise.append("after request \(watch.requests) (\(request.method), in \(watch.step)): \(reading)")
+        }
+        watching = watch
+    }
+
+    /// What ends a check that asks what the television says it is, before its next step, once it has said
+    /// anything but `standby`: what it made is taken off as it ends (`making`), and nothing else is sent.
+    static let leftStandby = "the check went no further once the television had said it is something other than"
+        + " standby"
+
+    private func stillInStandby() throws {
+        guard watching?.otherwise.isEmpty == false else { return }
+        throw Stopped(what: Self.leftStandby)
     }
 
     /// The television's list, read once, and kept as the last read: of the list, and of each row the check
@@ -1044,6 +1127,7 @@ actor TVSitting {
         var annotation: Int?
         sent += 1
         do { annotation = try await (sender ?? client).addSchedule(leave.body) } catch { failure = error }
+        await watched()
         let kind = (failure as? ScalarError)?.failure
         let sending = Sending(a: "a create", the: "the create",
                               answer: failure.map(Self.said(_:)) ?? Self.taken(annotation),
@@ -1206,6 +1290,7 @@ actor TVSitting {
                 say("  a delete: \(Self.said(error))")
                 unanswered.append(held.entry)
             }
+            await watched()
         }
         let after: [TVScheduleRow]
         do {
@@ -1649,6 +1734,7 @@ extension TVSitting {
         var failure: (any Error)?
         var annotation: Int?
         do { annotation = try await client.changeSchedule(row, repeatType: repeatType) } catch { failure = error }
+        await watched()
         let answer = failure.map(Self.said(_:)) ?? Self.taken(annotation)
         let after: [TVScheduleRow]
         do {
@@ -1785,6 +1871,7 @@ extension TVSitting {
         } catch {
             failure = error
         }
+        await watched()
         let kind = (failure as? ScalarError)?.failure
         let sending = Sending(a: "a change of a deleted row", the: "the change of the deleted row",
                               answer: failure.map(Self.said(_:)) ?? Self.taken(annotation),
@@ -1994,5 +2081,197 @@ extension TVSitting {
             }
         }
         return nil
+    }
+}
+
+// MARK: - the change in standby
+
+extension TVSitting {
+    /// The change of a reservation's repeat, as the app's change sends it, to a television that is off:
+    /// whether it is taken in standby, and what the television says it is meanwhile, the panel being what
+    /// the owner looks at and this the one reading of it from here. It makes nothing unless the television
+    /// says `standby`, and is not begun on one whose disk is not there.
+    ///
+    /// Before anything it says that the television said `standby`, which is what let it run, and after every
+    /// request it sends -- each read, the question, the create, each change, the delete, and every request of
+    /// what takes off what it made where it ends early -- it asks the television what it says it is, and says
+    /// that beside the request (`watched`). It goes no further than taking off what it made once the answer is
+    /// anything but `standby`, and then fails, saying after which request it was said.
+    ///
+    /// It makes one reservation, once, of a terrestrial programme among the picks that does not start in the
+    /// small hours and that the television holds no recording of, as the check of a waiting row chooses one,
+    /// and at a time of day nothing is listed at on any day, as the change in place chooses one: the repeat
+    /// it is changed to stands on that time of day in the weeks after, while it is there. The question before
+    /// the create, the ledger first, the create and the list, as every create of a check (`create`).
+    ///
+    /// Then its repeat is changed to the programme's own weekday by what the app's change sends
+    /// (`TVDriver.update`), by the same calls on the same client, and not by the driver, whose link would make
+    /// sure of the television and connect in its own way before it: the list read; the row found in it under
+    /// its id, still the one made; the door asked of it as the app asks it, and the repeat by the name a sheet
+    /// offers it under, spelt as the app spells it; the change, `addSchedule` 1.2 with the row as the list gave
+    /// it and only the repeat new, sent once; and the list read again (`change`). Nothing is asked first of
+    /// what it would stop from recording: the app asks nothing. Read back, it is to have the same id, the new
+    /// repeat and nothing else changed (`otherwise`). It is put back to once the same way, and is then to read
+    /// as it did before the change. Then it is deleted, and its entry struck out, and the list is to read as
+    /// it began.
+    ///
+    /// Its last two lines say plainly whether the change was taken in standby -- taken, read back as sent, the
+    /// television saying `standby` before it and right after it -- and whether the television said `standby`
+    /// throughout. Whatever ends it on the way, what it made is taken off before it ends, by every rule a
+    /// check that makes something keeps: after silence nothing is sent again but the list and the delete of
+    /// its own row.
+    func aChangeInStandby() async throws {
+        let from = await line.sent.count
+        var began = false
+        var failure: (any Error)?
+        do {
+            try await making(in: "standby") {
+                // The guard has just asked the television what it says it is. A line that kept nothing of that
+                // is not the one the client sends on, and what was said after each request would be of others.
+                guard await line.sent.count > from else {
+                    throw Refused(why: "the sitting was handed a line that its client does not send on")
+                }
+                began = true
+                say("before anything, the television says it is: standby")
+                watching = Watching(seen: await line.sent.count)
+                do {
+                    try await changingInStandby()
+                } catch {
+                    watching?.step = "taking off what the check made"
+                    throw error
+                }
+            }
+        } catch {
+            failure = error
+        }
+        let watched = watching
+        watching = nil
+        guard began, let watched else {
+            if let failure { throw failure }
+            return
+        }
+        say("the change was taken in standby: \(watched.verdict ?? "no: it was not sent")")
+        let throughout: String
+        if let first = watched.otherwise.first {
+            let all = watched.otherwise.count
+            throughout = "no: " + first + (all > 1 ? "; points at which it did not, in all: \(all)" : "")
+        } else if watched.readings.count < watched.requests {
+            throughout = "not known: it was asked after \(watched.readings.count) of the \(watched.requests)"
+                + " requests, and after none once one met no answer"
+        } else {
+            throughout = "yes, before anything and after every request, \(watched.requests) in all"
+        }
+        say("the television said standby throughout: \(throughout)")
+        let wrong: String? = watched.otherwise.isEmpty ? nil
+            : "the television did not say standby throughout: " + String(throughout.dropFirst("no: ".count))
+        switch (failure, wrong) {
+        case (nil, nil): return
+        case (let failure?, nil): throw failure
+        case (nil, let wrong?): throw Stopped(what: wrong)
+        case (let failure?, let wrong?): throw Stopped(what: "\(Self.told(failure)); and \(wrong)")
+        }
+    }
+
+    /// The steps of the change in standby, between the guard and the end (`aChangeInStandby`).
+    private func changingInStandby() async throws {
+        let disk = try await ask("getStorageList") { try await client.storage() }
+        say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
+        try stillInStandby()
+        guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
+        let listed = try await list()
+        say("the list: \(TVLedger.Counts(listed).said)")
+        try stillInStandby()
+        let stations = try await stations(of: Self.terrestrial)
+        try stillInStandby()
+        let (pick, station) = try choose(on: stations, in: listed, everyDay: true) {
+            !Self.startsInTheSmallHours($0.start) && listed.holding(Self.request($0)) == nil
+                && TVDriver.repeats(startingAt: $0.start).contains(Codes.weekdayRepeat(for: $0.start))
+        }
+        let weekday = Codes.weekdayRepeat(for: pick.start)
+        say("the programme: \(Self.when(pick.start))")
+
+        watching?.step = "the create"
+        let body = try body(pick, on: station)
+        let leave = try await leave(for: body, "the create: ")
+        // What the television said it is after the question is read before anything is written or made.
+        try stillInStandby()
+        let created = try await create(leave, of: pick)
+        say("the create: \(created.answer); rows made: \(created.rows.count)")
+        for row in created.rows { say("the row read back: \(Self.held(row, against: body))") }
+        guard created.taken, created.rows.count == 1 else { throw Stopped(what: "the create did not make one row") }
+        try stillInStandby()
+
+        let code = Codes.repeatCodes[weekday] ?? weekday
+        watching?.step = "the change to \(code)"
+        let label = "the change to \(code): "
+        let (row, weekly) = try await theAppsChange(of: created.rows[0], to: weekday, label)
+        let mark = watching?.readings.count ?? 0
+        let first: Changed
+        do {
+            first = try await change(row, to: weekly, label)
+        } catch {
+            watching?.verdict = "no: \(Self.told(error))"
+            throw error
+        }
+        let afterIt = watching?.readings.dropFirst(mark).first ?? "not asked"
+        guard first.taken, let read = first.row else {
+            watching?.verdict = "no: it was answered \(first.answer)"
+            throw Stopped(what: "the change was not taken: \(first.answer)")
+        }
+        let changed = Self.otherwise(read, than: row)
+        say("the row after the change: " + (changed.isEmpty ? "as before" : "otherwise than before in: \(changed)"))
+        guard read.repeatType == weekly, changed == "repeatType" else {
+            watching?.verdict = "no: it was answered \(first.answer), and the row does not read back with the new"
+                + " repeat and nothing else changed"
+            throw Stopped(what: "the row does not read back after the change with the new repeat and nothing else"
+                          + " changed")
+        }
+        guard afterIt == "standby" else {
+            watching?.verdict = "no: it was taken, and right after it the television said it is: \(afterIt)"
+            throw Stopped(what: Self.leftStandby)
+        }
+        watching?.verdict = "yes"
+        try stillInStandby()
+
+        watching?.step = "the change back to 1"
+        let back = "the change back to 1: "
+        let (again, once) = try await theAppsChange(of: read, to: "none", back)
+        let returned = try await change(again, to: once, back)
+        guard returned.taken, let restored = returned.row else {
+            throw Stopped(what: "the change back to once was not taken: \(returned.answer)")
+        }
+        let still = Self.otherwise(restored, than: row)
+        say("the row after the change back: "
+            + (still.isEmpty ? "as before the change" : "otherwise than before the change in: \(still)"))
+        guard still.isEmpty else {
+            throw Stopped(what: "the row does not read after the change back as it did before the change: it reads"
+                          + " otherwise in \(still)")
+        }
+        try stillInStandby()
+
+        watching?.step = "the delete"
+        try await takeOff()
+    }
+
+    /// The row and the repeat the app's change would send for `held`, a row the check made, to the repeat a
+    /// sheet names `name` (`Codes.repeatCodes`): the list read, as the app reads it first; the row in it under
+    /// `held`'s id, while it is still `held` (`TVScheduleRow.isStill`); the door the app asks of it
+    /// (`TVDriver.whyNot(changing:)`); the repeat among those it offers at the row's start
+    /// (`TVDriver.repeats(startingAt:)`), in the television's spelling (`TVReservationBody.repeatType`).
+    /// Anything the app would not send ends the check, with nothing sent for it.
+    private func theAppsChange(of held: TVScheduleRow, to name: String,
+                               _ label: String) async throws -> (row: TVScheduleRow, repeatType: String) {
+        let listed = try await list()
+        guard let row = listed.first(where: { $0.id == held.id }), held.isStill(row) else {
+            throw Stopped(what: "\(label)the list read before it does not have the check's row under its id")
+        }
+        let at = now()
+        guard let reservation = row.reservation(now: at), TVDriver.whyNot(changing: reservation, now: at) == nil,
+              TVDriver.repeats(startingAt: reservation.start).contains(name), let code = Codes.repeatCodes[name],
+              let repeatType = TVReservationBody.repeatType(for: code, start: reservation.start) else {
+            throw Stopped(what: "\(label)the app would send no such change for the row as the list has it")
+        }
+        try stillInStandby()
+        return (row, repeatType)
     }
 }
