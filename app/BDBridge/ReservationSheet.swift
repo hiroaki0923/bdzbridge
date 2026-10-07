@@ -7,9 +7,14 @@ import SwiftUI
 /// This does not go through the guide, so it works for a reservation whose programme has dropped out of the
 /// eight days the recorder publishes, and for one that records by time only.
 ///
-/// A television's is shown and deleted, and nothing more: nothing here changes one yet, so it has no choices
-/// to make and no button that sends them. Whatever is held back, said in red or reported as a failure is the
-/// row's own device's, and the other device's work and trouble are left out of it.
+/// A television's is shown, changed and deleted. What can be changed is its repeat, until its programme
+/// begins, to what its driver offers (`TVDriver.repeats(changing:)`): the sheet has no rule of its own, and
+/// offers nothing the change's door would turn away. What the change came to is said in the sheet's one alert,
+/// under the device's name when something is to be added to a change made. While a request of the sheet's own
+/// to the television is out, the change or the delete, its line is on the sheet, nothing on it can be
+/// pressed and the sheet cannot be closed: what the request came to is said here, and a sheet that had gone
+/// would say it nowhere. The recorder's rows are not held so. Whatever is held back, said in red or reported
+/// as a failure is the row's own device's, and the other device's work and trouble are left out of it.
 struct ReservationSheet: View {
     let reservation: Reservation
     @Environment(AppModel.self) private var model
@@ -27,6 +32,11 @@ struct ReservationSheet: View {
     /// the recorder holds it on is kept (`AppModel.update`).
     @State private var movedTo: String?
     @State private var saved = false
+    /// A change made, and what its device added to it, said before the sheet closes.
+    @State private var said: String?
+    /// The line of a request of this sheet's own to the television, while it is out. Never set for the
+    /// recorder.
+    @State private var asking: String?
 
     private var past: Bool { reservation.end <= Date() }
     private var onTelevision: Bool { reservation.device == .tv }
@@ -36,11 +46,17 @@ struct ReservationSheet: View {
         ["none", "title", "daily", Codes.weekdayRepeat(for: reservation.start), "mon-fri", "mon-sat"]
     }
 
-    /// Never for a television's row, which has no pickers: what they are seeded with is not a choice made.
+    /// What a television's row can be changed to, the row's own repeat among them: none once its programme
+    /// has begun, and none for a repeat that has no name here.
+    private var televisionsRepeats: [String] { TVDriver.repeats(changing: reservation) }
+
+    /// For a television's row, only the repeat, and only while it has a picker: the one mode it records in is
+    /// no choice made. For the recorder's, any of its pickers.
     private var changed: Bool {
-        !onTelevision
-            && (quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
-                || movedTo != nil)
+        onTelevision
+            ? !televisionsRepeats.isEmpty && repeating != (reservation.repeatName ?? "none")
+            : quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
+                || movedTo != nil
     }
 
     /// The disks it can be moved between, while it can still be changed: none for a television's row, and none
@@ -86,22 +102,23 @@ struct ReservationSheet: View {
                     Section("詳細") { Text(program.extended) }
                 }
 
+                if let asking {
+                    Section {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(asking).font(.callout)
+                        }
+                    }
+                }
+
                 if changed {
                     Section {
-                        Button("変更をレコーダーに送る") {
-                            Task {
-                                let moved = movedTo
-                                saved = await model.update(reservation, quality: quality, repeating: repeating,
-                                                           disk: moved)
-                                if !saved { failure = whatWentWrong }
-                                // A move to a disk no longer offered is forgotten: the reservation stays where
-                                // the recorder holds it, and the picker offers what is left.
-                                if let moved, !RecorderDisk.offers(moved, with: model.usbDisk) { movedTo = nil }
-                            }
-                        }
-                        .disabled(model.isBusy(for: reservation.device))
+                        Button("変更を\(reservation.device.label)に送る") { sendTheChange() }
+                            .disabled(model.isBusy(for: reservation.device))
                     } footer: {
-                        Text(reservation.eventID != nil
+                        Text(onTelevision
+                             ? TVDriver.changesTheRepeatOnly
+                             : reservation.eventID != nil
                              ? "番組追従はそのままです。"
                              : diskChoices.isEmpty
                              ? "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。"
@@ -120,9 +137,11 @@ struct ReservationSheet: View {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }
+            .disabled(asking != nil)
             .navigationTitle("予約")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { SheetCloseButton() }
+            .toolbar { SheetCloseButton().disabled(asking != nil) }
+            .interactiveDismissDisabled(asking != nil)
             .task {
                 quality = reservation.qualityName ?? Codes.qualityOrder.first ?? "LSR"
                 repeating = reservation.repeatName ?? "none"
@@ -131,13 +150,15 @@ struct ReservationSheet: View {
             .onChange(of: saved) { if $1 { dismiss() } }
             // One alert, because two on the same view is not something SwiftUI promises to honour, and
             // asking and reporting never happen at once. The red line further up the sheet was missed.
-            .alert(failure == nil ? "この予約を削除しますか？" : "エラー",
-                   isPresented: Binding(get: { confirming || failure != nil },
+            .alert(alertTitle,
+                   isPresented: Binding(get: { confirming || failure != nil || said != nil },
                                         set: { if !$0 { alertClosed() } })) {
-                if failure == nil {
+                if failure == nil, said == nil {
                     Button("削除する", role: .destructive) {
+                        if onTelevision { asking = TVDriver.deletingLine }
                         Task {
                             done = await model.cancel(reservation)
+                            asking = nil
                             if !done { failure = whatWentWrong }
                         }
                     }
@@ -148,6 +169,8 @@ struct ReservationSheet: View {
             } message: {
                 if let failure {
                     Text(failure)
+                } else if let said {
+                    Text(said)
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "\(reservation.device.label)から削除されます。"
@@ -161,18 +184,48 @@ struct ReservationSheet: View {
         }
     }
 
-    /// The alert has been closed, whichever it was. For a television's row the report of a failed delete
-    /// takes the sheet with it: the list was read again on the way, and the row this sheet holds may no
-    /// longer be the television's, so trying again starts from the list. Looked at here and not in the
-    /// button, before the report is cleared: closing the alert is what clears it.
-    private func alertClosed() {
-        if failure != nil, onTelevision { done = true }
-        confirming = false
-        failure = nil
+    /// The one alert's title: what went wrong, what a change made added under the name of the device that
+    /// holds the row, or the question before a delete.
+    private var alertTitle: String {
+        failure != nil ? "エラー" : said != nil ? "\(reservation.device.label)の予約" : "この予約を削除しますか？"
     }
 
-    /// What a change or a delete that failed is reported as: the line of the row's device, which is where
-    /// its operations say what went wrong.
+    /// The alert has been closed, whichever it was. For a television's row the report of a failed change or
+    /// delete takes the sheet with it: the list was read again on the way, and the row this sheet holds may
+    /// no longer be the television's, so trying again starts from the list. What a change made added takes
+    /// the sheet with it as well, as a change made with nothing to add does at once. Looked at here and not
+    /// in the button, before the report is cleared: closing the alert is what clears it.
+    private func alertClosed() {
+        if failure != nil, onTelevision { done = true }
+        if said != nil { done = true }
+        confirming = false
+        failure = nil
+        said = nil
+    }
+
+    /// 変更を〈機器〉に送る: the change goes to the device that holds the row, with what the pickers hold as it
+    /// is pressed, and what it came to is said. Made with nothing to add closes the sheet; made with something
+    /// to add says it, and closing that closes the sheet; not made says why. A request to the television holds
+    /// the sheet open until it is answered (`asking`).
+    private func sendTheChange() {
+        let moved = movedTo
+        if onTelevision { asking = TVDriver.changingLine }
+        Task {
+            let altered = await model.change(reservation, quality: quality, repeating: repeating, disk: moved)
+            asking = nil
+            switch altered {
+            case .done(nil): saved = true
+            case .done(let more?): said = more
+            case .notDone(let why): failure = why
+            }
+            // A move to a disk no longer offered is forgotten: the reservation stays where the recorder holds
+            // it, and the picker offers what is left.
+            if let moved, !RecorderDisk.offers(moved, with: model.usbDisk) { movedTo = nil }
+        }
+    }
+
+    /// What a delete that failed is reported as: the line of the row's device, which is where its delete
+    /// says what went wrong.
     private var whatWentWrong: String {
         model.problem(for: reservation.device) ?? "\(reservation.device.label)がエラーを返しました"
     }
@@ -227,15 +280,25 @@ struct ReservationSheet: View {
         }
     }
 
-    /// What a television's row says of how it records, as values: the mode only when the row carries one,
-    /// which a television's need not. Who made it and how large it will be a television's row does not say,
+    /// What a television's row says of how it records: the mode as a value, only when the row carries one,
+    /// which a television's need not; and the repeat, a picker over what it can be changed to while there is
+    /// anything, and otherwise a value. Who made it and how large it will be a television's row does not say,
     /// and that a reservation goes after its programme when the times change is known of the recorder only.
     @ViewBuilder
     private var televisionsValues: some View {
         if let quality = reservation.qualityName {
             LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
         }
-        LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+        let offered = televisionsRepeats
+        if offered.isEmpty {
+            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+        } else {
+            Picker("毎回録画", selection: $repeating) {
+                ForEach(offered, id: \.self) { key in
+                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                }
+            }
+        }
     }
 
     /// The recorder's 重複, and the reservations at the same hours, by when, where and what: the recorder does
