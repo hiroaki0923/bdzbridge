@@ -266,12 +266,13 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// The code and the action of a recorder turning a request down for a reason the disk could be behind:
     /// any code it refuses with (`DeviceFailure.refused`) but those that name a cause of their own, which
     /// another disk would not change (docs/xsrs-api.md): 831, a channel the recorder cannot receive, for a
-    /// reservation that follows a programme; 501 and 701, no such item. 804, an id that is no longer the
+    /// reservation that follows a programme; 401, an action the recorder does not have; 501 and 701, no such
+    /// item. 804, an id that is no longer the
     /// reservation's -- the recorder renumbers its automatic ones -- is read as the reservation gone rather than
     /// as a refusal (`DeviceFailure.unknownItem`), and so is never the disk's either. Nil for anything else.
     private static func refusalTheDiskCanBeBehind(_ error: any DeviceError) -> (code: String, action: String)? {
         guard case .soap(let action, _, let code?, _) = error as? RecorderError, case .refused = error.failure,
-              !["831", "501", "701"].contains(code) else { return nil }
+              !["831", "401", "501", "701"].contains(code) else { return nil }
         return (code, action)
     }
 

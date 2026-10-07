@@ -316,6 +316,12 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertEqual(came, .made(saying: nil))
         expectEqual(await television.schedules.map(\.eventId), [program.eventID])
         XCTAssertEqual(model.reservations(for: program).map(\.device), [.tv])
+
+        // A change of it is the television's too, whatever disk comes with it.
+        let made = try XCTUnwrap(model.reservations(for: program).first)
+        _ = await model.update(made, quality: "DR", repeating: "none", disk: "USBHDD")
+        XCTAssertFalse(model.problem?.contains("いま使えません") == true,
+                       "a change of the television's reservation was refused for the slot: \(model.problem ?? "")")
     }
 
     /// A condition made to the USB disk is made there, is read back with that disk, and names it on its row.

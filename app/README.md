@@ -904,26 +904,27 @@ it: the recorder answered the disk seconds after the wake when that was timed, a
 read again would turn up under the reader half a minute later.
 
 Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB
-disk let go of between the choice and the press is refused before anything is queued or sent -- a reservation,
-a move or a condition -- with a line that names it: sending the internal disk in its place would make a
+disk let go of between the choice and the press is refused before anything is queued or sent -- a reservation, a
+move or a condition -- with a line that names it: sending the internal disk in its place would make a
 reservation or a condition the reader did not agree to. Where the sheet has another destination to offer, the
-line asks for it (`RecorderDisk.chooseAnother`) and the sheet goes back to the internal disk, named, with the
-television beside it under 予約先 on the programme's sheet where it can take the programme. A reservation on the
-internal disk has nothing else to offer on its own sheet once the USB disk has gone, its picker going with the
-disk, so a move of it refused says where it stays (`RecorderDisk.stays`) rather than ask for a choice the sheet
-does not show; the model, which knows the reservation and what its sheet offers, says which. On the programme's
-sheet a disk picked and let go of while it is open stays shown under 録画先 as a value and is asked nothing: no
-clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as 予約する would,
-without the question before reserving, which would promise a registration the model is about to refuse. While
+line asks for it (`RecorderDisk.chooseAnother`), and the programme's sheet and the condition's go back to the
+internal disk, named, the programme's with the television beside it under 予約先 where it can take the programme. A
+reservation on the internal disk has nothing else to offer on its own sheet once the USB disk has gone, its
+picker going with the disk, so a move of it refused says where it stays (`RecorderDisk.stays`) rather than ask
+for a choice the sheet does not show; the model, which knows the reservation and what its sheet offers, says
+which. On the programme's sheet a disk picked and let go of while it is open stays shown under 録画先 as a value
+and is asked nothing: no clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as
+予約する would, without the question before reserving, which would promise a registration the model is about to
+refuse; a question already up when the disk is let go of goes, as one does when the recorder is let go of. While
 the disk picked is offered, and in a home with no USB disk, the sheet asks and checks as it always has.
 
 A reservation or a move to the USB disk that the recorder turns down is said as the recorder not taking a
 reservation to that disk, naming it, and asks for another destination, with the recorder's code kept for
 looking it up (`RecorderDisk.turnedDown`). It does not say that the disk was refused as a destination: the code
 does not say so. A refusal that names a cause of its own, which another disk would not change -- 831, a channel
-the recorder cannot receive; 501 and 701, no such item; 804, an id that is no longer the reservation's -- is said
-as it always was, and so is a refusal to the internal disk, and a condition turned down, whose line comes from
-the link's own refusal.
+the recorder cannot receive; 401, an action the recorder does not have; 501 and 701, no such item; 804, an id
+that is no longer the reservation's -- is said as it always was, and so is a refusal to the internal disk, and a
+condition turned down, whose line comes from the link's own refusal.
 
 A reservation made while the recorder is away keeps its disk on the phone -- the queue's table has a column for
 it, which a row from an earlier version reads as the internal disk -- and is sent with it, and the recorder's

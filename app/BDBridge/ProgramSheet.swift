@@ -250,6 +250,13 @@ struct ProgramSheet: View {
                 conflicts = nil
                 lastRecorderGone = true
             }
+            // A disk let go of while the question that names it is up: the question would promise a
+            // registration the model is about to refuse. It goes, as above, and 録画予約する says why.
+            .onChange(of: model.usbDisk) {
+                if case .reserve(.recorder, let named?) = ask, !RecorderDisk.offers(named, with: model.usbDisk) {
+                    (ask, turn) = (nil, nil)
+                }
+            }
             .onChange(of: model.tvTimesForgotten) {
                 if case .cancel(let picked) = ask, picked.device == .tv { ask = nil }
                 if case .wouldStop = ask { (ask, turn) = (nil, nil) }
@@ -552,12 +559,16 @@ struct ProgramSheet: View {
     private func check() async {
         guard device == .recorder, !past else { return }
         guard let disk = checkedDisk else {
-            conflicts = nil
+            (conflicts, checking) = (nil, false)
             return
         }
         guard model.connected else { return }
         checking = true
-        conflicts = await model.conflicts(for: program, quality: quality, repeating: repeating, disk: disk)
+        let found = await model.conflicts(for: program, quality: quality, repeating: repeating, disk: disk)
+        // A check that set out before the row changed comes back all the same (the recorder's requests are
+        // not given up halfway), and what it found is for what the row showed then.
+        guard !Task.isCancelled else { return }
+        conflicts = found
         checking = false
     }
 }

@@ -269,7 +269,7 @@ final class RecorderDiskTests: XCTestCase {
                        "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
                            + " (402: X_CreateRecordSchedule)")
 
-        for code in ["831", "501", "701", "804"] {
+        for code in ["831", "401", "501", "701", "804"] {
             let error = fault(code)
             XCTAssertEqual(RecorderDisk.turnedDown(error, sentTo: "USBHDD", usb: usb), error.explanation, code)
             XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(error, sentTo: "USBHDD"), error.explanation,
