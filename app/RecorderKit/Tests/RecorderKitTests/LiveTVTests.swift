@@ -254,6 +254,81 @@ import XCTest
 /// `testReadingWhatNeedsTheRegistration` is run once more, and is to fail with HTTP 403: the television no
 /// longer takes the cookie. A registered client is a key to the television from anywhere on the LAN, and is
 /// not left there longer than the checks need it.
+///
+/// ## The sitting that changes a reservation
+///
+/// Three more checks are for the request that changes a reservation the television holds -- `addSchedule` in
+/// the version that takes the list's id, sent with the row as the list gave it and a new repeat -- meeting a
+/// real one, sent by the app's own client with the owner at the television (`TVSitting`, after the checks
+/// above). The television is on and showing a broadcast, its USB disk connected, and everything said above of
+/// a command holds: its variables on the command line and never exported, one test to a command and never two
+/// at once, every command that carries `TV_WRITE` given ten minutes and not interrupted, its files where git
+/// does not track them, the owner looking at the television's own list after a check that fails. A change
+/// writes nothing in the ledger: it makes nothing, and a row a check made keeps the entry its create wrote.
+///
+/// **Before the sitting**:
+///
+/// 1. A registration of its own, the clients registered for the checks having been taken off: with the
+///    television on and showing a broadcast, `testRegistering` twice, as above, with a `TV_JAR` that is not
+///    there yet and then with `TV_PIN` beside it.
+/// 2. The picks, minutes before the first check: `testWritingThePicks`, as above.
+/// 3. The tests built, with none of these variables set: `swift build --build-tests`.
+/// 4. The owner looks at the television's own list, and then sets with the remote one recording reservation,
+///    once, of a terrestrial programme a day or more ahead that starts between four in the morning and
+///    midnight, at a time of day nothing else on the list stands at on any day; and, where the television's
+///    own menu can make a reservation by its date and time, one such, made the same way. The owner says the
+///    start of each, as `TV_REMINDER` is written. These are the last reservations made on the television
+///    before the checks.
+///
+/// **Then these, in this order**, each from `app/RecorderKit`, with one `TV_LEDGER` for all of them that is not
+/// there before the first:
+///
+/// 1. `testAChangeInPlace`:
+///
+///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_LOOK=<seconds> TV_WRITE=testAChangeInPlace \
+///            swift test --filter LiveTVTests/testAChangeInPlace
+///
+///    It makes one reservation, once, of a weekday's programme that starts from four in the morning, at a
+///    time nothing is listed at on any day, and changes it one request at a time, saying of each what it
+///    was answered and what the list then reads: to the programme's own weekday, the same again, by its
+///    name, daily, Monday to Friday, Monday to Saturday, the next weekday, which is to be refused with
+///    error 7 and leave the row as it was, and back to once. Daily is left on the television for `TV_LOOK`
+///    seconds: to look at, on the television's own list, that it records every day. Then the row is deleted,
+///    and the change is sent once more for it, which is to be refused with error 41200 and make nothing.
+///    It leaves nothing. Where its first change is refused, it sends the same with the title the create was
+///    sent with and with none, takes the row off and fails: what the app sends is decided from those.
+/// 2. `testAChangeOfARowMadeWithTheRemote`, once for each reservation the owner made, `TV_REMOTE` its start
+///    and, where there are two, `TV_REMOTE_ALSO` the other's:
+///
+///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_REMOTE='…' TV_REMOTE_ALSO='…' TV_LOOK=<seconds> \
+///            TV_WRITE=testAChangeOfARowMadeWithTheRemote \
+///            swift test --filter LiveTVTests/testAChangeOfARowMadeWithTheRemote
+///
+///    It changes nothing unless exactly one recording starts within a minute of `TV_REMOTE`, the newest in
+///    the list by the number in its id (where two are named, the two newest are the two named), recording
+///    once, with nothing else in the list at its time of day on any day. It says whether the row has a
+///    programme id and its repeat, changes it to its own weekday's code (daily, for one that starts before
+///    four in the morning), leaves it so for `TV_LOOK` seconds while the owner looks at the television's own
+///    list, and changes it back. It never deletes it, and fails unless it reads as it began, saying which
+///    repeat it reads with: the owner then sets it back with the remote.
+/// 3. `testARepeatOnADayWithTwoAtItsTime`:
+///
+///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testARepeatOnADayWithTwoAtItsTime \
+///            swift test --filter LiveTVTests/testARepeatOnADayWithTwoAtItsTime
+///
+///    It makes three reservations, once: two of programmes that start together on two stations, A and B, and
+///    one of a programme on a third station at that time of day the day before, C. It says which of them the
+///    television names when asked what C would stop from recording every day, changes C to daily only where
+///    every row named is its own, says how A, B and C then read, changes C back to once and deletes all
+///    three. What it is run to see is whether a repeat a change adds can cost a recording on a later day, and
+///    whether the list and the question say so.
+/// 4. `testWhatIsLeftAfterwards`, with the same ledger, as above: it has passed only when it says `nothing of
+///    the sitting is left`. Then the owner deletes with the remote the reservations made for the sitting and
+///    looks at the television's own list once more.
+///
+/// **Afterwards** the owner takes the client registered for the sitting off the television's list of
+/// registered devices; `testReadingWhatNeedsTheRegistration` is then to fail with HTTP 403, and the jar is
+/// deleted.
 final class LiveTVTests: XCTestCase {
     func testWhatIsAtTheAddress() async throws {
         let client = try liveClient(MemoryTVCredentials())
@@ -410,6 +485,32 @@ final class LiveTVTests: XCTestCase {
 
     func testWhatIsLeftAfterwards() async throws {
         try await sitting { try await $0.whatIsLeft() }
+    }
+
+    // MARK: - the sitting that changes a reservation
+
+    func testAChangeInPlace() async throws {
+        try await sitting { try await $0.aChangeInPlace() }
+    }
+
+    /// The reservation the owner made with the remote, named by its start (`TV_REMOTE`), and where the owner
+    /// made two, the other's start beside it (`TV_REMOTE_ALSO`): the check tells the two from the rest of the
+    /// list by their starts and their ids, and changes the one at `TV_REMOTE`.
+    func testAChangeOfARowMadeWithTheRemote() async throws {
+        let named = try Self.start("TV_REMOTE"), other = try Self.start("TV_REMOTE_ALSO")
+        try await sitting { try await $0.aChangeOfARowMadeWithTheRemote(startingAt: named, alsoNamed: other) }
+    }
+
+    func testARepeatOnADayWithTwoAtItsTime() async throws {
+        try await sitting { try await $0.aRepeatOnADayWithTwoAtItsTime() }
+    }
+
+    /// The start a variable names, in Japan's time, written as `TV_REMINDER` is (`TVSitting.reminderStart`),
+    /// or nil when it is not set.
+    private static func start(_ name: String) throws -> Date? {
+        try environment(name).map { text in
+            try XCTUnwrap(TVSitting.reminderStart(text), "\(name) is a start in Japan's time, as 2026-11-04 21:00")
+        }
     }
 
     /// Runs one check of the sitting against the television at `TV_HOST`, with the registration in `TV_JAR`,

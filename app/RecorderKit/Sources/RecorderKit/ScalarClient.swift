@@ -439,6 +439,22 @@ public actor ScalarClient {
         return (result as? [[String: Any]])?.first?["annotation"] as? Int
     }
 
+    /// Changes the repeat of a reservation the television holds, in place: `recording.addSchedule` 1.2, the
+    /// version that takes the list's id, sent the row as it was read with the repeat in the television's
+    /// spelling (`TVScheduleRow.changing(to:)`). Never a delete and a create: the programme stays reserved
+    /// throughout. A television sent such a change changed the row, keeping its id and the length of its
+    /// list; sent an id it no longer had, it answered with error 41200 and made nothing. Nothing is sent a
+    /// second time for silence: the first may have arrived.
+    ///
+    /// The answer is read as a create's is (`addSchedule`): the number it says, nil when it says none. What
+    /// became of the row is read from the list afterwards.
+    @discardableResult
+    func changeSchedule(_ row: TVScheduleRow, repeatType: String) async throws -> Int? {
+        let result = try await authenticated("recording", "addSchedule", version: "1.2",
+                                             params: [row.changing(to: repeatType)])
+        return (result as? [[String: Any]])?.first?["annotation"] as? Int
+    }
+
     // MARK: - plumbing
 
     private func call(_ service: String, _ method: String, version: String, params: [Any] = [],

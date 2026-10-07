@@ -1605,3 +1605,394 @@ actor TVSitting {
         }
     }
 }
+
+// MARK: - the sitting that changes a reservation
+
+/// The checks with which the request that changes a reservation the television holds meets a real one, the
+/// owner watching: `addSchedule` in the version that takes the list's id, sent by the app's own client with the
+/// row as the list gave it and a new repeat (`ScalarClient.changeSchedule`). Run by `LiveTVTests` against the
+/// real television and, before that, against the invented one by `TVSittingTests`, by the same code.
+///
+/// Every rule of a check that makes something holds for them, and three more:
+///
+/// - **A change writes nothing in the ledger.** It makes nothing new. A row a check made keeps the entry its
+///   create wrote, which finds the row by its start, and a change keeps the start: a change after which the
+///   list has the row under another start ends the check. The owner's own reservation has no entry at all.
+/// - **A change is sent to no row but the check's own**, and to one more: the reservation the owner made with
+///   the remote for the sitting and named by its start, which is changed and changed back, never deleted, and
+///   left as it was found or the check fails saying so.
+/// - **After a change the list is read once, whatever the answer and after none**, and a recording new in it
+///   ends the check: it may be somebody else's, or the changed row under a new id, so it is left alone, every
+///   entry of the check left open until somebody has looked at the television's own list. After silence
+///   nothing is sent again, and a row of the check's own is taken off as the check ends.
+extension TVSitting {
+    /// What a change came to: the error it was answered with, or none and then the number its answer said;
+    /// and the row the list read after it has under the row's id.
+    private struct Changed {
+        var failure: (any Error)?
+        var annotation: Int?
+        var row: TVScheduleRow?
+
+        var taken: Bool { failure == nil }
+        var answer: String { failure.map(TVSitting.said(_:)) ?? TVSitting.taken(annotation) }
+    }
+
+    /// One change of `row`'s repeat to `repeatType`, the television's spelling of one, sent once by the
+    /// sitting's own client with the row as it is handed in, and then the list, read once whatever the answer
+    /// and after none. What it came to is said under `label`, with what the list then shows of the row
+    /// (`readBack`). The check ends here on a list it cannot account for: a recording new in it; nothing under
+    /// the row's id; the row under another start, which its entry would not find it by. And after silence.
+    private func change(_ row: TVScheduleRow, to repeatType: String, _ label: String) async throws -> Changed {
+        var listed = last
+        if listed == nil { listed = try await list() }
+        let before = Set((listed ?? []).map(\.id))
+        var failure: (any Error)?
+        var annotation: Int?
+        do { annotation = try await client.changeSchedule(row, repeatType: repeatType) } catch { failure = error }
+        let answer = failure.map(Self.said(_:)) ?? Self.taken(annotation)
+        let after: [TVScheduleRow]
+        do {
+            after = try await list()
+        } catch {
+            throw Stopped(what: "\(Self.told(error)) after a change (\(answer)): what it did is not known")
+        }
+        let read = after.first { $0.id == row.id }
+        say(label + answer + "; " + Self.readBack(read, of: row, in: after))
+        let new = after.filter { $0.type == "recording" && !before.contains($0.id) }
+        let silent = (failure as? ScalarError)?.failure == .silent
+        guard new.isEmpty else {
+            keptOpen.formUnion(mine.map(\.entry))
+            throw Stopped(what: "recordings new in the list after a change\(silent ? " that met no answer" : ""):"
+                          + " \(new.count). They may be somebody else's, or the changed row under a new id: they are"
+                          + " left alone, and the check's entries are left in the ledger. Look at the television's"
+                          + " own list")
+        }
+        if silent {
+            throw Stopped(what: "a change met no answer, and nothing is sent again")
+        }
+        guard let read else { throw Stopped(what: "the list after a change has nothing under the row's id") }
+        guard read.startDateTime == row.startDateTime else {
+            throw Stopped(what: "the list after a change has the row under another start")
+        }
+        return Changed(failure: failure, annotation: annotation, row: read)
+    }
+
+    /// What the list read after a change shows of `row`, the row as it was sent, by yes and no and never by
+    /// value but for the repeat: how many recordings it has on the row's channel, of its programme and at its
+    /// start, where a change that made a second row would show two; whether the row under its id is still it
+    /// (`TVScheduleRow.isStill`); the repeat read back; and whether its uri, start, length, programme and
+    /// title are as they were sent, the title held scalar for scalar and never said.
+    static func readBack(_ read: TVScheduleRow?, of row: TVScheduleRow, in listed: [TVScheduleRow]) -> String {
+        let rows = listed.filter { other in
+            other.type == "recording" && other.uri.utf8.elementsEqual(row.uri.utf8) && other.eventId == row.eventId
+                && other.startDateTime == row.startDateTime
+        }
+        let counted = "rows of the programme at its start: \(rows.count)"
+        guard let read else { return counted + "; nothing listed under its id" }
+        func yes(_ value: Bool) -> String { value ? "yes" : "no" }
+        let title = (read.title ?? "").unicodeScalars.elementsEqual((row.title ?? "").unicodeScalars)
+        return counted + "; its id kept: \(yes(row.isStill(read)));"
+            + " repeatType read back: \(read.repeatType ?? "none");"
+            + " as before: uri \(yes(read.uri.utf8.elementsEqual(row.uri.utf8)))"
+            + ", start \(yes(read.startDateTime == row.startDateTime))"
+            + ", length \(yes(read.durationSec == row.durationSec))"
+            + ", programme \(yes(read.eventId == row.eventId)), title \(yes(title))"
+    }
+
+    /// A change in place, by the request the app is to send. One reservation of a weekday's programme from
+    /// four in the morning is made once, in a slot nothing is listed at on any day, as `theRepeats` chooses
+    /// one. It is changed one request at a time, each read back: to its own weekday's code; to the same again,
+    /// the same request a second time; by its name; daily, which is left on the television for `look` seconds
+    /// while the owner reads how its own list words it; Monday to Friday; Monday to Saturday; to the next
+    /// weekday's code, with which a create for another day's programme was refused; and back to once. Each is
+    /// sent with the row as the list last gave it, its title the television's own.
+    ///
+    /// Where the first change is refused, the request the app is to send is not taken as it stands. Two more
+    /// follow, each read back, to say what would be: the same change with the title the create was sent with,
+    /// and with none. The rest is not run, the row is taken off and the check fails: what the app sends is to
+    /// be decided from what was seen before anything is written on it. A refusal is the television's own
+    /// error. Any other answer -- one that cannot be read, an HTTP status -- may come from a change that was
+    /// carried out all the same: the check ends there with no other change sent, and the row is taken off.
+    ///
+    /// Then the row is taken off, and the change is sent once more for the row just deleted, by the path a
+    /// create goes, since it may make what a create would (`changeOfARowGone`). A television that refuses it
+    /// and lists nothing new has made nothing, and its entry is struck out. A row it lists instead is the
+    /// check's own: it is taken off as the check ends, and the check fails.
+    func aChangeInPlace() async throws {
+        try await making {
+            let listed = try await list()
+            let stations = try await stations(of: Self.terrestrial)
+            let (pick, station) = try choose(on: stations, in: listed, everyDay: true) {
+                TVReservationBody.repeatType(for: "w15", start: $0.start) != nil
+            }
+            let own = (1...7).first { TVReservationBody.repeatType(for: "w\($0)", start: pick.start) != nil }
+            guard let own else { throw Refused(why: "the programme chosen has no weekday code") }
+            say("the programme: \(Self.when(pick.start))")
+            let body = try body(pick, on: station)
+            let created = try await create(leave(for: body, "the create: "), of: pick)
+            say("the create: \(created.answer); rows made: \(created.rows.count)")
+            for row in created.rows { say("the row read back: \(Self.held(row, against: body))") }
+            guard created.taken, created.rows.count == 1 else { throw Stopped(what: "the create did not make one row") }
+
+            let weekly = "w\(own)"
+            let first = try await change(created.rows[0], to: weekly, "change 1, \(weekly): ")
+            var row = first.row ?? created.rows[0]
+            guard first.taken else {
+                guard case .rpc? = first.failure as? ScalarError else {
+                    throw Stopped(what: "the first change: \(first.answer)")
+                }
+                var retitled = row
+                retitled.title = Self.title
+                _ = try await change(retitled, to: weekly, "the same with the title the create was sent with: ")
+                retitled.title = ""
+                _ = try await change(retitled, to: weekly, "the same with no title: ")
+                throw Stopped(what: "the first change was refused: the same was sent with the title the create was"
+                              + " sent with and with none, and the rest of the check was not run")
+            }
+            for (index, code) in [weekly, "title", "d", "w15", "w16", "w\(own % 7 + 1)", "1"].enumerated() {
+                let changed = try await change(row, to: code, "change \(index + 2), \(code): ")
+                row = changed.row ?? row
+                if code == "d", changed.taken, look > 0 {
+                    say("  on the television's own list for \(Int(look)) seconds: how is its repeat worded?")
+                    try await Task.sleep(nanoseconds: UInt64(look * 1_000_000_000))
+                }
+            }
+            try await takeOff()
+
+            let gone = try await changeOfARowGone(row, of: pick, on: station)
+            say("the change of the deleted row: \(gone.answer); rows made: \(gone.rows.count)")
+            try await takeOff()
+            guard gone.rows.isEmpty else { throw Stopped(what: "the change of a deleted row made a row") }
+        }
+    }
+
+    /// The change of a row the check has just deleted, sent once by the path a create goes, since it may make
+    /// what a create would: leave from the question first, then the ledger, the request and the list, with
+    /// its answer read as a create's is (`made`). It asks for once, so that whatever it might make records
+    /// once; and what it might make is listed on the row's channel, for its programme, at its start, which is
+    /// what the entry written for it is.
+    private func changeOfARowGone(_ row: TVScheduleRow, of pick: TVPick,
+                                  on station: TVStation) async throws -> Created {
+        let leave = try await leave(for: body(pick, on: station), "the change of the deleted row: ")
+        var listed = last
+        if listed == nil { listed = try await list() }
+        let before = Set((listed ?? []).map(\.id))
+        let entry = try note(pick, repeating: leave.body.repeatType)
+        var failure: (any Error)?
+        var annotation: Int?
+        do {
+            annotation = try await client.changeSchedule(row, repeatType: leave.body.repeatType)
+        } catch {
+            failure = error
+        }
+        let kind = (failure as? ScalarError)?.failure
+        let sending = Sending(a: "a change of a deleted row", the: "the change of the deleted row",
+                              answer: failure.map(Self.said(_:)) ?? Self.taken(annotation),
+                              madeNothing: kind == .alreadyThere, mayBeTaken: failure == nil, silent: kind == .silent,
+                              programme: nil, notItsOwn: "They are on another channel than it was sent for, or it"
+                                  + " was answered as already there and made nothing")
+        let rows = try await made(by: sending, noted: entry, of: pick, before: before)
+        return Created(failure: failure, annotation: annotation, rows: rows)
+    }
+
+    /// The reservation the owner made with the remote for the sitting, changed and changed back: whether one
+    /// the app never made, its fields as the television wrote them, takes the app's change, and, for one made
+    /// by its times, whether a change with no programme id is taken in place. `named` is its start, and
+    /// `other` the start of the second the owner made, where there are two (`theOwnersRow`).
+    ///
+    /// It says whether the row has a programme id, and its repeat. It changes it to its own weekday's code --
+    /// daily, for one that starts before four in the morning, which goes by no weekday -- and reads it back;
+    /// leaves it so for `look` seconds while the owner looks at the television's own list; and changes it back
+    /// to once and reads it back. Not by its name: that is not offered for a reservation made by its times. It
+    /// is never deleted, and is to read as it began: otherwise the check fails, saying which repeat it reads
+    /// with. A change that ends the check on the way may leave it on the new repeat, and the check then says
+    /// which repeat the list last read it with, for the owner to set it back with the remote. A row that does
+    /// not record once is not changed: the owner was asked for one that does, and a change to its own repeat
+    /// would measure nothing.
+    func aChangeOfARowMadeWithTheRemote(startingAt named: Date?, alsoNamed other: Date?) async throws {
+        guard let named else {
+            throw Refused(why: "the sitting was not told which reservation the owner made: its start is given beside"
+                          + " the command")
+        }
+        try await making {
+            let listed = try await list()
+            let row = try theOwnersRow(startingAt: named, alsoNamed: other, in: listed)
+            say("the owner's reservation: \(Self.when(row)); a programme id: \(row.eventId == nil ? "no" : "yes");"
+                + " repeatType \(row.repeatType ?? "none")")
+            guard row.repeatType == "1", let start = RecorderTime.parse(row.startDateTime) else {
+                throw Refused(why: "the owner's reservation does not record once, and is not changed")
+            }
+            let code = (1...7).map { "w\($0)" }.first { TVReservationBody.repeatType(for: $0, start: start) != nil }
+                ?? "d"
+            func setBack(_ stopped: Stopped) -> Stopped {
+                let read = last?.first { $0.id == row.id }
+                let how = read.map { "was last read with repeatType \($0.repeatType ?? "none")" }
+                    ?? "is not in the list as it was last read"
+                return Stopped(what: stopped.what + "; the owner's reservation \(how): it is to be set back with the"
+                               + " remote")
+            }
+            let changed: Changed
+            do {
+                changed = try await change(row, to: code, "the change to \(code): ")
+            } catch let stopped as Stopped {
+                throw setBack(stopped)
+            }
+            if changed.taken, look > 0 {
+                say("  on the television's own list for \(Int(look)) seconds: how is its repeat worded?")
+                try await Task.sleep(nanoseconds: UInt64(look * 1_000_000_000))
+            }
+            if let read = changed.row, read.repeatType != "1" {
+                do {
+                    _ = try await change(read, to: "1", "the change back to 1: ")
+                } catch let stopped as Stopped {
+                    throw setBack(stopped)
+                }
+            }
+            let afterwards = last?.first { $0.id == row.id }
+            guard let afterwards, Self.otherwise(afterwards, than: row).isEmpty else {
+                let fields = afterwards.map { ", and otherwise in: " + Self.otherwise($0, than: row) } ?? ""
+                throw Stopped(what: "the owner's reservation does not read as it began: it reads with repeatType"
+                              + " \(afterwards?.repeatType ?? "none")\(fields). It is to be set back with the remote")
+            }
+        }
+    }
+
+    /// The names of the fields in which `read` is not `row`, each held as it came: the texts scalar for
+    /// scalar, two spellings of one title being equal as strings and not the same bytes. Empty for none.
+    private static func otherwise(_ read: TVScheduleRow, than row: TVScheduleRow) -> String {
+        let fields: [(String, Bool)] = [
+            ("id", read.id == row.id), ("type", read.type == row.type),
+            ("uri", read.uri.utf8.elementsEqual(row.uri.utf8)),
+            ("startDateTime", read.startDateTime == row.startDateTime),
+            ("durationSec", read.durationSec == row.durationSec),
+            ("title", read.title.map { Array($0.unicodeScalars) } == row.title.map { Array($0.unicodeScalars) }),
+            ("channelName", read.channelName.map { Array($0.unicodeScalars) }
+                == row.channelName.map { Array($0.unicodeScalars) }),
+            ("repeatType", read.repeatType == row.repeatType),
+            ("overlapStatus", read.overlapStatus == row.overlapStatus),
+            ("recordingStatus", read.recordingStatus == row.recordingStatus), ("quality", read.quality == row.quality),
+            ("eventId", read.eventId == row.eventId),
+        ]
+        return fields.filter { !$0.1 }.map(\.0).joined(separator: ", ")
+    }
+
+    /// The owner's reservation, as the list has it: the one recording that starts within a minute of the
+    /// start named; the newest recording in the list by the number in its id, since a television's ids only
+    /// grow and the owner made it last -- or, where the owner named two, the two newest are the two named; and
+    /// nothing else in the list at its time of day on any day, twenty hours or more ahead (`isFree`), so that
+    /// a weekly repeat put on it for a while costs nobody a recording. Otherwise the check does not run, with
+    /// nothing sent but the reads: it is never a row found by its title, or one a check picks for itself, and
+    /// it is somebody's reservation.
+    private func theOwnersRow(startingAt named: Date, alsoNamed other: Date?,
+                              in listed: [TVScheduleRow]) throws -> TVScheduleRow {
+        let recordings = listed.filter { $0.type == "recording" }
+        func near(_ start: Date) -> [TVScheduleRow] {
+            recordings.filter { row in
+                RecorderTime.parse(row.startDateTime).map { abs($0.timeIntervalSince(start)) <= 60 } == true
+            }
+        }
+        let found = near(named)
+        guard found.count == 1 else {
+            throw Refused(why: "recordings listed that start within a minute of the start that was named:"
+                          + " \(found.count), where one is looked for")
+        }
+        let row = found[0]
+        var named = [row.id]
+        if let other {
+            let also = near(other)
+            guard also.count == 1, also[0].id != row.id else {
+                throw Refused(why: "recordings listed that start within a minute of the other start that was named:"
+                              + " \(also.count), where one other is looked for")
+            }
+            named.append(also[0].id)
+        }
+        func number(_ row: TVScheduleRow) -> Int { row.id.split(separator: ".").last.flatMap { Int($0) } ?? -1 }
+        let newest = recordings.sorted { number($0) > number($1) }.prefix(named.count).map(\.id)
+        guard Set(newest) == Set(named) else {
+            throw Refused(why: named.count == 1 ? "the recording at the start that was named is not the newest in"
+                          + " the list" : "the recordings at the two starts that were named are not the two newest"
+                          + " in the list")
+        }
+        guard let start = RecorderTime.parse(row.startDateTime),
+              Self.isFree(from: start, to: start.addingTimeInterval(TimeInterval(row.durationSec)),
+                          in: listed.filter { $0.id != row.id }, everyDay: true, now: now()) else {
+            throw Refused(why: "the owner's reservation is less than twenty hours ahead, or something else is listed"
+                          + " within three hours of its time of day on some day")
+        }
+        return row
+    }
+
+    /// A repeat added by a change on a day with two recordings at its time: whether it can cost a recording on
+    /// that later day, whether the list marks it, and whether the question names it. Two programmes that start
+    /// together on two stations, A and B, and one on a third station at that time of day the day before, C,
+    /// are found before anything is made, each in a slot empty on every day. The three are made once, each
+    /// after its question (`leave`), as `threeAtOnce` makes them. The television is asked what C would stop
+    /// from recording every day, and the rows it names are said by role; C is changed to every day only where
+    /// every one of them is the check's own. How the three read then is said by role, C is changed back to
+    /// once, and all three are taken off.
+    func aRepeatOnADayWithTwoAtItsTime() async throws {
+        try await making {
+            let listed = try await list()
+            let stations = try await stations(of: Self.terrestrial)
+            guard let found = twoTogetherAndOneTheDayBefore(on: stations, in: listed) else {
+                throw Refused(why: "no two programmes among the picks start together a day after a third on a third"
+                              + " station, each in a slot empty on every day")
+            }
+            var roles: [String: String] = [:]
+            for (role, programme) in [("A", found.a), ("B", found.b), ("C", found.c)] {
+                let created = try await create(leave(for: body(programme.pick, on: programme.station), "\(role): "),
+                                               of: programme.pick)
+                say("\(role): \(created.answer); rows made: \(created.rows.count)")
+                guard created.taken, created.rows.count == 1 else {
+                    throw Stopped(what: "\(role) did not make one row")
+                }
+                roles[created.rows[0].id] = role
+            }
+            let daily = try body(found.c.pick, on: found.c.station, repeating: "d")
+            let asked = try await ask("getConflictScheduleList") { try await question(daily) }
+            let who = asked.named.map { roles[$0.id] ?? "another \($0.type)" }
+            say("the question for C every day names: \(asked.named.count)"
+                + (who.isEmpty ? "" : " (\(who.joined(separator: ", ")))"))
+            let c = (last ?? []).first { roles[$0.id] == "C" }
+            guard asked.leave != nil, let c else {
+                say("a row that is not the check's own is named, so C is not changed")
+                return try await takeOff()
+            }
+            let changed = try await change(c, to: "d", "C every day: ")
+            let reads = (last ?? []).compactMap { row in
+                roles[row.id].map { "\($0) \(row.overlapStatus ?? "with no overlap status")" }
+            }
+            say("with C every day: \(reads.sorted().joined(separator: ", "))")
+            if let read = changed.row, read.repeatType != "1" {
+                _ = try await change(read, to: "1", "C once again: ")
+            }
+            try await takeOff()
+        }
+    }
+
+    /// Two terrestrial programmes on two stations that start together, and a third on a third station that
+    /// starts at that time of day on the day before: the first such by the start of the two, each of the
+    /// three in a slot empty on every day (`isFree`).
+    private func twoTogetherAndOneTheDayBefore(on stations: [TVStation], in listed: [TVScheduleRow]) -> Three? {
+        let at = now()
+        let programmes = picks.programmes.compactMap { pick -> (pick: TVPick, station: TVStation)? in
+            guard pick.broadcastingType == Self.terrestrial else { return nil }
+            return stations.first { $0.serviceID == pick.serviceID }.map { (pick, $0) }
+        }.sorted { ($0.pick.start, $0.pick.serviceID) < ($1.pick.start, $1.pick.serviceID) }
+        func free(_ pick: TVPick) -> Bool {
+            Self.isFree(from: pick.start, to: pick.end, in: listed, everyDay: true, now: at)
+        }
+        for (index, a) in programmes.enumerated() where free(a.pick) {
+            for b in programmes[(index + 1)...] {
+                guard b.pick.start == a.pick.start else { break }
+                guard b.pick.serviceID != a.pick.serviceID, free(b.pick) else { continue }
+                let c = programmes.first { c in
+                    c.pick.start == a.pick.start.addingTimeInterval(-86_400) && free(c.pick)
+                        && c.pick.serviceID != a.pick.serviceID && c.pick.serviceID != b.pick.serviceID
+                }
+                if let c { return Three(a: a, b: b, c: c) }
+            }
+        }
+        return nil
+    }
+}

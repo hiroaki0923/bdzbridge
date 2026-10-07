@@ -407,6 +407,21 @@ use and on the very programmes they reserve, and the line to the television can 
 rehearsal fails if a check leaves a row, deletes one it did not make, sends a create a second time or without
 the question before it, makes something without leave, or names a programme, a station or a row.
 
+Three more checks are for changing a reservation the television holds, which nothing in the app does yet:
+the request it is to send for that (`ScalarClient.changeSchedule`, `addSchedule` in the version that takes
+the list's id, with the row sent back as the list gave it and only its repeat new) meeting a real one, held
+with the television on. One makes a reservation and changes its repeat a request at a time -- through every
+repeat a sheet offers, the same one twice, and a weekday's code that is not its programme's -- reading each
+back; then it deletes it and sends the change once more for the id just deleted, by the path a create
+goes, which a television was seen to refuse without making anything. One changes, and changes back, a
+reservation the owner made with the remote and named by its start, which it never deletes and which is to
+read as it began. And one adds a daily repeat by a change to a reservation the day before two others at
+its time, to see whether the list marks what that costs on the later day and whether the question names
+it. A change writes nothing in the ledger, since it makes nothing; it is sent to no row but the check's own
+and the one the owner named; and after silence nothing is sent again. They are rehearsed like the others,
+on an invented television that takes a change only as the app writes one: the row as it holds it, scalar
+for scalar, a repeat it takes, and a programme id only on a row that has one.
+
 ## On a real iPhone
 
 **Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer

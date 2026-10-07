@@ -76,6 +76,23 @@ public struct TVScheduleRow: Sendable, Equatable {
          "type": type, "uri": uri]
     }
 
+    /// What `addSchedule` 1.2 is sent to change this reservation's repeat to `repeatType`, the television's
+    /// spelling of one: the row's own id and every value it was read with, each as it was read, but the
+    /// repeat. A television sent a create's values with the id beside them changed the repeat in place, and
+    /// these are the same values as the list gave them -- the start as the string kept, the title in the
+    /// television's own form, an empty one for a row that came with none -- for the reason a delete sends
+    /// them so. The programme id goes only on a row that was read with one: a reservation made by its times
+    /// has none, and an empty one is not what it was read with. Nothing the list alone gives is sent (the
+    /// station's name, the two statuses, the mode), nor anything else the method takes: none of it was ever
+    /// sent to a television.
+    func changing(to repeatType: String) -> [String: Any] {
+        var fields: [String: Any] = ["id": id, "type": type, "uri": uri, "title": title ?? "",
+                                     "startDateTime": startDateTime, "durationSec": durationSec,
+                                     "repeatType": repeatType]
+        if let eventId { fields["eventId"] = eventId }
+        return fields
+    }
+
     /// Whether the television marks the row as sharing its time with others: any status but `notOverlapped`,
     /// one it has never been seen to say included. A row that says nothing is taken for one that is not
     /// marked.
