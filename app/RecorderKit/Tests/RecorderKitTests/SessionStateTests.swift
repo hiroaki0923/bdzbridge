@@ -316,7 +316,7 @@ final class SessionStateTests: XCTestCase {
     }
 
     /// The slot's answer -- a disk, or none -- ends the wait for it, which the recorder answering with a disk
-    /// known begins.
+    /// known begins, and so does a connect begun with a disk known.
     func testTheSlotsAnswerEndsTheWaitTheRecordersAnswerBegins() {
         let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true,
                                 freeMB: 1_000, totalMB: 2_000, registered: "2026-01-02T03:04:05+0900")
@@ -329,6 +329,8 @@ final class SessionStateTests: XCTestCase {
             session.slotAnswered(answer)
             XCTAssertEqual(session.usbDisk, answer)
             XCTAssertFalse(session.usbDiskUnanswered, "the slot answered \(answer?.name ?? "none")")
+            session.beginConnecting()
+            XCTAssertEqual(session.usbDiskUnanswered, answer != nil, "a connect began after \(answer?.name ?? "none")")
         }
     }
 

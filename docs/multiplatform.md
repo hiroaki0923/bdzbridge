@@ -65,11 +65,11 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-47 ファイル、10,787 行（空行とコメントを含み、`Package.swift` を除く）。テストは 21,344 行。
+47 ファイル、10,793 行（空行とコメントを含み、`Package.swift` を除く）。テストは 21,346 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 3,359 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
+| 入出力を持たないロジック | 3,365 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,034 | GuideStore, Sqlite |
 | 非同期の段取り | 5,506 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, TVNoScreen, DemoTV |
 | OS に縛られるもの | 888 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |

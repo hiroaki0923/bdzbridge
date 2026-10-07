@@ -31,9 +31,10 @@ public final class SessionState {
     /// (`RecorderDriver.learnTheSlot`); nil when none is known. Only shown, as `storage` is, and it goes where
     /// `storage` goes.
     public private(set) var usbDisk: RecorderDisk?
-    /// Set while the USB disk known has not been answered by the slot since the recorder last answered: from an
+    /// Set while the USB disk known has not been answered by the slot since the recorder last answered: from the
+    /// start of a connect with a disk known, whose recorder may be coming up from sleep while it is asked; from an
     /// attach that finds the recorder answering with a disk known -- in the session, or kept with the cache --
-    /// before anything waiting is sent, and from an answer of none that keeps the disk, until the slot answers a
+    /// before anything waiting is sent; and from an answer of none that keeps the disk, until the slot answers a
     /// disk or none (`slotAnswered`), or the disk is let go of. Right after a waking the slot answers none with the
     /// disk in it, so while this is set nothing that names the slot is sent on the strength of the disk
     /// (`RecorderDriver.settleTheSlot`, which waits for the slot then and only then). It goes where `usbDisk` goes.
@@ -88,7 +89,12 @@ public final class SessionState {
 
     // MARK: - an attempt
 
-    public func beginConnecting() { connecting = true }
+    /// A connect begins. A disk known is waited for from here: what is sent while the recorder is being asked
+    /// whether it answers goes to a recorder that may be waking, before its attach has read the slot.
+    public func beginConnecting() {
+        connecting = true
+        if usbDisk != nil { usbDiskUnanswered = true }
+    }
     public func endConnecting() { connecting = false }
 
     /// A try is being made, on this network.

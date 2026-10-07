@@ -917,7 +917,8 @@ there, and its own screen calls the slot 後面ＵＳＢ, by its port rather tha
 A disk kept through an answer of none right after a wake is offered as one answered is, as the settings show it:
 the recorder answered the disk seconds after the wake when that was timed, and a picker that waited for the read
 again would turn up under the reader half a minute later. But nothing that names the slot is sent on the strength
-of a disk the slot has not answered since the recorder last answered. That holds from the moment an attach finds
+of a disk the slot has not answered since the recorder last answered. That holds from the start of a connect with
+a disk known in the session, whose recorder may be waking while it is asked, and from the moment an attach finds
 the recorder answering with a disk known -- in the session or kept with the cache -- before it sends what waits,
 through the attach's own read of the slot and the half minute before the read again, and after a read again that
 met silence or a busy recorder and so left the disk kept with nothing more to read; it ends when the slot answers,
@@ -977,8 +978,9 @@ happened included -- with もう一度送る, which waits for the slot afresh an
 and 削除 beside it. Silence while the slot is waited for ends the round there, with nothing written, as silence
 anywhere in a round does; a run given up on while it waits passes the row over. A row on the internal disk is sent
 in that round all the same, the wait the most it is held. With no disk known the slot is not read and the row is
-sent, and the recorder's answer decides. So no row to the slot is passed over unsaid until its programme is over:
-it is sent, turned down by the recorder, or told. The round reads the disk from the cache, which the runs with no
+sent, and the recorder's answer decides. So no row is held back unsaid for its disk: it is sent, turned down by
+the recorder, or told (a row passed over for a busy recorder or an answer with no code is passed over as any row
+is). The round reads the disk from the cache, which the runs with no
 screen have too (`RecorderClient`'s round, opened with the cache to hand), and knows nothing of what the screens
 have read: it reads the slot whatever they know, which is one read more where the disk has been answered already,
 as for もう一度送る while the app is connected. A row off the internal disk that the recorder turns down, by the
