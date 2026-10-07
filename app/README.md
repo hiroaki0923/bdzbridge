@@ -842,8 +842,19 @@ sees nothing else new. An attach reads it after what waits has been sent, so tha
 silent holds back no reservation, and an overnight run that meets silence there stops rather than wait it out
 again for the free space and the guide. Only a disk the recorder has registered counts
 (`RecorderDriver.usbDisk`); a refusal, an answer that cannot be read, and a disk with no registration are all
-no disk. What the slot answers with the disk unplugged, just after a wake, and from a recorder that never
-registered one, has not been seen; it was read once in network standby, and answered as with the recorder on.
+no disk. What the slot answers with the disk unplugged, and from a recorder that never registered one, has not
+been seen; it was read once in network standby, and answered as with the recorder on.
+
+Read once right after a wake, the slot answered as if no disk were registered, with one connected, and
+answered the disk when read again a minute and a half or so later; when in between it changed was not timed.
+The waking attach is the app's common one, so a disk known is not let go of on one answer of none: it stays,
+shown as it was read, and the slot is read once more a minute later (a minute, between the eight seconds and the
+minute and a half seen). Only a second answer of none lets it go; a disk answered, the same or another, is
+taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`), holds back
+nothing, changes nothing when met by silence, and goes with the recorder: another answering, the recorder let
+go of, the app leaving. The disk known is kept with the recorder's cache, so that the first attach after a
+launch has one to keep, and goes where the cache goes. The overnight run never lets it go: none there means no
+USB notice that night.
 
 ### Coming back to the app
 
