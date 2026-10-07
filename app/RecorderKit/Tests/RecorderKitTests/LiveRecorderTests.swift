@@ -260,7 +260,7 @@ extension LiveRecorderTests {
     /// Before the delete it moves the reservation as a reader would from its sheet: to the internal disk, then back
     /// to the USB disk, which is the move not seen before. After each it reads the reservation back -- its disk,
     /// whether it still follows the programme, whether the recorder gave it a new id -- and a move refused prints
-    /// the recorder's code.
+    /// the recorder's code. A move taken and not made ends the moves, saying the move back is not measured.
     ///
     /// It takes a programme at a time no reservation overlaps, so that nothing the recorder already holds can be
     /// found in place of its own or be put in a clash while it lives, and it deletes what it made on any failure.
@@ -308,7 +308,7 @@ extension LiveRecorderTests {
                 if let left = try await mine() { try await client.deleteReservation(id: left.id) }
             } catch {
                 print("may be left on the recorder: the reservation at \(RecorderTime.format(program.start)) on"
-                      + " USBHDD (\(error))")
+                      + " USBHDD (\(Self.code(error)))")
             }
         }
 
@@ -346,7 +346,8 @@ extension LiveRecorderTests {
 
             // Moved as the sheet moves it: the change built from the row as found again, its disk named.
             var current = changed
-            for disk in [RecorderDisk.internalID, RecorderDisk.usbID] {
+            let moves = [RecorderDisk.internalID, RecorderDisk.usbID]
+            for disk in moves {
                 let move = try XCTUnwrap(ReservationRequest(changing: current, quality: "SR", repeating: "none",
                                                             destination: disk))
                 do {
@@ -363,6 +364,14 @@ extension LiveRecorderTests {
                 XCTAssertEqual(moved.destination, disk, "the recorder did not move it to \(disk)")
                 XCTAssertEqual(moved.eventID, program.eventID, "the move to \(disk) stopped it following the programme")
                 current = moved
+                // A move taken and not made leaves the reservation where the next move would take it, which would
+                // then read as that move made.
+                guard moved.destination == disk else {
+                    if disk != moves.last {
+                        print("the move to \(disk) was taken and not made: the move back is not measured")
+                    }
+                    break
+                }
             }
             try await client.deleteReservation(id: current.id)
         } catch {
@@ -508,15 +517,17 @@ extension LiveRecorderTests {
     ///
     /// The first moment lasts seconds, so nothing is sent before the create but the reservations, the terrestrial
     /// channels and the slot, and no guide is fetched. The reservation is five minutes by time tomorrow in the small
-    /// hours on the first terrestrial channel, clear of every reservation. In order: the slot, the create, the
-    /// slot, the clash check with the slot for the same item, the slot, the reservation as listed (its disk, its
-    /// clash), a change of it to the internal disk and one back to the slot (its disk after each, or the code), the
-    /// slot every five seconds until it answers a disk (a minute at most, and not at all once one has answered),
-    /// then the delete and the count of reservations before and after. The create counts as sent while the slot
-    /// answered none only when the reads just before and just after it both did, and the clash check likewise;
-    /// otherwise it says what each side answered. Every line carries the seconds since the recorder answered: its
-    /// wake, or without one the description asked first. It deletes what it made on any failure, and prints no
-    /// title but its own.
+    /// hours on the first terrestrial channel, clear of every reservation and of the time of day of every repeating
+    /// one. In order: the slot, the create, the slot, the clash check with the slot for the same item, the slot,
+    /// the reservation as listed (its disk, its clash), a change of it to the internal disk and one back to the slot
+    /// (its disk after each, or the code), the slot every five seconds until it answers a disk (a minute at most,
+    /// and not at all once one has answered), then the delete and the count of reservations before and after. A
+    /// create taken and not listed is said, and no change is sent; the rest goes on, and a reservation listed by the
+    /// delete is said and deleted. The create counts as sent while the slot answered none only when the reads just
+    /// before and just after it both did, and the clash check likewise; otherwise it says what each side answered.
+    /// Every line carries the seconds since the recorder answered: its wake, or without one the description asked
+    /// first. It deletes what it made on any failure, and prints no title but its own; one of its own left by an
+    /// earlier run is named and left alone.
     func testAReservationToTheSlotAsItAnswersNow() async throws {
         guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
             throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
@@ -543,6 +554,12 @@ extension LiveRecorderTests {
         let start = try XCTUnwrap(Self.fiveFreeMinutes(clearOf: before),
                                   "no five minutes clear of every reservation tomorrow between two and five")
         say("reservations: \(before.count); five minutes by time tomorrow in the small hours, clear of all of them")
+        // One left by a run that was stopped is never this run's to delete, which finds its own by what was not
+        // there before; it is named, so that it is not left on the recorder unknown.
+        for left in before where left.title == Self.ownTitle {
+            say("left by an earlier run: 「\(Self.ownTitle)」 at \(RecorderTime.format(left.start)), not touched here;"
+                + " delete it on the recorder")
+        }
         let request = ReservationRequest(title: Self.ownTitle, start: start, durationSec: 300,
                                          repeatCode: try XCTUnwrap(Codes.repeatCodes["none"]),
                                          broadcastingType: terrestrial, serviceID: channel,
@@ -587,6 +604,7 @@ extension LiveRecorderTests {
 
         let beforeTheCreate = await slot("just before the create")
         var made = false
+        var listed = false
         do {
             try await client.create(request)
             made = true
@@ -611,9 +629,11 @@ extension LiveRecorderTests {
             let afterTheCheck = await slot("just after the clash check")
             counts("the clash check", before: afterTheCreate, after: afterTheCheck)
 
-            if made {
-                let found = try await mine()
-                var current = try XCTUnwrap(found, "the reservation should be in the list")
+            // Taken and not listed is an answer in itself, a reservation that looks made and is not: it is said, and
+            // the changes, which need a row, are not sent; the slot is still read and the reservations still counted.
+            if made, let found = try await mine() {
+                listed = true
+                var current = found
                 say("listed: destination \(current.destination), in a clash \(current.conflict)")
                 for disk in [RecorderDisk.internalID, RecorderDisk.usbID] {
                     let change = try XCTUnwrap(ReservationRequest(changing: current, quality: "LSR", repeating: "none",
@@ -629,6 +649,8 @@ extension LiveRecorderTests {
                         say("the change to \(disk): \(Self.code(error))")
                     }
                 }
+            } else if made {
+                say("the create was taken and the reservation is not in the list: no change is sent")
             }
 
             let polling = ContinuousClock.now
@@ -643,10 +665,13 @@ extension LiveRecorderTests {
                 say("the slot answered no disk within a minute")
             }
 
-            if made {
-                let found = try await mine()
-                let left = try XCTUnwrap(found, "it should still be there to delete")
+            if made, let left = try await mine() {
+                if !listed {
+                    say("listed now: destination \(left.destination), in a clash \(left.conflict)")
+                }
                 try await client.deleteReservation(id: left.id)
+            } else if listed {
+                XCTFail("it should still be there to delete")
             }
         } catch {
             await deleteMine()
@@ -670,7 +695,8 @@ extension LiveRecorderTests {
     ///         swift test --filter LiveRecorderTests/testARecorderRuleToTheUSBDisk
     ///
     /// A refusal prints its code and skips. It deletes what it made on any failure, and prints counts, codes, the
-    /// disk and the qualities, never a condition's name or keywords but its own.
+    /// disk and the qualities, never a condition's name or keywords but its own. A condition on its keyword left by
+    /// an earlier run is named and left alone; stopping the run during the hold leaves its own, and says so first.
     func testARecorderRuleToTheUSBDisk() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RECORDER_WRITE"] == "1" else {
@@ -684,6 +710,13 @@ extension LiveRecorderTests {
         guard before.count < 200 else { throw XCTSkip("more conditions than one read lists") }
 
         let keyword = Self.ownKeyword
+        // One left by a run that was stopped is never this run's to delete, which finds its own by the id answered;
+        // it is named, so that it is not left on the recorder unknown.
+        let leftOver = before.filter { $0.keywords == [keyword] }.count
+        if leftOver > 0 {
+            print("left by an earlier run: \(leftOver) condition(s) on 「\(keyword)」, not touched here; delete them on"
+                  + " the recorder's おまかせ・まる録 screen")
+        }
         let request = RecorderRuleRequest(keywords: [keyword], broadcastingScope: "TRD",
                                           qualityCode: try XCTUnwrap(Codes.quality["LSR"]),
                                           destination: RecorderDisk.usbID)
@@ -718,7 +751,8 @@ extension LiveRecorderTests {
             print("listed: recordDestinationID \(made.destination), quality \(made.qualityName ?? "-"), 4K quality"
                   + " \(made.qualityName4K ?? "-"), under \(made.id == id ? "the id answered" : "another id")")
             if let hold = environment["RECORDER_HOLD"].flatMap({ Int($0) }), hold > 0 {
-                print("holding \(hold) s: the condition is on the recorder's おまかせ・まる録 screen now")
+                print("holding \(hold) s: the condition is on the recorder's おまかせ・まる録 screen now; stopping the run"
+                      + " before the hold is over leaves it there, to be deleted on that screen")
                 try await Task.sleep(for: .seconds(hold))
             }
             let still = try await mine(id)
@@ -741,17 +775,30 @@ extension LiveRecorderTests {
     fileprivate static let ownKeyword = "BDBridge検証USB"
 
     /// Five minutes tomorrow from two in the morning, Japan time, moved on five minutes at a time until no
-    /// reservation overlaps them; nil when none are clear by five.
+    /// reservation overlaps them; nil when none are clear by five. A repeating reservation is listed once, at its
+    /// next time, which is today's when the test runs before the morning: so the five minutes are kept clear of its
+    /// time of day on every day, tomorrow's among them.
     fileprivate static func fiveFreeMinutes(clearOf reservations: [Reservation], now: Date = Date()) -> Date? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = RecorderTime.timeZone
         guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) else {
             return nil
         }
+        let once = Codes.repeatCodes["none"]
+        let day: TimeInterval = 24 * 3600
+        func overlaps(_ reservation: Reservation, _ start: Date, _ end: Date) -> Bool {
+            guard reservation.repeatCode != once else { return reservation.start < end && start < reservation.end }
+            // The time it comes round last at or before `start`, and the one after; Japan keeps no summer time.
+            let last = (start.timeIntervalSince(reservation.start) / day).rounded(.down)
+            return [last, last + 1].contains { days in
+                let shifted = reservation.start.addingTimeInterval(days * day)
+                return shifted < end && start < shifted.addingTimeInterval(TimeInterval(reservation.durationSec))
+            }
+        }
         var start = tomorrow.addingTimeInterval(2 * 3600)
         while start < tomorrow.addingTimeInterval(5 * 3600) {
             let end = start.addingTimeInterval(300)
-            if !reservations.contains(where: { $0.start < end && start < $0.end }) { return start }
+            if !reservations.contains(where: { overlaps($0, start, end) }) { return start }
             start = end
         }
         return nil
