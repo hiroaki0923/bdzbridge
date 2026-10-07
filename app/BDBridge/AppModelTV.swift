@@ -109,6 +109,19 @@ extension AppModel {
 
     // MARK: - adding one
 
+    /// Whether a television the scan found can be tapped to register it: while no television is saved. With
+    /// one saved the rows are listed and cannot be tapped -- a tap would register the saved one again, or be
+    /// refused for another (`registerTV`) -- and another is added after テレビを外す. The demo has none of its
+    /// own, and finds none.
+    var canAddAFoundTelevision: Bool { tv == nil }
+
+    /// Whether a television the scan found is the one saved, which its row says: by the address the saved
+    /// one's link is at, which follows it when it moves.
+    func inUse(_ television: TVSighting) -> Bool {
+        guard let tv else { return false }
+        return RecorderAddress.same(television.host, tv.host)
+    }
+
     /// What was found at an address the reader gave for the television: the package's answer, under the name
     /// the screens know it by.
     typealias TVFound = TVPresence

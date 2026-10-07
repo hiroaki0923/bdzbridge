@@ -40,7 +40,7 @@ struct WelcomeView: View {
                 }
                 Section {
                     Button {
-                        model.scanForRecorders()
+                        model.scanForDevices()
                     } label: {
                         HStack {
                             Spacer()

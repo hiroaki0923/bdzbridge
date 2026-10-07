@@ -98,7 +98,7 @@ struct SettingsScreen: View {
 
                 Section {
                     Button("レコーダーを探す") {
-                        model.scanForRecorders()
+                        model.scanForDevices()
                     }
                     .disabled(model.scanHoldsTheButton || model.busy != nil)
                     // This screen has no activity strip, so a connect held up by the permission is said here

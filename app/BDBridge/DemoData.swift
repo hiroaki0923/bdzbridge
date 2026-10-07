@@ -678,6 +678,20 @@ enum DemoData {
 }
 
 
+/// The demo's devices as its search meets them (`AppModel.scanForDevices`): the invented recorder at its own
+/// address and port, and silence at every other address and port, its own port 80 included. So the search in
+/// the demo sends nothing on the LAN and never raises the system's question about the local network.
+struct DemoDevices: HTTPTransport {
+    let recorder: DemoRecorder
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard RecorderAddress.same(request.url.host() ?? "", DemoData.host), request.url.port == Upnp.port else {
+            throw RecorderError.transport("Nobody here.")
+        }
+        return try await recorder.send(request)
+    }
+}
+
 /// A recorder that is not there: it answers the app's requests out of `DemoData`, and remembers what is done
 /// to it. The remembering is the point: a demo where 録画予約する says yes and the reservation never appears
 /// in the list looks broken. So a reservation made here is added to the list, a changed one is changed, a

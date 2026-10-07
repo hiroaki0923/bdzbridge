@@ -157,18 +157,22 @@ final class AppModel: LinkHost {
     var titlesLoaded = false
     /// Reservations by the programme they follow, so the guide can mark what is already set to record.
     private(set) var reservationsByProgram: [String: Reservation] = [:]
+    /// The recorders the last scan found, in the order they answered.
     var found: [RecorderDescription] = []
+    /// The televisions the last scan found, in the order they answered. A choice of recorder leaves them
+    /// (`adopt`); a press and a change of recorder in play clear them, as they clear `found`.
+    var foundTelevisions: [TVSighting] = []
     var scanning: (done: Int, total: Int)?
     /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
     /// which every screen shows as a failure.
     var scanOutcome: ScanOutcome?
     /// Set while a scan is taken to be held up by local network privacy -- the system's question is on screen,
-    /// or was answered no -- its look through the subnet having been turned away (`scanForRecorders`), so that
+    /// or was answered no -- its look through the subnet having been turned away (`scanForDevices`), so that
     /// the screens can say so and offer the Settings app.
     var scanBlocked = false
-    /// Whether レコーダーを探す is held back, with its small spinner, on every screen that has it: while a scan
-    /// is under way and the notice about the permission is not up. Behind the notice the button is the
-    /// reader's, and a press starts over (`scanForRecorders` ends the scan under way). It is a new local
+    /// Whether レコーダーとテレビを探す is held back, with its small spinner, on every screen that has it: while a
+    /// scan is under way and the notice about the permission is not up. Behind the notice the button is the
+    /// reader's, and a press starts over (`scanForDevices` ends the scan under way). It is a new local
     /// network operation in the foreground, which is what puts the system's question up while the permission
     /// is undecided -- of one turned away in the background, "If, later on, the app performs a local network
     /// operation while in the foreground, the system presents the alert to the user as if this were the first
