@@ -4,8 +4,8 @@ import XCTest
 
 /// A television on a link: attached without being woken, told from another by the MAC it wakes on, asked for a
 /// registration when it has none that works, and given a new cookie when the one in hand is past half its life.
-/// And what is asked of it after the attach, of its driver alone: its reservations read, one deleted, a change
-/// turned down, the list pulled down, what waits sent, a programme reserved, and a waiting row sent again.
+/// And what is asked of it after the attach, of its driver alone: its reservations read, one deleted, one
+/// changed, the list pulled down, what waits sent, a programme reserved, and a waiting row sent again.
 @MainActor
 final class TVDriverTests: XCTestCase {
     /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
@@ -252,10 +252,11 @@ final class TVDriverTests: XCTestCase {
         let television: DemoTV, gate: TVGate, credentials: MemoryTVCredentials
     }
 
-    /// Connected with the cookie the television knows, or with `credentials`.
-    private func attached(with credentials: MemoryTVCredentials? = nil) async -> Bench {
+    /// Connected with the cookie the television knows, or with `credentials`; holding the three, or `holding`.
+    private func attached(with credentials: MemoryTVCredentials? = nil,
+                          holding: [DemoTV.Schedule]? = nil) async -> Bench {
         let television = DemoTV()
-        await television.put([Self.drama, Self.reminder, Self.weather])
+        await television.put(holding ?? [Self.drama, Self.reminder, Self.weather])
         let known = await registered(with: television)
         let (link, driver, world) = makeLink(television, credentials ?? known)
         let gate = TVGate(television)
@@ -375,7 +376,7 @@ final class TVDriverTests: XCTestCase {
     /// A reservation that is not a television's is refused at the door. The recorder's own reservation of the
     /// drama -- the channel, the start and the programme of a row the television lists -- is not looked for
     /// here: the television is sent nothing at all, not the read a cancel begins with, and the line is left as
-    /// it was. A change is refused the same way, without the sentence it has for a television's.
+    /// it was. A change is refused the same way, with no result: there is nothing to say of another's row.
     ///
     /// The door comes before the asking whether the television can be asked. One that cannot -- its cookie
     /// refused at the attach, or given up on after silence -- says why to a cancel of a reservation of its
@@ -390,11 +391,11 @@ final class TVDriverTests: XCTestCase {
         let asked = await bench.gate.asked
 
         let cancelled = await bench.driver.cancel(recorders)
-        let changed = await bench.driver.update(recorders, quality: "DR", repeating: "daily")
+        let changed = await bench.driver.update(recorders, repeating: "daily")
 
         XCTAssertFalse(cancelled.deleted)
         XCTAssertNil(cancelled.list)
-        XCTAssertFalse(changed.changed)
+        XCTAssertNil(changed.altered)
         XCTAssertNil(changed.list)
         expectEqual(await bench.gate.asked, asked, "sent for a reservation that is another device's")
         XCTAssertEqual(bench.world.problem, Self.left)
@@ -637,20 +638,340 @@ final class TVDriverTests: XCTestCase {
         }
     }
 
-    /// Nothing changes a television's reservation yet. Asked to, the driver reads nothing and sends nothing,
-    /// and says so on the line, over what was there: the reader asked for the change.
-    func testAChangeIsNotMadeAndTheLineSaysSo() async throws {
-        let bench = await attached()
+    // MARK: - changing one
+
+    /// A Monday evening in Japan two days or more from now by the real clock, which is the clock a change's
+    /// door reads: a start fixed here would one day have begun, and every change of it would be turned away.
+    private nonisolated static let monday: Date = {
+        // 21:00 in Japan on Monday 2 November 2026. Japan keeps no summer time, so whole weeks on from it are
+        // the same hour of the same weekday there.
+        let aMonday = 1_793_620_800.0, week = 7 * 86_400.0
+        let weeks = ((Date().timeIntervalSince1970 + 2 * 86_400 - aMonday) / week).rounded(.up)
+        return Date(timeIntervalSince1970: aMonday + weeks * week)
+    }()
+    /// What the invented television holds for a change: a recording of a programme, under the title a
+    /// television lists one under, a reminder to watch that programme, and a newer recording made by its
+    /// times an hour later on another station.
+    private nonisolated static let film = DemoTV.Schedule(id: "recording.51", title: DemoTV.title(ofProgramme: 23456),
+                                                          start: monday, eventId: 23456)
+    private nonisolated static let filmReminder = DemoTV.Schedule(id: "reminder.25", type: "reminder",
+                                                                  start: monday.addingTimeInterval(-1), eventId: 23456)
+    private nonisolated static let news = DemoTV.Schedule(id: "recording.52", serviceID: 1032, station: "サンプル放送",
+                                                          title: "サンプル天気", start: monday.addingTimeInterval(3600))
+    private static let change = "addSchedule"
+    /// What a television says of a repeat it is not sent for a programme.
+    private static let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
+
+    /// What a change came to: what it handed back, the line of what went wrong, what the television was sent
+    /// for it in order, and where it left the link.
+    private struct Changed: Equatable {
+        var altered: Altered?
+        /// Each row of the list handed back, by its id and its repeat; nil when none was handed back.
+        var list: [String]?
+        var problem: String?
+        var sent: [String]
+        var connected = true
+        var needsPairing = false
+    }
+
+    /// Changes `held` -- the film as the television lists it, unless said -- to `repeating`, on a television of
+    /// its own holding the film, its reminder and the news, once `arrange` has set up what happens on the way.
+    /// Whatever it came to, no line is left up, and it sent no delete, no create and no question of what a
+    /// reservation would stop from recording: a change is one request, which changes the row in place.
+    private func change(_ held: Reservation? = nil, to repeating: String = "daily",
+                        after arrange: @MainActor (Bench) async -> Void = { _ in }) async throws -> (Changed, Bench) {
+        let bench = await attached(holding: [Self.film, Self.filmReminder, Self.news])
         bench.world.problem = Self.left
-        let asked = await bench.gate.asked
+        await arrange(bench)
+        let before = await bench.gate.asked.count
+        let row = try held ?? XCTUnwrap(Self.film.row.reservation())
 
-        let changed = await bench.driver.update(try held(), quality: "DR", repeating: "daily")
+        let (altered, list) = await bench.driver.update(row, repeating: repeating)
 
-        XCTAssertFalse(changed.changed)
-        XCTAssertNil(changed.list)
-        expectEqual(await bench.gate.asked, asked, "sent for a change that is not made")
-        XCTAssertEqual(bench.world.problem, TVDriver.changesNotYet)
-        XCTAssertNil(bench.world.line)
+        XCTAssertNil(bench.world.line, "a line was left up")
+        let sent = Array(await bench.gate.asked.dropFirst(before))
+        let versions = Array(await bench.gate.versions.dropFirst(before))
+        XCTAssertFalse(sent.contains(Self.delete), "a change sent a delete")
+        XCTAssertFalse(sent.contains(Self.question), "a change asked what a reservation would stop from recording")
+        XCTAssertEqual(versions.filter { $0.hasPrefix(Self.change) },
+                       sent.filter { $0 == Self.change }.map { "\($0) 1.2" }, "a change sent a create")
+        return (Changed(altered: altered, list: list?.map { "\($0.id) \($0.repeatCode)" }, problem: bench.world.problem,
+                        sent: sent, connected: bench.link.session.connected,
+                        needsPairing: bench.driver.facts.needsPairing), bench)
+    }
+
+    /// A change reads the list, sends the row it has just read with the repeat picked, once, and reads the
+    /// list again: the television holds the row under its id, in its place, with the repeat sent and nothing
+    /// else of it changed, and the list handed back shows that. The reads go under the change's line, and the
+    /// line of what went wrong is cleared. Held as it was before the television moved it a quarter of an
+    /// hour and gave it another title, the row sent is the one just read, which the invented television takes
+    /// only as it holds it.
+    func testAChangeIsMadeInPlaceOnTheRowJustRead() async throws {
+        var earlier = Self.film
+        earlier.start -= 900
+        earlier.title = "サンプル劇場（仮）"
+        var changed = Self.film
+        changed.repeatType = "d"
+        let ways = [("as listed", try XCTUnwrap(Self.film.row.reservation())),
+                    ("held from before it was moved and retitled", try XCTUnwrap(earlier.row.reservation()))]
+        for (way, held) in ways {
+            let (outcome, bench) = try await change(held) {
+                await self.noteTheLine(at: Self.change, on: $0)
+                await self.noteTheLine(at: Self.read, on: $0)
+            }
+
+            XCTAssertEqual(outcome, Changed(altered: .done(saying: nil), list: ["recording.52 1", "recording.51 d"],
+                                            problem: nil, sent: [Self.read, Self.change, Self.read]), way)
+            XCTAssertEqual(bench.world.events.suffix(3), Array(repeating: "under \(TVDriver.changingLine)", count: 3),
+                           "\(way): the reads of a change went under a line of their own")
+            expectEqual(await bench.television.schedules, [changed, Self.filmReminder, Self.news], way)
+        }
+    }
+
+    /// What a change comes to with something in its way, each on a television of its own.
+    ///
+    /// A reservation no longer listed, or whose id is now another programme's, is not written to, and the
+    /// read has cleared the line. Silence at the read before sends no change, and is not said to be one that
+    /// may have arrived; silence at the change is, with nothing sent after it and the list read before handed
+    /// back; silence at the read after a change that was answered still counts the change, and the list
+    /// handed back is the one read before with the repeat that was sent. An answer that the list after does
+    /// not bear out -- the old repeat, the row gone or another programme's -- is said as such. A television
+    /// that answers it has no such reservation is read again, and what is said goes by whether the row is
+    /// still listed. A refusal of the television's own is said in its words on the line and in the result,
+    /// and one for the cookie puts down that the registration is wanted. With its disk away the invented
+    /// television refuses the change with an error no real one gives, and changes nothing.
+    func testWhatAChangeComesToWithSomethingInItsWay() async throws {
+        let read = Self.read, change = Self.change
+        let listed = ["recording.52 1", "recording.51 1"], withoutIt = ["recording.52 1"]
+        let noAnswer = ScalarError.transport("no answer").explanation
+        let registration = ScalarError.notRegistered.explanation
+        XCTAssertFalse(noAnswer.contains("届いている"))
+        let another = DemoTV.Schedule(id: "recording.51", title: Self.film.title, start: Self.monday, eventId: 23457)
+        func answer(_ body: String) -> HTTPResponse { HTTPResponse(statusCode: 200, body: Data(body.utf8)) }
+        let taken = answer(#"{"result":[{"annotation":0}],"id":2}"#)
+        func error(_ code: Int) -> String {
+            ScalarError.rpc(method: change, version: "1.2", code: code, message: "").explanation
+        }
+        func refused(_ code: Int) -> HTTPResponse { answer(#"{"error":[\#(code),"refused"],"id":2}"#) }
+        @discardableResult
+        func expect(_ name: String, _ expected: Changed, line: UInt = #line,
+                    after arrange: @MainActor (Bench) async -> Void) async throws -> Bench {
+            let (outcome, bench) = try await self.change(after: arrange)
+            XCTAssertEqual(outcome, expected, name, line: line)
+            return bench
+        }
+
+        try await expect("gone", .init(altered: .notDone(TVDriver.notInList), list: withoutIt, sent: [read])) {
+            await $0.television.put([Self.news])
+        }
+        try await expect("changed", .init(altered: .notDone(TVDriver.listChanged), list: listed, sent: [read])) {
+            await $0.television.put([another, Self.news])
+        }
+        try await expect("silence at the read before", .init(altered: .notDone(noAnswer), list: nil, problem: noAnswer,
+                                                             sent: [read], connected: false)) {
+            await $0.gate.silence(read)
+        }
+        try await expect("silence at the change",
+                         .init(altered: .notDone(TVDriver.mayHaveArrived), list: listed,
+                               problem: TVDriver.mayHaveArrived, sent: [read, change], connected: false)) {
+            await $0.gate.silence(change)
+        }
+        try await expect("silence at the read after",
+                         .init(altered: .done(saying: nil), list: ["recording.52 1", "recording.51 d"],
+                               problem: noAnswer, sent: [read, change, read], connected: false)) { bench in
+            await bench.gate.before(change) { await bench.gate.silence(read) }
+        }
+        try await expect("answered, and the old repeat listed",
+                         .init(altered: .notDone(TVDriver.changeNotReflected), list: listed,
+                               sent: [read, change, read])) {
+            await $0.gate.answer(change, with: taken)
+        }
+        // Neither the repeat it had nor the one sent: the change is borne out only by the repeat that was sent.
+        let elsewhere = { var row = Self.film; row.repeatType = "w15"; return row }()
+        try await expect("answered, and a third repeat listed",
+                         .init(altered: .notDone(TVDriver.changeNotReflected), list: ["recording.52 1", "recording.51 w15"],
+                               sent: [read, change, read])) { bench in
+            await bench.gate.answer(change, with: taken)
+            await bench.gate.before(change) { await bench.television.put([elsewhere, Self.filmReminder, Self.news]) }
+        }
+        try await expect("answered, and the row gone",
+                         .init(altered: .notDone(TVDriver.goneAfterAChange), list: withoutIt,
+                               sent: [read, change, read])) { bench in
+            await bench.gate.answer(change, with: taken)
+            await bench.gate.before(change) { await bench.television.put([Self.news]) }
+        }
+        try await expect("answered, and its id another programme's",
+                         .init(altered: .notDone(TVDriver.goneAfterAChange), list: listed,
+                               sent: [read, change, read])) { bench in
+            await bench.gate.answer(change, with: taken)
+            await bench.gate.before(change) { await bench.television.put([another, Self.news]) }
+        }
+        try await expect("41200, the row gone", .init(altered: .notDone(TVDriver.notInList), list: withoutIt,
+                                                      sent: [read, change, read])) { bench in
+            await bench.gate.before(change) { await bench.television.put([Self.news]) }
+        }
+        try await expect("41200, the row still listed",
+                         .init(altered: .notDone(TVDriver.changeRefused), list: listed, sent: [read, change, read])) {
+            await $0.gate.answer(change, with: refused(41200))
+        }
+        try await expect("41200, and silence at the read after it",
+                         .init(altered: .notDone(noAnswer), list: listed, problem: noAnswer,
+                               sent: [read, change, read], connected: false)) { bench in
+            await bench.gate.before(change) {
+                await bench.television.put([Self.news])
+                await bench.gate.silence(read)
+            }
+        }
+        for code in [7, 40005] {
+            try await expect("error \(code)", .init(altered: .notDone(error(code)), list: listed, problem: error(code),
+                                                    sent: [read, change])) {
+                await $0.gate.answer(change, with: refused(code))
+            }
+        }
+        // The cookie goes bad between the read and the change: handed to the store as the read is on its way.
+        try await expect("403 at the change", .init(altered: .notDone(registration), list: listed,
+                                                    problem: registration, sent: [read, change],
+                                                    needsPairing: true)) { bench in
+            await bench.gate.before(read) { bench.credentials.save(Self.stale) }
+        }
+        let diskAway = try await expect("the invented television's disk away",
+                                         .init(altered: .notDone(error(DemoTV.inventedError)), list: listed,
+                                               problem: error(DemoTV.inventedError), sent: [read, change])) {
+            await $0.television.unmount()
+        }
+        expectEqual(await diskAway.television.schedules, [Self.film, Self.filmReminder, Self.news])
+    }
+
+    /// What a change that was made adds, from the list before it and the list after: the row itself, in the
+    /// create's own sentence, where the list after marks it as losing and the one before did not; each other
+    /// recording that the list after marks and the one before listed unmarked, by its name, in a sentence of
+    /// the change's own; and both, the row first. Nothing for a mark that was there before the change, nor for
+    /// a reminder to watch, which loses no recording. What is added is in the result and not on the line,
+    /// which the read after has cleared.
+    func testAChangeThatWasMadeSaysWhatTheListNowMarksThatItDidNot() async throws {
+        var changed = Self.film, losing = Self.film, losingBefore = Self.film
+        changed.repeatType = "d"
+        losing.repeatType = "d"
+        losing.overlapStatus = "fullyOverlapped"
+        losingBefore.overlapStatus = "fullyOverlapped"
+        var newsMarked = Self.news, reminderMarked = Self.filmReminder
+        newsMarked.overlapStatus = "fullyOverlapped"
+        reminderMarked.overlapStatus = "partlyOverlapped"
+        let title = Self.film.title
+        let itself = "「\(title)」はほかの予約と重なっていて、録画されないことがあります"
+        let others = "「\(title)」の毎回録画を変更したため、「サンプル天気」（サンプル放送 \(said(Self.news.start))）"
+            + "がほかの予約と重なり、録画されないことがあります"
+        let cases: [(name: String, before: [DemoTV.Schedule]?, after: [DemoTV.Schedule], says: String?)] = [
+            ("another recording marked", nil, [changed, Self.filmReminder, newsMarked], others),
+            ("the row itself marked", nil, [losing, Self.filmReminder, Self.news], itself),
+            ("both", nil, [losing, Self.filmReminder, newsMarked], itself + "。" + others),
+            ("another recording marked before", [Self.film, Self.filmReminder, newsMarked],
+             [changed, Self.filmReminder, newsMarked], nil),
+            ("the row itself marked before", [losingBefore, Self.filmReminder, Self.news],
+             [losing, Self.filmReminder, Self.news], nil),
+            ("a reminder marked", nil, [changed, reminderMarked, Self.news], nil),
+        ]
+        for (name, before, after, says) in cases {
+            let (outcome, _) = try await change { bench in
+                if let before { await bench.television.put(before) }
+                await bench.gate.before(Self.change) {
+                    await bench.gate.before(Self.read) { await bench.television.put(after) }
+                }
+            }
+            XCTAssertEqual(outcome.altered, .done(saying: says), name)
+            XCTAssertNil(outcome.problem, name)
+            XCTAssertEqual(outcome.sent, [Self.read, Self.change, Self.read], name)
+        }
+    }
+
+    /// A start as a sentence names a row by it: the month, the day and the time of day in Japan.
+    private func said(_ start: Date) -> String {
+        var japan = Calendar(identifier: .gregorian)
+        japan.timeZone = RecorderTime.timeZone
+        let parts = japan.dateComponents([.month, .day, .hour, .minute], from: start)
+        return String(format: "%d/%d %02d:%02d", parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
+    }
+
+    /// What the door of a change turns away is said in the result: nothing is sent for it, no line goes up,
+    /// no connect is made, and the line of what went wrong stays as an earlier operation left it. With the
+    /// link gone, that the app is not connected. A television that cannot be asked -- its cookie refused at
+    /// the attach, or given up on after silence -- is the registration it wants, or not connected. A row whose
+    /// programme has begun by the start it is held with is turned away before anything is read, though the
+    /// television says nothing of a recording under way; and so is a reservation made by its times.
+    ///
+    /// Then the same rules again on the row as the list just read has it, with no change sent after that read:
+    /// a programme the television has moved earlier, which has begun; one it has moved to the next day, for
+    /// which the weekly code picked is no longer the programme's own; and a repeat no name is known for.
+    func testWhatTheDoorOfAChangeTurnsAwayIsSaidInTheResultAndNothingIsSent() async throws {
+        let held = try XCTUnwrap(Self.film.row.reservation())
+        let holding = [Self.film, Self.filmReminder, Self.news]
+
+        let television = DemoTV()
+        await television.put(holding)
+        let driver: TVDriver
+        weak var link: DeviceLink?
+        do {
+            let (made, itsDriver, _) = makeLink(television, await registered(with: television))
+            await made.connect()
+            XCTAssertTrue(itsDriver.canBeAsked)
+            driver = itsDriver
+            link = made
+        }
+        XCTAssertNil(link, "something still holds the link")
+        let calls = await television.calls
+        let gone = await driver.update(held, repeating: "daily")
+        XCTAssertEqual(gone.altered, .notDone(TVDriver.notConnected), "the link gone")
+        XCTAssertNil(gone.list)
+        expectEqual(await television.calls, calls, "sent by a driver with no link")
+
+        var begun = Self.film
+        begun.start = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down) - 60)
+        let refused = await attached(with: MemoryTVCredentials(Self.stale), holding: holding)
+        let silent = await attached(holding: holding)
+        await silent.television.goSilent()
+        _ = await silent.link.ensureUp(evenIfRecent: true)
+        await silent.television.goSilent(false)
+        let ready = await attached(holding: holding)
+        let unasked: [(name: String, bench: Bench, row: Reservation, why: String)] = [
+            ("its cookie refused", refused, held, ScalarError.notRegistered.explanation),
+            ("given up on", silent, held, TVDriver.notConnected),
+            ("begun by its start, and not recording by its status", ready, try XCTUnwrap(begun.row.reservation()),
+             TVDriver.changeBegun),
+            ("made by its times", ready, try XCTUnwrap(Self.news.row.reservation()), TVDriver.changeByTimesNotYet),
+        ]
+        for (name, bench, row, why) in unasked {
+            XCTAssertFalse(row.recording, name)
+            bench.world.problem = Self.left
+            let asked = await bench.gate.asked, lines = bench.world.begun, tries = bench.link.session.link.tries
+
+            let changed = await bench.driver.update(row, repeating: "daily")
+
+            XCTAssertEqual(changed.altered, .notDone(why), name)
+            XCTAssertNil(changed.list, name)
+            XCTAssertEqual(bench.world.problem, Self.left, "\(name): the door wrote over the line")
+            XCTAssertEqual(bench.world.begun, lines, "\(name): a line went up for nothing sent")
+            XCTAssertEqual(bench.link.session.link.tries, tries, "\(name): a connect was made")
+            expectEqual(await bench.gate.asked, asked, "\(name): sent")
+        }
+
+        var earlier = Self.film, nextDay = Self.film
+        earlier.start = begun.start
+        nextDay.start += 86_400
+        typealias Case = (name: String, listed: DemoTV.Schedule?, row: Reservation, repeating: String, why: String)
+        let afterTheRead: [Case] = [
+            ("moved earlier, and begun", earlier, held, "daily", TVDriver.changeBegun),
+            ("moved to the next day", nextDay, held, "mon", Self.repeatNotTaken),
+            ("a repeat with no name", nil, held, "毎月", Self.repeatNotTaken),
+        ]
+        for (name, listed, row, repeating, why) in afterTheRead {
+            let (outcome, _) = try await change(row, to: repeating) { bench in
+                if let listed { await bench.television.put([listed, Self.filmReminder, Self.news]) }
+            }
+            XCTAssertEqual(outcome.altered, .notDone(why), name)
+            XCTAssertEqual(outcome.sent, [Self.read], name)
+            XCTAssertNil(outcome.problem, "\(name): the door wrote on the line")
+            XCTAssertNotNil(outcome.list, name)
+        }
     }
 
     // MARK: - pulling the list down
@@ -2263,6 +2584,8 @@ final class TVDriverTests: XCTestCase {
 actor TVGate: HTTPTransport {
     private let television: DemoTV
     private(set) var asked: [String] = []
+    /// The same, each with the version it was asked in: what tells a create from a change.
+    private(set) var versions: [String] = []
     private var silenced: Set<String> = []
     private var first: [String: @Sendable () async -> Void] = [:]
     private var answers: [String: HTTPResponse] = [:]
@@ -2284,6 +2607,7 @@ actor TVGate: HTTPTransport {
         let object = (try? JSONSerialization.jsonObject(with: request.body ?? Data())) as? [String: Any]
         let method = object?["method"] as? String ?? ""
         asked.append(method)
+        versions.append("\(method) \(object?["version"] as? String ?? "")")
         await first[method]?()
         if silenced.contains(method) { throw RecorderError.transport("The request timed out.") }
         if let answer = answers[method] { return answer }

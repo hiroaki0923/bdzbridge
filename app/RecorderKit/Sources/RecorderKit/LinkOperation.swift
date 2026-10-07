@@ -51,9 +51,10 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///   is not its to write over. Reserving a programme is one. A waiting row sent again is another: what it
 ///   came to is handed back for the screen the reader asked on, and is nil where there is nothing to say
 ///   of the row -- one that is another device's, which its driver refuses as it refuses a delete of
-///   another's reservation, and one that no longer waits.
+///   another's reservation, and one that no longer waits. Changing a television's reservation is a third
+///   (`Altered`), nil for a row of another device in the same way.
 /// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
-///   until it too hands back a result with a sentence: a delete, a change.
+///   until it too hands back a result with a sentence: a delete.
 /// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
 ///   the list.
 ///
@@ -74,6 +75,18 @@ public enum Reserved: Sendable, Equatable {
     /// With none it goes by itself the next time what waits is sent.
     case waiting(PendingReservation, saying: String)
     /// Not kept, and not known to have been made, and why.
+    case notDone(String)
+}
+
+/// What asking a device to change a reservation it holds came to, for a screen to say: a result with its
+/// sentence, as `Reserved` is, and under the same rule for what its door turns away. A change is made or it is
+/// not, and nothing of it is kept on the phone to go later, so there are two cases and no third.
+public enum Altered: Sendable, Equatable {
+    /// The device holds the reservation as it was asked to. `saying` is what there is to add, in the device's
+    /// own sentence -- reservations the change left marked as losing to others, the changed one itself
+    /// among them -- and nil for nothing.
+    case done(saying: String?)
+    /// Not done, or not known to have been, and why.
     case notDone(String)
 }
 
@@ -114,8 +127,8 @@ public extension Reserved {
 /// What an operation asked of a device is made of, whichever device it is, beside the check before it (`check`)
 /// and what silence leaves behind (`lost`), which are the link's already: the line on the screen while it is
 /// out, and what is said and done about the way it failed. `run` is the four in the order an operation of one
-/// request keeps. One of several requests can be written on the parts themselves; the television's delete,
-/// the one there is, is not yet, and still puts up its own line and says its own silence.
+/// request keeps. One of several requests can be written on the parts themselves, as the television's change
+/// is; the television's delete is not yet, and still puts up its own line and says its own silence.
 extension DeviceLink {
     /// Runs `body` under a line of its own on the host's screen, taken away when it ends; with no text, under
     /// whatever line is up already. `body` is handed the line's token, to say how far it has got, or nil with

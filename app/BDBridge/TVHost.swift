@@ -99,12 +99,16 @@ final class TVHost: LinkHost {
         return deleted
     }
 
-    /// Changes a television's reservation, as far as the driver does yet. Whether it was changed.
-    func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
-        guard let driver else { return false }
-        let (changed, list) = await driver.update(reservation, quality: quality, repeating: repeating)
+    /// Changes the repeat of a television's reservation. What it came to, for whoever asked to say: the result
+    /// is what says it. The list read on the way is kept whatever it came to, since a change that was not made
+    /// has still seen what the television holds now. Nil for a row that is not the television's, which the
+    /// driver refuses with nothing said. From a host the app has let go of nothing is sent, and the answer is
+    /// that the app is not connected, as for a reservation.
+    func update(_ reservation: Reservation, repeating: String) async -> Altered? {
+        guard let driver else { return .notDone(TVDriver.notConnected) }
+        let (altered, list) = await driver.update(reservation, repeating: repeating)
         if let list { keep(list) }
-        return changed
+        return altered
     }
 
     /// Reserves a programme on the television. What it came to, for whoever asked to say: the result is

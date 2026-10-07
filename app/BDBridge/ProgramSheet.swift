@@ -79,8 +79,9 @@ struct ProgramSheet: View {
     /// television does not begin while there is one. As it ends, such a request closes the sheet, or puts
     /// up its own answer and takes `asking` down, and one begun first would do that under the television's:
     /// the sheet gone while the television's answer is still out, or left open to be pressed and closed
-    /// while its round runs. Read by the television's two buttons and by nothing else, and with the
-    /// recorder alone neither is drawn.
+    /// while its round runs. Read by the television's three buttons -- 録画予約する, もう一度送る and the way to
+    /// change its reservation, whose sheet would send a request of its own -- and by nothing else, and with
+    /// the recorder alone none is drawn.
     @State private var others = 0
 
     /// The recorder's reservation of this programme, and the television's, held apart.
@@ -472,14 +473,20 @@ struct ProgramSheet: View {
         model.tv != nil ? DeviceSlot.recorder.label : alone
     }
 
-    /// The television's reservation of this programme, under the television's name: that it is there, and
-    /// the way to delete it. Nothing changes one yet, so there is no way to its own sheet from here. What went
-    /// wrong with the television is said under the button that ran into it, and not at the sheet's foot,
-    /// which is the recorder's.
+    /// The television's reservation of this programme, under the television's name: that it is there, the way
+    /// to its own sheet to change it -- for as long as there is anything to change it to, which is the
+    /// driver's to say (`TVDriver.repeats(changing:)`) -- and the way to delete it. Changing it happens on that
+    /// sheet, as for the recorder's, and the way there is held back while a request of this sheet's own is
+    /// out (`others`), as the television's other buttons here are. What went wrong with the television is said
+    /// under the button that ran into it, and not at the sheet's foot, which is the recorder's.
     private func televisionSection(_ reservation: Reservation) -> some View {
         Section(DeviceSlot.tv.label) {
             LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
             if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+            if !TVDriver.repeats(changing: reservation).isEmpty {
+                Button("予約を変更する") { editing = reservation }
+                    .disabled(others > 0)
+            }
             Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
                 .disabled(model.isBusy(for: .tv))
             if let problem = model.problem(for: .tv) {

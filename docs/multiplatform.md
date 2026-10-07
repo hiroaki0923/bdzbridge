@@ -34,9 +34,11 @@ Android 版はないか、という問い合わせを受けての調査です。
   行の前にその回で 1 度だけ USB HDD を待ち、答えなければ行に理由を書くことを足している。作成の要求だけを持つ機器
   （`ReservationTarget`）は、レコーダー以外の機器を足すための継ぎ目として残る（いま適合するのはテストの機器だけ）。
   テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
-  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧と削除も
-  `TVDriver` の手順で（1 行の読みと、消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文もそこにある。
-  アプリは返ってきた一覧を持ち、予約の行をその機器に振り分けるだけ。テレビに予約を入れるための 3 つの要求
+  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧、変更、削除も
+  `TVDriver` の手順で（1 行の読みと、変える前と消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文も
+  そこにある。変更の結果は文ごと値で返り（`Altered`）、何に、いつまで変えられるかもドライバーが答える
+  （`repeats(changing:)`、`whyNot(changing:)`）。アプリは返ってきた一覧を持ち、予約の行をその機器に振り分ける
+  だけ（変更の入口は、機器によらず `AppModel.change` の 1 つ）。テレビに予約を入れるための 3 つの要求
   （局の一覧、録れなくなる予約の問い合わせ、作成）も `ScalarClient` にあり、送る中身のテレビ側の綴りは
   `TVReservation` にある。送信待ちの 1 件をテレビに送る手順（`QueueTarget` としての `ScalarClient`）も
   そこにある。テレビ宛の送信待ちをいつ送り、送っている間に何を出し、回が止まったときに何を言うかは `TVDriver` の
@@ -65,13 +67,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-47 ファイル、10,793 行（空行とコメントを含み、`Package.swift` を除く）。テストは 21,346 行。
+47 ファイル、10,966 行（空行とコメントを含み、`Package.swift` を除く）。テストは 21,749 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,365 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,034 | GuideStore, Sqlite |
-| 非同期の段取り | 5,506 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, TVNoScreen, DemoTV |
+| 非同期の段取り | 5,679 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, TVNoScreen, DemoTV |
 | OS に縛られるもの | 888 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 888 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -79,10 +81,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（10,534 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（10,628 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 3,037 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と、
+何を取るか）で、AppModel（9 ファイルで 3,057 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と、
 BackgroundWork、Notify、SendWaitingIntent の 3 ファイル（合わせて約 670 行）です。RecorderKit だけを共有する
 案では、どれを選んでもこれは Android で書き直します。
 
@@ -363,6 +365,23 @@ RecorderKit の側に足したのは 4 つです。送り直した行がどう�
 番組だけです。決まりを押さえていたテスト 3 件（RecorderKit に 2 件、アプリに 1 件）は、新しい決まりを
 押さえるように書き直しました。ほかの既存のテストから消えたのは、時計を渡す行だけです。レコーダーだけの
 家では、何も変わりません。
+
+そのあと、テレビの予約を変更できるようにしました（規則は `porting.md` の「テレビの予約を変更する」）。変更の
+要求そのもの（`ScalarClient.changeSchedule`）と、偽のテレビがそれに答えることは、その前の段で足し、実機で
+確かめてあります。RecorderKit の側に足したのは、変更の手順（`TVDriver.update`。一覧を読み、id で行を探し、
+読んだ行にもう一度規則を当て、変更を 1 回送り、一覧を読み直す）と、その結果の型（`Altered`。`Reserved` と
+同じく文ごと値で返し、戸口の規則も同じです）、何に、いつまで変えられるかを答える関数（`repeats(changing:)`、
+`whyNot(changing:)`。戸口と 2 つの画面が同じものを読みます）、変更が付けた重なりの印を言う文
+（`ScalarClient.remark(changing:)`）です。アプリの側に足したのは、機器によらない 1 つの入口（`AppModel.change`。
+レコーダーの行は前の `update` を通り、その答えを `Altered` に読みます）、テレビのホストの入口（返ってきた一覧を
+持つ）、2 つの画面です。`update` はレコーダーだけのものになり、最初の 1 文のほかは変えていません。送信待ちの
+行がテレビの予約を削除するよう言っていた 2 つの理由は、毎回録画を変更するよう言うことにしました。
+レコーダーだけの家では、画面も文も一字も変わりません。アプリの既存のテスト（201 件）のうち、テレビの変更が
+まだ無いことを押さえていた 4 件は、変更を押さえるように書き直し、ほかは本体を変えずに通ります（アプリには
+1 件足しました）。RecorderKit には 6 件足し、変更がまだ無いことを押さえていた 1 件を消しました。既存の
+テストで本体を変えたのは、ほかの機器の行の変更を断るテストの 2 行（新しい呼び方と結果の形）と、2 つの理由の
+文を押さえる 3 件の文です。レコーダーの変更の手順は、まだアプリにあります。ドライバーに移せば、入口の読み替えは
+1 行になります。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と

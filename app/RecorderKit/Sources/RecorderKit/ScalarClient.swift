@@ -585,17 +585,19 @@ extension ScalarClient {
     /// Written on a reservation that asks for a repeat, when the television holds a recording of its
     /// programme once (`TVScheduleRow.fallsShort`). It is not taken for there already: the programmes after
     /// this one would go unreserved with nothing said. Nor can it be made beside the one held, which a
-    /// television answers as held already whatever the repeat, and nothing here changes a television's
-    /// reservation: so the reader is told what would get the repeat made.
+    /// television answers as held already whatever the repeat. So the reader is told what would get the
+    /// repeat made: the repeat of the reservation the television holds changed, which keeps the programme
+    /// reserved throughout, as a delete before the row is sent again would not (`TVDriver.update`). Sent
+    /// again then, the row is found there and not made a second time.
     static let reservedOnceOnly = "テレビにはこの番組の 1 回だけの予約がすでにあります。"
-        + "毎回録画にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        + "毎回録画にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
     /// Written on a reservation that asks for a repeat, when the television holds a repeat of its programme
     /// that takes in some of that repeat's days and not all of them (`TVScheduleRow.fallsShort`): a weekly
     /// one, say, where every day was asked for. It is held as against a programme reserved once, and for
     /// the same reasons: taken for there already, the other days would go unreserved with nothing said.
     /// The sentence is its own, since what the television holds is no reservation for once.
     static let reservedOnFewerDays = "テレビにあるこの番組の予約は、選んだ毎回録画より録画する日が少ない設定です。"
-        + "選んだ設定にするには、テレビの予約を削除してから「もう一度送る」を選んでください。"
+        + "選んだ設定にするには、テレビの予約の毎回録画を変更してから「もう一度送る」を選んでください。"
     /// The codes a television answers a create with that turn the reservation itself down, each with what is
     /// written on the row: asked again, it would be answered the same. Of `addSchedule` alone: the same code
     /// means other things in other methods.
@@ -705,6 +707,37 @@ extension ScalarClient {
         if made.overlaps { sentences.append(madeAndMarked(title)) }
         let recordings = marked.filter { $0.type == "recording" }, others = marked.filter { $0.type != "recording" }
         for rows in [recordings, others] where !rows.isEmpty { sentences.append(leftMarked(title, rows)) }
+        return sentences.isEmpty ? nil : sentences.joined(separator: "。")
+    }
+
+    /// Said when changing the repeat of the reservation titled `title` left other recordings marked that
+    /// were not marked before, as `leftMarked` says it of a create: by their names, and with what the mark may
+    /// cost them. A repeat added by a change was seen to leave a recording on a later day marked
+    /// `fullyOverlapped`, the one that loses.
+    static func leftMarked(changing title: String, _ rows: [TVScheduleRow]) -> String {
+        "「\(title)」の毎回録画を変更したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と"
+            + "重なり、録画されないことがあります"
+    }
+
+    /// What changing the repeat of the reservation titled `title` did to the marks in the list, as a sentence
+    /// for the reader, or nil when it did nothing: read from the list before the change (`before`) and the list
+    /// after it (`after`), where `row` is the row that was changed.
+    ///
+    /// That the row itself is marked as overlapping is said in the create's own sentence, where the list
+    /// after marks it and the one before did not. Then each other recording that the list after marks and
+    /// the one before listed unmarked, by its name. A mark that was there before is not this change's doing,
+    /// and a row new to the list is not either. Not the create's `remark`: a changed row keeps its id, so
+    /// that would say it twice -- as the row made, and as one left marked -- and would say a mark it had
+    /// before. Reminders to watch are left out: a reminder loses no recording, and the list a change reads
+    /// has none.
+    static func remark(changing title: String, row: TVScheduleRow, before: [TVScheduleRow],
+                       after: [TVScheduleRow]) -> String? {
+        let unmarked = Set(before.filter { !$0.overlaps }.map(\.id))
+        let marked = after.filter { $0.type == "recording" && $0.overlaps && unmarked.contains($0.id) }
+        var sentences: [String] = []
+        if marked.contains(where: { $0.id == row.id }) { sentences.append(madeAndMarked(title)) }
+        let others = marked.filter { $0.id != row.id }
+        if !others.isEmpty { sentences.append(leftMarked(changing: title, others)) }
         return sentences.isEmpty ? nil : sentences.joined(separator: "。")
     }
 }
