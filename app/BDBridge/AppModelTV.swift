@@ -83,8 +83,11 @@ extension AppModel {
         tvHost = nil
     }
 
-    /// The LAN as the television's link sees it: requests by the television's transport, and nothing else. It is
-    /// never woken or looked for elsewhere, and the permission is asked about as the recorder's link asks.
+    /// The LAN as the television's link sees it: requests by the television's transport, the permission asked
+    /// about as the recorder's link asks, and a television that moved looked for as the recorder's link looks for
+    /// a recorder -- never in the demo or in the background, and only on a Wi-Fi whose subnet the address saved
+    /// belongs to -- through one session for the whole look that keeps no cookies and follows no redirect, as
+    /// every request to a television does. It is never woken.
     func tvLinkEnvironment() -> LinkEnvironment {
         LinkEnvironment(
             transport: { [weak self] host in self?.surroundings.tvTransport(host) ?? NoTelevision() },
@@ -94,8 +97,14 @@ extension AppModel {
                 guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
                 return await LocalNetwork.access(probing: host) == .blocked
             },
-            hostsNear: { _ in [] },
-            findRecorder: { _, _ in nil })
+            hostsNear: { [weak self] host in
+                guard let self, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else { return [] }
+                return LocalNetwork.hostsToScan(near: host)
+            },
+            findRecorder: { _, _ in nil },
+            findTelevision: { mac, hosts in
+                await TVDiscovery.find(mac: mac, among: hosts, transport: URLSessionTransport.withoutCookies())
+            })
     }
 
     // MARK: - adding one
@@ -125,12 +134,16 @@ extension AppModel {
     /// the client's (`ScalarClient.enrol`). What is the app's is the client id, made once and kept, so that the
     /// PIN goes with the request that asked for it; and, once registered, saving the television and connecting
     /// to it on a link made afresh: an attach still out on the last one, with the last cookie, ends there.
+    ///
+    /// With a television saved, the registration is for that one: another, by the MAC saved with it, is
+    /// refused before anything is asked of it, and what is saved and what waits for the one saved stay as they
+    /// were. Another television takes its place only after テレビを外す, which asks about what waits for it.
     func registerTV(at host: String, pin: String?) async -> TVRegistered {
         let credentials = surroundings.tvCredentials
         let clientID = credentials.load()?.clientID ?? tvClientID ?? "BDBridge:\(UUID().uuidString)"
         tvClientID = clientID
         let client = ScalarClient(host: host, transport: surroundings.tvTransport(host), credentials: credentials)
-        switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin) {
+        switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin, expecting: savedTVMac) {
         case .pinNeeded:
             return .pinNeeded
         case .failed(let why):
@@ -149,6 +162,12 @@ extension AppModel {
             await tv?.connect()
             return .registered
         }
+    }
+
+    /// The MAC saved with the television saved, or nil when none is saved or it gave none.
+    private var savedTVMac: String? {
+        guard let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return nil }
+        return defaults.string(forKey: DefaultsKey.tvMac)
     }
 
     /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play

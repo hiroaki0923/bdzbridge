@@ -31,6 +31,9 @@ public struct LinkEnvironment {
     public var hostsNear: (_ host: String) -> [String]
     /// Looks through `hosts` for the recorder whose UDN ends with `mac`.
     public var findRecorder: (_ mac: String, _ hosts: [String]) async -> RecorderDescription?
+    /// Looks through `hosts` for the television whose MAC is `mac`, and gives its address. Nothing is looked
+    /// for unless it is given: a link with no television to follow has no use for it.
+    public var findTelevision: (_ mac: String, _ hosts: [String]) async -> String?
     /// How long after an attach found the recorder's USB slot answering no disk, while one was known, the slot is
     /// read again: the driver's minute (`RecorderDriver.slotReadAgainAfter`), unless a test, which has no minute
     /// to wait, gives less.
@@ -46,6 +49,7 @@ public struct LinkEnvironment {
                 lanIsBlocked: @escaping (_ host: String) async -> Bool,
                 hostsNear: @escaping (_ host: String) -> [String],
                 findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?,
+                findTelevision: @escaping (_ mac: String, _ hosts: [String]) async -> String? = { _, _ in nil },
                 slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter,
                 slotSettling: SlotSettling = .afterAWaking) {
         self.transport = transport
@@ -54,6 +58,7 @@ public struct LinkEnvironment {
         self.lanIsBlocked = lanIsBlocked
         self.hostsNear = hostsNear
         self.findRecorder = findRecorder
+        self.findTelevision = findTelevision
         self.slotReadAgainAfter = slotReadAgainAfter
         self.slotSettling = slotSettling
     }
@@ -437,8 +442,9 @@ public final class DeviceLink {
             }
             return nil
         case .refused:
-            // On the probe: something answered, so what is wrong is for the request itself to say. After the
-            // waking: it answered only to refuse, which the attach has said already.
+            // On the probe: something answered, so what is wrong is for the request itself to say, or for the
+            // driver, which may send nothing on the strength of it (`TVDriver.check`). After the waking: it
+            // answered only to refuse, which the attach has said already.
             return answeredTheProbe ? nil : .turnedAway
         case .blocked:
             waitForPermission()

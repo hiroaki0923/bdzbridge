@@ -11,10 +11,13 @@ final class LinkWorld: LinkHost {
     var devices: [String: any HTTPTransport] = [:]
     /// Whether local network privacy is what stops the asks.
     var blocked = false
-    /// The addresses the app gives to look through for a recorder that has moved.
+    /// The addresses the app gives to look through for a device that has moved.
     var near: [String] = []
-    /// What a search of them finds.
+    /// What a search of them for a recorder finds. A search for a television is the package's own
+    /// (`TVDiscovery.find`), sent to the devices of the world as a request to each address of `near`.
     var found: RecorderDescription?
+    /// Which network the phone is on: another value is another network.
+    var network = "home"
     /// How long a read of the USB slot left for later waits: a moment, unless a test that ends one before it is
     /// made gives the app's minute. Read as the link is made.
     var slotReadAgainAfter: Duration = .milliseconds(1)
@@ -30,8 +33,8 @@ final class LinkWorld: LinkHost {
 
     var environment: LinkEnvironment {
         LinkEnvironment(
-            transport: { host in self.devices[host] ?? self.nobody },
-            networkSignature: { "home" },
+            transport: { host in self.device(at: host) },
+            networkSignature: { self.network },
             sendPacket: { mac, host in self.events.append("packet \(mac) for \(host)") },
             lanIsBlocked: { host in
                 self.events.append("permission at \(host)")
@@ -42,11 +45,28 @@ final class LinkWorld: LinkHost {
                 self.events.append("search for \(mac)")
                 return self.found
             },
+            findTelevision: { mac, hosts in
+                self.events.append("search for television")
+                return await TVDiscovery.find(mac: mac, among: hosts, transport: Routed(world: self))
+            },
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling)
     }
 
     func put(_ event: String) { events.append(event) }
+
+    /// What answers at `host` now: the device the test put there, or silence.
+    func device(at host: String) -> any HTTPTransport { devices[host] ?? nobody }
+
+    /// What a look round the subnet reaches: each request goes to the device at its own address, as the world
+    /// has it when the request is sent.
+    private struct Routed: HTTPTransport {
+        let world: LinkWorld
+
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+            try await world.device(at: request.url.host ?? "").send(request)
+        }
+    }
 
     /// The packets and the asks of who is there, without the rest.
     var onTheNetwork: [String] {

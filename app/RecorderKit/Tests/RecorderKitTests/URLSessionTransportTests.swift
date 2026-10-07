@@ -48,6 +48,34 @@ final class URLSessionTransportTests: XCTestCase {
         XCTAssertEqual(server.requests, ["POST /sony/system HTTP/1.1"])
     }
 
+    /// A television's session follows no redirect. What answers on port 80 where a television is asked may be a
+    /// router's page that sends the request on, to its https page or a name off the LAN: the answer that would
+    /// send it there is handed back as the answer, and the place it names hears nothing. The same answer through
+    /// the recorder's session, which is left as it was, is followed, which is what shows the test can tell.
+    func testATelevisionsSessionHandsARedirectBackAsTheAnswer() async throws {
+        let elsewhere = try await LoopbackServer(answering: LoopbackServer.answer(
+            status: "200 OK", headers: [], body: "{}"))
+        defer { elsewhere.stop() }
+        let sendsOn = elsewhere.url("/elsewhere").absoluteString
+        let redirecting = try await LoopbackServer(answering: LoopbackServer.answer(
+            status: "302 Found", headers: ["Location: \(sendsOn)"], body: ""))
+        defer { redirecting.stop() }
+
+        let response = try await URLSessionTransport.withoutCookies().send(HTTPRequest(
+            url: redirecting.url("/sony/system"), method: "POST", headers: ["Content-Type": "application/json"],
+            body: Data(#"{"method":"getSystemSupportedFunction"}"#.utf8), timeout: 5))
+
+        XCTAssertEqual(response.statusCode, 302)
+        XCTAssertEqual(response.header("Location"), sendsOn)
+        XCTAssertEqual(redirecting.requests, ["POST /sony/system HTTP/1.1"])
+        XCTAssertEqual(elsewhere.requests, [], "the redirect was followed")
+
+        let followed = try await URLSessionTransport().send(HTTPRequest(url: redirecting.url("/description.xml"),
+                                                                        timeout: 5))
+        XCTAssertEqual(followed.statusCode, 200)
+        XCTAssertEqual(elsewhere.requests, ["GET /elsewhere HTTP/1.1"])
+    }
+
     /// A request that fails in transit is kept as the system's own text for the failure, and a search's tally
     /// reads the system's code back out of that text (`ScanTally`). The wording is the system's, so it is
     /// looked at with the real session: a connection refused on the loopback, where nothing listens on port 9.

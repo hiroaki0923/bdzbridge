@@ -67,7 +67,7 @@ struct RootView: View {
                 .tag("settings")
         }
         .task {
-            welcoming = model.host.isEmpty
+            welcoming = model.welcomes
             await model.start()
         }
         // From the first phase too, not only from changes: a window the system makes again for a process that

@@ -45,6 +45,9 @@ public protocol HTTPTransport: Sendable {
 
 public struct URLSessionTransport: HTTPTransport {
     private let session: URLSession
+    /// Whether an answer that sends the request elsewhere is followed, as `URLSession` follows one by itself,
+    /// or handed back as the answer.
+    private let followsRedirects: Bool
 
     /// The recorder is slow to answer and its files are large, so the session is patient by default.
     public init(session: URLSession? = nil) {
@@ -57,10 +60,21 @@ public struct URLSessionTransport: HTTPTransport {
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             self.session = URLSession(configuration: configuration)
         }
+        followsRedirects = true
+    }
+
+    private init(session: URLSession, followsRedirects: Bool) {
+        self.session = session
+        self.followsRedirects = followsRedirects
     }
 
     /// For a television, whose registration hands out a cookie: the client sends it by hand, and only to the
     /// television it came from, so the session neither keeps a cookie nor sends one of its own accord.
+    ///
+    /// Nor does it follow a redirect: what answers on port 80 at an address the app asks a television at may be
+    /// anything -- a router's page, a printer's -- and such a page sends a request on to its https page or to a
+    /// name off the LAN. The answer that would send it there is the answer, an HTTP status like any other, which
+    /// a television never gives; so nothing goes to an address or a port the app did not choose.
     public static func withoutCookies() -> URLSessionTransport {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -68,11 +82,11 @@ public struct URLSessionTransport: HTTPTransport {
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpCookieStorage = nil
-        return URLSessionTransport(session: URLSession(configuration: configuration))
+        return URLSessionTransport(session: URLSession(configuration: configuration), followsRedirects: false)
     }
 
     /// A request answered with a demand for a password is not sent a second time, as `URLSession` would send
-    /// it: see `ChallengeRefused`.
+    /// it: see `ChallengeRefused`, which also refuses a redirect for a session that follows none.
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method
@@ -81,7 +95,7 @@ public struct URLSessionTransport: HTTPTransport {
         for (name, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
-        let challenge = ChallengeRefused()
+        let challenge = ChallengeRefused(followsRedirects: followsRedirects)
         do {
             let (data, response) = try await session.data(for: urlRequest, delegate: challenge)
             guard let http = response as? HTTPURLResponse else { throw RecorderError.notHTTP }
@@ -124,11 +138,25 @@ public struct URLSessionTransport: HTTPTransport {
 ///
 /// Only what a device asks of the app. A server proving who it is, over TLS, and a proxy on the way that
 /// wants a password, which the system may hold, are left to the system.
+///
+/// The one delegate a request has, so it also answers a redirect: followed, or, for a session that follows
+/// none (`URLSessionTransport.withoutCookies`), refused, which per Apple's page for the method hands back "the
+/// body of the redirect response" with its status, as the request's answer.
 private final class ChallengeRefused: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var kept: HTTPURLResponse?
+    private let followsRedirects: Bool
+
+    init(followsRedirects: Bool) {
+        self.followsRedirects = followsRedirects
+    }
 
     var answer: HTTPURLResponse? { lock.withLock { kept } }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        followsRedirects ? request : nil
+    }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge)
         async -> (URLSession.AuthChallengeDisposition, URLCredential?) {

@@ -244,10 +244,20 @@ public actor ScalarClient {
     /// client id. The MAC is read first, with the short `timeout`: it tells this television from any other
     /// afterwards, and reading it needs no registration, so a television that does not answer is found out
     /// before a PIN is asked for. Never throws: what went wrong is the sentence to show.
-    public func enrol(clientID: String, nickname: String, pin: String?,
+    ///
+    /// `expecting` is the MAC of the television saved, nil when none is. Another television is refused before
+    /// anything is asked to register, by the rule an attach tells a television from another by
+    /// (`SessionState.recognition`): it would not be taken up once registered, and no PIN is to come up on a
+    /// panel for a registration the app then refuses. A television that gives no MAC is taken for the one
+    /// expected, as an attach takes it.
+    public func enrol(clientID: String, nickname: String, pin: String?, expecting: String? = nil,
                       timeout: TimeInterval = 5) async -> TVEnrolment {
         do {
             let mac = try await wakeOnLANAddress(timeout: timeout).flatMap(WakeOnLan.normalise)
+            let expected = expecting.map { WakeOnLan.normalise($0) ?? $0 }
+            guard SessionState.recognition(of: mac ?? "", knownAs: expected) != .another else {
+                return .failed(Self.anotherTelevision)
+            }
             switch try await register(clientID: clientID, nickname: nickname, pin: pin) {
             case .pinNeeded: return .pinNeeded
             case .registered: return .registered(mac: mac)
@@ -263,6 +273,12 @@ public actor ScalarClient {
     /// Said when a registration is turned down because the television shows nothing to read a PIN from.
     public static let screenIsOff = "テレビの画面が消えているため、登録できませんでした。"
         + "テレビの電源を入れて、放送を映してから、もう一度お試しください。"
+
+    /// Said when the television at the address is not the one saved, and nothing was registered. "Answered as
+    /// another" and not "is another": which MAC a television gives on Wi-Fi rather than a cable has not been
+    /// seen, so the one saved may be refused after it moved from the one to the other.
+    public static let anotherTelevision = "このアドレスの機器は、登録してあるテレビとは別のテレビとして応答しました。"
+        + "別のテレビを使うときは、先に「テレビを外す」でいまのテレビを外してください。"
 
     /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
     /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept.
