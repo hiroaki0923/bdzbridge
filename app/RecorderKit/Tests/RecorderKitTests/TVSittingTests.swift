@@ -1934,4 +1934,457 @@ final class TVSittingTests: XCTestCase {
             expectNamesNothing(TVSitting.held(row, against: body))
         }
     }
+
+    // MARK: - the sitting that changes a reservation
+
+    /// What the household has on its television before the sitting that changes a reservation, and is to
+    /// have after every check of it. Each row stands at a time of day outside the slots those checks use, the
+    /// nearest five minutes outside the three hours of one; three are of the very programmes the checks
+    /// reserve, on their stations, at other times, where a check that deleted by programme would take them.
+    /// The last two are the reservations the owner made with the remote for the sitting, the newest in the
+    /// list: one of a programme, and one made by its times.
+    private static let household = [
+        owned("recording.31", on: 2, "サンプル天気", at(4, 0, 35), 1200),
+        owned("recording.33", on: 1, "サンプル劇場 前編", at(5, 2, 25)),
+        owned("recording.34", on: 3, "サンプル紀行", at(3, 9, 35), 1200),
+        owned("recording.36", on: 0, "サンプル体操", at(6, 1), programme: 60102),
+        owned("recording.38", on: 2, "サンプル音楽館 再", at(7, 1, 40), programme: 60105),
+        owned("recording.39", on: 0, "サンプル映画", at(8, 2), 1200, programme: 60106),
+        owned("reminder.35", on: 3, "サンプル落語", at(4, 0, 59, 59), 1800, programme: 60120),
+        owned("recording.46", on: 1, "サンプル料理", at(5, 13), programme: 60201),
+        owned("recording.47", on: 3, "サンプル将棋", at(6, 16, 30)),
+    ]
+
+    /// The starts the owner names the two reservations made with the remote by.
+    private static let remote = at(5, 13), remoteByItsTimes = at(6, 16, 30)
+
+    /// What the checks that change a reservation choose from.
+    private static let changing = TVPicks(programmes: [
+        pick(1501, 60100, at(3, 6)),             // a weekday's from four, and less than twenty hours ahead
+        pick(1502, 60103, at(3, 16)),            // far enough ahead, at the time of day of the owner's two
+        pick(1501, 60102, at(4, 6)),             // the first a change in place can go on
+        pick(1501, 60108, at(5, 20)), pick(1502, 60109, at(5, 20)),   // two together, and none the day before
+        pick(1502, 60110, at(5, 21)),            // the day before the two below, on the station of one of them
+        pick(1503, 60105, at(5, 21)),            // and on a third station
+        pick(1501, 60106, at(6, 21)), pick(1502, 60107, at(6, 21)),
+    ])
+
+    /// The invented television, holding `household` unless a test says otherwise, and a sitting at it that
+    /// chooses from `changing`, with a ledger of its own.
+    private func changeWorld(mayWrite: Bool = true, power: String = "active", faults: [String: Line.Fault] = [:],
+                             owners: [DemoTV.Schedule] = TVSittingTests.household,
+                             now: Date = TVSittingTests.now) async -> World {
+        var world = await self.world(mayWrite: mayWrite, power: power, faults: faults, owners: owners, now: now)
+        let said = world.said
+        world.sitting = TVSitting(client: world.client, line: world.kept, picks: Self.changing, ledger: world.ledger,
+                                  mayWrite: mayWrite, now: { now }, say: { said.add($0) })
+        return world
+    }
+
+    /// Fails if `text` names anything `expectNamesNothing` looks for, or a row, a programme or a title of the
+    /// sitting that changes a reservation.
+    private func expectTheChangeNamesNothing(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        expectNamesNothing(text, file: file, line: line)
+        var kept = Self.household.flatMap { [$0.title, $0.station, $0.uri] }
+        kept += Self.household.compactMap(\.eventId).map { String($0) }
+        kept += Self.changing.programmes.flatMap { [String($0.eventID), DemoTV.title(ofProgramme: $0.eventID)] }
+        for word in Set(kept) where text.contains(word) {
+            XCTFail("\(word) was said", file: file, line: line)
+        }
+    }
+
+    /// What a check sends for one change: the change, and the list after it.
+    private static let changed = ["addSchedule", "getScheduleList"]
+
+    /// What a check that changes a reservation says of one that was taken and read back as it was sent, but
+    /// for its repeat.
+    private static func readBack(_ answer: String, _ repeatType: String) -> String {
+        "\(answer); rows of the programme at its start: 1; its id kept: yes; repeatType read back: \(repeatType);"
+            + " as before: uri yes, start yes, length yes, programme yes, title yes"
+    }
+
+    /// Every check that changes a reservation, in the sitting's order, the count afterwards run after the
+    /// owner's reservations as well as at the end. After each: the television holds the household's rows as
+    /// they were and nothing else, the owner's two included; the ledger has nothing left open; and what went
+    /// to the television is the check's requests, each once, with the question in front of every create and
+    /// of the change of the row just deleted. A change writes nothing in the ledger, and the change of a row
+    /// just deleted writes one before it is sent, as a create does, which is struck out once it is refused and
+    /// the list shows nothing new. Nothing that was said names anything.
+    func testTheChecksOfAChangeLeaveTheInventedTelevisionAsTheyFoundIt() async throws {
+        let world = await changeWorld()
+        let changed = Self.changed
+
+        try await world.sitting.aChangeInPlace()
+        expectEqual(await world.line.sent, Self.opening + Self.made + Array(repeating: changed, count: 8).flatMap { $0 }
+                    + Self.takenOff + Self.made)
+        expectEqual(await world.television.schedules, Self.household, "after the change in place")
+        XCTAssertEqual(try entries(world), ["1501 60102 1", "1501 60102 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectEqual(await world.line.ledgerAtEachCreate,
+                    Array(repeating: "1 entries, the last open", count: 9) + ["2 entries, the last open"])
+
+        for (named, other) in [(Self.remote, Self.remoteByItsTimes), (Self.remoteByItsTimes, Self.remote)] {
+            await world.line.forget()
+            try await world.sitting.aChangeOfARowMadeWithTheRemote(startingAt: named, alsoNamed: other)
+            expectEqual(await world.line.sent, ["getPowerStatus", "getScheduleList"] + changed + changed)
+            expectEqual(await world.television.schedules, Self.household, "after the owner's reservation")
+        }
+        XCTAssertEqual(try entries(world).count, 2, "a change was written in the ledger")
+        await world.line.forget()
+        try await world.sitting.whatIsLeft()
+        expectEqual(await world.line.sent, ["getScheduleList"])
+        XCTAssertEqual(world.said.lines.last, "nothing of the sitting is left")
+
+        await world.line.forget()
+        try await world.sitting.aRepeatOnADayWithTwoAtItsTime()
+        expectEqual(await world.line.sent, Self.opening + Self.made + Self.made + Self.made
+                    + ["getConflictScheduleList"] + changed + changed
+                    + ["deleteSchedule", "deleteSchedule", "deleteSchedule", "getScheduleList"])
+        expectEqual(await world.television.schedules, Self.household, "after the repeat on a day with two")
+        XCTAssertEqual(try entries(world), ["1501 60102 1", "1501 60102 1", "1501 60106 1", "1502 60107 1",
+                                            "1503 60105 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectEqual(Array(await world.line.ledgerAtEachCreate.dropFirst(10)),
+                    Array(repeating: "2 entries, the last not open", count: 4)
+                    + ["3 entries, the last open", "4 entries, the last open"]
+                    + Array(repeating: "5 entries, the last open", count: 3))
+
+        await world.line.forget()
+        try await world.sitting.whatIsLeft()
+        expectEqual(await world.line.sent, ["getScheduleList"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).before, TVLedger.Counts(rows: 9, recordings: 8, overlapped: 0))
+
+        let said = world.said.text
+        expectTheChangeNamesNothing(said)
+        for line in [
+            "the programme: Wednesday 06:00:00", "the create: rows the question names: 0",
+            "the create: taken, annotation 0; rows made: 1",
+            "change 1, w3: " + Self.readBack("taken, annotation 0", "w3"),
+            "change 2, w3: " + Self.readBack("taken, annotation 0", "w3"),
+            "change 3, title: " + Self.readBack("taken, annotation 0", "title"),
+            "change 4, d: " + Self.readBack("taken, annotation 0", "d"),
+            "change 6, w16: " + Self.readBack("taken, annotation 0", "w16"),
+            "change 7, w4: " + Self.readBack("error 7", "w16"),
+            "change 8, 1: " + Self.readBack("taken, annotation 0", "1"),
+            "the change of the deleted row: rows the question names: 0",
+            "the change of the deleted row: error 41200; rows made: 0",
+            "the owner's reservation: Thursday 13:00:00; a programme id: yes; repeatType 1",
+            "the change to w4: " + Self.readBack("taken, annotation 0", "w4"),
+            "the owner's reservation: Friday 16:30:00; a programme id: no; repeatType 1",
+            "the change to w5: " + Self.readBack("taken, annotation 0", "w5"),
+            "the change back to 1: " + Self.readBack("taken, annotation 0", "1"),
+            "A: rows the question names: 0", "C: taken, annotation 0; rows made: 1",
+            "the question for C every day names: 0", "C every day: " + Self.readBack("taken, annotation 0", "d"),
+            "with C every day: A notOverlapped, B notOverlapped, C notOverlapped",
+            "C once again: " + Self.readBack("taken, annotation 0", "1"),
+        ] {
+            XCTAssertTrue(said.components(separatedBy: "\n").contains(line), "not said: \(line)")
+        }
+        let asItWas = "the television's list reads as it did before the check"
+        XCTAssertEqual(said.components(separatedBy: asItWas).count - 1, 4)
+        XCTAssertEqual(world.said.lines.filter { $0 == "nothing of the sitting is left" }.count, 2)
+    }
+
+    /// The checks that change a reservation make nothing and change nothing without leave, beside an entry
+    /// left open, or with the television in standby, as every check that makes something: with no leave
+    /// nothing is sent and the ledger is not touched, beside an entry left open nothing is sent either and the
+    /// check fails, and in standby the one request is the one that asks.
+    func testTheChecksOfAChangeChangeNothingWithoutLeaveOrBesideAnOpenEntryOrInStandby() async throws {
+        let checks: [(String, @Sendable (World) async throws -> Void)] = [
+            ("a change in place", { try await $0.sitting.aChangeInPlace() }),
+            ("the owner's reservation", {
+                try await $0.sitting.aChangeOfARowMadeWithTheRemote(startingAt: TVSittingTests.remote,
+                                                                    alsoNamed: TVSittingTests.remoteByItsTimes)
+            }),
+            ("a repeat on a day with two", { try await $0.sitting.aRepeatOnADayWithTwoAtItsTime() }),
+        ]
+        let unasked = await changeWorld(mayWrite: false), standby = await changeWorld(power: "standby")
+        let behind = await changeWorld()
+        var open = TVLedger()
+        open.entries = [TVLedger.Entry(broadcastingType: 2, serviceID: 1501, eventID: 60102, start: Self.at(4, 6),
+                                       durationSec: 1800, repeatType: "1")]
+        try open.write(to: behind.ledger)
+        for (name, check) in checks {
+            for (world, why) in [(unasked, "writing to the television was not asked for"),
+                                 (standby, "the television says it is standby")] {
+                let refused = await thrown { try await check(world) } as? TVSitting.Refused
+                XCTAssertEqual(refused?.why.hasPrefix(why), true, "\(name): \(refused?.why ?? "it ran")")
+            }
+            let stopped = await thrown { try await check(behind) } as? TVSitting.Stopped
+            XCTAssertEqual(stopped?.what.hasPrefix("entries of the ledger not struck out: 1."), true, name)
+        }
+        expectEqual(await unasked.line.sent, [])
+        expectEqual(await behind.line.sent, [])
+        expectEqual(await standby.line.sent, ["getPowerStatus", "getPowerStatus", "getPowerStatus"])
+        for world in [unasked, standby, behind] {
+            expectEqual(await world.television.schedules, Self.household)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unasked.ledger.path))
+        XCTAssertEqual(try TVLedger.read(behind.ledger), open)
+    }
+
+    /// After silence at a change nothing is sent again: the list is read, once, the check ends, and a row of
+    /// its own is taken off as it does, its entry struck out with its delete. So whether the change arrived
+    /// or not, in the change in place and in the repeat on a day with two, where the three are taken off. The
+    /// owner's reservation is never deleted: a change to it that met no answer is the last thing sent to it,
+    /// and the check fails, saying how it reads, for the owner to set it back with the remote. And the change
+    /// of a row just deleted is sent as a create is: after silence at it, with nothing in the list, its entry
+    /// is left open and the next check makes nothing.
+    func testAfterSilenceAtAChangeNothingIsSentAgain() async throws {
+        let silence = "a change met no answer, and nothing is sent again"
+        for fault in [Line.Fault.neverArrives, .answerLost] {
+            let world = await changeWorld(faults: ["addSchedule 3": fault])
+            let stopped = await thrown { try await world.sitting.aChangeInPlace() } as? TVSitting.Stopped
+            XCTAssertEqual(stopped?.what, silence, "\(fault)")
+            expectEqual(await world.line.sent, Self.opening + Self.made + Self.changed + Self.changed + Self.changed
+                        + Self.takenOff, "\(fault)")
+            expectEqual(await world.television.schedules, Self.household, "\(fault)")
+            XCTAssertEqual(try entries(world), ["1501 60102 1"], "\(fault)")
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 0, "\(fault)")
+            XCTAssertTrue(world.said.lines.contains { $0.hasPrefix("change 3, title: no answer; ") }, "\(fault)")
+            expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+
+            let three = await changeWorld(faults: ["addSchedule 3": fault])
+            let ended = await thrown { try await three.sitting.aRepeatOnADayWithTwoAtItsTime() } as? TVSitting.Stopped
+            XCTAssertEqual(ended?.what, silence, "\(fault)")
+            expectEqual(await count("addSchedule", in: three), 4, "\(fault)")
+            expectEqual(await three.line.sent.suffix(6), ["addSchedule", "getScheduleList", "deleteSchedule",
+                                                          "deleteSchedule", "deleteSchedule", "getScheduleList"])
+            expectEqual(await three.television.schedules, Self.household, "\(fault)")
+            XCTAssertEqual(try TVLedger.read(three.ledger).open, 0, "\(fault)")
+        }
+
+        let owners = await changeWorld(faults: ["addSchedule 0": .answerLost])
+        let stopped = await thrown {
+            try await owners.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
+                                                                   alsoNamed: Self.remoteByItsTimes)
+        } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, silence + "; and the list does not read as it did before the check: rows then 9,"
+                       + " now 9, of those gone or read otherwise 1")
+        expectEqual(await owners.line.sent, ["getPowerStatus", "getScheduleList"] + Self.changed)
+        var changedByIt = Self.household
+        changedByIt[7].repeatType = "w4"
+        expectEqual(await owners.television.schedules, changedByIt, "the owner's reservation was deleted")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: owners.ledger.path))
+        expectTheChangeNamesNothing((stopped?.what ?? "") + owners.said.text)
+
+        let gone = await changeWorld(faults: ["addSchedule 9": .neverArrives])
+        let unknown = await thrown { try await gone.sitting.aChangeInPlace() } as? TVSitting.Stopped
+        XCTAssertEqual(unknown?.what, "a change of a deleted row met no answer, and nothing is sent again; rows it"
+                       + " made: 0. The television may yet carry it out: its entry is left in the ledger")
+        expectEqual(await gone.line.sent.suffix(4), ["getScheduleList"] + Self.made)
+        expectEqual(await count("addSchedule", in: gone), 10)
+        XCTAssertEqual(try TVLedger.read(gone.ledger).open, 1)
+        await gone.line.forget()
+        let next = await thrown {
+            try await gone.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
+                                                                 alsoNamed: Self.remoteByItsTimes)
+        } as? TVSitting.Stopped
+        XCTAssertEqual(next?.what.hasPrefix("entries of the ledger not struck out: 1."), true)
+        expectEqual(await gone.line.sent, [])
+    }
+
+    /// Where the first change is refused, the request the app is to send is not taken as it stands: the same
+    /// change follows with the title the create was sent with, and then with none, each read back, and nothing
+    /// more. The row is taken off and the check fails, saying so.
+    func testWhereTheFirstChangeIsRefusedTwoMoreAreSentAndTheRestIsNot() async throws {
+        let refusal = #"{"error":[\#(DemoTV.inventedError),"refused"],"id":1}"#
+        let world = await changeWorld(faults: ["addSchedule 1": .answered(refusal)])
+
+        let stopped = await thrown { try await world.sitting.aChangeInPlace() } as? TVSitting.Stopped
+
+        XCTAssertEqual(stopped?.what, "the first change was refused: the same was sent with the title the create was"
+                       + " sent with and with none, and the rest of the check was not run")
+        expectEqual(await world.line.sent, Self.opening + Self.made + Self.changed + Self.changed + Self.changed
+                    + Self.takenOff)
+        let titles = await world.television.bodies.compactMap { body -> String? in
+            let object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+            guard object?["version"] as? String == "1.2" else { return nil }
+            return ((object?["params"] as? [[String: Any]])?.first?["title"] as? String)
+        }
+        // The first was refused on the line and never reached the television, which keeps the two after it.
+        XCTAssertEqual(titles, [TVSitting.title, ""])
+        let refused = Self.readBack("error \(DemoTV.inventedError)", "1").dropLast(3) + "no"
+        for line in ["the same with the title the create was sent with: ", "the same with no title: "] {
+            XCTAssertTrue(world.said.lines.contains(line + refused), line)
+        }
+        expectEqual(await world.television.schedules, Self.household)
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+    }
+
+    /// The change of a row just deleted is sent as a create is, its entry in the ledger first. A row the
+    /// television lists after it -- here one set at that moment on the row's own station, for its programme
+    /// and at its start, while the change itself is refused -- is the check's own: it is taken off as the
+    /// check ends, the entry struck out once it is seen gone, and the check fails, since a row was made where
+    /// none was to be. One answered as taken with nothing new in the list leaves its entry open.
+    func testTheChangeOfARowJustDeletedIsSentAsACreateIs() async throws {
+        let made = Self.owned("recording.60", on: 0, DemoTV.title(ofProgramme: 60102), Self.at(4, 6), programme: 60102)
+        let world = await changeWorld(faults: ["addSchedule 9": .afterTheHouseholdSets(made)])
+        let stopped = await thrown { try await world.sitting.aChangeInPlace() } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, "the change of a deleted row made a row")
+        expectEqual(await world.line.sent.suffix(5), Self.made + Self.takenOff)
+        XCTAssertTrue(world.said.lines.contains("the change of the deleted row: error 41200; rows made: 1"))
+        expectEqual(await world.television.schedules, Self.household)
+        XCTAssertEqual(try entries(world), ["1501 60102 1", "1501 60102 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+
+        let taken = #"{"result":[{"annotation":0}],"id":1}"#
+        let answered = await changeWorld(faults: ["addSchedule 9": .answered(taken)])
+        let unseen = await thrown { try await answered.sitting.aChangeInPlace() } as? TVSitting.Stopped
+        XCTAssertEqual(unseen?.what, "a change of a deleted row (taken, annotation 0) shows nothing new in the list:"
+                       + " its entry is left in the ledger")
+        XCTAssertEqual(try TVLedger.read(answered.ledger).open, 1)
+        expectEqual(await answered.television.schedules, Self.household)
+    }
+
+    /// The owner's reservation is changed only where it is the one named: the one recording within a minute
+    /// of the start named, the newest in the list by its id -- or, with two named, the two newest are the two
+    /// named -- twenty hours or more ahead, with nothing else listed at its time of day on any day, and set to
+    /// record once. Otherwise the check does not run: nothing is sent but the reads, nothing is changed and
+    /// nothing written down. With no start named nothing is sent at all. A minute off is still the one named,
+    /// and with the owner's one reservation alone it is the newest.
+    func testTheOwnersReservationIsChangedOnlyWhereItIsTheOneNamed() async throws {
+        let notOnce = Self.household.map { row in
+            guard row.id == "recording.46" else { return row }
+            var weekly = row
+            weekly.repeatType = "w4"
+            return weekly
+        }
+        let twin = Self.owned("recording.45", on: 0, "サンプル名画座", Self.at(5, 13, 0, 30))
+        let newer = Self.owned("recording.48", on: 0, "サンプル名画座", Self.at(7, 1, 10), 1200)
+        let beside = Self.owned("recording.41", on: 4, "サンプル名画座", Self.at(8, 15))
+        let one = "recordings listed that start within a minute of the start that was named:"
+        let cases: [(String, [DemoTV.Schedule], Date, Date?, Date, String)] = [
+            ("none at the start named", Self.household, Self.at(5, 14), Self.remoteByItsTimes, Self.now, one + " 0"),
+            ("a minute and a second off", Self.household, Self.at(5, 13, 1, 1), Self.remoteByItsTimes, Self.now,
+             one + " 0"),
+            ("two within a minute", Self.household + [twin], Self.remote, Self.remoteByItsTimes, Self.now, one + " 2"),
+            ("the other named not there", Self.household, Self.remote, Self.at(7, 9), Self.now,
+             "recordings listed that start within a minute of the other start that was named: 0"),
+            ("not the newest", Self.household, Self.remote, nil, Self.now,
+             "the recording at the start that was named is not the newest in the list"),
+            ("the two named not the two newest", Self.household + [newer], Self.remote, Self.remoteByItsTimes,
+             Self.now, "the recordings at the two starts that were named are not the two newest in the list"),
+            ("something else at its time of day", Self.household + [beside], Self.remote, Self.remoteByItsTimes,
+             Self.now, "the owner's reservation is less than twenty hours ahead, or something else is listed"),
+            ("a second less than twenty hours ahead", Self.household, Self.remote, Self.remoteByItsTimes,
+             Self.at(4, 17, 0, 1), "the owner's reservation is less than twenty hours ahead"),
+            ("not set to record once", notOnce, Self.remote, Self.remoteByItsTimes, Self.now,
+             "the owner's reservation does not record once"),
+        ]
+        for (name, owners, named, other, now, why) in cases {
+            let world = await changeWorld(owners: owners, now: now)
+            let refused = await thrown {
+                try await world.sitting.aChangeOfARowMadeWithTheRemote(startingAt: named, alsoNamed: other)
+            } as? TVSitting.Refused
+            XCTAssertEqual(refused?.why.hasPrefix(why), true, "\(name): \(refused?.why ?? "it ran")")
+            expectEqual(await world.line.sent, ["getPowerStatus", "getScheduleList"], name)
+            expectEqual(await world.television.schedules, owners, name)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path), name)
+            expectTheChangeNamesNothing((refused?.why ?? "") + world.said.text)
+        }
+
+        let unnamed = await changeWorld()
+        let refused = await thrown {
+            try await unnamed.sitting.aChangeOfARowMadeWithTheRemote(startingAt: nil, alsoNamed: nil)
+        } as? TVSitting.Refused
+        XCTAssertEqual(refused?.why.hasPrefix("the sitting was not told which reservation the owner made"), true)
+        expectEqual(await unnamed.line.sent, [])
+
+        let alone = Self.household.filter { $0.id != "recording.47" }
+        for (name, named) in [("a minute off", Self.at(5, 12, 59)), ("alone", Self.remote)] {
+            let world = await changeWorld(owners: alone)
+            try await world.sitting.aChangeOfARowMadeWithTheRemote(startingAt: named, alsoNamed: nil)
+            expectEqual(await count("addSchedule", in: world), 2, name)
+            expectEqual(await world.television.schedules, alone, name)
+        }
+    }
+
+    /// The owner's reservation is to read as it began. Where the change back is refused, it reads with the
+    /// weekly code, and the check fails saying so, with nothing more sent and nothing deleted: the owner sets
+    /// it back with the remote. Where the change itself is refused, nothing is sent to change it back, and the
+    /// check passes with the reservation as it was.
+    func testTheOwnersReservationThatDoesNotReadAsItBeganFailsTheCheck() async throws {
+        let refusal = #"{"error":[\#(DemoTV.inventedError),"refused"],"id":1}"#
+        let back = await changeWorld(faults: ["addSchedule 1": .answered(refusal)])
+        let stopped = await thrown {
+            try await back.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
+                                                                 alsoNamed: Self.remoteByItsTimes)
+        } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what, "the owner's reservation does not read as it began: it reads with repeatType w4,"
+                       + " and otherwise in: repeatType. It is to be set back with the remote; and the list does not"
+                       + " read as it did before the check: rows then 9, now 9, of those gone or read otherwise 1")
+        expectEqual(await back.line.sent, ["getPowerStatus", "getScheduleList"] + Self.changed + Self.changed)
+        expectEqual(await count("deleteSchedule", in: back), 0)
+        expectEqual(await back.television.schedules.map(\.repeatType),
+                    Self.household.map { $0.id == "recording.46" ? "w4" : "1" })
+        expectTheChangeNamesNothing((stopped?.what ?? "") + back.said.text)
+
+        let refused = await changeWorld(faults: ["addSchedule 0": .answered(refusal)])
+        try await refused.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
+                                                                alsoNamed: Self.remoteByItsTimes)
+        expectEqual(await refused.line.sent, ["getPowerStatus", "getScheduleList"] + Self.changed)
+        XCTAssertTrue(refused.said.lines.contains("the change to w4: " + Self.readBack("error \(DemoTV.inventedError)",
+                                                                                         "1")))
+        expectEqual(await refused.television.schedules, Self.household)
+    }
+
+    /// C is changed to every day only where every row the question for it names is the check's own. Where the
+    /// question names a reservation of the household's, that is said by its type, nothing is changed, and the
+    /// three are taken off; where it names C itself, which is the check's own, C is changed.
+    func testCIsChangedOnlyWhereEveryRowTheQuestionNamesIsTheChecksOwn() async throws {
+        let theirs = await changeWorld(faults: ["getConflictScheduleList 3": try naming(Self.household[1])])
+        try await theirs.sitting.aRepeatOnADayWithTwoAtItsTime()
+        expectEqual(await theirs.line.sent, Self.opening + Self.made + Self.made + Self.made
+                    + ["getConflictScheduleList", "deleteSchedule", "deleteSchedule", "deleteSchedule",
+                       "getScheduleList"])
+        XCTAssertTrue(theirs.said.lines.contains("the question for C every day names: 1 (another recording)"))
+        XCTAssertTrue(theirs.said.lines.contains("a row that is not the check's own is named, so C is not changed"))
+
+        let c = Self.owned("recording.50", on: 2, DemoTV.title(ofProgramme: 60105), Self.at(5, 21), programme: 60105)
+        let itself = await changeWorld(faults: ["getConflictScheduleList 3": try naming(c)])
+        try await itself.sitting.aRepeatOnADayWithTwoAtItsTime()
+        expectEqual(await count("addSchedule", in: itself), 5)
+        XCTAssertTrue(itself.said.lines.contains("the question for C every day names: 1 (C)"))
+
+        for world in [theirs, itself] {
+            expectEqual(await world.television.schedules, Self.household)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+            expectTheChangeNamesNothing(world.said.text)
+        }
+    }
+
+    /// A change makes nothing, and the list read after it is to show the row under its id at its start and
+    /// nothing new. A recording somebody sets meanwhile on another station is not the check's: it is left
+    /// where it is, the check's own row is taken off, and its entry stays open, so that nothing goes on until
+    /// somebody has looked. A row the list has under another start after a change, which its entry would not
+    /// find it by, ends the check as well, and so does one the list no longer has under its id, whose delete
+    /// is then refused and whose entry stays open.
+    func testAChangeAfterWhichTheListReadsOtherwiseEndsTheCheck() async throws {
+        let set = Self.owned("recording.70", on: 3, "サンプル名画座", Self.at(7, 1, 10), 1200, programme: 60121)
+        let moved = Self.owned("recording.48", on: 0, DemoTV.title(ofProgramme: 60102), Self.at(4, 6, 5),
+                               programme: 60102)
+        let cases: [(String, Line.Fault, String, [DemoTV.Schedule], Int)] = [
+            ("a recording set meanwhile", .afterTheHouseholdSets(set),
+             "recordings new in the list after a change: 1. A change makes nothing, so they are not the check's and"
+                + " are left alone, and its entries are left in the ledger; and "
+                + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1), [set], 1),
+            ("the row under another start", .afterWhatIsUnderItsIDBecomes(moved),
+             "the list after a change has the row under another start", [], 0),
+            ("the row gone from under its id", .afterTheHouseholdTakesOff("recording.48"),
+             "the list after a change has nothing under the row's id; and "
+                + Self.afterTheDeletes(unanswered: 1, left: 0, new: 0), [], 1),
+        ]
+        for (name, fault, what, left, open) in cases {
+            let world = await changeWorld(faults: ["addSchedule 1": fault])
+            let stopped = await thrown { try await world.sitting.aChangeInPlace() } as? TVSitting.Stopped
+            XCTAssertEqual(stopped?.what, what, name)
+            expectEqual(await world.line.sent, Self.opening + Self.made + Self.changed + Self.takenOff, name)
+            expectEqual(await world.television.schedules, Self.household + left, name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, open, name)
+            expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+        }
+    }
 }
