@@ -208,7 +208,8 @@ struct SearchScreen: View {
                     ReservationRowView(reservation: reservation,
                                        channel: model.channelName(for: reservation),
                                        logo: model.logo(for: reservation),
-                                       device: model.tv != nil ? reservation.device.label : nil)
+                                       device: model.tv != nil ? reservation.device.label : nil,
+                                       disk: model.diskShown(reservation))
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)

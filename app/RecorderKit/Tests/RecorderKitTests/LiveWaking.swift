@@ -15,10 +15,13 @@ enum LiveWaking {
         var description: String
     }
 
-    static func wakeTheRecorderIfAsked() async throws {
+    /// Hands back when the recorder answered after the packet, for a test that times what it reads from there;
+    /// nil when nothing was sent.
+    @discardableResult
+    static func wakeTheRecorderIfAsked() async throws -> ContinuousClock.Instant? {
         let environment = ProcessInfo.processInfo.environment
         guard let mac = environment["RECORDER_MAC"], !mac.isEmpty,
-              let host = environment["RECORDER_HOST"], !host.isEmpty else { return }
+              let host = environment["RECORDER_HOST"], !host.isEmpty else { return nil }
         guard WakeOnLan.normalise(mac) != nil else { throw Failure(description: "RECORDER_MAC is not a MAC address") }
         let addresses = WakeOnLan.addresses(forRecorderAt: host)
         let began = ContinuousClock.now
@@ -28,10 +31,12 @@ enum LiveWaking {
         // As long as the overnight run waits for it, which is a minute.
         let outcome = await Waking.waitForAnswer(from: RecorderClient(host: host), limit: Waking.backgroundLimit,
                                                  resend: { _ = WakeOnLan.wake(mac, addresses: addresses) })
-        let took = String(format: "%.2f s", (ContinuousClock.now - began) / .seconds(1))
+        let answered = ContinuousClock.now
+        let took = String(format: "%.2f s", (answered - began) / .seconds(1))
         guard outcome == .answered else {
             throw Failure(description: "no answer \(took) after the magic packet (\(outcome))")
         }
         print("woken: the recorder answered \(took) after the magic packet")
+        return answered
     }
 }

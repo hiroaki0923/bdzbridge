@@ -12,7 +12,10 @@ import SwiftUI
 /// (`TVDriver`). The television is asked nothing until the reader reserves, and what that came to is said
 /// in the one alert, a case of the result to a case of it (`say`).
 ///
-/// With the recorder alone none of that is drawn, and the sheet is the one it has always been.
+/// With the recorder alone none of that is drawn, and the sheet is the one it has always been. So with the
+/// recorder's disk: a new reservation on the recorder says which disk it records to (録画先) only while a USB
+/// disk that takes recordings is known, and a reservation or a row that waits names its disk only off the
+/// internal one.
 struct ProgramSheet: View {
     let program: GuideProgramRow
     @Environment(AppModel.self) private var model
@@ -27,8 +30,10 @@ struct ProgramSheet: View {
     /// never happen at once. Reporting is here because the red line at the sheet's foot is below the fold.
     private enum Ask {
         /// A reservation on the device 録画予約 was for as its button was pressed. The question keeps that
-        /// device, and its words and its button use no other: the lists can be read again while it is up.
-        case reserve(DeviceSlot)
+        /// device, and its words and its button use no other: the lists can be read again while it is up. It
+        /// keeps the recorder's disk the same way, as the reader picked it, and names it: nil, and no disk
+        /// named, where no disk was there to pick.
+        case reserve(DeviceSlot, disk: String?)
         case cancel(Reservation)
         case cancelPending(PendingReservation)
         case failed(String)
@@ -57,6 +62,11 @@ struct ProgramSheet: View {
     @State private var checks = 0
     /// The device the reader picked under 予約先, for as long as it is free for the programme.
     @State private var chosen: DeviceSlot?
+    /// The recorder's disk the reader picked under 録画先, kept as picked though it is no longer offered: a
+    /// reservation to it is then refused when it is sent rather than sent to the internal disk in its place.
+    /// Nil until a disk is picked, and every sheet starts on the internal disk. A disk refused for being no
+    /// longer offered puts it on the internal disk, named, so that the next press does not ask for it again.
+    @State private var chosenDisk: String?
     /// The device a reservation asked for here is for, from 録画予約する until what it came to has been said
     /// and closed: see `device`.
     @State private var turn: DeviceSlot?
@@ -91,6 +101,25 @@ struct ProgramSheet: View {
         return chosen.flatMap { free.contains($0) ? $0 : nil } ?? free.first
     }
 
+    /// The disk the reader picked while it is no longer offered: let go of since, still shown as a value under
+    /// 録画先, and refused when it is sent. Nil while what was picked is offered, and while nothing was picked.
+    private var pickedAndGone: String? {
+        chosenDisk.flatMap { RecorderDisk.offers($0, with: model.usbDisk) ? nil : $0 }
+    }
+
+    /// The disk the clashes are asked for: the one the row under 録画先 shows. Nil while that is a disk no longer
+    /// offered, which is asked nothing: the clashes on another disk would not be the ones of the disk shown, and
+    /// a reservation to it is refused before anything is sent.
+    private var checkedDisk: String? {
+        pickedAndGone == nil ? model.diskOffered(chosenDisk) : nil
+    }
+
+    /// The disk the question before reserving names and the reservation is sent to: the one picked, or the
+    /// internal disk where a picker was there and nothing was picked; nil where there was nothing to pick.
+    private var askedDisk: String? {
+        chosenDisk ?? (model.diskChoices.isEmpty ? nil : RecorderDisk.internalID)
+    }
+
     /// A weekly repeat has to fall on the programme's own weekday, so only that one is offered.
     private var repeatOptions: [String] {
         ["none", "title", "daily", Codes.weekdayRepeat(for: program.start), "mon-fri", "mon-sat"]
@@ -115,6 +144,7 @@ struct ProgramSheet: View {
                         LabeledContent("録画モード", value: reservation.qualityName ?? "-")
                         LabeledContent("毎回録画",
                                        value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+                        if let shown = model.diskShown(reservation) { LabeledContent("録画先", value: shown) }
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
                         // Changing it happens on the reservation's own sheet rather than here, so there is
                         // one place that does it and one set of pickers to keep right.
@@ -146,6 +176,7 @@ struct ProgramSheet: View {
                 if device == .recorder, !past {
                     Section("録画予約") {
                         destinationRow(.recorder)
+                        NewDiskRow(chosen: $chosenDisk)
                         Picker("録画モード", selection: $quality) {
                             ForEach(Codes.qualityOrder, id: \.self) { code in
                                 Text(Codes.qualityLabel[code] ?? code).tag(code)
@@ -159,8 +190,17 @@ struct ProgramSheet: View {
                         conflictRow
                         // Alive even while the recorder is being woken or cannot be reached at all: a
                         // reservation made now goes to the queue and is sent when the recorder next answers.
-                        Button("録画予約する") { (turn, ask) = (.recorder, .reserve(.recorder)) }
-                            .disabled(model.working)
+                        // With a disk picked and let go of since, what 予約する would do is done at once: the
+                        // question would promise a registration the model is about to refuse.
+                        Button("録画予約する") {
+                            turn = .recorder
+                            if let gone = pickedAndGone {
+                                reserve(on: .recorder, disk: gone)
+                            } else {
+                                ask = .reserve(.recorder, disk: askedDisk)
+                            }
+                        }
+                        .disabled(model.working)
                     }
                 } else if device == .tv, !past {
                     televisionOffer
@@ -198,10 +238,24 @@ struct ProgramSheet: View {
             // A television's reservation picked for deletion is not the recorder's to take, and goes with
             // the television's lists instead (`AppModel.tvTimesForgotten`). So does the question whether to
             // make a reservation that would stop others there: the names in it are that television's.
+            // What the reader picked of the recorder goes too: a disk picked, and the question that names one
+            // off the internal disk, a disk of the recorder let go of. One naming none, as in a home with no USB
+            // disk, stays.
             .onChange(of: model.timesForgotten) {
                 if case .cancel(let picked) = ask, picked.device == .recorder { ask = nil }
+                if case .reserve(.recorder, let named?) = ask, named != RecorderDisk.internalID {
+                    (ask, turn) = (nil, nil)
+                }
+                chosenDisk = nil
                 conflicts = nil
                 lastRecorderGone = true
+            }
+            // A disk let go of while the question that names it is up: the question would promise a
+            // registration the model is about to refuse. It goes, as above, and 録画予約する says why.
+            .onChange(of: model.usbDisk) {
+                if case .reserve(.recorder, let named?) = ask, !RecorderDisk.offers(named, with: model.usbDisk) {
+                    (ask, turn) = (nil, nil)
+                }
             }
             .onChange(of: model.tvTimesForgotten) {
                 if case .cancel(let picked) = ask, picked.device == .tv { ask = nil }
@@ -216,14 +270,8 @@ struct ProgramSheet: View {
                                                   set: { if !$0 { ask = nil } }),
                    presenting: ask) { asked in
                 switch asked {
-                case .reserve(let device):
-                    Button("予約する") {
-                        // Read now, as the question showed them, and not when the request sets out.
-                        let (quality, repeating) = (quality, repeating)
-                        request(under: device == .tv ? TVDriver.reservingLine : nil, fresh: true) {
-                            await model.reserve(program, on: device, quality: quality, repeating: repeating)
-                        }
-                    }
+                case .reserve(let device, let named):
+                    Button("予約する") { reserve(on: device, disk: named) }
                 case .cancel(let reservation):
                     Button("削除する", role: .destructive) {
                         others += 1
@@ -278,11 +326,12 @@ struct ProgramSheet: View {
                 }
             } message: { asked in
                 switch asked {
-                case .reserve(let device):
+                case .reserve(let device, let named):
                     let mode = device == .tv ? TVDriver.recordsIn : quality
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "\(Codes.qualityLabel[mode] ?? mode) · "
-                         + "\(Codes.repeatLabel[repeating] ?? repeating)\n"
+                         + "\(Codes.repeatLabel[repeating] ?? repeating)"
+                         + (named.map { " · " + model.diskLabel($0) } ?? "") + "\n"
                          + (device == .tv ? TVDriver.confirming
                             : model.offline
                             ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
@@ -316,16 +365,32 @@ struct ProgramSheet: View {
         case .kept(_, let stays): stays ? "送信待ちのままです" : "送信待ちにしました"
         case .said: "テレビの予約"
         case .wouldStop: "それでも予約しますか？"
-        case .reserve(.recorder) where model.offline: "この番組を送信待ちにしますか？"
+        case .reserve(.recorder, _) where model.offline: "この番組を送信待ちにしますか？"
         case .reserve, nil: "この番組を録画予約しますか？"
         }
     }
 
     /// What has the recorder asked again what a reservation would clash with. It says whether 録画予約 is
     /// the television's, so that the recorder is asked when the section becomes its own again, and only
-    /// that of the device: with the recorder alone it is what it was.
+    /// that of the device: with the recorder alone it is what it was. The disk is in it, so that the clashes
+    /// asked are the ones on the disk the row under 録画先 shows, and none while that is a disk let go of.
     private var taskKey: String {
-        "\(program.id)-\(quality)-\(repeating)-\(checks)" + (device == .tv ? "-tv" : "")
+        "\(program.id)-\(quality)-\(repeating)-\(checkedDisk ?? "")-\(checks)" + (device == .tv ? "-tv" : "")
+    }
+
+    /// 予約する: a reservation on `device`, sent with the disk the question named, or the internal disk where it
+    /// named none. The mode and the repeat are read now, as the question showed them, and not when the request
+    /// sets out. A disk that cannot be had -- no longer offered, or not answered by the slot while it was waited
+    /// for -- is refused by the model before anything is queued or sent, and the sheet goes back to the internal
+    /// disk, named, with the television beside it under 予約先 where it is free.
+    private func reserve(on device: DeviceSlot, disk named: String?) {
+        let (quality, repeating) = (quality, repeating)
+        let sent = named ?? RecorderDisk.internalID
+        request(under: device == .tv ? TVDriver.reservingLine : nil, fresh: true) {
+            let came = await model.reserve(program, on: device, quality: quality, repeating: repeating, disk: sent)
+            if model.diskCannotBeHad(sent) { chosenDisk = RecorderDisk.internalID }
+            return came
+        }
     }
 
     /// What this sheet asks for a reservation: one on a device, a waiting row sent again, or the yes to
@@ -379,7 +444,7 @@ struct ProgramSheet: View {
                     Text(Codes.repeatLabel[key] ?? key).tag(key)
                 }
             }
-            Button("録画予約する") { (turn, ask) = (.tv, .reserve(.tv)) }
+            Button("録画予約する") { (turn, ask) = (.tv, .reserve(.tv, disk: nil)) }
                 .disabled(model.isBusy(for: .tv) || others > 0)
         }
     }
@@ -438,6 +503,7 @@ struct ProgramSheet: View {
             LabeledContent("毎回録画",
                            value: Codes.repeatLabel[Codes.repeatName(code: waiting.request.repeatCode) ?? ""]
                                ?? "しない")
+            if let shown = model.diskShown(waiting) { LabeledContent("録画先", value: shown) }
             if let problem = waiting.problem {
                 // Refused, and not sent again by itself: asking again gets the same answer until whatever
                 // it names has changed, which only the reader can know.
@@ -489,11 +555,23 @@ struct ProgramSheet: View {
     }
 
     /// Only where 録画予約 is the recorder's: nothing is asked of the recorder on account of a reservation
-    /// that goes to the television.
+    /// that goes to the television. Nor for a disk let go of (`checkedDisk`), whose row then shows nothing: the
+    /// clashes said before were for a disk that is no longer the one shown. A USB disk the slot did not answer
+    /// while it was waited for is said by the model, and the sheet goes back to the internal disk, asked afresh.
     private func check() async {
-        guard device == .recorder, !past, model.connected else { return }
+        guard device == .recorder, !past else { return }
+        guard let disk = checkedDisk else {
+            (conflicts, checking) = (nil, false)
+            return
+        }
+        guard model.connected else { return }
         checking = true
-        conflicts = await model.conflicts(for: program, quality: quality, repeating: repeating)
+        let found = await model.conflicts(for: program, quality: quality, repeating: repeating, disk: disk)
+        // A check that set out before the row changed comes back all the same (the recorder's requests are
+        // not given up halfway), and what it found is for what the row showed then.
+        guard !Task.isCancelled else { return }
+        conflicts = found
         checking = false
+        if found == nil, model.diskCannotBeHad(disk) { chosenDisk = RecorderDisk.internalID }
     }
 }

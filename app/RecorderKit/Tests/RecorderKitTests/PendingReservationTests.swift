@@ -82,6 +82,237 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(left.isEmpty, "nothing waits after a flush that reached the recorder")
     }
 
+    /// A row waiting for the USB disk is sent there, as it was kept: nothing between the cache and the create puts
+    /// the internal disk in its place, and a row for the internal disk is sent to it as before.
+    func testAWaitingRowIsSentToItsDisk() async throws {
+        let store = try temporaryStore()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        for one in [usb, own] { try await store.queue(one) }
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["USBに録る番組", "本体に録る番組"])
+        let bodies = await transport.bodies
+        let sent = try bodies.map { try XCTUnwrap(XmlNode.parse($0).firstDescendantText("Elements")) }
+        XCTAssertEqual(sent, [XsrsElements.create(usb.request), XsrsElements.create(own.request)])
+        XCTAssertTrue(sent[0].contains("<recordDestinationID>USBHDD</recordDestinationID>"), sent[0])
+        XCTAssertTrue(sent[1].contains("<recordDestinationID>HDD</recordDestinationID>"), sent[1])
+    }
+
+    /// A row waiting for the USB disk that the recorder turns down, for a reason the disk could be behind, is
+    /// told what to do: it cannot be sent to another disk as it waits, so it is to be deleted and reserved again
+    /// to another. Its row names the disk on the line above, so the reason does not. A row for the internal
+    /// disk, and one turned down for a cause of its own, keep the recorder's own sentence, character for
+    /// character.
+    func testAWaitingRowTurnedDownOffTheInternalDiskIsToldToBeReservedAgainElsewhere() async throws {
+        let store = try temporaryStore()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        var unreceived = pending("受信できない局の番組", eventID: 3, start: now.addingTimeInterval(10800))
+        unreceived.request.destination = "USBHDD"
+        for one in [usb, own, unreceived] { try await store.queue(one) }
+
+        let transport = StubTransport { request, _ in
+            Stub.fault(String(decoding: request.body ?? Data(), as: UTF8.self).contains("受信できない局") ? "831" : "402")
+        }
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.refused.count, 3)
+        let reasons = try await store.pendingReservations().reduce(into: [String: String]()) {
+            $0[$1.request.title] = $1.problem
+        }
+        XCTAssertEqual(reasons["USBに録る番組"], "レコーダーがこの録画先への予約を受け付けませんでした。"
+                           + "この予約を消して、別の録画先で予約し直してください (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(reasons["本体に録る番組"], "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)",
+                       "the internal disk")
+        XCTAssertEqual(reasons["受信できない局の番組"], "このチャンネルは受信できないため、番組を指定した予約はできません。"
+                           + "契約状況やアンテナの設定を確認してください (831: X_CreateRecordSchedule)",
+                       "a channel the recorder cannot receive")
+    }
+
+    // MARK: - a row to the USB slot, and the slot right after a waking
+
+    /// The disk kept with the cache in these tests, and the slot answering it.
+    private static let usbDisk = RecorderDisk(destination: "USBHDD", name: "録画用ディスク", mounted: true,
+                                              freeMB: 123_456, totalMB: 2_000_398,
+                                              registered: "2026-01-02T03:04:05+0900")
+    private static let diskAnswered = Stub.soap("X_GetMediaInfo", result:
+        "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name>録画用ディスク</name>"
+        + "<mount>1</mount><remain>123456</remain><total>2000398</total>"
+        + "<registeredTime>2026-01-02T03:04:05+0900</registeredTime><recordableRemain>654321</recordableRemain></xsrs>")
+    /// The slot as it answered right after a waking with a disk connected: no name and no registration, not
+    /// mounted and of no size, which is no disk.
+    private static let noneAnswered = Stub.soap("X_GetMediaInfo", result:
+        "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name></name><mount>0</mount>"
+        + "<remain>0</remain><total>0</total><registeredTime></registeredTime><recordableRemain>0</recordableRemain>"
+        + "</xsrs>")
+    private static let created = Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
+
+    /// The slot answering a disk it has registered that is not mounted, which takes no recordings.
+    private static let unmountedAnswered = Stub.soap("X_GetMediaInfo", result:
+        "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name>録画用ディスク</name>"
+        + "<mount>0</mount><remain>123456</remain><total>2000398</total>"
+        + "<registeredTime>2026-01-02T03:04:05+0900</registeredTime><recordableRemain>654321</recordableRemain></xsrs>")
+    /// The reason a row to the slot is given when the slot answers no disk that takes recordings while it is waited
+    /// for, as the reader reads it under the row's line that names the disk.
+    private static let notAnswered = "録画先のディスクが応答しませんでした。"
+        + "つなぎ直してからもう一度送るか、この予約を消して別の録画先で予約し直してください"
+
+    /// A recorder whose slot answers `slot` -- or is silent, with none -- and which takes every reservation, and its
+    /// client, which waits for the slot as the app's does in milliseconds for seconds: six reads at most.
+    private func recorder(answeringTheSlotWith slot: HTTPResponse?) -> (RecorderClient, StubTransport) {
+        let transport = StubTransport { request, _ in
+            guard request.headers["SOAPACTION"]?.contains("#X_GetMediaInfo") == true else { return Self.created }
+            guard let slot else { throw RecorderError.transport("The request timed out.") }
+            return slot
+        }
+        return (RecorderClient(host: "192.0.2.1", transport: transport,
+                               slotSettling: SlotSettling(every: .milliseconds(2), for: .milliseconds(10))),
+                transport)
+    }
+
+    /// What each request asked for, by its SOAP action.
+    private func actions(_ transport: StubTransport) async -> [String] {
+        await transport.requests.map { $0.headers["SOAPACTION"]?.split(separator: "#").last.map(String.init) ?? "" }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+    }
+
+    /// A row to the USB slot, while a USB disk is kept with the cache, goes only once the slot answers a disk. The
+    /// slot is waited for before it; answering none throughout, as right after a waking or with the disk unplugged,
+    /// nothing is sent for the row, and it is given a reason of its own, which holds it for the reader and is told
+    /// as a refusal is: passed over in silence, it could wait until its programme was over. Sent again as
+    /// もう一度送る sends it, its reason cleared, it waits for the slot afresh and goes there once the slot answers.
+    func testARowToTheSlotIsToldWhenTheSlotDoesNotAnswerAndSentOnceItDoes() async throws {
+        let store = try temporaryStore()
+        try await store.keep(knownUSBDisk: Self.usbDisk)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        try await store.queue(usb)
+
+        let (quiet, quietTransport) = recorder(answeringTheSlotWith: Self.noneAnswered)
+        let first = await PendingQueue.flush(client: quiet, store: store, now: now)
+
+        XCTAssertEqual(first.refused.map(\.request.title), ["USBに録る番組"])
+        XCTAssertTrue(first.sent.isEmpty, "a row to the slot was sent on a disk the slot did not answer")
+        XCTAssertTrue(first.deferred.isEmpty, "a row to a slot that did not answer was passed over unsaid")
+        expectEqual(await actions(quietTransport), Array(repeating: "X_GetMediaInfo", count: 6))
+        let left = try await store.pendingReservations()
+        XCTAssertEqual(left.map(\.id), [usb.id])
+        XCTAssertEqual(left.map(\.problem), [Self.notAnswered])
+        // Told on the strip, in the notification and in the Shortcuts action's answer, as a refusal is.
+        XCTAssertFalse(first.isEmpty, "a round where only this happened would tell nobody")
+        XCTAssertEqual(first.summary, "「USBに録る番組」はレコーダーが受け付けませんでした。理由は予約タブにあります")
+
+        let (answering, answeringTransport) = recorder(answeringTheSlotWith: Self.diskAnswered)
+        let held = await PendingQueue.flush(client: answering, store: store, now: now)
+        XCTAssertEqual(held.held.map(\.request.title), ["USBに録る番組"], "a row with a reason was sent by itself")
+        expectEqual(await actions(answeringTransport), [])
+
+        try await store.setPendingProblem(usb.id, nil)
+        let again = await PendingQueue.flush(client: answering, store: store, now: now)
+
+        XCTAssertEqual(again.sent.map(\.request.title), ["USBに録る番組"])
+        expectEqual(await actions(answeringTransport), ["X_GetMediaInfo", "X_CreateRecordSchedule"])
+        let body = await answeringTransport.bodies.last ?? ""
+        let sent = try XCTUnwrap(XmlNode.parse(body).firstDescendantText("Elements"))
+        XCTAssertEqual(sent, XsrsElements.create(usb.request))
+        expectTrue(try await store.pendingReservations().isEmpty)
+    }
+
+    /// The slot answering a disk that takes no recordings -- registered, and not mounted -- is read as the screens
+    /// read it: as no disk to send to. The row is given the same reason at once, nothing sent for it.
+    func testARowToTheSlotIsToldWhenTheSlotAnswersADiskThatTakesNoRecordings() async throws {
+        let store = try temporaryStore()
+        try await store.keep(knownUSBDisk: Self.usbDisk)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        try await store.queue(usb)
+
+        let (client, transport) = recorder(answeringTheSlotWith: Self.unmountedAnswered)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.refused.map(\.request.title), ["USBに録る番組"])
+        XCTAssertTrue(outcome.sent.isEmpty, "a row was sent to a disk that takes no recordings")
+        expectEqual(await actions(transport), ["X_GetMediaInfo"])
+        expectEqual(try await store.pendingReservations().map(\.problem), [Self.notAnswered])
+    }
+
+    /// Silence while the slot is waited for ends the round there, as silence anywhere in a round does: the recorder
+    /// has gone. Nothing is sent, the row to the slot and the row after it stay as they were, with nothing written
+    /// on them, and the round is told as cut short.
+    func testSilenceWhileTheSlotIsWaitedForEndsTheRound() async throws {
+        let store = try temporaryStore()
+        try await store.keep(knownUSBDisk: Self.usbDisk)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        for one in [usb, own] { try await store.queue(one) }
+
+        let (client, transport) = recorder(answeringTheSlotWith: nil)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.stopped, .silent(afterSending: false))
+        XCTAssertTrue(outcome.interrupted)
+        XCTAssertTrue(outcome.sent.isEmpty, "the round went on past the silence")
+        XCTAssertTrue(outcome.refused.isEmpty, "silence was written on the row")
+        XCTAssertTrue(outcome.deferred.isEmpty)
+        expectEqual(await actions(transport), ["X_GetMediaInfo"])
+        let left = try await store.pendingReservations()
+        XCTAssertEqual(Set(left.map(\.id)), [usb.id, own.id])
+        XCTAssertEqual(left.map(\.problem), [nil, nil])
+    }
+
+    /// With no USB disk kept with the cache, a row to the slot is sent as it waits and the recorder's answer
+    /// decides: the slot is not asked.
+    func testARowToTheSlotIsSentAsItWaitsWithNoDiskKnown() async throws {
+        let store = try temporaryStore()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        try await store.queue(usb)
+
+        let (client, transport) = recorder(answeringTheSlotWith: Self.noneAnswered)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["USBに録る番組"])
+        expectEqual(await actions(transport), ["X_CreateRecordSchedule"], "the slot was asked with no disk known")
+    }
+
+    /// A row on the internal disk is not held back by the slot: in a round where the slot answers none throughout,
+    /// the rows to the slot are given the reason and the internal disk's row between them is sent. The slot is
+    /// waited for once in the round, before the first row that names it.
+    func testARowOnTheInternalDiskIsNotHeldBackByTheSlot() async throws {
+        let store = try temporaryStore()
+        try await store.keep(knownUSBDisk: Self.usbDisk)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var first = pending("先にUSBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        first.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        var later = pending("あとでUSBに録る番組", eventID: 3, start: now.addingTimeInterval(10800))
+        later.request.destination = "USBHDD"
+        for one in [first, own, later] { try await store.queue(one) }
+
+        let (client, transport) = recorder(answeringTheSlotWith: Self.noneAnswered)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["本体に録る番組"])
+        XCTAssertEqual(outcome.refused.map(\.request.title), ["先にUSBに録る番組", "あとでUSBに録る番組"])
+        XCTAssertEqual(outcome.refused.map(\.problem), [Self.notAnswered, Self.notAnswered])
+        expectEqual(await actions(transport), Array(repeating: "X_GetMediaInfo", count: 6) + ["X_CreateRecordSchedule"])
+    }
+
     /// The recorder is sent what waits for the recorder. What waits for another device is not asked of it,
     /// and is as it was afterwards: still waiting, with no reason written on it. One whose programme is over
     /// is left as well: whether it is dropped is for whatever sends that device its own.

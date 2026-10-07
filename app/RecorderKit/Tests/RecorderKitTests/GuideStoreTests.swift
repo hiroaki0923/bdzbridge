@@ -834,7 +834,7 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(try db.query("SELECT target FROM pending_reservations") { $0.string("target") }, ["recorder"])
     }
 
-    /// The column is added once: every launch opens the cache, and so does every run with no screen.
+    /// The columns are added once: every launch opens the cache, and so does every run with no screen.
     func testOpeningTheCacheAgainAddsNothingToTheQueuesTable() throws {
         let path = temporaryPath()
         let db = try cacheFromBeforeTargets(at: path)
@@ -844,14 +844,93 @@ final class GuideStoreTests: XCTestCase {
         _ = try GuideStore(path: path)
 
         XCTAssertEqual(try queueColumns(db), once)
-        XCTAssertEqual(once.count, 13)
+        XCTAssertEqual(once.count, 14)
         XCTAssertEqual(once.filter { $0 == "target" }.count, 1)
-        // As it is declared: never empty, and the recorder's unless it says otherwise, which is what an
-        // earlier version's rows and an earlier version's queueing both rely on.
+        XCTAssertEqual(once.filter { $0 == "destination" }.count, 1)
+        // As they are declared: never empty, the recorder's unless a row says otherwise, and to its own disk
+        // unless a row says otherwise, which is what an earlier version's rows and its queueing both rely on.
         let declared = try db.query("PRAGMA table_info(pending_reservations)") {
             [$0.string("name"), $0.string("type"), String($0.int("notnull")), $0.string("dflt_value")]
         }
-        XCTAssertEqual(declared.last, ["target", "TEXT", "1", "'recorder'"])
+        XCTAssertEqual(declared.first { $0[0] == "target" }, ["target", "TEXT", "1", "'recorder'"])
+        XCTAssertEqual(declared.first { $0[0] == "destination" }, ["destination", "TEXT", "1", "'HDD'"])
+    }
+
+    // MARK: - a queue from before a reservation said which disk it records to
+
+    /// The statement the versions that knew the device a reservation waits for, and no disk, queue with.
+    private static let queuedBeforeDisks = """
+    INSERT OR REPLACE INTO pending_reservations
+      (id, title, start, duration_sec, repeat_code, bt, service_id, service_name, quality_code, event_id,
+       queued_at, problem, target)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """
+
+    /// The queue's table as those versions left it: the table from before targets with the device added, as
+    /// they added it.
+    private func cacheFromBeforeDisks(at path: String, queued rows: [[SqlValue]] = []) throws -> Sqlite {
+        let db = try cacheFromBeforeTargets(at: path)
+        try db.execute("ALTER TABLE pending_reservations ADD COLUMN target TEXT NOT NULL DEFAULT 'recorder'")
+        for row in rows { try db.run(Self.queuedBeforeDisks, row) }
+        return db
+    }
+
+    private func declaredDisk(_ db: Sqlite) throws -> [String]? {
+        try db.query("PRAGMA table_info(pending_reservations)") {
+            [$0.string("name"), $0.string("type"), String($0.int("notnull")), $0.string("dflt_value")]
+        }.first { $0[0] == "destination" }
+    }
+
+    /// The update that has a reservation say which disk it records to meets a queue filled before it, by the
+    /// version before or by one from before targets. Every row in it was going to the internal disk, there having
+    /// been nothing else it could be sent to, and is read so, the television's as much as the recorder's.
+    func testAQueueFromBeforeDisksIsTheInternalDisksRowForRow() async throws {
+        let nine = Int(jst("2026-09-20T21:00:00+09:00").timeIntervalSince1970)
+        let recorders: [SqlValue] = ["2/1064/12575", "サンプル番組", .integer(nine), 3600, "1", 2, 1064, "サンプルテレビ",
+                                     240, 12575, .integer(nine - 86_400), nil]
+        let televisions: [SqlValue] = ["tv|2/1064/12576", "サンプル劇場", .integer(nine + 3600), 1800, "1", 2, 1064,
+                                       "サンプルテレビ", 240, 12576, .integer(nine - 3600), nil]
+        let beforeDisks = temporaryPath()
+        let withTargets = try cacheFromBeforeDisks(at: beforeDisks, queued: [recorders + ["recorder"],
+                                                                             televisions + ["tv"]])
+        XCTAssertEqual(try queueColumns(withTargets).count, 13)
+        let beforeTargets = temporaryPath()
+        let withoutTargets = try cacheFromBeforeTargets(at: beforeTargets, queued: [recorders])
+
+        for (what, path, db, rows) in [("the version before", beforeDisks, withTargets, 2),
+                                       ("from before targets", beforeTargets, withoutTargets, 1)] {
+            let store = try GuideStore(path: path)
+            let waiting = try await store.pendingReservations()
+            XCTAssertEqual(waiting.count, rows, what)
+            XCTAssertEqual(waiting.map(\.request.destination), Array(repeating: "HDD", count: rows), what)
+            XCTAssertEqual(try declaredDisk(db), ["destination", "TEXT", "1", "'HDD'"], what)
+        }
+    }
+
+    /// A row keeps the disk it was queued for, so that it is sent there. Going back to the version before, whose
+    /// statement names the columns it knows and still runs: what it queues is the internal disk's, and its queueing
+    /// of a programme this version queued for the USB disk puts that row on the internal disk.
+    func testAWaitingRowKeepsItsDisk() async throws {
+        let path = temporaryPath()
+        let store = try GuideStore(path: path)
+        var usb = pending()
+        usb.request.destination = "USBHDD"
+        let own = pending("サンプル紀行", eventID: 0x3120, start: Date(timeIntervalSince1970: 1_790_003_600))
+        try await store.queue(usb)
+        try await store.queue(own)
+
+        expectEqual(try await store.pendingReservations(), [usb, own])
+
+        let db = try Sqlite(path: path)
+        let r = usb.request
+        try db.run(Self.queuedBeforeDisks, [.text(usb.id), .text(r.title), .integer(Int(r.start.timeIntervalSince1970)),
+                                           .integer(r.durationSec), .text(r.repeatCode), .integer(r.broadcastingType),
+                                           .integer(r.serviceID), .text(usb.serviceName), .integer(r.qualityCode),
+                                           SqlValue(r.eventID), .integer(Int(usb.queuedAt.timeIntervalSince1970)),
+                                           nil, "recorder"])
+        let waiting = try await store.pendingReservations()
+        XCTAssertEqual(waiting.map(\.id), [usb.id, own.id])
+        XCTAssertEqual(waiting.map(\.request.destination), ["HDD", "HDD"])
     }
 
     /// A cache that lacks nothing is every opening but one, and is opened with nothing held: the overnight run

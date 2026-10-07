@@ -18,6 +18,9 @@ final class LinkWorld: LinkHost {
     /// How long a read of the USB slot left for later waits: a moment, unless a test that ends one before it is
     /// made gives the app's minute. Read as the link is made.
     var slotReadAgainAfter: Duration = .milliseconds(1)
+    /// How long the slot is waited for before something that names it is sent: the app's two seconds for ten, as
+    /// milliseconds. Read as the link is made.
+    var slotSettling = SlotSettling(every: .milliseconds(2), for: .milliseconds(10))
 
     var problem: String?
     var macReadAt: String?
@@ -39,7 +42,8 @@ final class LinkWorld: LinkHost {
                 self.events.append("search for \(mac)")
                 return self.found
             },
-            slotReadAgainAfter: slotReadAgainAfter)
+            slotReadAgainAfter: slotReadAgainAfter,
+            slotSettling: slotSettling)
     }
 
     func put(_ event: String) { events.append(event) }

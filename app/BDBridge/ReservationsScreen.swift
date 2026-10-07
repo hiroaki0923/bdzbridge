@@ -243,7 +243,8 @@ struct ReservationsScreen: View {
                         // below are: a sending that is out may have this row in hand. Never by the
                         // recorder's work, and a recorder's row is held back by nothing, as it never was.
                         let heldBack = waiting.target == .tv && model.isBusy(for: .tv)
-                        PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting))
+                        PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting),
+                                       disk: model.diskShown(waiting))
                             // 削除, as on the reservations below it, and asked first like every other delete.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button("削除") { removingPending = waiting.id }.tint(.red).disabled(heldBack)
@@ -280,7 +281,8 @@ struct ReservationsScreen: View {
                             ReservationRowView(reservation: reservation,
                                                channel: model.channelName(for: reservation),
                                                logo: model.logo(for: reservation),
-                                               device: model.tv != nil ? reservation.device.label : nil)
+                                               device: model.tv != nil ? reservation.device.label : nil,
+                                               disk: model.diskShown(reservation))
                                 .rowHitArea()
                         }
                         .buttonStyle(.plain)
@@ -317,6 +319,9 @@ struct ReservationRowView: View {
     /// The word for the device that holds the reservation, said first on the row's second line. Nil where
     /// there is one device and nothing to tell apart, and the row is then drawn without it.
     var device: String? = nil
+    /// The disk it records to, said after the device: only for a recorder's row off the internal disk
+    /// (`AppModel.diskShown`), so that nothing changes in a home with no USB disk.
+    var disk: String? = nil
 
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
 
@@ -365,10 +370,12 @@ struct ReservationRowView: View {
             .clipShape(Capsule())
     }
 
-    /// The device when it is said, the channel and how it records, as one line of text for the same reason.
+    /// The device and the disk when they are said, the channel and how it records, as one line of text for the
+    /// same reason.
     private var meta: Text {
         var parts: [Text] = []
         if let device { parts.append(Text(device)) }
+        if let disk { parts.append(Text(disk)) }
         if !channel.isEmpty { parts.append(Text(channel)) }
         if let quality = reservation.qualityName { parts.append(Text(quality)) }
         if let name = reservation.repeatName, name != "none" { parts.append(Text(Codes.repeatLabel[name] ?? name)) }
@@ -386,6 +393,8 @@ struct PendingRowView: View {
     /// The word for the device it waits for, said first on the row's second line. Nil where there is one
     /// device and nothing to tell apart (`AppModel.deviceSaid`), and the row is then drawn without it.
     var device: String? = nil
+    /// The disk it is to record to, after the device: only for a recorder's row off the internal disk.
+    var disk: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -406,7 +415,7 @@ struct PendingRowView: View {
     }
 
     private var details: String {
-        var parts = [device, Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
+        var parts = [device, disk, Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
             .compactMap { $0 }
         if let quality = Codes.quality(code: waiting.request.qualityCode) {
             parts.append(Codes.qualityLabel[quality] ?? quality)
