@@ -29,7 +29,8 @@ Android 版はないか、という問い合わせを受けての調査です。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・送信待ちの 1 件を
   送れる・番組表を取れる機器なら何でも受け、エラーは機器に依らない分類で読む。送信待ちの 1 件をどう送るかは
-  機器のもので（`QueueTarget`）、レコーダーの送り方は、作成の要求だけを持つ機器（`ReservationTarget`）の既定。
+  機器のもので（`QueueTarget`）、レコーダーの送り方は、作成の要求だけを持つ機器（`ReservationTarget`）と同じ作成に、
+  USB HDD 宛の行の前にその回で 1 度だけ USB HDD を待つことを足したもの（`RecorderClient` の回）。
   レコーダー以外の機器を足すための継ぎ目で、レコーダーに対する動きは変わらない。
   テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
   `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧と削除も
@@ -63,13 +64,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-47 ファイル、10,554 行（空行とコメントを含み、`Package.swift` を除く）。テストは 20,979 行。
+47 ファイル、10,734 行（空行とコメントを含み、`Package.swift` を除く）。テストは 21,177 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 3,319 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
+| 入出力を持たないロジック | 3,325 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,034 | GuideStore, Sqlite |
-| 非同期の段取り | 5,313 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, TVNoScreen, DemoTV |
+| 非同期の段取り | 5,487 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, BulkWork, Discovery, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, ScalarClient, TVDriver, TVNoScreen, DemoTV |
 | OS に縛られるもの | 888 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 888 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -77,10 +78,10 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（10,327 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（10,446 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知、一括処理の一時停止、画面の無い処理の段取り（いつ走らせ、何を送り、
-何を取るか）で、AppModel（9 ファイルで 2,922 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と、
+何を取るか）で、AppModel（9 ファイルで 3,026 行、うち約 3 割がコメント。接続まわりは `AppModelSession.swift`）と、
 BackgroundWork、Notify、SendWaitingIntent の 3 ファイル（合わせて約 670 行）です。RecorderKit だけを共有する
 案では、どれを選んでもこれは Android で書き直します。
 

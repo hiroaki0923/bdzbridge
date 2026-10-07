@@ -916,22 +916,33 @@ there, and its own screen calls the slot 後面ＵＳＢ, by its port rather tha
 
 A disk kept through an answer of none right after a wake is offered as one answered is, as the settings show
 it: the recorder answered the disk seconds after the wake when that was timed, and a picker that waited for the
-read again would turn up under the reader half a minute later.
+read again would turn up under the reader half a minute later. But nothing that names the slot is sent on the
+strength of a disk it has not answered since the recorder woke. A reservation to it, a change that goes to it
+(moved there, or of a reservation on it), a condition to it and a clash check asked for it each wait for the slot
+first, once the recorder has been made sure of: it is read, and while it answers none, read again every two
+seconds for at most ten, twice the five seconds timed (`RecorderDriver.settleTheSlot`). Meanwhile the strip says
+「録画先のディスクを確かめています」, and a sheet says it as it says a waking, its buttons held as during any
+request. A disk answered is taken as the read again would take it, the read again is ended, and the request goes.
+None throughout sends nothing, leaves the disk and the read again as they were, and is said as a disk no longer
+offered is (below), the sheet going back as it does then. Silence loses the recorder, as a read's does, and a
+reservation then goes to the queue, nothing having been sent. With the disk answered, and in a home with no USB
+disk, nothing is waited for and no request is added.
 
-Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB
-disk let go of between the choice and the press is refused before anything is queued or sent -- a reservation, a
-move or a condition -- with a line that names it: sending the internal disk in its place would make a
-reservation or a condition the reader did not agree to. Where the sheet has another destination to offer, the
-line asks for it (`RecorderDisk.chooseAnother`), and the programme's sheet and the condition's go back to the
-internal disk, named, the programme's with the television beside it under 予約先 where it can take the programme. A
-reservation on the internal disk has nothing else to offer on its own sheet once the USB disk has gone, its
-picker going with the disk, so a move of it refused says where it stays (`RecorderDisk.stays`) rather than ask
-for a choice the sheet does not show; the model, which knows the reservation and what its sheet offers, says
-which. On the programme's sheet a disk picked and let go of while it is open stays shown under 録画先 as a value
-and is asked nothing: no clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as
-予約する would, without the question before reserving, which would promise a registration the model is about to
-refuse; a question already up when the disk is let go of goes, as one does when the recorder is let go of. While
-the disk picked is offered, and in a home with no USB disk, the sheet asks and checks as it always has.
+Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB disk
+let go of between the choice and the press -- or one the slot did not answer while it was waited for (above) -- is
+refused before anything is queued or sent -- a reservation, a move or a condition -- with a line that names it:
+sending the internal disk in its place would make a reservation or a condition the reader did not agree to. Where
+the sheet has another destination to offer, the line asks for it (`RecorderDisk.chooseAnother`), and the
+programme's sheet and the condition's go back to the internal disk, named, the programme's with the television
+beside it under 予約先 where it can take the programme. A reservation on the internal disk has nothing else to
+offer on its own sheet once the USB disk has gone, its picker going with the disk, so a move of it refused says
+where it stays (`RecorderDisk.stays`) rather than ask for a choice the sheet does not show; the model, which knows
+the reservation and what its sheet offers, says which. On the programme's sheet a disk picked and let go of while
+it is open stays shown under 録画先 as a value and is asked nothing: no clash check is asked for it, and its row
+shows none, and 録画予約する refuses it at once, as 予約する would, without the question before reserving, which
+would promise a registration the model is about to refuse; a question already up when the disk is let go of goes,
+as one does when the recorder is let go of. While the disk picked is offered, and in a home with no USB disk, the
+sheet asks and checks as it always has.
 
 A reservation or a move to the USB disk that the recorder turns down is said as the recorder not taking a
 reservation to that disk, naming it, and asks for another destination, with the recorder's code kept for
@@ -943,8 +954,17 @@ condition turned down, whose line comes from the link's own refusal.
 
 A reservation made while the recorder is away keeps its disk on the phone -- the queue's table has a column for
 it, which a row from an earlier version reads as the internal disk -- and is sent with it, and the recorder's
-answer decides: it was seen to take a reservation to the slot with the disk unplugged. A row off the internal
-disk that the recorder turns down, by the same rule of codes, carries a reason of its own
+answer decides: it was seen to take a reservation to the slot with the disk unplugged. While a USB disk is kept
+with the cache, though, a row to the slot waits for the slot as the screens do: before the first such row of a
+round -- at an attach, もう一度送る, the night run or the Shortcuts action, each of which often comes right after a
+wake -- the slot is waited for once. Answered, the slot's rows are sent. None throughout passes them over with
+nothing written on them, to go at a later sending, said as any row passed over is: on the strip and in the
+action's answer, and in a notification only beside something else that happened (`PendingQueue.Outcome.isEmpty`).
+A row on the internal disk is sent in that round all the same, the wait the most it is held. With no disk known
+the slot is not read and the row is sent, so that a disk really gone ends in the recorder's answer rather than
+in a row passed over until its programme is over. The round reads the disk from the cache, which the runs with no
+screen have too (`RecorderClient`'s round, opened with the cache to hand). A row off the internal disk that the
+recorder turns down, by the same rule of codes, carries a reason of its own
 (`RecorderDisk.waitingRowTurnedDown`): a row that waits cannot change its disk, so it says that the recorder did
 not take a reservation to this destination, and to delete the row and reserve again choosing another. It names
 no disk, since what sends it does not know the disk's name, and the row names its disk on the line above it. A
@@ -957,8 +977,9 @@ tab and in the search after the device, last on a condition's line, on the sheet
 name of the disk known, or 「USBHDD」 once none is (`AppModel.diskShown`, over `RecorderDisk.shown`). A
 television's row never names one. In a home with no USB disk no picker is drawn and no disk is named, and every
 request carries the internal disk as it always has. `USBDiskChoiceTests` holds the model's side of all of this
-on the bench, with the slot's answer given through its recorder; the sentences, and the reason a waiting row is
-given, are RecorderKit's to hold (`RecorderDiskTests`, `PendingQueueTests`).
+on the bench, with the slot's answer given through its recorder; the sentences, the reason a waiting row is
+given, and the wait for the slot, the screens' and the round's, are RecorderKit's to hold (`RecorderDiskTests`,
+`PendingQueueTests`).
 
 ### Coming back to the app
 
@@ -997,7 +1018,8 @@ waiting is sent, by one set of rules in `RecorderKit/PendingQueue.swift` that th
 run share. The queue holds the order and what becomes of each row; how one row is sent is the device's own
 (`QueueTarget`, in `DeviceEndpoint.swift`), and the queue reads only what it came to. The recorder's way --
 one create, silence ending the round, a refusal with a reason written on the row, anything else passed
-over -- is what a device with a create alone is given (`ReservationTarget`).
+over -- is what a device with a create alone is given (`ReservationTarget`), with the USB slot waited for before
+a row to it while a disk is kept with the cache (above).
 That recorder, and not whichever answers at the address: the app knows a recorder by what it
 says it is, and another one taking its place -- chosen in the settings, or found at the same address after
 a replacement or a new lease -- holds what was waiting with a reason on each row and a line on the strip
