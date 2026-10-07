@@ -34,30 +34,35 @@ public struct ReservationRequest: Equatable, Sendable {
 }
 
 public extension ReservationRequest {
-    /// What would be sent to record this programme, following it by its programme id. `quality` and
-    /// `repeating` are the names in `Codes.quality` and `Codes.repeatCodes`; nil when the tables do not know
-    /// one of them, or the programme's broadcasting type.
-    init?(program: GuideProgramRow, quality: String, repeating: String) {
+    /// What would be sent to record this programme, following it by its programme id, to the disk `destination`
+    /// names: the internal disk unless the reader chose another. `quality` and `repeating` are the names in
+    /// `Codes.quality` and `Codes.repeatCodes`; nil when the tables do not know one of them, or the programme's
+    /// broadcasting type.
+    init?(program: GuideProgramRow, quality: String, repeating: String,
+          destination: String = RecorderDisk.internalID) {
         guard let broadcastingType = Codes.broadcasting[program.broadcasting],
               let qualityCode = Codes.quality[quality],
               let repeatCode = Codes.repeatCodes[repeating] else { return nil }
         self.init(title: program.title, start: program.start, durationSec: program.durationSec,
                   repeatCode: repeatCode, broadcastingType: broadcastingType, serviceID: program.serviceID,
-                  qualityCode: qualityCode, eventID: program.eventID)
+                  qualityCode: qualityCode, eventID: program.eventID, destination: destination)
     }
 
-    /// What would be sent to change the mode or the repeat of a reservation the device holds. Everything
-    /// else is the reservation's own -- the title, the times, the channel, the programme id and the disk -- so
-    /// one that follows its programme goes on following it, and one made by time stays as it was. The disk as
-    /// much as the rest: a reservation on the USB disk changed with the internal disk's id goes to the internal
-    /// disk without a word, as the recorder was seen to do (the other way round has not been tried).
-    init?(changing reservation: Reservation, quality: String, repeating: String) {
+    /// What would be sent to change the mode or the repeat of a reservation the device holds, and its disk when
+    /// `destination` names one. Everything else is the reservation's own -- the title, the times, the channel
+    /// and the programme id -- so one that follows its programme goes on following it, and one made by time stays
+    /// as it was. So is the disk unless the reader moved it: a change names a disk whatever it is for, and a
+    /// reservation on the USB disk changed with the internal disk's id goes to the internal disk without a word,
+    /// as the recorder was seen to do (a move the other way has not been tried). Nil keeps the disk of the
+    /// reservation given, which the app finds again on the device first: a disk changed on the recorder's own
+    /// screen since a sheet was opened stays where it was put.
+    init?(changing reservation: Reservation, quality: String, repeating: String, destination: String? = nil) {
         guard let qualityCode = Codes.quality[quality],
               let repeatCode = Codes.repeatCodes[repeating] else { return nil }
         self.init(title: reservation.title, start: reservation.start, durationSec: reservation.durationSec,
                   repeatCode: repeatCode, broadcastingType: reservation.broadcastingType,
                   serviceID: reservation.serviceID, qualityCode: qualityCode, eventID: reservation.eventID,
-                  destination: reservation.destination)
+                  destination: destination ?? reservation.destination)
     }
 }
 

@@ -82,6 +82,29 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(left.isEmpty, "nothing waits after a flush that reached the recorder")
     }
 
+    /// A row waiting for the USB disk is sent there, as it was kept: nothing between the cache and the create puts
+    /// the internal disk in its place, and a row for the internal disk is sent to it as before.
+    func testAWaitingRowIsSentToItsDisk() async throws {
+        let store = try temporaryStore()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var usb = pending("USBに録る番組", eventID: 1, start: now.addingTimeInterval(3600))
+        usb.request.destination = "USBHDD"
+        let own = pending("本体に録る番組", eventID: 2, start: now.addingTimeInterval(7200))
+        for one in [usb, own] { try await store.queue(one) }
+
+        let transport = StubTransport(always: Stub.soap("X_CreateRecordSchedule",
+                                                        extra: "<RecordScheduleID>0x1</RecordScheduleID>"))
+        let client = RecorderClient(host: "192.0.2.1", transport: transport)
+        let outcome = await PendingQueue.flush(client: client, store: store, now: now)
+
+        XCTAssertEqual(outcome.sent.map(\.request.title), ["USBに録る番組", "本体に録る番組"])
+        let bodies = await transport.bodies
+        let sent = try bodies.map { try XCTUnwrap(XmlNode.parse($0).firstDescendantText("Elements")) }
+        XCTAssertEqual(sent, [XsrsElements.create(usb.request), XsrsElements.create(own.request)])
+        XCTAssertTrue(sent[0].contains("<recordDestinationID>USBHDD</recordDestinationID>"), sent[0])
+        XCTAssertTrue(sent[1].contains("<recordDestinationID>HDD</recordDestinationID>"), sent[1])
+    }
+
     /// The recorder is sent what waits for the recorder. What waits for another device is not asked of it,
     /// and is as it was afterwards: still waiting, with no reason written on it. One whose programme is over
     /// is left as well: whether it is dropped is for whatever sends that device its own.

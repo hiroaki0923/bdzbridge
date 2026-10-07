@@ -85,6 +85,22 @@ final class ReservationRulesTests: XCTestCase {
                                                    eventID: 0x311f))
     }
 
+    /// A programme is reserved to the disk asked for, and with none asked for to the internal disk, as the request
+    /// the official app sends.
+    func testAReservationOfAProgrammeGoesToTheDiskAskedFor() throws {
+        let usb = try XCTUnwrap(ReservationRequest(program: program(), quality: "DR", repeating: "none",
+                                                   destination: "USBHDD"))
+        XCTAssertEqual(usb.destination, "USBHDD")
+        let elements = XsrsElements.create(usb)
+        XCTAssertTrue(elements.contains("<recordDestinationID>USBHDD</recordDestinationID>"), elements)
+
+        let own = try XCTUnwrap(ReservationRequest(program: program(), quality: "DR", repeating: "none"))
+        XCTAssertEqual(own.destination, "HDD")
+        var moved = usb
+        moved.destination = "HDD"
+        XCTAssertEqual(own, moved, "the disk changed anything else")
+    }
+
     func testNamesTheTablesDoNotKnowMakeNoRequest() {
         XCTAssertNil(ReservationRequest(program: program(), quality: "なし", repeating: "none"))
         XCTAssertNil(ReservationRequest(program: program(), quality: "DR", repeating: "なし"))
@@ -118,6 +134,26 @@ final class ReservationRulesTests: XCTestCase {
         XCTAssertEqual(request.destination, "USBHDD")
         let elements = XsrsElements.update(id: held.id, request)
         XCTAssertTrue(elements.contains("<recordDestinationID>USBHDD</recordDestinationID>"), elements)
+    }
+
+    /// A change moves the disk only when told to. Told nothing, it keeps the disk of the reservation it is given,
+    /// which is the row as found again on the device; told a disk, it goes there, either way, and nothing else of
+    /// the reservation changes with it.
+    func testAChangeKeepsTheDiskUnlessItIsMoved() throws {
+        let onUSB = reservation(id: "0x1", destination: "USBHDD")
+        let onOwn = reservation(id: "0x2")
+        func change(_ held: Reservation, to disk: String?) throws -> ReservationRequest {
+            try XCTUnwrap(ReservationRequest(changing: held, quality: "SR", repeating: "none", destination: disk))
+        }
+
+        XCTAssertEqual(try change(onUSB, to: nil).destination, "USBHDD", "told nothing, the disk was moved")
+        XCTAssertEqual(try change(onOwn, to: nil).destination, "HDD")
+        XCTAssertEqual(try change(onUSB, to: "HDD").destination, "HDD", "not moved to the internal disk")
+        XCTAssertEqual(try change(onOwn, to: "USBHDD").destination, "USBHDD", "not moved to the USB disk")
+
+        var kept = try change(onUSB, to: "HDD")
+        kept.destination = "USBHDD"
+        XCTAssertEqual(kept, try change(onUSB, to: nil), "moving the disk changed anything else")
     }
 
     func testAChangeToNamesTheTablesDoNotKnowMakesNoRequest() {

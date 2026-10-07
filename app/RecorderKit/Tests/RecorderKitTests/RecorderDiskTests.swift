@@ -3,8 +3,9 @@ import XCTest
 @testable import RecorderKit
 
 /// The disks a recorder records to: the slot read as the recorder answers it, what counts as a USB disk being
-/// there, how one disk is told from another and named, what the low-space notice says, the recordings of one
-/// disk, and the attach that reads the slot.
+/// there, how one disk is told from another and named, what the low-space notice says, which disks a reservation
+/// is offered and may be sent to and when a row's disk is named, the recordings of one disk, and the attach that
+/// reads the slot.
 @MainActor
 final class RecorderDiskTests: XCTestCase {
     /// The slot as `X_GetMediaInfo` describes a disk: the root, the elements and their order as a BDZ-FBT4100
@@ -142,6 +143,65 @@ final class RecorderDiskTests: XCTestCase {
                        "HDDの残りが 42 GB です。古い録画を整理するか、録画モードを見直してください。")
         XCTAssertEqual(RecorderDisk.lowSpaceBody(freeGB: 7, naming: "100%ディスク"),
                        "100%ディスクの残りが 7 GB です。古い録画を整理するか、録画モードを見直してください。")
+    }
+
+    // MARK: - what is offered, what is sent and what is named
+
+    /// Nothing to choose without a USB disk that takes recordings -- none known, one not mounted, one of no size --
+    /// and otherwise the internal disk first, called as the recorder calls it, then the USB disk.
+    func testWhatIsOfferedIsTheInternalDiskThenAUSBDiskThatTakesRecordings() {
+        XCTAssertEqual(RecorderDisk.choices(with: nil), [], "no disk known")
+        XCTAssertEqual(RecorderDisk.choices(with: Self.disk(mounted: false)), [], "a disk not mounted")
+        XCTAssertEqual(RecorderDisk.choices(with: Self.disk(total: 0)), [], "a disk of no size")
+
+        let offered = RecorderDisk.choices(with: Self.disk())
+        XCTAssertEqual(offered, [RecorderDisk.internalDisk, Self.disk()])
+        XCTAssertEqual(offered.map { RecorderDisk.label($0.destination, named: $0.name) }, ["HDD", "録画用ディスク"])
+    }
+
+    /// A reservation on the internal disk, or on the disk offered, can be moved between what a new one is offered.
+    /// One on a disk not offered -- none known in the slot, or one known there and not mounted -- can still be
+    /// moved to the internal disk, or left on its own: the disk known when that is in its slot, else the slot by
+    /// its id.
+    func testWhatAReservationOnADiskCanBeMovedBetween() {
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", with: nil), [], "a choice in a home with no USB disk")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", with: usb), [RecorderDisk.internalDisk, usb])
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", with: usb), [RecorderDisk.internalDisk, usb])
+
+        let gone = RecorderDisk.choices(keeping: "USBHDD", with: nil)
+        XCTAssertEqual(gone.map(\.destination), ["HDD", "USBHDD"], "no move off a disk that has gone")
+        XCTAssertEqual(gone.map { RecorderDisk.label($0.destination, named: $0.name) }, ["HDD", "USBHDD"])
+
+        let unplugged = Self.disk(mounted: false)
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", with: unplugged), [RecorderDisk.internalDisk, unplugged],
+                       "no move off a disk not mounted")
+    }
+
+    /// What may be sent of a disk chosen on a screen: the internal disk whatever is known of the slot, the USB disk
+    /// only while it takes recordings, and an id never offered never.
+    func testOnlyWhatIsOfferedIsSent() {
+        XCTAssertTrue(RecorderDisk.offers("HDD", with: nil), "the internal disk with no USB disk known")
+        XCTAssertTrue(RecorderDisk.offers("HDD", with: Self.disk()))
+        XCTAssertTrue(RecorderDisk.offers("USBHDD", with: Self.disk()))
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: nil), "no disk known")
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: Self.disk(mounted: false)), "a disk not mounted")
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: Self.disk(total: 0)), "a disk of no size")
+        XCTAssertFalse(RecorderDisk.offers("BD", with: Self.disk()), "an id never offered")
+    }
+
+    /// Only a recorder's row off the internal disk has its disk named: never a television's, whether it carries no
+    /// disk as its listed reservations do, the internal disk's id as what waits for it does, or the slot's. A row
+    /// on the slot is named after the disk known there, or by the slot's id with none known.
+    func testARowsDiskIsNamedOnlyForTheRecorderOffItsOwnDisk() {
+        let usb = Self.disk()
+        XCTAssertNil(RecorderDisk.shown("", on: .tv, usb: usb), "a television's listed reservation")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .tv, usb: usb), "what waits for a television")
+        XCTAssertNil(RecorderDisk.shown("USBHDD", on: .tv, usb: usb), "a television's row with the slot's id")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .recorder, usb: usb), "the recorder's own disk")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .recorder, usb: nil), "the recorder's own disk, no USB disk")
+        XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: usb), "録画用ディスク")
+        XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: nil), "USBHDD", "no disk known")
     }
 
     // MARK: - the recordings of one disk

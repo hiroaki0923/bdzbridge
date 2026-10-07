@@ -174,6 +174,55 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return name
     }
 
+    /// The recorder's own disk as a choice beside a USB disk: its id, and no name, so that it is labelled as the
+    /// recorder writes it. Nothing that offers it reads its sizes, and it is always there.
+    public static let internalDisk = RecorderDisk(destination: internalID, name: "", mounted: true, freeMB: nil,
+                                                  totalMB: nil, registered: "")
+
+    /// What a new reservation can be made to: the internal disk first, the default, then the USB disk known, and
+    /// only while that disk takes recordings. Otherwise nothing, which is no choice at all: a home with no USB
+    /// disk is offered nothing to choose, and its reservations go to the internal disk as they always have.
+    public static func choices(with usb: RecorderDisk?) -> [RecorderDisk] {
+        guard let usb, usb.takesRecordings else { return [] }
+        return [internalDisk, usb]
+    }
+
+    /// What a reservation already on `destination` can be moved between: what a new one is offered, while that
+    /// holds its disk or it is on the internal disk. A reservation on a disk not offered -- one gone from the
+    /// slot, or there and not mounted -- is the one a reader most wants to move, and the internal disk is always
+    /// there: so it is offered that and its own disk, which is the USB disk known when that is in its slot, and
+    /// otherwise a disk known by its id alone. Left on its own disk, or put back on it, a change names no disk, so
+    /// that a disk not offered is never sent from here.
+    public static func choices(keeping destination: String, with usb: RecorderDisk?) -> [RecorderDisk] {
+        let offered = choices(with: usb)
+        if destination == internalID || offered.contains(where: { $0.destination == destination }) { return offered }
+        let own = usb.flatMap { $0.destination == destination ? $0 : nil }
+            ?? RecorderDisk(destination: destination, name: "", mounted: false, freeMB: nil, totalMB: nil,
+                            registered: "")
+        return [internalDisk, own]
+    }
+
+    /// Whether a disk chosen on a screen may be sent: the internal disk always, any other only while it is
+    /// offered. Asked just before sending, since the USB disk can have gone between the choice and the press, and
+    /// sending the internal disk in its place would make a reservation the reader did not agree to.
+    public static func offers(_ destination: String, with usb: RecorderDisk?) -> Bool {
+        destination == internalID || choices(with: usb).contains { $0.destination == destination }
+    }
+
+    /// The one rule for naming the disk of a row on screen, or nil to name none: only a recorder's row, and only
+    /// off the internal disk, so that a home with no USB disk sees no disk named anywhere. A television's row is
+    /// never named: its listed reservations carry no disk, and what waits for it carries the internal disk's id,
+    /// neither of which it reads. A row on the slot is named after the disk known there, or by the slot's id
+    /// when none is known.
+    public static func shown(_ destination: String, on device: DeviceSlot, usb: RecorderDisk?) -> String? {
+        guard device == .recorder, destination != internalID else { return nil }
+        return label(destination, named: usb?.destination == destination ? usb?.name : nil)
+    }
+
+    /// What is said when the disk chosen on a screen is no longer offered by the time it would be sent. Nothing
+    /// is sent: the screen named that disk, and by then it offers no other choice to make again.
+    public static let noLongerOffered = "選んだ録画先がいまは使えないため、送っていません。"
+
     /// What the low-space notification says of a disk with `freeGB` left. Without a disk to name it is the
     /// sentence a recorder with its own disk alone has always had; with two disks it says which, by its label.
     /// The number goes in by itself, so that a `%` in a name the owner gave the disk is not read as a format.
