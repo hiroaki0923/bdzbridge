@@ -166,8 +166,13 @@ public final class RecorderDriver: LinkDriver {
     /// What the slot answers with the disk unplugged has not been seen. A registered disk described as not
     /// mounted is kept, and offered nowhere (`RecorderDisk.takesRecordings`).
     public nonisolated static func usbDisk(of client: RecorderClient) async throws -> RecorderDisk? {
-        guard let disk = try await RecorderError.silenceOnly({ try await client.disk(RecorderDisk.usbID) }) ?? nil,
-              !disk.registered.isEmpty else { return nil }
+        try await RecorderError.silenceOnly { try await registeredDisk(of: client) } ?? nil
+    }
+
+    /// The slot's answer by the same rule, every failure thrown: for the read again, to which a recorder busy with
+    /// another client's request has said no more of the slot than silence has.
+    private nonisolated static func registeredDisk(of client: RecorderClient) async throws -> RecorderDisk? {
+        guard let disk = try await client.disk(RecorderDisk.usbID), !disk.registered.isEmpty else { return nil }
         return disk
     }
 
@@ -206,18 +211,23 @@ public final class RecorderDriver: LinkDriver {
 
     /// The slot read once more, a while after an attach found no disk where one was known: one request, on that
     /// attach's client, and only while the link still asks through it and the recorder has not been given up
-    /// on since. A disk answered is taken; no disk answered again lets the one known go. Silence changes
-    /// nothing, the disk known and the link alike: the next attach reads the slot anyway. An answer that comes
-    /// back after the read was ended is left, since whatever ended it knows better.
+    /// on since. Only an answer settles it: a disk answered is taken, and no disk answered again, or a refusal,
+    /// lets the one known go. Silence, and a recorder still busy with another client's request after the client's
+    /// tries, change nothing, the disk known and the link alike: the next attach reads the slot anyway. An answer
+    /// that comes back after the read was ended is left, since whatever ended it knows better; so is one that comes
+    /// back once the link asks through another client, a connect under way whose attach reads the slot itself.
     private static func readTheSlotAgain(_ link: DeviceLink, client: RecorderClient) async {
         guard link.client === client, !link.offline else { return }
         let answered: RecorderDisk?
         do {
-            answered = try await usbDisk(of: client)
-        } catch {
+            answered = try await registeredDisk(of: client)
+        } catch let error as any DeviceError where error.failure == .silent || error.failure == .busy {
             return
+        } catch {
+            // A refusal, or an answer that cannot be read, is no disk, as at an attach (`usbDisk`).
+            answered = nil
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, link.client === client else { return }
         await keep(answered, link)
     }
 

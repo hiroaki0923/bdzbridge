@@ -432,6 +432,88 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertNil(world.problem)
     }
 
+    /// A recorder busy with another client's request on the read again -- a 503 to it and to both tries the client
+    /// makes after it -- has said no more of the slot than silence: the disk known stays, in the session and in the
+    /// cache. A refusal is an answer, and lets it go (above).
+    func testABusyRecorderOnTheReadAgainChangesNothing() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .milliseconds(1), cache: cache,
+                                                               holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+
+        await recorder.answer(.answer(HTTPResponse(statusCode: 503)))
+        await recorder.letGo()
+        await untilOver(later)
+
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "a busy recorder was taken for no disk")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        expectEqual(await recorder.slotReads, 5, "the read again was not made, or not sent again while busy")
+        XCTAssertTrue(link.session.connected)
+        XCTAssertNil(world.problem)
+    }
+
+    /// Waits for the recorder to have been asked the slot `count` times, a few seconds at most.
+    private func untilTheSlotIsAsked(_ count: Int, by recorder: SlotRecorder) async throws {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while await recorder.slotReads < count {
+            guard ContinuousClock.now < deadline else {
+                return XCTFail("the slot was asked fewer than \(count) times")
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
+    /// An answer to the read again that comes back once the link asks through another client is left, though the
+    /// read was not ended: a connect under way has made that client and has not read the slot yet, and its own
+    /// read is the newer.
+    func testAnAnswerThatComesBackOnceTheLinkAsksThroughAnotherClientIsLeft() async throws {
+        let (link, recorder, world) = await waitingToReadAgain(after: .milliseconds(1), holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        try await untilTheSlotIsAsked(3, by: recorder)
+        let before = link.client
+        var sent = false
+        var knownMeanwhile: RecorderDisk?
+        world.onSendWhatWaits = {
+            sent = true
+            XCTAssertFalse(later.isCancelled, "the connect ended the read before reading the slot")
+            XCTAssertFalse(link.client === before, "the connect asks through the client of the read")
+            await recorder.letGo()
+            await later.value
+            knownMeanwhile = link.session.usbDisk
+        }
+
+        await link.connect()
+
+        world.onSendWhatWaits = nil
+        XCTAssertTrue(sent, "the connect never sent what waits")
+        XCTAssertEqual(knownMeanwhile, Self.disk(), "an answer to the client before was taken")
+    }
+
+    /// The app leaving ends the read left for later, and a return that makes no attach -- inside the minute after
+    /// the recorder last answered -- leaves it for later again, so that a disk gone from the slot is not kept for as
+    /// long as the reader comes and goes. Made then and answered none, it lets the disk go.
+    func testAReturnWithNoAttachLeavesTheReadForLaterAgain() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, _) = await waitingToReadAgain(after: .milliseconds(1), cache: cache, holding: true)
+        let left = try XCTUnwrap(link.readLeftForLater)
+
+        link.setTheReadLeftForLaterAside()
+        XCTAssertTrue(left.isCancelled, "the leaving did not end the read")
+        XCTAssertNil(link.readLeftForLater)
+        await recorder.letGo()
+        await untilOver(left)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the read the leaving ended was taken")
+
+        let attached = link.session.timesAttached
+        await link.returned(wasAway: true, busy: false)
+        XCTAssertEqual(link.session.timesAttached, attached, "the return attached")
+        let again = try XCTUnwrap(link.readLeftForLater, "the return left nothing for later")
+        await untilOver(again)
+        XCTAssertNil(link.session.usbDisk, "the read left for later again did not settle the disk")
+        expectNil(try await cache.knownUSBDisk())
+        XCTAssertTrue(link.session.connected)
+    }
+
     /// The read left for later goes with the device: when the device is let go of, and when another recorder
     /// describes itself at the address, though that attach gets no further than the description. Nor is a
     /// recorder given up on since asked: that stands until the network changes or the reader asks.

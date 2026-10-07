@@ -140,8 +140,9 @@ extension AppModel {
         closeQueueReport()
         anotherTookOver = false
         // The slot's read again goes with the app: made after a return, it would come beside the return's own
-        // reads. The disk known stays as it was read until an attach reads the slot again.
-        recorder.endTheReadLeftForLater()
+        // reads. A return that makes no attach leaves it for later again, and the disk known stays as it was read
+        // until then.
+        recorder.setTheReadLeftForLaterAside()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends

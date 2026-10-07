@@ -152,22 +152,48 @@ final class USBDiskTests: XCTestCase {
     }
 
     /// The overnight run never lets a disk known go: a slot it reads as none -- as it is right after a waking,
-    /// which the run often is -- means no USB notice that night and nothing more, and the disk kept with the cache
-    /// stays for the screens to settle.
+    /// which the run often is -- and reads as none again after the guide means no USB notice that night, and the
+    /// disk kept with the cache stays for the screens to settle. There are still two disks, so the internal disk's
+    /// notice names its disk.
     func testTheNightRunKeepsTheDiskKnown() async throws {
         let (bench, recorder, _) = try await connected(answering: Self.slot())
         expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk)
         await recorder.answer("X_GetMediaInfo", with: .result(Self.wakingSlot), times: 1000)
         let told = Told()
+        let before = await recorder.asked
 
         // No MAC, as above.
         _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
                                          store: try GuideStore(path: bench.guidePath), mac: nil,
                                          telling: telling(told))
 
-        expectEqual(await told.said, ["free space"])
+        expectEqual(await told.said, ["free space of HDD"])
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 2)
         expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk,
                     "the night let the disk known go")
+    }
+
+    /// A night whose slot answers none while the disk known takes recordings reads the slot once more after the
+    /// guide, by which time the disk has had a while to come up, and tells the USB disk's space if it answers
+    /// then. Nothing is kept of that read: the screens' attach says what the slot holds.
+    func testANightThatReadsNoneReadsTheSlotAgainAfterTheGuideForTheUSBDisksNotice() async throws {
+        let (bench, recorder, _) = try await connected(answering: Self.slot())
+        // The night's first read is the demo's answer, which is none, and the read after it the disk, lower.
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.slot(remain: 12_345)), times: 1000, after: 1)
+        let told = Told()
+        let before = await recorder.heard.count
+
+        // No MAC, as above.
+        _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
+                                         store: try GuideStore(path: bench.guidePath), mac: nil,
+                                         telling: telling(told))
+
+        expectEqual(await told.said, ["free space of HDD", "USB space of 録画用ディスク"])
+        let heard = await recorder.heard(since: before)
+        XCTAssertEqual(heard.filter { $0 == "X_GetMediaInfo" }.count, 2)
+        XCTAssertEqual(heard.last, "X_GetMediaInfo", "the slot was not read again after the guide")
+        expectEqual(try await GuideStore(path: bench.guidePath).knownUSBDisk(), Self.disk,
+                    "the night kept what it read again")
     }
 
     /// A disk known at an earlier launch is kept with the cache, and the first attach of the next -- usually a
@@ -206,6 +232,36 @@ final class USBDiskTests: XCTestCase {
         await model.returnedToForeground()
         await reconnect(model)
         XCTAssertNil(model.usbDisk, "the last recorder's disk was shown for another")
+        expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
+    }
+
+    /// The app leaving ends the slot's read again, and coming back inside the minute after the last answer, which
+    /// makes no attach, leaves it for later again: made then and answered none, it lets the disk go, rather than
+    /// the disk being kept for as long as the reader comes and goes.
+    func testAReturnWithNoAttachLeavesTheSlotsReadAgainForLater() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        // Long enough for the leaving to come first, which the hold below makes sure of.
+        bench.slotReadAgainAfter = .seconds(1)
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.slot()), times: 1)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        // The demo's answer from here on, which is none; and the read again held, should it go before the leaving.
+        await reconnect(model)
+        await recorder.hold(only: "X_GetMediaInfo")
+        let left = try XCTUnwrap(model.recorder.readLeftForLater, "the slot was not left to be read again")
+
+        model.wentToBackground()
+        XCTAssertTrue(left.isCancelled, "the read again outlived the app's leaving")
+        await model.returnedToForeground()
+        XCTAssertEqual(model.usbDisk, Self.disk)
+        let again = try XCTUnwrap(model.recorder.readLeftForLater, "the return left nothing for later")
+        XCTAssertFalse(again.isCancelled)
+
+        await recorder.letGo()
+        try await until("the read left for later again did not let the disk go", within: 5) { model.usbDisk == nil }
         expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
     }
 

@@ -193,9 +193,15 @@ public final class DeviceLink {
     /// from it when the device is up.
     public private(set) var wakeCheck: Task<NotUp?, Never>?
     /// A read the driver has left for later (`readLater`), while it waits or is out; nil otherwise. It goes with
-    /// the device: when another describes itself, when the device is let go of, and when the app leaves
-    /// (`endTheReadLeftForLater`).
+    /// the device: when another describes itself and when the device is let go of (`endTheReadLeftForLater`).
+    /// The app leaving ends it too, and a return that makes no attach leaves it for later again
+    /// (`setTheReadLeftForLaterAside`).
     @ObservationIgnored public private(set) var readLeftForLater: Task<Void, Never>?
+    /// What that read is, how long it was to wait and what it does, while there is one.
+    @ObservationIgnored private var leftForLater: (delay: Duration, read: @MainActor (DeviceLink) async -> Void)?
+    /// The read the app's leaving ended, kept for its return; nil once the return has taken it up, or anything
+    /// else has ended the reads left for later.
+    @ObservationIgnored private var setAside: (delay: Duration, read: @MainActor (DeviceLink) async -> Void)?
     /// Counts the reads left for later, so that one that has ended does not take the place of the next.
     @ObservationIgnored private var readsLeftForLater = 0
     @ObservationIgnored private var settling: Task<Void, Never>?
@@ -326,18 +332,35 @@ public final class DeviceLink {
         endTheReadLeftForLater()
         readsLeftForLater += 1
         let this = readsLeftForLater
+        leftForLater = (delay, read)
         readLeftForLater = Task { [weak self] in
             try? await Task.sleep(for: delay)
             if !Task.isCancelled, let self { await read(self) }
-            if let self, self.readsLeftForLater == this { self.readLeftForLater = nil }
+            if let self, self.readsLeftForLater == this {
+                self.readLeftForLater = nil
+                self.leftForLater = nil
+            }
         }
     }
 
     /// Ends the read left for later, if there is one: one still waiting is not made, and one that is out is
-    /// cancelled, which the driver's read takes as the word to leave its answer.
+    /// cancelled, which the driver's read takes as the word to leave its answer. One set aside for the app's
+    /// return goes too: whatever ended this knows better.
     public func endTheReadLeftForLater() {
         readLeftForLater?.cancel()
         readLeftForLater = nil
+        leftForLater = nil
+        setAside = nil
+    }
+
+    /// The app is leaving: the read left for later is ended, as `endTheReadLeftForLater` ends it, since made after
+    /// a return it would come beside the return's own reads. It is kept for that return, which leaves it for later
+    /// again when it makes no attach (`returned`): what the read was to settle would otherwise stay unsettled for as
+    /// long as the reader comes back inside the minute in which a return does not connect (`LinkRules.onReturn`).
+    public func setTheReadLeftForLaterAside() {
+        let left = leftForLater
+        endTheReadLeftForLater()
+        setAside = left
     }
 
     // MARK: - making sure before an operation
@@ -430,6 +453,10 @@ public final class DeviceLink {
         // The last answer is on the client's actor: asked only where the rule will read it.
         let asksItsAge = wasAway && hasAddress && !busy && !checking && session.connected
         let lastAnswer = asksItsAge ? await client?.lastAnswer : nil
+        // The read the leaving set aside is left for later again, from now. A return that attaches ends it, the
+        // attach reading afresh what the read was for, and one whose connect makes another client has it ask
+        // nothing (`RecorderDriver.readTheSlotAgain`); so it is made only after a return that made no attach.
+        if let left = setAside { readLater(after: left.delay, left.read) }
         switch LinkRules.onReturn(wasAway: wasAway, hasAddress: hasAddress, busy: busy, checking: checking,
                                   connected: session.connected, lastAnswer: lastAnswer, now: Date(),
                                   gaveUp: session.gaveUp, networkChanged: networkChanged) {

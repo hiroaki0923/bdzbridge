@@ -298,8 +298,11 @@ enum BackgroundWork {
         // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
         // Read through the one rule the screens use: only a disk the recorder registered counts. It lets only
         // silence out, and silence ends the run here: the free space and the guide would each wait it out again.
-        // An answer of none, which a recorder just woken gives with a disk in the slot, means no USB notice
-        // tonight and nothing more: the disk kept with the cache stays for the screens to settle.
+        // An answer of none, which a recorder just woken gives with a disk in the slot, lets no disk go: the disk
+        // kept with the cache stays for the screens to settle. While that disk takes recordings there are still
+        // two disks, so the internal disk's notice names its disk as the screens do, and the slot is read once
+        // more after the guide, which gives the disk a while to come up, for the USB disk's notice. One request
+        // more on such a night, and none in a home with no USB disk known.
         let usb: RecorderDisk?
         do {
             usb = try await RecorderDriver.usbDisk(of: client)
@@ -307,9 +310,11 @@ enum BackgroundWork {
             return false
         }
         let second = usb?.takesRecordings == true ? usb : nil
+        let known = usb == nil ? (try? await store.knownUSBDisk()) : nil
+        let readAgain = known?.takesRecordings == true
         if let capacity = try? await client.recordDestinationInfo() {
-            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes,
-                                    second.map { _ in RecorderDisk.label(RecorderDisk.internalID, named: nil) })
+            let naming = second != nil || readAgain ? RecorderDisk.label(RecorderDisk.internalID, named: nil) : nil
+            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes, naming)
         }
         if let second { await telling.usbSpace(second) }
 
@@ -317,6 +322,11 @@ enum BackgroundWork {
         // connect: nothing marks it fetched.
         guard let refresh = try? await GuideRefresh.run(client: client, store: store) else { return false }
         if !refresh.answered.isEmpty { telling.fetched(Date()) }
+        // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
+        if readAgain, !Task.isCancelled, let again = try? await RecorderDriver.usbDisk(of: client),
+           again.takesRecordings {
+            await telling.usbSpace(again)
+        }
         return refresh.stored > 0
     }
 
