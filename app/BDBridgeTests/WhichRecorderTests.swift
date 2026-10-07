@@ -63,10 +63,11 @@ final class WhichRecorderTests: XCTestCase {
         return (bench, recorder, model)
     }
 
-    /// What the defaults keep about one recorder's disk and guide: that a low-space warning was given, and
-    /// when the overnight run last fetched.
+    /// What the defaults keep about one recorder's disks and guide: that a low-space warning was given, of its
+    /// own disk and of the one in its USB slot, and when the overnight run last fetched.
     func leaveMarks(in bench: Bench) {
         bench.defaults.set(true, forKey: DefaultsKey.warnedLowSpace)
+        bench.defaults.set("a disk warned about", forKey: DefaultsKey.warnedLowSpaceOnUSB)
         bench.defaults.set(Self.lastNight, forKey: DefaultsKey.lastBackgroundRefresh)
     }
 
@@ -89,21 +90,24 @@ final class WhichRecorderTests: XCTestCase {
     // MARK: - what the tests look at
 
     /// What the phone keeps of a recorder, apart from its queue: whose the cache is, the text of the recording
-    /// put there, and what the defaults say of its disk and its guide.
+    /// put there, and what the defaults say of its disks and its guide.
     struct Kept: Equatable {
         var owner: String?
         var text: Bool
         var warned: Bool
+        var warnedOfTheUSBDisk: Bool
         var fetchedLastNight: Bool
 
         /// Everything, as `connected` leaves it, and the recorder's own.
         static func all(of recorder: Int) -> Kept {
-            Kept(owner: NamedRecorder.udn(recorder), text: true, warned: true, fetchedLastNight: true)
+            Kept(owner: NamedRecorder.udn(recorder), text: true, warned: true, warnedOfTheUSBDisk: true,
+                 fetchedLastNight: true)
         }
 
         /// Nothing that was the last recorder's, and this one's name on the cache.
         static func nothing(nowOf recorder: Int) -> Kept {
-            Kept(owner: NamedRecorder.udn(recorder), text: false, warned: false, fetchedLastNight: false)
+            Kept(owner: NamedRecorder.udn(recorder), text: false, warned: false, warnedOfTheUSBDisk: false,
+                 fetchedLastNight: false)
         }
     }
 
@@ -112,6 +116,7 @@ final class WhichRecorderTests: XCTestCase {
         return Kept(owner: try await cache.owner(),
                     text: try await !cache.titleSummaries([recording]).isEmpty,
                     warned: bench.defaults.bool(forKey: DefaultsKey.warnedLowSpace),
+                    warnedOfTheUSBDisk: bench.defaults.string(forKey: DefaultsKey.warnedLowSpaceOnUSB) != nil,
                     fetchedLastNight: bench.defaults.string(forKey: DefaultsKey.lastBackgroundRefresh) == Self.lastNight)
     }
 

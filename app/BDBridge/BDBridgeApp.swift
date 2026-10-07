@@ -616,4 +616,12 @@ enum Format {
     static func gigabytes(_ bytes: Int) -> String {
         String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
     }
+
+    /// How full a disk is, in the words the television's USB disk was first given and the recorder's disks share:
+    /// both sizes, or that a disk is there and has not said how full, or that it is not there.
+    static func storage(mounted: Bool, freeBytes: Int?, totalBytes: Int?) -> String {
+        guard mounted else { return "つながっていません" }
+        guard let freeBytes, let totalBytes else { return "つながっています" }
+        return "残り \(gigabytes(freeBytes)) / \(gigabytes(totalBytes))"
+    }
 }

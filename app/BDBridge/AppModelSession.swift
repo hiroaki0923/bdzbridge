@@ -277,10 +277,11 @@ extension AppModel {
         if wasConnected { listsToReadAgain = had }
     }
 
-    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The two
-    /// marks the defaults keep about one disk and one guide go with it.
+    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
+    /// the defaults keep about its disks and its guide go with it.
     func cacheMadeOver() async {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
+        defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
         await reloadFromCache()
         await loadPending()

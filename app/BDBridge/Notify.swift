@@ -132,7 +132,11 @@ enum Notify {
     ///
     /// A disk of no size is a recorder that has not said how full it is, not one that is full: nothing is
     /// said about it, and whether the warning has been given is left as it was.
-    static func lowSpace(freeBytes: Int, totalBytes: Int, warnBelowGB: Double = lowSpaceGB) async {
+    ///
+    /// `naming` is the internal disk's label, handed in only while a USB disk beside it takes recordings, so that
+    /// each of the two notices says which disk it is about. With none it says what it always has.
+    static func lowSpace(freeBytes: Int, totalBytes: Int, naming disk: String? = nil,
+                         warnBelowGB: Double = lowSpaceGB) async {
         guard totalBytes > 0 else { return }
         let key = DefaultsKey.warnedLowSpace
         let freeGB = Double(freeBytes) / 1e9
@@ -144,6 +148,44 @@ enum Notify {
         guard !warned, await mayPost() else { return }
         UserDefaults.standard.set(true, forKey: key)
         await post(id: "low-space", title: "レコーダーの残り容量",
-                   body: String(format: "残り %.0f GB です。古い録画を整理するか、録画モードを見直してください。", freeGB))
+                   body: RecorderDisk.lowSpaceBody(freeGB: freeGB, naming: disk))
+    }
+
+    /// The same for the disk in the recorder's USB slot, under an identifier of its own so that neither notice
+    /// takes the other's place, and with a mark of its own that says which disk was warned about: another disk
+    /// put in the slot, already low, is warned about as well. Said only when it could be heard, as above.
+    static func lowSpace(on disk: RecorderDisk, warnBelowGB: Double = lowSpaceGB) async {
+        let key = DefaultsKey.warnedLowSpaceOnUSB
+        switch usbSpace(disk, marked: UserDefaults.standard.string(forKey: key), warnBelowGB: warnBelowGB) {
+        case .nothing:
+            return
+        case .roomAgain:
+            UserDefaults.standard.removeObject(forKey: key)
+        case .warn(let freeGB):
+            guard await mayPost() else { return }
+            UserDefaults.standard.set(disk.identity, forKey: key)
+            await post(id: "low-space-usb", title: "レコーダーの残り容量",
+                       body: RecorderDisk.lowSpaceBody(freeGB: freeGB,
+                                                       naming: RecorderDisk.label(disk.destination, named: disk.name)))
+        }
+    }
+
+    /// What is to be done about the USB disk's space.
+    enum SpaceNotice: Equatable {
+        case nothing
+        /// The disk warned about has room again: its mark goes, and the next fall is worth saying.
+        case roomAgain
+        case warn(freeGB: Double)
+    }
+
+    /// The USB disk's space against `marked`, the disk last warned about: a disk below the line is warned about
+    /// unless it is that disk, and that disk with room again takes the mark away. A disk that takes no recordings
+    /// says nothing of its room, and the mark is left as it was.
+    static func usbSpace(_ disk: RecorderDisk, marked: String?, warnBelowGB: Double = lowSpaceGB) -> SpaceNotice {
+        guard disk.takesRecordings, let free = disk.freeBytes else { return .nothing }
+        let freeGB = Double(free) / 1e9
+        let warned = marked == disk.identity
+        if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
+        return warned ? .nothing : .warn(freeGB: freeGB)
     }
 }

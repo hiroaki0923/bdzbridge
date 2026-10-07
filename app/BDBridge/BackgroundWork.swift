@@ -260,7 +260,10 @@ enum BackgroundWork {
         var heldBack: @Sendable () async -> Void
         /// What became of the queue.
         var flushed: @Sendable (PendingQueue.Outcome) async -> Void
-        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int) async -> Void
+        /// The internal disk's free space, with its label while a USB disk beside it takes recordings.
+        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
+        /// The USB disk's, when it takes recordings.
+        var usbSpace: @Sendable (RecorderDisk) async -> Void
         /// A guide was fetched, at this time.
         var fetched: @Sendable (Date) -> Void
 
@@ -268,7 +271,8 @@ enum BackgroundWork {
         static let system = Telling(
             heldBack: { await Notify.queueHeldBack() },
             flushed: { await Notify.queueFlushed($0) },
-            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1) },
+            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
+            usbSpace: { await Notify.lowSpace(on: $0) },
             fetched: {
                 UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
             })
@@ -291,9 +295,15 @@ enum BackgroundWork {
         let outcome = await PendingQueue.flush(client: client, store: store)
         await telling.flushed(outcome)
         guard !Task.isCancelled else { return false }
+        // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
+        // Read through the one rule the screens use: only a disk the recorder registered counts.
+        let usb = try? await RecorderDriver.usbDisk(of: client)
+        let second = usb?.takesRecordings == true ? usb : nil
         if let capacity = try? await client.recordDestinationInfo() {
-            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes)
+            await telling.freeSpace(capacity.freeBytes, capacity.totalBytes,
+                                    second.map { _ in RecorderDisk.label(RecorderDisk.internalID, named: nil) })
         }
+        if let second { await telling.usbSpace(second) }
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
         // connect: nothing marks it fetched.
