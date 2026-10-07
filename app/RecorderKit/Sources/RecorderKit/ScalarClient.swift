@@ -111,6 +111,10 @@ public struct TVInterface: Sendable, Equatable {
     public var productName: String
     public var modelName: String
     public var interfaceVersion: String
+
+    /// Whether it says it is a television: what a search and an address typed for one both go by, so that one
+    /// rule says what a television is. Something that answers the request under another category is not one.
+    public var isTelevision: Bool { productCategory == "tv" }
 }
 
 /// What answers at an address given for a television, asked before anything is registered there.
@@ -205,7 +209,7 @@ public actor ScalarClient {
         do {
             let power = try await powerStatus(timeout: timeout)
             let television = try await interface(timeout: timeout)
-            guard television.productCategory == "tv" else { return .notATelevision }
+            guard television.isTelevision else { return .notATelevision }
             return power == "standby" ? .standby(model: television.modelName) : .on(model: television.modelName)
         } catch let error as ScalarError where error.failure == .silent || error.failure == .badAddress {
             return .nothing

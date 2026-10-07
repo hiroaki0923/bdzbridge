@@ -1,10 +1,38 @@
 import Foundation
 
+/// A television that answered a look round the subnet: where it is, and the model it says it is.
+public struct TVSighting: Sendable, Equatable {
+    public var host: String
+    public var model: String
+
+    public init(host: String, model: String) {
+        self.host = host
+        self.model = model
+    }
+}
+
 /// Looking through the subnet for a television, by the loop a look for a recorder goes through
 /// (`Discovery.look`). Each address is asked through a client of its own (`ScalarClient`) with nothing
 /// registered in it, so that what goes to each is a request the app sends a television anyway, in the same
 /// envelope, and carries neither a cookie nor a PIN.
 public enum TVDiscovery {
+    /// One address: a television, or nothing. `getInterfaceInformation` 1.0, which needs no registration and
+    /// was answered in standby with the panel left as it was; a television by `TVInterface.isTelevision`, and
+    /// anything else -- another category, an error, a page that is not there, silence -- is nothing. Raced
+    /// against a deadline of its own, as the recorder's probe is (`Discovery.probe`), and let go of when that
+    /// deadline or the end of the look comes first (`leftWhenCancelled`).
+    public static func probe(_ host: String, transport: any HTTPTransport,
+                             timeout: TimeInterval = 1.2) async -> TVSighting? {
+        await Discovery.raced(timeout) {
+            await leftWhenCancelled { () -> TVSighting? in
+                let client = ScalarClient(host: host, transport: transport, credentials: MemoryTVCredentials())
+                guard let television = try? await client.interface(timeout: timeout),
+                      television.isTelevision else { return nil }
+                return TVSighting(host: host, model: television.modelName)
+            }
+        }
+    }
+
     /// The address of the television whose MAC is `mac`, or nil when none of `hosts` answers with it: for a
     /// television that is no longer where it was, its address being a DHCP lease the router hands out again as
     /// it likes. One request to each address, `getSystemSupportedFunction` 1.0, which needs no registration and

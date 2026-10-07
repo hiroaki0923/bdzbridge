@@ -35,6 +35,14 @@ import XCTest
 /// It says whether the television was found at the address given, how many addresses were asked and how many
 /// seconds that took: never a MAC, and no address but the one given.
 ///
+/// And the look of the app's search for both kinds, over the same subnet, the television and the recorder in
+/// standby and both fronts watched while it runs:
+///
+///     TV_HOST=192.0.2.20 swift test --filter LiveTVTests/testLookingRoundTheSubnetForBoth
+///
+/// It says how many recorders and televisions answered, whether the television at the address given was among
+/// them with its model, and the seconds the look took: never a model, and no address but the one given.
+///
 /// ## The sitting
 ///
 /// The rest are the checks with which the three requests that reserve on a television -- its stations, the
@@ -425,6 +433,31 @@ final class LiveTVTests: XCTestCase {
         print("seconds: \(String(format: "%.1f", seconds))")
         // Not said by value: a failure would print another address.
         XCTAssertTrue(found == client.host, "not found at the address given")
+    }
+
+    /// The look of the app's one search, レコーダーとテレビを探す (`DeviceSearch.scan`), over the subnet of the
+    /// address given, through the session the app sends a search with, which keeps no cookie and follows no
+    /// redirect: every address is asked for a recorder's description and a television's interface at once,
+    /// neither of which needs a registration or changes anything. It says how many of each kind answered,
+    /// whether the television at the address given was among them and gave its model, and how many seconds the
+    /// look took -- never a model, nor an address but the one given. The pass is that the television is found
+    /// where it is, and that its panel and lamp, and the recorder's front, stay as they were.
+    func testLookingRoundTheSubnetForBoth() async throws {
+        let client = try liveClient(MemoryTVCredentials())
+        let hosts = LocalNetwork.hostsToScan(near: client.host)
+        guard !hosts.isEmpty else { return XCTFail("this Mac is on no Wi-Fi whose subnet the address is on") }
+
+        let started = Date()
+        let found = await DeviceSearch.scan(hosts: hosts, transport: URLSessionTransport.withoutCookies())
+        let seconds = Date().timeIntervalSince(started)
+        let television = found.televisions.first { $0.host == client.host }
+
+        print("addresses asked: \(hosts.count)")
+        print("recorders: \(found.recorders.count); televisions: \(found.televisions.count)")
+        print("the television at the address given among them: \(television == nil ? "no" : "yes")")
+        print("its model given: \(television.map { $0.model.isEmpty ? "no" : "yes" } ?? "no")")
+        print("seconds: \(String(format: "%.1f", seconds))")
+        XCTAssertNotNil(television, "the television at the address given was not found")
     }
 
     /// Sends what `requests` sends, and fails the test by the kind of what went wrong (`TVSitting.said`),

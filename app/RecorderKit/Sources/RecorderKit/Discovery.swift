@@ -115,13 +115,15 @@ public enum Discovery {
     /// appropriate retry logic" (Apple's TN3179). A search's requests cannot: a session that waits was seen,
     /// on a Mac, to wait on an address that refused as well, and not to end (`docs/porting.md`). So the search
     /// asks again, at an address its look saw turned away (`ScanTally.turnedAwayAt`), until a request is let
-    /// out, and looks again then. The system turned that address away, so it is not one the system lets
-    /// through unasked, and its refusing the request is the request let out as much as its answering, or its
-    /// silence until the request times out. That the request is turned away while the permission is in the
-    /// way and let out once it is given is the technote's of every operation, "If your program has local
-    /// network access, the system allows the operation. If not, the system blocks it.", and not yet seen on
-    /// a phone for a request asked again. The asking, and how often, is the caller's; this is the one request
-    /// and the reading of it.
+    /// out, and looks again then. The system turned that address's request of this kind away, so it is not one
+    /// the system lets through unasked, and its refusing the request is the request let out as much as its
+    /// answering, or its silence until the request times out. Of this kind: a search that also asks another
+    /// kind keeps the address from this kind's requests alone (`ScanTally(_:keepingAddressFrom:)`), since the
+    /// address let through unasked may fail at another port with a code read as turned away. That the request
+    /// is turned away while the permission is in the way and let out once it is given is the technote's of
+    /// every operation, "If your program has local network access, the system allows the operation. If not,
+    /// the system blocks it.", and not yet seen on a phone for a request asked again. The asking, and how
+    /// often, is the caller's; this is the one request and the reading of it.
     public static func turnedAway(at host: String, transport: any HTTPTransport = URLSessionTransport(),
                                   port: Int = Upnp.port, timeout: TimeInterval = 1.2) async -> Bool {
         let tally = ScanTally(transport)
