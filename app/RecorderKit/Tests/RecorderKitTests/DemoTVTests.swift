@@ -316,6 +316,116 @@ final class DemoTVTests: XCTestCase {
         expectEqual(await television.schedules.map(\.id), ["recording.1"])
     }
 
+    // MARK: - a change
+
+    /// The row listed under `id`, as the client reads it now.
+    private func row(_ id: String, with tv: ScalarClient) async throws -> TVScheduleRow {
+        let row = try await tv.schedules().first { $0.id == id }
+        return try XCTUnwrap(row)
+    }
+
+    /// A change of a row it holds is made in place: the same id, the same place in the list, the list as
+    /// long as it was, the repeat the one sent and the title the one it held. A row a request made stays
+    /// one, so what it costs the others is worked out as before: with three at one time the first made still
+    /// reads as losing once the third's repeat and its own are changed. The answer is `annotation` 0, and the
+    /// request is put down as a create is, a change told from one by the version in its body.
+    func testAChangeIsMadeInPlace() async throws {
+        let (television, tv) = await television()
+        for station in 0..<3 { try await tv.addSchedule(try body(on: station, programme: 50101 + station)) }
+        let before = await television.schedules
+        let losing = ["recording.3 notOverlapped", "recording.2 notOverlapped", "recording.1 fullyOverlapped"]
+        expectEqual(try await overlaps(tv), losing)
+
+        expectEqual(try await tv.changeSchedule(try await row("recording.3", with: tv), repeatType: "w7"), 0)
+        expectEqual(try await tv.changeSchedule(try await row("recording.1", with: tv), repeatType: "d"), 0)
+
+        let after = await television.schedules
+        XCTAssertEqual(after.map(\.id), before.map(\.id))
+        XCTAssertEqual(after.map(\.repeatType), ["d", "1", "w7"])
+        XCTAssertEqual(after.map(\.title), before.map(\.title))
+        XCTAssertEqual(after.map(\.title), (50101...50103).map(DemoTV.title(ofProgramme:)))
+        var only = after
+        for index in only.indices { only[index].repeatType = before[index].repeatType }
+        XCTAssertEqual(only, before, "something but the repeat was changed")
+        expectEqual(try await overlaps(tv), losing, "a row changed is no longer one a request made")
+        expectEqual(try await tv.schedules().map(\.repeatType), ["w7", "1", "d"])
+        let calls = await television.calls, bodies = await television.bodies
+        let versions = zip(calls, bodies).filter { $0.0 == "addSchedule cookie=yes pin=no" }.map { call in
+            (try? JSONSerialization.jsonObject(with: Data(call.1.utf8)) as? [String: Any])?["version"] as? String
+        }
+        XCTAssertEqual(versions, ["1.1", "1.1", "1.1", "1.2", "1.2"])
+    }
+
+    /// An id it holds no recording under is answered as a real one answered a change of a row it had
+    /// deleted, error 41200, and nothing is made: the id of a row just deleted, one it never gave, and the
+    /// id of a viewing reservation. The next create is numbered as if none had been sent.
+    func testAChangeOfAnIdItHoldsNoRecordingUnderMakesNothing() async throws {
+        let (television, tv) = await television()
+        let reminder = DemoTV.Schedule(id: "reminder.9", type: "reminder", serviceID: 1504, station: "サンプル放送4",
+                                       title: "サンプル音楽館", start: Self.start - 1, quality: nil, eventId: 50109)
+        await television.put([reminder])
+        try await tv.addSchedule(try body(on: 0, programme: 50101))
+        let deleted = try await row("recording.10", with: tv)
+        try await tv.deleteSchedule(deleted)
+        var neverGiven = deleted
+        neverGiven.id = "recording.11"
+        var viewing = deleted
+        viewing.id = reminder.id
+
+        for (name, row) in [("deleted", deleted), ("never given", neverGiven), ("a viewing reservation's", viewing)] {
+            expectEqual(await code { try await tv.changeSchedule(row, repeatType: "1") }, 41200, name)
+            expectEqual(await television.schedules, [reminder], name)
+        }
+        try await tv.addSchedule(try body(on: 1, programme: 50102))
+        expectEqual(await television.schedules.map(\.id), ["reminder.9", "recording.11"])
+    }
+
+    /// A weekly code that is not the code of the day the programme starts on is error 7, as for a create,
+    /// and the row is left as it was; the day's own code is taken. So on each day of a week.
+    func testAChangeToAnotherDaysWeeklyCodeIsError7() async throws {
+        let (television, tv) = await television()
+        // Noon on Monday 2 November 2026, and the six days after it.
+        let monday = Self.start + 15 * 3600
+        for day in 0..<7 {
+            try await tv.addSchedule(try body(on: 0, programme: 50200 + day, at: monday + TimeInterval(day * 86_400)))
+            let listed = try await tv.schedules()
+            let made = try XCTUnwrap(listed.first)
+            for code in (1...7).filter({ $0 != day + 1 }) {
+                expectEqual(await self.code { try await tv.changeSchedule(made, repeatType: "w\(code)") }, 7,
+                            "day \(day + 1), w\(code)")
+                expectEqual(await television.schedules.map(\.repeatType), ["1"], "day \(day + 1), w\(code)")
+            }
+            expectEqual(await code { try await tv.changeSchedule(made, repeatType: "w\(day + 1)") }, nil)
+            expectEqual(await television.schedules.map(\.repeatType), ["w\(day + 1)"], "day \(day + 1)")
+            try await tv.deleteSchedule(try await row(made.id, with: tv))
+        }
+    }
+
+    /// With its disk away a change is answered with the error no real one gives and changes nothing, as a
+    /// create is: no real one has been sent a change with its disk away. A repeat by the programme's name for
+    /// a reservation made by its times is answered so as well, and changes nothing: no television has been
+    /// sent one. With the disk back the change is taken, and so is another repeat for the row made by its
+    /// times.
+    func testWithItsDiskAwayOrByNameForARowMadeByItsTimesAChangeChangesNothing() async throws {
+        let (television, tv) = await television()
+        let timed = DemoTV.Schedule(id: "recording.20", serviceID: 1502, station: "サンプル放送2", title: "サンプル紀行",
+                                    start: Self.start + 86_400)
+        await television.put([timed])
+        try await tv.addSchedule(try body(on: 0, programme: 50101))
+        let followed = try await row("recording.21", with: tv)
+
+        await television.unmount()
+        expectEqual(await code { try await tv.changeSchedule(followed, repeatType: "d") }, DemoTV.inventedError)
+        expectEqual(await television.schedules.map(\.repeatType), ["1", "1"], "a change was made with the disk away")
+        await television.unmount(false)
+        expectEqual(await code { try await tv.changeSchedule(timed.row, repeatType: "title") }, DemoTV.inventedError)
+        expectEqual(await television.schedules.map(\.repeatType), ["1", "1"], "by name for a row made by its times")
+
+        expectEqual(await code { try await tv.changeSchedule(followed, repeatType: "title") }, nil)
+        expectEqual(await code { try await tv.changeSchedule(timed.row, repeatType: "d") }, nil)
+        expectEqual(await television.schedules.map(\.repeatType), ["d", "title"])
+    }
+
     // MARK: - what a test has it do
 
     /// The next create can be made to come to one of three things, once. Carried out and not answered: the

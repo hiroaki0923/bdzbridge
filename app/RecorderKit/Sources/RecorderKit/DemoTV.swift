@@ -379,8 +379,11 @@ public actor DemoTV: HTTPTransport {
             guard Self.asks(request, object, of: "recording", version: "1.0") else { return unknown(method, id) }
             return wouldPushOut(object, id)
         case "addSchedule":
-            // A real one answered a create with a cookie it never gave with HTTP 403, and made nothing.
+            // A real one answered a create with a cookie it never gave with HTTP 403, and made nothing. A
+            // change has not been sent to one with a cookie it does not take: that it is refused the same way
+            // is taken, not seen.
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            if Self.asks(request, object, of: "recording", version: "1.2") { return change(object, id) }
             guard Self.asks(request, object, of: "recording", version: "1.1") else { return unknown(method, id) }
             return try add(object, id)
         case "actRegister":
@@ -395,9 +398,9 @@ public actor DemoTV: HTTPTransport {
         HTTPResponse(statusCode: 200, body: Data(#"{"error":[12,"\#(method)"],"id":\#(id)}"#.utf8))
     }
 
-    /// Whether a request went to `service` in `version`: the one version of a method the app sends, at the
-    /// service it sends it to. A real one has other versions of these methods, which mean other things and
-    /// which the app does not send: here they are answered as a method it does not have.
+    /// Whether a request went to `service` in `version`: a version of a method the app sends, at the service
+    /// it sends it to. A real one has other versions of these methods, which mean other things and which the
+    /// app does not send: here they are answered as a method it does not have.
     private static func asks(_ request: HTTPRequest, _ object: [String: Any], of service: String,
                              version: String) -> Bool {
         request.url.path == "/sony/\(service)" && object["version"] as? String == version
@@ -613,6 +616,48 @@ public actor DemoTV: HTTPTransport {
         guard let found else { return json(["error": [41200, "no such schedule"], "id": id]) }
         made.remove(held.remove(at: found).id)
         return json(["result": [Any](), "id": id])
+    }
+
+    /// Changes the repeat of a recording it holds, for a change written as the app writes one and no other
+    /// way: `addSchedule` 1.2 with one object, the row as it holds it and a repeat it takes. Its id, type,
+    /// uri, title and start, each scalar for scalar as it holds them; its length; its programme as decimal
+    /// text where it has one, and no programme where it has none; and no other field. The row keeps its id,
+    /// its place in the list and its title, and only its repeat is new: it is the same reservation, and one
+    /// a request made stays one, so what it costs others is worked out as before (`schedules`).
+    ///
+    /// What was seen of a real one: sent a create's seven fields and the list's id, it changed a row's repeat
+    /// in place, keeping the id and the count, and answered `annotation` 0; Thursday's code was taken so for
+    /// a Thursday's programme. Sent an id it no longer had, it answered error 41200 and made nothing. Here
+    /// every id it holds no recording under is answered so, one it never gave as well.
+    ///
+    /// Taken, not seen, and stricter than a real one where it may be: that the list's own title is taken
+    /// (the create's was sent then); that any field otherwise than as held is refused, which here is the
+    /// invented error, as a delete is held to the row as it reads; a repeat by the programme's name for a
+    /// reservation made by its times, which no television has been sent and the app does not send, answered
+    /// with the invented error; any change while the disk is away answered so as well, as a create is; and a
+    /// weekly code that is not the code of the start's weekday in Japan, error 7 with nothing changed, as for
+    /// a create (`make`).
+    private func change(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        let keys: Set = ["id", "type", "uri", "title", "startDateTime", "durationSec", "repeatType"]
+        guard let sent = Self.parameter(of: object), Set(sent.keys).subtracting(["eventId"]) == keys,
+              sent["id"] is String, let repeatType = sent["repeatType"] as? String,
+              Self.repeatTypes.contains(repeatType), mounted else { return refused(id) }
+        func sentAs(_ field: String, _ held: String) -> Bool {
+            (sent[field] as? String).map { $0.unicodeScalars.elementsEqual(held.unicodeScalars) } ?? false
+        }
+        guard let index = held.firstIndex(where: { $0.type == "recording" && sentAs("id", $0.id) }) else {
+            return json(["error": [41200, "no such schedule"], "id": id])
+        }
+        let schedule = held[index]
+        guard sentAs("type", schedule.type), sentAs("uri", schedule.uri), sentAs("title", schedule.title),
+              sentAs("startDateTime", schedule.startDateTime), sent["durationSec"] as? Int == schedule.durationSec,
+              schedule.eventId.map({ sentAs("eventId", String($0)) }) ?? (sent["eventId"] == nil),
+              schedule.eventId != nil || repeatType != "title" else { return refused(id) }
+        guard Self.suitsItsDay(repeatType, start: schedule.start) else {
+            return json(["error": [7, "not to be reserved"], "id": id])
+        }
+        held[index].repeatType = repeatType
+        return ok(#"[{"annotation":0}]"#, id)
     }
 
     private func ok(_ result: String, _ id: Int) -> HTTPResponse {
