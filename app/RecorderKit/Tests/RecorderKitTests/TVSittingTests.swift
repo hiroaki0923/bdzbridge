@@ -2414,4 +2414,188 @@ final class TVSittingTests: XCTestCase {
             expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
         }
     }
+
+    // MARK: - the change in standby
+
+    /// What the change in standby sends, by step, each request followed by the question of what the television
+    /// says it is: the opening, the create, a change as the app sends one, and the delete.
+    private static func asked(_ requests: [String]) -> [String] { requests.flatMap { [$0, "getPowerStatus"] } }
+    private static let standbyChangeOpening = ["getPowerStatus"]
+        + asked(["getStorageList", "getScheduleList", "getContentList"])
+    private static let standbyCreate = asked(made)
+    private static let standbyChange = asked(["getScheduleList", "addSchedule", "getScheduleList"])
+    private static let standbyDelete = asked(takenOff)
+
+    /// What it says after a request, numbered among its own, of a television that has stayed in standby.
+    private static func inStandby(_ number: Int, _ request: String) -> String {
+        "  \(number). \(request) answered; the television says it is: standby"
+    }
+
+    /// The change in standby, on the invented television in standby with the household of the sitting that
+    /// changes a reservation in place. Before anything it says the television said standby, and after each of
+    /// its fourteen requests it asks again and says that. One reservation is made once -- the first programme
+    /// among the picks that is not of the small hours, that the household holds no recording of, and at a time
+    /// of day nothing is listed at on any day -- its entry in the ledger before its create. Its repeat is
+    /// changed to its programme's own weekday by what the app's change sends: the list, `addSchedule` 1.2 with
+    /// the row as the list gave it, the list. The invented television takes no change written any other way.
+    /// It reads back with the same id and the new repeat, and nothing else changed; it is changed back to once
+    /// the same way and reads as before; it is deleted. Nothing is asked first of what a change would stop
+    /// from recording, as the app asks nothing.
+    ///
+    /// Afterwards the household's rows are as they were, the ledger has nothing open, the last two lines say
+    /// the change was taken in standby and the television said standby throughout, nothing that was said
+    /// names anything, and the count afterwards passes.
+    func testAChangeInStandbyIsTakenAndLeavesTheInventedTelevisionAsItFoundIt() async throws {
+        let world = await changeWorld(power: "standby")
+
+        try await world.sitting.aChangeInStandby()
+
+        expectEqual(await world.line.sent, Self.standbyChangeOpening + Self.standbyCreate + Self.standbyChange
+                    + Self.standbyChange + Self.standbyDelete)
+        expectEqual(await count("getConflictScheduleList", in: world), 1, "a change was asked about")
+        expectEqual(await world.line.ledgerAtEachCreate, Array(repeating: "1 entries, the last open", count: 3))
+        expectEqual(await world.television.schedules, Self.household)
+        XCTAssertEqual(try entries(world), ["1501 60108 1"])
+        XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
+        let changes = await world.television.bodies.compactMap { body -> String? in
+            let object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+            guard object?["version"] as? String == "1.2" else { return nil }
+            return (object?["params"] as? [[String: Any]])?.first?["repeatType"] as? String
+        }
+        XCTAssertEqual(changes, ["w4", "1"])
+        expectEqual(world.said.lines, [
+            "before anything, the television says it is: standby",
+            Self.inStandby(1, "getStorageList"), "the disk: mounted",
+            Self.inStandby(2, "getScheduleList"), "the list: rows 9, recordings 8, losing to another 0",
+            Self.inStandby(3, "getContentList"), "the programme: Thursday 20:00:00",
+            Self.inStandby(4, "getConflictScheduleList"), "the create: rows the question names: 0",
+            Self.inStandby(5, "addSchedule"), Self.inStandby(6, "getScheduleList"),
+            "the create: taken, annotation 0; rows made: 1",
+            "the row read back: every field as sent, in DR; its title is the one sent with its spaces widened: no",
+            Self.inStandby(7, "getScheduleList"), Self.inStandby(8, "addSchedule"),
+            Self.inStandby(9, "getScheduleList"),
+            "the change to w4: " + Self.readBack("taken, annotation 0", "w4"),
+            "the row after the change: otherwise than before in: repeatType",
+            Self.inStandby(10, "getScheduleList"), Self.inStandby(11, "addSchedule"),
+            Self.inStandby(12, "getScheduleList"),
+            "the change back to 1: " + Self.readBack("taken, annotation 0", "1"),
+            "the row after the change back: as before the change",
+            Self.inStandby(13, "deleteSchedule"), Self.inStandby(14, "getScheduleList"),
+            "the television's list reads as it did before the check",
+            "the change was taken in standby: yes",
+            "the television said standby throughout: yes, before anything and after every request, 14 in all",
+        ])
+        expectTheChangeNamesNothing(world.said.text)
+
+        await world.television.turn("active")
+        await world.line.forget()
+        try await world.sitting.whatIsLeft()
+        expectEqual(await world.line.sent, ["getScheduleList"])
+        XCTAssertEqual(world.said.lines.last, "nothing of the sitting is left")
+    }
+
+    /// The change in standby makes nothing without leave, with nothing sent at all; nor on a television that
+    /// says it is on, where the one request is the one that asks, and nothing is said; nor beside an entry
+    /// left open, which fails with nothing sent; nor on a line its client does not send on, which would have
+    /// it say of other requests what the television said after them. None of those began, and none says
+    /// anything. Nor does it make anything on a television whose disk is not there: what it says after the
+    /// disk is asked about is said, and then that no change was sent.
+    func testTheChangeInStandbyMakesNothingWithoutLeaveBesideAnOpenEntryOrOnATelevisionThatIsOn() async throws {
+        let check: @Sendable (World) async throws -> Void = { try await $0.sitting.aChangeInStandby() }
+        let apart = await changeWorld(power: "standby")
+        let said = apart.said, now = Self.now
+        let elsewhere = TVSitting(client: apart.client, line: TVLine(apart.line), picks: Self.changing,
+                                  ledger: apart.ledger, mayWrite: true, now: { now }, say: { said.add($0) })
+        let diskless = await changeWorld(power: "standby")
+        await diskless.television.unmount()
+        let refusals: [(World, (World) async throws -> Void, String, [String], [String])] = [
+            (await changeWorld(mayWrite: false, power: "standby"), check, "writing to the television was not asked for",
+             [], []),
+            (await changeWorld(), check, "the television says it is active, and this is a check for one that is in"
+                + " standby", ["getPowerStatus"], []),
+            (apart, { _ in try await elsewhere.aChangeInStandby() },
+             "the sitting was handed a line that its client does not send on", ["getPowerStatus"], []),
+            (diskless, check, "the television has no disk to record to",
+             ["getPowerStatus", "getStorageList", "getPowerStatus"],
+             ["before anything, the television says it is: standby", Self.inStandby(1, "getStorageList"),
+              "the disk: not mounted", "the change was taken in standby: no: it was not sent",
+              "the television said standby throughout: yes, before anything and after every request, 1 in all"]),
+        ]
+        for (world, run, why, sent, lines) in refusals {
+            let refused = await thrown { try await run(world) } as? TVSitting.Refused
+            XCTAssertEqual(refused?.why, why)
+            expectEqual(await world.line.sent, sent, why)
+            XCTAssertEqual(world.said.lines, lines, why)
+            expectEqual(await world.television.schedules, Self.household, why)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: world.ledger.path), why)
+        }
+
+        let behind = await changeWorld(power: "standby")
+        var open = TVLedger()
+        open.entries = [TVLedger.Entry(broadcastingType: 2, serviceID: 1501, eventID: 60108, start: Self.at(5, 20),
+                                       durationSec: 1800, repeatType: "1")]
+        try open.write(to: behind.ledger)
+        let stopped = await thrown { try await check(behind) } as? TVSitting.Stopped
+        XCTAssertEqual(stopped?.what.hasPrefix("entries of the ledger not struck out: 1."), true)
+        expectEqual(await behind.line.sent, [], "something was sent beside an entry left open")
+        XCTAssertEqual(behind.said.lines, [])
+        XCTAssertEqual(try TVLedger.read(behind.ledger), open)
+    }
+
+    /// Whatever ends the change in standby on the way, the reservation it made is deleted before it ends, its
+    /// entry struck out once the list shows it gone, and the check fails, its last two lines saying whether the
+    /// change was taken in standby and whether the television said standby throughout.
+    ///
+    /// Where the television says anything but standby -- `active` right after the change, or after the create,
+    /// or an answer to the question that cannot be read before anything is made -- the check goes no further
+    /// than taking off what it made, still asking after each request, and fails saying after which request it
+    /// was said. After the create the change is not sent. Where the change is refused, the row is as it was and
+    /// is deleted. Where the change is carried out and its answer lost, nothing is sent again but the list and
+    /// the delete of the check's own row, and nothing more is asked of what the television says it is.
+    func testAChangeInStandbyThatGoesWrongOnTheWayTakesOffWhatItMade() async throws {
+        let active = #"{"result":[{"status":"active"}],"id":1}"#
+        let refusal = #"{"error":[\#(DemoTV.inventedError),"refused"],"id":1}"#
+        let refused = "error \(DemoTV.inventedError)"
+        let andThen = TVSitting.leftStandby + "; and the television did not say standby throughout: "
+        let thereAfter = Self.standbyChangeOpening + Self.standbyCreate
+        let silence = Self.asked(["getScheduleList"]) + ["addSchedule", "getScheduleList"] + Self.takenOff
+        let cases: [(String, [String: Line.Fault], String, [String], [String], String, String)] = [
+            ("active right after the change", ["getPowerStatus 8": .answered(active)],
+             andThen + "after request 8 (addSchedule, in the change to w4): active",
+             thereAfter + Self.standbyChange + Self.standbyDelete, ["1501 60108 1"],
+             "no: it was taken, and right after it the television said it is: active",
+             "no: after request 8 (addSchedule, in the change to w4): active"),
+            ("active after the create", ["getPowerStatus 5": .answered(active)],
+             andThen + "after request 5 (addSchedule, in the create): active",
+             thereAfter + Self.standbyDelete, ["1501 60108 1"], "no: it was not sent",
+             "no: after request 5 (addSchedule, in the create): active"),
+            ("not read before anything was made", ["getPowerStatus 2": .answered(refusal)],
+             andThen + "after request 2 (getScheduleList, in the opening): not read, \(refused)",
+             ["getPowerStatus"] + Self.asked(["getStorageList", "getScheduleList"]), [], "no: it was not sent",
+             "no: after request 2 (getScheduleList, in the opening): not read, \(refused)"),
+            ("the change refused", ["addSchedule 1": .answered(refusal)], "the change was not taken: \(refused)",
+             thereAfter + Self.standbyChange + Self.standbyDelete, ["1501 60108 1"],
+             "no: it was answered \(refused)",
+             "yes, before anything and after every request, 11 in all"),
+            ("the change carried out and its answer lost", ["addSchedule 1": .answerLost],
+             "a change met no answer, and nothing is sent again", thereAfter + silence, ["1501 60108 1"],
+             "no: a change met no answer, and nothing is sent again",
+             "not known: it was asked after 7 of the 11 requests, and after none once one met no answer"),
+        ]
+        for (name, faults, what, sent, written, verdict, throughout) in cases {
+            let world = await changeWorld(power: "standby", faults: faults)
+
+            let stopped = await thrown { try await world.sitting.aChangeInStandby() } as? TVSitting.Stopped
+
+            XCTAssertEqual(stopped?.what, what, name)
+            expectEqual(await world.line.sent, sent, name)
+            expectEqual(await world.television.schedules, Self.household, "\(name): what it made was left")
+            XCTAssertEqual(try entries(world), written, name)
+            XCTAssertEqual(try TVLedger.read(world.ledger).open, 0, name)
+            expectEqual(Array(world.said.lines.suffix(2)), ["the change was taken in standby: \(verdict)",
+                                                            "the television said standby throughout: \(throughout)"],
+                        name)
+            expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+        }
+    }
 }

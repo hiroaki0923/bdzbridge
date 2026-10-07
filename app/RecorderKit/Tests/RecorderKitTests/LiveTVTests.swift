@@ -85,7 +85,7 @@ import XCTest
 /// - `TV_WRITE` is leave to make something, and is **the name of the test being run**, as in
 ///   `TV_WRITE=testTheSameProgrammeTwice`. Set to anything else, the test is skipped with nothing sent;
 ///   without it, or while the television says `standby`, a check that makes something is skipped with
-///   nothing made. The one check for a television in standby, further down, is skipped unless it says just
+///   nothing made. The two checks for a television in standby, further down, are skipped unless it says just
 ///   that.
 /// - **Every command that carries `TV_WRITE` is given ten minutes** by whatever runs it, and is not
 ///   interrupted. Cut off between a create and its delete, any of them leaves a reservation on the
@@ -149,13 +149,14 @@ import XCTest
 ///
 /// ## The sitting at a television in standby
 ///
-/// One check is for a television that is switched off and says `standby`: `testAWaitingRowSentInStandby`.
-/// It sends one waiting reservation as the app sends what waits for a television with nobody at it: queued
-/// in a store of the check's own and sent by the queue's own flush, through the round the app ships. Then
-/// it queues and flushes the same reservation a second time, which is to find it on the television and send
-/// no create, and takes the row off. It is skipped, with nothing made, unless the television says
-/// `standby`. Everything said above of a command holds for it: its variables on the command line, one test
-/// to a command, never two at once, its files where git does not track them, the tests built first.
+/// Two checks are for a television that is switched off and says `standby`: `testAWaitingRowSentInStandby`,
+/// described here, and `testAChangeInStandby`, the fourth command below. The first sends one waiting
+/// reservation as the app sends what waits for a television with nobody at it: queued in a store of the
+/// check's own and sent by the queue's own flush, through the round the app ships. Then it queues and
+/// flushes the same reservation a second time, which is to find it on the television and send no create,
+/// and takes the row off. It is skipped, with nothing made, unless the television says `standby`.
+/// Everything said above of a command holds for both: their variables on the command line, one test to a
+/// command, never two at once, their files where git does not track them, the tests built first.
 ///
 /// What it is run to see is the round the app ships -- `PendingQueue.flush` over `ScalarClient` as a
 /// `QueueTarget` -- sent to a real television that is off, by the app's own client and transport, and what
@@ -199,8 +200,8 @@ import XCTest
 /// to was never measured, and what a television does that something else asked meanwhile cannot be put down
 /// to the check.
 ///
-/// **Then three commands in this order**, however long the television has been off by then. From the first
-/// to the end of the third the owner is at the television and looks at its panel, which is to stay dark; at
+/// **Then these commands in this order**, however long the television has been off by then. From the first
+/// to the end of the last the owner is at the television and looks at its panel, which is to stay dark; at
 /// its lamp; and at the disk, by its own lamp or its sound.
 ///
 /// 1. What is at the address. It is to say a television, in standby. With nothing at the address the
@@ -233,6 +234,17 @@ import XCTest
 ///    Its last line is what the television says it is, asked once more as the check ends: `the television
 ///    says it is: standby`. Whatever is said there fails nothing, and is written down with what was seen of
 ///    the panel: `active` is not a lit panel. It is not asked after a request that met no answer.
+///
+/// 4. `testAChangeInStandby`, after the third or in place of it, with the same `TV_LEDGER`:
+///
+///        TV_HOST=… TV_JAR=… TV_PICKS=… TV_LEDGER=… TV_WRITE=testAChangeInStandby \
+///            swift test --filter LiveTVTests/testAChangeInStandby
+///
+///    It makes one reservation once, changes its repeat to its programme's own weekday by what the app's
+///    change sends (the list, `addSchedule` 1.2, the list) and back to once, and deletes it, saying what the
+///    television says it is before anything and after every request; it fails, once what it made is taken
+///    off, unless that is `standby` throughout, and its last two lines say plainly whether the change was
+///    taken in standby and whether the television said `standby` throughout.
 ///
 /// **Then the television is switched on** with its remote, and the count afterwards is run with the same
 /// ledger. Its command for this sitting, which has no viewing reservation to name:
@@ -477,7 +489,7 @@ final class LiveTVTests: XCTestCase {
         try await sitting { try await $0.theStationsNamed() }
     }
 
-    /// The one check for a television in standby (`TVSitting.aWaitingRowInStandby`): on one that says it is
+    /// A waiting row sent to a television in standby (`TVSitting.aWaitingRowInStandby`): on one that says it is
     /// on, it is skipped with nothing made.
     func testAWaitingRowSentInStandby() async throws {
         try await sitting { try await $0.aWaitingRowInStandby() }
@@ -505,6 +517,12 @@ final class LiveTVTests: XCTestCase {
         try await sitting { try await $0.aRepeatOnADayWithTwoAtItsTime() }
     }
 
+    /// The change of a reservation's repeat to a television in standby (`TVSitting.aChangeInStandby`): on one
+    /// that says it is on, it is skipped with nothing made.
+    func testAChangeInStandby() async throws {
+        try await sitting { try await $0.aChangeInStandby() }
+    }
+
     /// The start a variable names, in Japan's time, written as `TV_REMINDER` is (`TVSitting.reminderStart`),
     /// or nil when it is not set.
     private static func start(_ name: String) throws -> Date? {
@@ -520,7 +538,7 @@ final class LiveTVTests: XCTestCase {
     /// that a command runs the one check it names whatever its filter lets through.
     ///
     /// A check that refuses to run -- no leave, the television in standby for a check that wants it on or
-    /// on for the one that wants it in standby, no slot that is empty, no viewing reservation named -- is
+    /// on for one that wants it in standby, no slot that is empty, no viewing reservation named -- is
     /// skipped with its reason: it made nothing. Whatever else a check throws fails the test, an entry left
     /// open in the ledger included: something of the sitting may be on the television. What a check says is
     /// put out line by line as it is said, and kept in a file beside the ledger for whatever runs the

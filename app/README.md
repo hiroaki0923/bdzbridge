@@ -437,6 +437,15 @@ change to a reservation the day before two others at its time left the first-mad
 list as the one that loses. The check of a reservation made with the remote was not held, there being none to
 change, so a reservation made by its times is not changed by the app yet.
 
+One more check changes a reservation with the television switched off, to see whether the app's change goes
+through in standby with the panel left dark. It makes one reservation once, changes its repeat to its
+programme's own weekday by what the app's change sends -- the list, the change, the list, on the app's own
+client -- and back to once, and deletes it. Before anything and after every request it asks what the
+television says it is, which is the one reading of the panel there is from the check; it goes no further than
+taking off what it made once that is anything but `standby`, and fails then. Its last two lines say whether the
+change was taken in standby and whether the television said `standby` throughout. It is rehearsed like the
+others, and has not been held yet.
+
 ## On a real iPhone
 
 **Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer
