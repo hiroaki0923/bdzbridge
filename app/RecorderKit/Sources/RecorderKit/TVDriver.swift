@@ -171,13 +171,12 @@ public final class TVDriver: LinkDriver {
     public static let notInList = "この予約はテレビの予約一覧に見つかりませんでした。一覧を更新しました。"
     /// Said when the id is listed and is no longer the reservation held (`TVTarget.changed`).
     public static let listChanged = "テレビ側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
-    /// Said when a delete met silence. Whether it arrived is not known, which is why it is not sent again.
+    /// Said when a delete or a change met silence. Whether it arrived is not known, which is why it is not
+    /// sent again.
     public static let mayHaveArrived = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。再接続してから一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
     public static let deleteRefused = "テレビが削除を受け付けませんでした（41200）。"
-    /// Said when a change to a television's reservation is asked for, which nothing here makes yet (`update`).
-    public static let changesNotYet = "テレビの予約の変更は、このアプリではまだできません。"
     /// For the host to say when nothing could be asked because the app is not connected (`sayNotConnected`).
     public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
 
@@ -247,7 +246,7 @@ public final class TVDriver: LinkDriver {
     /// What a request sent after the attach failed as, where the screens read it: told apart and said by the
     /// link (`OperationFailure.init`, `DeviceLink.say`), and noted here. It is said as a read's is, in the
     /// television's own words: silence met by what changes the television has a sentence of its own, which
-    /// the operation that sent it says itself (`cancel`).
+    /// the operation that sent it says itself (`cancel`, `update`).
     private func say(_ error: any Error, on link: DeviceLink) {
         note(link.say(OperationFailure(error, sending: nil)))
     }
@@ -321,15 +320,138 @@ public final class TVDriver: LinkDriver {
         return (true, after.filter { $0.id != row.id })
     }
 
-    /// Changes nothing: nothing here changes a television's reservation yet. Nothing is read and nothing
-    /// sent, and the line says so, since the reader asked for the change. What is handed back has the shape a
-    /// change will have: whether it was made, and the freshest list read on the way, which here is none. A
-    /// reservation that is not a television's is refused as `cancel` refuses it, with nothing said.
-    public func update(_ reservation: Reservation, quality: String,
-                       repeating: String) async -> (changed: Bool, list: [Reservation]?) {
-        guard reservation.device == .tv else { return (false, nil) }
-        link?.owner?.problem = Self.changesNotYet
-        return (false, nil)
+    // MARK: - changing one
+
+    /// The line on screen while a change is out.
+    public static let changingLine = "テレビの予約を変更中"
+    /// Said of a reservation whose programme has begun, by the start it is held or listed with: it is not
+    /// changed from then on.
+    public nonisolated static let changeBegun = "放送が始まった番組の予約は変更できません。"
+    /// Said of a reservation made by its times: no television has been seen to take a change of one through
+    /// the app's own client, so none is sent until one has.
+    public nonisolated static let changeByTimesNotYet = "時刻を指定した予約の変更は、テレビにはまだ送れません。"
+    /// Said when the television answered a change as taken and its list goes on showing the repeat the row
+    /// had.
+    public static let changeNotReflected = "変更がテレビの予約一覧に反映されていません。一覧を更新しました。"
+    /// Said when the television answered a change as taken and its list no longer has the reservation as it
+    /// was: it is to be looked at on the television itself, since the reservation may be gone.
+    public static let goneAfterAChange = "テレビは変更を受け付けたと答えましたが、この予約が一覧に見つかりません。"
+        + "テレビ本体の予約一覧で確かめてください。"
+    /// Said when the television answers that it has no such reservation and goes on listing it.
+    public static let changeRefused = "テレビが変更を受け付けませんでした（41200）。"
+    /// What a sheet says under the button that sends a change of a television's reservation: a television
+    /// records in its one mode, so there is nothing else to change.
+    public static let changesTheRepeatOnly = "テレビの予約で変えられるのは、毎回録画だけです。"
+
+    /// Why a television's reservation cannot be changed now, or nil when it can. One made by its times, which
+    /// has no programme id, is not changed at all for now: a television sent a change of one by a script
+    /// changed it in place, but none has been seen to take one through the app's own client. That is settled
+    /// without the clock, and comes first. Then the programme has begun, by its start, whatever its status
+    /// says: a television has only been seen to list `notStarted`, and has never been sent a change of a
+    /// reservation being recorded. For the door of `update`, which asks it of the row held and again of the
+    /// row just read, and for the sheets, which offer no change the door would turn away.
+    public nonisolated static func whyNot(changing reservation: Reservation, now: Date = Date()) -> String? {
+        if reservation.eventID == nil { return changeByTimesNotYet }
+        return reservation.start <= now ? changeBegun : nil
+    }
+
+    /// What a television's reservation can be changed to, by name, in the order a sheet lists them: what a
+    /// programme starting at its start is offered (`repeats(startingAt:)`), and the row's own repeat after
+    /// them when it is not among them, so that a picker can show what the row has. Picking that one is no
+    /// change, and the door turns it away. Empty when `whyNot(changing:)` has a reason, and for a repeat the
+    /// tables have no name for: a picker would show it as another, and send that.
+    public nonisolated static func repeats(changing reservation: Reservation, now: Date = Date()) -> [String] {
+        guard whyNot(changing: reservation, now: now) == nil, let own = reservation.repeatName else { return [] }
+        let offered = repeats(startingAt: reservation.start)
+        return offered.contains(own) ? offered : offered + [own]
+    }
+
+    /// Changes the repeat of a television's reservation, in place: one request carrying the list's own id and
+    /// every value of the row as the list gave it, with only the repeat new (`ScalarClient.changeSchedule`).
+    /// Never a delete and a create, so the programme is never left unreserved. What it came to, with its
+    /// sentence, and the freshest list read on the way for the caller to keep (nil when none was read). The
+    /// result is nil for a row that is not the television's: it is another device's to change, and nothing is
+    /// read, sent or said for it.
+    ///
+    /// Turned away at the door, with nothing sent, no line and no connect -- the sentence is in the result,
+    /// and what an earlier operation left on the line stays (`Reserved`): the link gone; a reservation made by
+    /// its times, and a programme that has begun by the start the row is held with (`whyNot(changing:)`); a
+    /// television that cannot be asked, for which the registration it wants, or that the app is not
+    /// connected, is said as the delete says it. The reader pulls the list down to connect again, as for a
+    /// delete.
+    ///
+    /// Otherwise the list is read first, under the change's line, the television made sure of before it, and
+    /// the reservation found in it (`tvTarget`): one that has gone, or whose id is now another programme's,
+    /// is not written to. The row sent is the one just read -- a title the television has given it since, a
+    /// start it has moved a programme to -- and the door's two rules are asked again of it, with the clock
+    /// read again: a programme the television moved earlier, or that began during the read, is sent nothing,
+    /// and nor is a repeat that is not one this row is offered at the start it now has, which turns away
+    /// the row's own repeat as well -- picking that one is no change. A read that fails sends nothing, and
+    /// the result says what the link said of it on the line.
+    ///
+    /// The change is sent once. Silence there may be a change that arrived: nothing is sent after it, the
+    /// television is given up on, and the line and the result say so, as for a delete. An answer that the
+    /// television has no such reservation (41200) is settled by reading again. Any other refusal is said in
+    /// the television's words, on the line and in the result, and one for the cookie puts down that the
+    /// registration is wanted.
+    ///
+    /// After a change that was answered, the list is read once more. One that shows the row with the repeat
+    /// sent is a change made, with what the change left marked as losing (`ScalarClient.remark(changing:)`).
+    /// The old repeat, or the row gone or another programme's, is said as such. A read that fails still
+    /// counts the change, as a delete counts, and the list handed back is the one read before with the repeat
+    /// that was sent: the television answered the change as taken. A change asks nothing first of what it
+    /// would stop from recording, and is never kept on the phone to go later, as the recorder's change does
+    /// not and is not: what it left marked is said once it is made.
+    public func update(_ reservation: Reservation,
+                       repeating: String) async -> (altered: Altered?, list: [Reservation]?) {
+        guard reservation.device == .tv else { return (nil, nil) }
+        guard let link else { return (.notDone(Self.notConnected), nil) }
+        if let why = Self.whyNot(changing: reservation) { return (.notDone(why), nil) }
+        guard canBeAsked(on: link) else {
+            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected), nil)
+        }
+        let owner = link.owner
+        // What the link said on the line of a read or a check that failed: the check's no for the permission
+        // clears the line, and that the app is not connected stands for it.
+        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? Self.notConnected) }
+        return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
+            guard await link.ensureUp(), let client = link.client as? ScalarClient,
+                  let list = await self.read(link, underALine: false) else { return (whatTheLinkSaid(), nil) }
+            let target = list.tvTarget(of: reservation)
+            guard case .found(let listed) = target, let row = listed.tvRow else {
+                return (.notDone(target == .gone ? Self.notInList : Self.listChanged), list)
+            }
+            if let why = Self.whyNot(changing: listed) { return (.notDone(why), list) }
+            guard Self.repeats(startingAt: listed.start).contains(repeating),
+                  let code = Codes.repeatCodes[repeating],
+                  let repeatType = TVReservationBody.repeatType(for: code, start: listed.start) else {
+                return (.notDone(ScalarClient.repeatNotTaken), list)
+            }
+            do {
+                try await client.changeSchedule(row, repeatType: repeatType)
+            } catch let error as any DeviceError where error.failure == .silent {
+                _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived))
+                return (.notDone(Self.mayHaveArrived), list)
+            } catch let error as any DeviceError where error.failure == .unknownItem {
+                guard let newer = await self.read(link, underALine: false) else { return (whatTheLinkSaid(), list) }
+                return (.notDone(newer.contains { $0.id == row.id } ? Self.changeRefused : Self.notInList), newer)
+            } catch {
+                self.say(error, on: link)
+                return (.notDone((error as? any DeviceError)?.explanation ?? String(describing: error)), list)
+            }
+            var sent = row
+            sent.repeatType = repeatType
+            guard let after = await self.read(link, underALine: false) else {
+                return (.done(saying: nil), list.map { $0.id == row.id ? sent.reservation() ?? $0 : $0 })
+            }
+            guard case .found(let found) = after.tvTarget(of: listed), let changed = found.tvRow else {
+                return (.notDone(Self.goneAfterAChange), after)
+            }
+            guard found.repeatCode == code else { return (.notDone(Self.changeNotReflected), after) }
+            let remark = ScalarClient.remark(changing: changed.title ?? "", row: changed,
+                                             before: list.compactMap(\.tvRow), after: after.compactMap(\.tvRow))
+            return (.done(saying: remark), after)
+        }
     }
 
     // MARK: - what waits in the queue
@@ -467,15 +589,20 @@ public final class TVDriver: LinkDriver {
     /// The mode a television records in, by its name in `Codes.quality`.
     public static let recordsIn = "DR"
 
-    /// The repeats a reservation of `program` on a television can be given, by their names in
+    /// The repeats a reservation starting at `start` can be given on a television, by their names in
     /// `Codes.repeatCodes` and in the order a sheet lists them: the recorder's six, the weekly one the
-    /// programme's own weekday, less those a television is not sent for it (`TVReservationBody.repeatType`),
+    /// weekday of `start` in Japan, less those a television is not sent for it (`TVReservationBody.repeatType`),
     /// which is what `reserve` turns away. So a choice a screen offers from here is never one the door
-    /// refuses.
-    public nonisolated static func repeats(for program: GuideProgramRow) -> [String] {
-        ["none", "title", "daily", Codes.weekdayRepeat(for: program.start), "mon-fri", "mon-sat"].filter { name in
-            Codes.repeatCodes[name].flatMap { TVReservationBody.repeatType(for: $0, start: program.start) } != nil
+    /// refuses. What a change can be sent is this at the reservation's start (`repeats(changing:)`).
+    public nonisolated static func repeats(startingAt start: Date) -> [String] {
+        ["none", "title", "daily", Codes.weekdayRepeat(for: start), "mon-fri", "mon-sat"].filter { name in
+            Codes.repeatCodes[name].flatMap { TVReservationBody.repeatType(for: $0, start: start) } != nil
         }
+    }
+
+    /// The repeats a reservation of `program` on a television can be given: those of its start.
+    public nonisolated static func repeats(for program: GuideProgramRow) -> [String] {
+        repeats(startingAt: program.start)
     }
 
     /// Why `program` cannot be reserved on a television, or nil when it can: its end has passed, and that is

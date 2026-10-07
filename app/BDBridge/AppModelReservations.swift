@@ -470,9 +470,9 @@ extension AppModel {
     /// connected, and otherwise with the rest the next time the recorder answers.
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
-    /// delete of a television's reservation is (`update`): nothing below is for it. The recorder is not made
-    /// sure of on its account, and it takes no turn in the recorder's sending. With no television in play
-    /// nothing is done, and the row keeps its reason.
+    /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
+    /// not made sure of on its account, and it takes no turn in the recorder's sending. With no television in
+    /// play nothing is done, and the row keeps its reason.
     func resend(_ waiting: PendingReservation) async {
         if waiting.target == .tv {
             await tvHost?.resend(waiting)
@@ -569,15 +569,37 @@ extension AppModel {
         return outcome.sent.count
     }
 
+    /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both
+    /// devices answer with (`Altered`). It goes to the device that holds the row and to no other.
+    ///
+    /// A television's is its host's, and is handed over before anything else, whatever state the recorder is
+    /// in: the recorder is asked nothing on its account, not its check, and its line is not touched. A
+    /// television records in its one mode and has no disk to choose, so `quality` and `disk` are not read for
+    /// one. With no television in play, as in the demo, nothing is sent, and the answer is that the app is not
+    /// connected to it.
+    ///
+    /// The recorder's is `update` as it stands. Its answer and its line are read here into that value: done,
+    /// with nothing to add; or not done, with the recorder's line -- what the sheet said before, in the same
+    /// words.
+    func change(_ reservation: Reservation, quality: String, repeating: String,
+                disk: String? = nil) async -> Altered {
+        if reservation.device == .tv {
+            return await tvHost?.update(reservation, repeating: repeating) ?? .notDone(TVDriver.notConnected)
+        }
+        guard await update(reservation, quality: quality, repeating: repeating, disk: disk) else {
+            return .notDone(problem ?? "レコーダーがエラーを返しました")
+        }
+        return .done(saying: nil)
+    }
+
     /// Changes the quality, the repeat or the disk of a reservation the recorder already holds, found again in a
     /// list read afresh, as for a deletion (`cancel`). The request keeps everything else, including the
     /// programme id, so a reservation that follows its programme goes on following it.
     ///
-    /// A television's reservation is its host's to change, and is handed over before anything else: nothing
-    /// below is for it, whatever state the recorder is in. Looked for in the recorder's list it would not be
-    /// found -- a row of another device is no match there (`current`) -- so the recorder's branch could only
-    /// say that the reservation had been deleted: this routing is what sends it to the television. With no
-    /// television in play nothing is sent, and `disk` is not read for it.
+    /// The recorder's alone: a television's reservation is changed through `change`, which hands it to the
+    /// television's host. Handed one here, it is sent nothing and nothing is said. Looked for in the
+    /// recorder's list it would not be found -- a row of another device is no match there (`current`) -- so the
+    /// recorder's branch could only say that the reservation had been deleted.
     ///
     /// `disk` is where the reader moved the reservation, nil where they did not: the disk the recorder holds it
     /// on as the change goes out is then kept, whatever the sheet was opened on. A disk moved to and no longer
@@ -587,9 +609,7 @@ extension AppModel {
     /// for a choice the sheet does not show.
     func update(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Bool {
-        if reservation.device == .tv {
-            return await tvHost?.update(reservation, quality: quality, repeating: repeating) ?? false
-        }
+        guard reservation.device == .recorder else { return false }
         await start()
         guard client != nil else { return false }
         if let disk, !RecorderDisk.offers(disk, with: usbDisk) {
@@ -649,7 +669,7 @@ extension AppModel {
     ///
     /// Also a write. A recorder that refuses says why, and the reason is left on screen, not reloaded away.
     ///
-    /// A television's reservation is its host's to delete, handed over first as for a change (`update`).
+    /// A television's reservation is its host's to delete, handed over first as for a change (`change`).
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }

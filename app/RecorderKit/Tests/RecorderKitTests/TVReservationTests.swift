@@ -201,4 +201,83 @@ final class TVReservationTests: XCTestCase {
         request.eventID = nil
         XCTAssertNil(TVReservationBody(request, on: station), "a reservation made by its times")
     }
+
+    // MARK: - what a reservation can be changed to
+
+    /// What a reservation starting at a moment can be given on a television, by name and in the order a
+    /// sheet lists them: the six a programme of that moment is offered, by the weekday in Japan whatever the
+    /// phone's zone -- every weekly code but its own day's left out, Monday to Friday not on a Saturday or a
+    /// Sunday, Monday to Saturday not on a Sunday -- and nothing with a weekday in it before four in the
+    /// morning, at the very start of the guide's day or a second before it.
+    func testWhatAStartCanBeGivenIsTheSixOfItsWeekdayInJapan() throws {
+        let evening: [(day: Int, repeats: [String])] = [
+            (1, ["none", "title", "daily", "sun"]),
+            (2, ["none", "title", "daily", "mon", "mon-fri", "mon-sat"]),
+            (3, ["none", "title", "daily", "tue", "mon-fri", "mon-sat"]),
+            (4, ["none", "title", "daily", "wed", "mon-fri", "mon-sat"]),
+            (5, ["none", "title", "daily", "thu", "mon-fri", "mon-sat"]),
+            (6, ["none", "title", "daily", "fri", "mon-fri", "mon-sat"]),
+            (7, ["none", "title", "daily", "sat", "mon-sat"]),
+        ]
+        try inEachZone { zone in
+            for (day, repeats) in evening {
+                for (hour, minute, second) in [(4, 0, 0), (21, 0, 0), (23, 59, 59)] {
+                    XCTAssertEqual(TVDriver.repeats(startingAt: japan(day, hour, minute, second)), repeats,
+                                   "day \(day) at \(hour):\(minute), the phone in \(zone)")
+                }
+                for (hour, minute, second) in [(0, 0, 0), (2, 0, 0), (3, 59, 59)] {
+                    XCTAssertEqual(TVDriver.repeats(startingAt: japan(day, hour, minute, second)),
+                                   ["none", "title", "daily"], "day \(day) at \(hour):\(minute), the phone in \(zone)")
+                }
+            }
+        }
+    }
+
+    /// Whether a television's reservation can be changed, and to what. Until its programme begins, by the
+    /// start the row has, and not by what the television says of its recording: a row past its start that
+    /// reads as not started yet is begun all the same, and one at its start to the second as well. Then
+    /// nothing is offered. Before that, the six of its start, and the row's own repeat after them when it is
+    /// not one of those, so that a picker can show what the row has -- another day's weekly code. A repeat
+    /// no name is known for offers nothing at all: a picker would show it as something it is not, and send
+    /// that. Nor does a reservation made by its times, whatever its start: no television has been seen to
+    /// take a change of one through the app's own client.
+    func testAReservationCanBeChangedUntilItsProgrammeBeginsToWhatItsStartIsOffered() throws {
+        let monday = japan(2, 21), now = japan(1, 12)
+        let mondays = ["none", "title", "daily", "mon", "mon-fri", "mon-sat"]
+        let byTimes = TVDriver.changeByTimesNotYet
+        func reservation(at start: Date, repeating code: String = "1", following: Bool = true,
+                         status: String = "notStarted", now: Date) throws -> Reservation {
+            let schedule = DemoTV.Schedule(id: "recording.41", start: start, repeatType: code,
+                                           recordingStatus: status, eventId: following ? 12345 : nil)
+            return try XCTUnwrap(schedule.row.reservation(now: now))
+        }
+        try inEachZone { zone in
+            let cases: [(name: String, row: Reservation, now: Date, why: String?, repeats: [String])] = [
+                ("once, a day ahead", try reservation(at: monday, now: now), now, nil, mondays),
+                ("once, a second before its start", try reservation(at: monday, now: monday - 1), monday - 1, nil,
+                 mondays),
+                ("made by its times", try reservation(at: monday, following: false, now: now), now, byTimes, []),
+                ("its own weekly code", try reservation(at: monday, repeating: "w1", now: now), now, nil, mondays),
+                ("by the programme's name", try reservation(at: monday, repeating: "title", now: now), now, nil,
+                 mondays),
+                ("another day's weekly code", try reservation(at: monday, repeating: "w3", now: now), now, nil,
+                 mondays + ["wed"]),
+                ("made by its times, begun", try reservation(at: monday, following: false, now: monday + 60),
+                 monday + 60, byTimes, []),
+                ("a repeat with no name", try reservation(at: monday, repeating: "w9", now: now), now, nil, []),
+                ("before four in the morning", try reservation(at: japan(3, 2), now: now), now, nil,
+                 ["none", "title", "daily"]),
+                ("at its start", try reservation(at: monday, now: monday), monday, TVDriver.changeBegun, []),
+                ("past its start, and not started by its status",
+                 try reservation(at: monday, now: monday + 60), monday + 60, TVDriver.changeBegun, []),
+                ("over", try reservation(at: monday, repeating: "d", now: monday + 7200), monday + 7200,
+                 TVDriver.changeBegun, []),
+            ]
+            for (name, row, at, why, repeats) in cases {
+                XCTAssertFalse(row.recording, "\(name): read as recording")
+                XCTAssertEqual(TVDriver.whyNot(changing: row, now: at), why, "\(name), the phone in \(zone)")
+                XCTAssertEqual(TVDriver.repeats(changing: row, now: at), repeats, "\(name), the phone in \(zone)")
+            }
+        }
+    }
 }

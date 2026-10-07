@@ -707,6 +707,37 @@ extension ScalarClient {
         for rows in [recordings, others] where !rows.isEmpty { sentences.append(leftMarked(title, rows)) }
         return sentences.isEmpty ? nil : sentences.joined(separator: "。")
     }
+
+    /// Said when changing the repeat of the reservation titled `title` left other recordings marked that
+    /// were not marked before, as `leftMarked` says it of a create: by their names, and with what the mark may
+    /// cost them. A repeat added by a change was seen to leave a recording on a later day marked
+    /// `fullyOverlapped`, the one that loses.
+    static func leftMarked(changing title: String, _ rows: [TVScheduleRow]) -> String {
+        "「\(title)」の毎回録画を変更したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と"
+            + "重なり、録画されないことがあります"
+    }
+
+    /// What changing the repeat of the reservation titled `title` did to the marks in the list, as a sentence
+    /// for the reader, or nil when it did nothing: read from the list before the change (`before`) and the list
+    /// after it (`after`), where `row` is the row that was changed.
+    ///
+    /// That the row itself is marked as overlapping is said in the create's own sentence, where the list
+    /// after marks it and the one before did not. Then each other recording that the list after marks and
+    /// the one before listed unmarked, by its name. A mark that was there before is not this change's doing,
+    /// and a row new to the list is not either. Not the create's `remark`: a changed row keeps its id, so
+    /// that would say it twice -- as the row made, and as one left marked -- and would say a mark it had
+    /// before. Reminders to watch are left out: a reminder loses no recording, and the list a change reads
+    /// has none.
+    static func remark(changing title: String, row: TVScheduleRow, before: [TVScheduleRow],
+                       after: [TVScheduleRow]) -> String? {
+        let unmarked = Set(before.filter { !$0.overlaps }.map(\.id))
+        let marked = after.filter { $0.type == "recording" && $0.overlaps && unmarked.contains($0.id) }
+        var sentences: [String] = []
+        if marked.contains(where: { $0.id == row.id }) { sentences.append(madeAndMarked(title)) }
+        let others = marked.filter { $0.id != row.id }
+        if !others.isEmpty { sentences.append(leftMarked(changing: title, others)) }
+        return sentences.isEmpty ? nil : sentences.joined(separator: "。")
+    }
 }
 
 extension ScalarClient: QueueTarget {
