@@ -269,6 +269,9 @@ public final class TVDriver: LinkDriver {
             lookedInVain.insert(network)
             return notFollowed(link, pin)
         }
+        // Followed past a call for a PIN: the network is looked on once, and an attach there that calls for one
+        // too is not to set off a second look (an attach that hears the MAC empties the set again).
+        if pin != nil { lookedInVain.insert(network) }
         link.host = found
         let client = makeClient(for: link)
         link.client = client
@@ -395,6 +398,9 @@ public final class TVDriver: LinkDriver {
     private func readNow(_ link: DeviceLink, underALine: Bool) async -> [Reservation]? {
         let read = await link.run(line: underALine ? Self.readingLine : nil, evenIfRecent: checksAgain) { _ in
             if let heard = self.heardInstead { throw heard }
+            // A connect begun since this read's check put a client of its own in the link, which has not yet
+            // heard which television answers there: nothing goes to it with the cookie until it has.
+            guard self.canBeAsked(on: link) else { return [Reservation]?.none }
             return try await (link.client as? ScalarClient)?.schedules().compactMap { $0.reservation() }
         }
         switch read {
@@ -1093,8 +1099,9 @@ public final class TVDriver: LinkDriver {
     ///
     /// Anything else but silence -- a refusal, a fault, an answer that does not read -- says nothing of which
     /// device gave it, and nothing that carries the cookie is sent on its strength (`heardInstead`). It is said
-    /// as the attach says it, and a refusal of the cookie (401, 403) is read as the attach reads it: the
-    /// registration is wanted. It is not taken for another device, and nothing is given up: the next operation
+    /// as the attach says it, and a refusal of the cookie (401, 403) is read as the registration wanted, as an
+    /// attach with no MAC saved reads it; the check never looks past it. It is not taken for another device,
+    /// and nothing is given up: the next operation
     /// checks again, and sends once a check hears the television say which it is. The link takes it for an
     /// answer, as it takes a recorder's, and lets the operation go on to this driver, which sends nothing.
     /// Silence is the link's to read, as ever.

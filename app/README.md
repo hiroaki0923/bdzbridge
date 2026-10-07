@@ -826,7 +826,8 @@ television is sent nothing of what was asked: the television's line says another
 asked and nothing that carries the cookie reaches it. Something answered, so nothing is given up: the next
 connect asks again and looks past it, while the check itself never looks. Any other answer but silence says
 nothing of which device gave it, and nothing that carries the cookie is sent on its strength
-(`TVDriver.heardInstead`). A 401 or 403 is read as a connect reads it: the registration is wanted. Any other
+(`TVDriver.heardInstead`). A 401 or 403 is read as the registration wanted, as a connect with no MAC saved
+reads it (one with a MAC saved looks past a 401 first; the check never looks). Any other
 refusal or fault -- a 503, 40005, an HTTP 500 or a 404 page, an answer that does not read -- is said as itself,
 in the line a connect gives it, and not as another device, which would send the reader to テレビを外す over
 what may be a passing fault of the television's own. Neither is given up on or taken for another device: the
@@ -840,7 +841,10 @@ app was connected and not busy, as a recorder's does; a change while the televis
 Wi-Fi that gives the phone the same address and mask, is not seen. An address handed over inside that window
 would be sent that operation, cookie and all. The window is left so: closing it costs a request before every
 operation, or a check at every change of network, which is the link's rule for both devices and would probe
-the recorder at each change too.
+the recorder at each change too. A connect begun meanwhile does not widen it for the client it makes: a list
+read whose check passed just before is not sent to that client until its attach has heard which television
+answers there. One begun just before a connect has made its client still goes on the client the last attach
+heard.
 
 Another television is never taken for the one saved: not at a connect or at the check before an operation
 (above), and not at a registration,

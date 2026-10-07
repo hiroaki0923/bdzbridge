@@ -894,6 +894,72 @@ final class DeviceLinkTests: XCTestCase {
         expectEqual(await television.calls, [])
     }
 
+    /// A read whose check passed just before a connect put a client of its own in the link, and the address
+    /// handed meanwhile to another television: the read sends nothing with the cookie to the new client, which
+    /// has not heard which television answers there.
+    func testAReadWhoseCheckPassedBeforeAConnectSendsNothingToItsNewClient() async throws {
+        guard #available(macOS 26, iOS 26, *) else { throw XCTSkip("Task.immediate is wanted to start the read first") }
+        let world = LinkWorld()
+        let (link, driver, _, address) = await connectedBehindAnAddress(world)
+        XCTAssertEqual(driver?.canBeAsked, true)
+        let other = DemoTV(mac: Self.otherTV)
+        await other.knows("BDBridge:test", cookie: "kept")
+        let heard = StubTransport { request, _ in try await other.send(request) }
+        await address.handTo(heard)
+
+        let read = Task.immediate { await driver?.reservations() }
+        await link.connect()
+        _ = await read.value
+
+        let asked = await heard.requests
+        XCTAssertTrue(onlyAskedWhichItIs(asked), "the cookie went to another television")
+        XCTAssertEqual(world.problem, TVDriver.anotherAnswered)
+    }
+
+    /// A call for a PIN where the television was, with a MAC saved and nowhere to look (the demo, the
+    /// background, no subnet): the registration is wanted, as before there was a look, and nothing is given up.
+    func testACallForAPINWithNowhereToLookWantsTheRegistration() async {
+        let world = LinkWorld()
+        _ = await registeredTelevision(at: Self.moved, in: world)
+        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 401))
+        world.near = []
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 0)
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true, "the registration was not wanted")
+        XCTAssertFalse(link.session.gaveUp, "given up as silence")
+        XCTAssertEqual(world.problem, ScalarError.http(status: 401, method: "getSystemSupportedFunction").explanation)
+    }
+
+    /// A television followed past a call for a PIN to an address where it calls for one too: the registration
+    /// is wanted there, nothing is given up, and the next connect on the same network makes no second look.
+    func testATelevisionFollowedPastACallForAPINThatCallsForOneToo() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: nil, in: world)
+        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 401))
+        // The look's ask is answered by the television; the attach's after it calls for a PIN.
+        world.devices[Self.moved] = StubTransport { request, index in
+            guard index == 0 else { return HTTPResponse(statusCode: 401) }
+            return try await television.send(request)
+        }
+        world.near = [Stub.host, Self.moved]
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 1)
+        XCTAssertEqual(link.host, Self.moved)
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true, "the registration was not wanted")
+        XCTAssertFalse(link.session.gaveUp, "given up as silence")
+        XCTAssertFalse(link.session.unreachable)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 1, "looked again on the same network")
+    }
+
     // MARK: - letting go
 
     /// A link goes when the app lets go of it, though its driver is kept: the link holds the driver, and the
