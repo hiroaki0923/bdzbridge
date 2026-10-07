@@ -107,6 +107,13 @@ final class LiveRecordingDestinationTests: XCTestCase {
 
         let reservations = try await client.reservations()
         print("reservations: \(reservations.count), by disk \(Self.histogram(reservations.map(\.destination)))")
+        // What the recorder lists as the disk of a condition its own screen made to the USB disk, if there is one.
+        do {
+            let rules = try await client.recorderRules()
+            print("keyword conditions: \(rules.count), by disk \(Self.histogram(rules.map(\.destination)))")
+        } catch {
+            print("keyword conditions: \(Self.code(error))")
+        }
 
         // Its channel and start as one digest: enough to tell the same recording in a later run, and to see an id
         // that changed under it, without naming a channel, as a terrestrial one says the area the recorder is in.
