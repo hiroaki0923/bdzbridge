@@ -127,12 +127,15 @@ and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` han
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
 `untilConnected` and `untilGivenUp`, and `expectEqual` and its kin, which check a value that has to be awaited
 in the line that reads it. Nothing leaves the machine. So what the link does on the LAN itself -- the
-packet before the first ask, the wait for the local network permission, the search for a recorder the router
-has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of the
-test's own. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
+packet before the first ask, the wait for the local network permission, the search for a recorder or a
+television the router has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is
+handed a world of the test's own; the television's search there is the package's own (`TVDiscovery.find`),
+its requests sent to the devices the world has at each address, so that which television it takes is decided
+by the code the app runs. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
 `TVReservationTests`, `QueueWithATelevisionTests`, `TVDriverTests`, `TVNoScreenTests`). All of these hand the
 client a transport of their own; what `URLSession` itself does with an answer -- it sends a request again for a
-401 that asks for a password -- is tried against a server on the loopback (`URLSessionTransportTests`).
+401 that asks for a password, and follows a redirect, which a television's session does not -- is tried
+against a server on the loopback (`URLSessionTransportTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -311,7 +314,8 @@ the demo, which the demo does not have yet.
 
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
 wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
-permission itself and the link's wait for it, and the search for a recorder the router has moved.
+permission itself and the link's wait for it, and the search for a recorder or a television the router has
+moved.
 Nor what a screen decides for itself: what sets its list loading,
 closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
 of the app's phase. Nor the two entries with no screen as the
@@ -338,7 +342,10 @@ test's recorder for its own.
 
 What the app relies on of a real television is tried from RecorderKit, by the client and the transport the
 app sends with and not by another tool (`LiveTVTests`, every test skipped unless `TV_HOST` names a
-television). What is at an address, the registration and the two reads behind it are there, and so are the
+television). What is at an address, the registration and the two reads behind it are there, and the look a
+connect makes for a television that did not answer where it was saved
+(`testFindingTheTelevisionByItsMAC`, the television in standby, which says whether it was found at the address
+given, how many addresses were asked and how many seconds that took). So are the
 checks with which the three requests that reserve on a television -- its stations, the question of what a
 reservation would stop from recording, the create -- meet a real one for the first time: nine of them, run
 one at a time in a sitting with the television's owner, in the order written at the head of that file with
@@ -784,6 +791,33 @@ recorder with the MAC the app keeps -- which is the tail of the recorder's UDN, 
 this recognises it too -- and moves to wherever it now is. It never looks on another network, in the demo or
 in the background, and it looks once per connect, not in a loop. The empty guide, reservations and
 recordings offer a quieter レコーダーを探す under 再接続 for the times it finds nothing.
+
+A television's address is a lease as well, and it is followed the same way, by the MAC it wakes on, which its
+registration wrote down (`TVDriver.findElsewhere`, through `TVDiscovery.find`). A television is never woken,
+so a connect looks for it once its first ask meets silence -- or meets something that is not the television
+saved: another television, by its MAC, or a device that is no television, by an answer no television gives a
+method that needs no registration (an HTTP status other than 401, 403 and 503, an answer it cannot read, an
+error code the client does not know), such as a router's or a printer's page on port 80, which is the ordinary
+way a lease handed to another device shows itself. That device is sent nothing that carries the cookie, and
+the connect reads it as the television's silence. The look asks each address of the same subnet one
+`getSystemSupportedFunction`, 48 at a time, with テレビを探しています on the strip, and stops at the television
+with the MAC saved. Found, the address moves -- the settings, the overnight run and the Shortcuts action use it
+from then on -- and it is attached there, its MAC asked before anything carries the cookie. Not found, the app
+gives up as on silence, and the line says what answered at the old address, or that nothing did. Since a
+television is looked for after any silence,
+one that is silent in standby would cost a look through the subnet at every launch, return and pull; so a look
+that found nothing is not made again on that network until the television answers, or the app is launched
+afresh. Never in the demo or in the background, and never from the check before an operation, the overnight
+run or the Shortcuts action. Every request to a television, the look's included, goes through a session that
+keeps no cookie and follows no redirect (`URLSessionTransport.withoutCookies`): a 3xx is an answer, so nothing
+goes to an address or a port the app did not choose.
+
+Another television is never taken for the one saved: not at a connect (above), and not at a registration,
+which reads the MAC first and refuses another before anything that registers is sent to it
+(`ScalarClient.enrol(expecting:)`), so no PIN comes up on its panel. The sheet says that another television is
+added after テレビを外す, which asks about what waits for the one saved and deletes it. A television that gives
+no MAC is taken for the one saved, as a connect takes it. And the tutorial comes up at a launch only while
+nothing is set up (`AppModel.welcomes`): a home with a television and no recorder is not shown it every time.
 
 Which recorder is answering is decided by its description, not by the address: the recorder says which it is
 (its UDN), and the app writes down whose the cache on the phone is (`GuideStore.owner`). The same recorder at
