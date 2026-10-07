@@ -9,11 +9,14 @@ import XCTest
 /// through the bench's recorder; the demo's recorder answers it with nothing, which is no disk.
 @MainActor
 final class USBDiskTests: XCTestCase {
-    /// A disk in the slot as the recorder might describe it, its name and sizes made up: 123.5 GB free of 2000.4.
+    /// A disk in the slot in the recorder's own wrapping and order, its name, time and sizes made up: 123.5 GB free
+    /// of 2000.4.
     static func slot(mount: String = "1", remain: Int = 123_456,
                      registered: String? = "2026-01-02T03:04:05+0900") -> String {
-        "<mediaInfo><name>録画用ディスク</name><mount>\(mount)</mount><remain>\(remain)</remain><total>2000398</total>"
-            + (registered.map { "<registeredTime>\($0)</registeredTime>" } ?? "") + "</mediaInfo>"
+        "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name>録画用ディスク</name>"
+            + "<mount>\(mount)</mount><remain>\(remain)</remain><total>2000398</total>"
+            + (registered.map { "<registeredTime>\($0)</registeredTime>" } ?? "")
+            + "<recordableRemain>654321</recordableRemain></xsrs>"
     }
 
     /// A model started and connected to a recorder that answers the slot with `slot`, or as the demo's does when
@@ -84,9 +87,19 @@ final class USBDiskTests: XCTestCase {
         func say(_ what: String) { said.append(what) }
     }
 
-    /// The overnight run reads the slot before the internal disk's space, through the rule the screens use. A
-    /// USB disk that takes recordings has its space told, and the internal disk's notice then names its disk;
-    /// with no such disk the internal disk's is told as it always was, naming none.
+    /// What an overnight run tells, as text.
+    private func telling(_ told: Told) -> BackgroundWork.Telling {
+        BackgroundWork.Telling(
+            heldBack: {}, flushed: { _ in },
+            freeSpace: { _, _, naming in await told.say("free space" + (naming.map { " of \($0)" } ?? "")) },
+            usbSpace: { await told.say("USB space of \($0.name)") },
+            fetched: { _ in })
+    }
+
+    /// The overnight run reads the slot once, before the internal disk's space, through the rule the screens use:
+    /// in a home with no USB disk too, which pays that one request a night and no more. A USB disk that takes
+    /// recordings has its space told, and the internal disk's notice then names its disk; with no such disk the
+    /// internal disk's is told as it always was, naming none.
     func testTheNightRunTellsTheUSBDisksSpaceOnlyForADiskThatTakesRecordings() async throws {
         let cases: [(String?, [String])] = [
             (Self.slot(), ["free space of HDD", "USB space of 録画用ディスク"]),
@@ -97,23 +110,41 @@ final class USBDiskTests: XCTestCase {
         for (slot, expected) in cases {
             let (bench, recorder, _) = try await connected(answering: slot)
             let told = Told()
-            let telling = BackgroundWork.Telling(
-                heldBack: {}, flushed: { _ in },
-                freeSpace: { _, _, naming in await told.say("free space" + (naming.map { " of \($0)" } ?? "")) },
-                usbSpace: { await told.say("USB space of \($0.name)") },
-                fetched: { _ in })
+            let before = await recorder.asked
 
             // No MAC: the run sends its packet itself, and would send it on the network this is run on.
             _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
-                                             store: try GuideStore(path: bench.guidePath), mac: nil, telling: telling)
+                                             store: try GuideStore(path: bench.guidePath), mac: nil,
+                                             telling: telling(told))
 
             expectEqual(await told.said, expected, slot ?? "nothing")
+            expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1,
+                        "the slot was not read once in the night: \(slot ?? "nothing")")
         }
+    }
+
+    /// A slot that says nothing ends the overnight run there: the free space and the guide are not asked for,
+    /// each of which would only wait out the same silence, and nothing is told.
+    func testTheNightRunStopsAtASilentSlot() async throws {
+        let (bench, recorder, _) = try await connected(answering: nil)
+        let told = Told()
+        await recorder.goQuiet(on: "X_GetMediaInfo")
+        let before = await recorder.heard.count
+
+        // No MAC, as above.
+        let fetched = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
+                                                   store: try GuideStore(path: bench.guidePath), mac: nil,
+                                                   telling: telling(told))
+
+        XCTAssertFalse(fetched)
+        expectEqual(await recorder.heard(since: before).last, "X_GetMediaInfo", "the run went on past the slot")
+        expectEqual(await told.said, [])
     }
 
     /// The USB disk's warning is given once per fall below the line, for the disk in the slot: a disk that was
     /// warned about is not warned about again until it has had room, and another disk -- or the same one renamed,
-    /// which is not to be told from another -- has not been warned about yet.
+    /// which is not to be told from another -- has not been warned about yet. A warning leaves the disk's
+    /// identity as the mark, and goes under an identifier of its own.
     func testTheUSBDisksLowSpaceMarkIsTheDisksOwn() {
         func disk(freeGB: Int, name: String = "録画用ディスク", registered: String = "2026-01-02T03:04:05+0900",
                   mounted: Bool = true) -> RecorderDisk {
@@ -124,15 +155,20 @@ final class USBDiskTests: XCTestCase {
         let another = disk(freeGB: 10, registered: "2026-02-03T04:05:06+0900")
         let renamed = disk(freeGB: 10, name: "別のディスク")
 
-        XCTAssertEqual(Notify.usbSpace(low, marked: nil, warnBelowGB: 50), .warn(freeGB: 10))
+        XCTAssertEqual(Notify.usbSpace(low, marked: nil, warnBelowGB: 50), .warn(freeGB: 10, mark: low.identity),
+                       "the warning does not leave the disk's identity as its mark")
         XCTAssertEqual(Notify.usbSpace(low, marked: low.identity, warnBelowGB: 50), .nothing, "warned twice")
-        XCTAssertEqual(Notify.usbSpace(another, marked: low.identity, warnBelowGB: 50), .warn(freeGB: 10),
-                       "another disk taken for the one warned about")
-        XCTAssertEqual(Notify.usbSpace(renamed, marked: low.identity, warnBelowGB: 50), .warn(freeGB: 10))
+        XCTAssertEqual(Notify.usbSpace(another, marked: low.identity, warnBelowGB: 50),
+                       .warn(freeGB: 10, mark: another.identity), "another disk taken for the one warned about")
+        XCTAssertEqual(Notify.usbSpace(renamed, marked: low.identity, warnBelowGB: 50),
+                       .warn(freeGB: 10, mark: renamed.identity))
         XCTAssertEqual(Notify.usbSpace(roomy, marked: roomy.identity, warnBelowGB: 50), .roomAgain)
         XCTAssertEqual(Notify.usbSpace(roomy, marked: another.identity, warnBelowGB: 50), .nothing)
         XCTAssertEqual(Notify.usbSpace(roomy, marked: nil, warnBelowGB: 50), .nothing)
         XCTAssertEqual(Notify.usbSpace(disk(freeGB: 10, mounted: false), marked: nil, warnBelowGB: 50), .nothing,
                        "a disk that is not there was warned about")
+
+        // Pinned as written: a notice still shown from an earlier version is replaced by the next under it.
+        XCTAssertEqual(Notify.usbLowSpaceID, "low-space-usb")
     }
 }

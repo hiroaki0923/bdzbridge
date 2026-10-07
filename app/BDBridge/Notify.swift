@@ -161,31 +161,38 @@ enum Notify {
             return
         case .roomAgain:
             UserDefaults.standard.removeObject(forKey: key)
-        case .warn(let freeGB):
+        case .warn(let freeGB, let mark):
             guard await mayPost() else { return }
-            UserDefaults.standard.set(disk.identity, forKey: key)
-            await post(id: "low-space-usb", title: "レコーダーの残り容量",
+            UserDefaults.standard.set(mark, forKey: key)
+            await post(id: usbLowSpaceID, title: "レコーダーの残り容量",
                        body: RecorderDisk.lowSpaceBody(freeGB: freeGB,
                                                        naming: RecorderDisk.label(disk.destination, named: disk.name)))
         }
     }
+
+    /// The USB disk's notice's identifier. Not the internal disk's, "low-space", or each would take the other's
+    /// place in the notification centre; and the same from one version to the next, so that a notice still shown
+    /// from an earlier one is replaced rather than joined.
+    static let usbLowSpaceID = "low-space-usb"
 
     /// What is to be done about the USB disk's space.
     enum SpaceNotice: Equatable {
         case nothing
         /// The disk warned about has room again: its mark goes, and the next fall is worth saying.
         case roomAgain
-        case warn(freeGB: Double)
+        /// Below the line and not yet warned about: the warning, and `mark`, what is kept as the disk warned about.
+        case warn(freeGB: Double, mark: String)
     }
 
     /// The USB disk's space against `marked`, the disk last warned about: a disk below the line is warned about
     /// unless it is that disk, and that disk with room again takes the mark away. A disk that takes no recordings
-    /// says nothing of its room, and the mark is left as it was.
+    /// says nothing of its room, and the mark is left as it was. The mark a warning leaves is the disk's identity,
+    /// so that another disk in the slot has not been warned about.
     static func usbSpace(_ disk: RecorderDisk, marked: String?, warnBelowGB: Double = lowSpaceGB) -> SpaceNotice {
         guard disk.takesRecordings, let free = disk.freeBytes else { return .nothing }
         let freeGB = Double(free) / 1e9
         let warned = marked == disk.identity
         if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
-        return warned ? .nothing : .warn(freeGB: freeGB)
+        return warned ? .nothing : .warn(freeGB: freeGB, mark: disk.identity)
     }
 }
