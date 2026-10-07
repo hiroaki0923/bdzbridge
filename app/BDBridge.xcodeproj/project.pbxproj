@@ -55,6 +55,7 @@
 		CBF3D19F448EFF4D7DE9C8C5 /* USBDiskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACE549E88DF216FC29FE673 /* USBDiskTests.swift */; };
 		D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E965F5A7D72F5934B73195 /* DemoData.swift */; };
 		D215463557C8F257EF86EA36 /* ScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */; };
+		D73EC4A7B36EE5C05DC54AB9 /* USBDiskChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5EF5658BC9A7BC0F2A77D8 /* USBDiskChoiceTests.swift */; };
 		E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126A76C55A44B1C1314D806C /* ChannelsScreen.swift */; };
 		E3F9192F7D274CF1D3EA7E36 /* AppModelReservations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0971BFEA2A678DBC73C09018 /* AppModelReservations.swift */; };
 		E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6328D6F84094C9B14A5C500 /* GuideGridView.swift */; };
@@ -118,6 +119,7 @@
 		83E965F5A7D72F5934B73195 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		876473CEF55BCCD5F9711580 /* Bench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bench.swift; sourceTree = "<group>"; };
 		A483A42044BA0ED0BA176891 /* GuideScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideScreen.swift; sourceTree = "<group>"; };
+		AB5EF5658BC9A7BC0F2A77D8 /* USBDiskChoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDiskChoiceTests.swift; sourceTree = "<group>"; };
 		AD47A3421B468B94D0D99B31 /* TVReservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVReservationTests.swift; sourceTree = "<group>"; };
 		AE306E3A1B9409A422224064 /* AppModelRecordings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelRecordings.swift; sourceTree = "<group>"; };
 		B57FEE346AAB3BF701F1D01C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -228,6 +230,7 @@
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
 				5C28691CB271964372E64ECD /* TVLinkTests.swift */,
 				AD47A3421B468B94D0D99B31 /* TVReservationTests.swift */,
+				AB5EF5658BC9A7BC0F2A77D8 /* USBDiskChoiceTests.swift */,
 				2ACE549E88DF216FC29FE673 /* USBDiskTests.swift */,
 				EB8A034B9C079BA7DAF2995C /* WhichRecorderAnotherTests.swift */,
 				3B58FE91AD3291C2382B2DB8 /* WhichRecorderCheckTests.swift */,
@@ -455,6 +458,7 @@
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
 				5CCDBEDD17EE4C991CC6FA4B /* TVLinkTests.swift in Sources */,
 				76ED0C5B6EF50D56EDA4BABA /* TVReservationTests.swift in Sources */,
+				D73EC4A7B36EE5C05DC54AB9 /* USBDiskChoiceTests.swift in Sources */,
 				CBF3D19F448EFF4D7DE9C8C5 /* USBDiskTests.swift in Sources */,
 				1AB361B1D5207675232EBDA3 /* WhichRecorderAnotherTests.swift in Sources */,
 				FD5A82ACA4EB326FDBE62BFB /* WhichRecorderCheckTests.swift in Sources */,

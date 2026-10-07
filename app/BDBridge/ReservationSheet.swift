@@ -22,6 +22,10 @@ struct ReservationSheet: View {
     /// What the pickers hold, seeded from the recorder and compared against it to know whether to offer 変更.
     @State private var quality = ""
     @State private var repeating = ""
+    /// The disk the reader moved it to, nil while it is left on its own, kept as picked: a move to a disk let
+    /// go of since is refused when it is sent, not sent to another. Moved back, it is nil again, so that what
+    /// the recorder holds it on is kept (`AppModel.update`).
+    @State private var movedTo: String?
     @State private var saved = false
 
     private var past: Bool { reservation.end <= Date() }
@@ -35,7 +39,14 @@ struct ReservationSheet: View {
     /// Never for a television's row, which has no pickers: what they are seeded with is not a choice made.
     private var changed: Bool {
         !onTelevision
-            && (quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none"))
+            && (quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
+                || movedTo != nil)
+    }
+
+    /// The disks it can be moved between, while it can still be changed: none for a television's row, and none
+    /// in a home with no USB disk, where no picker is drawn.
+    private var diskChoices: [RecorderDisk] {
+        past || reservation.recording ? [] : model.diskChoices(for: reservation)
     }
 
     var body: some View {
@@ -79,15 +90,22 @@ struct ReservationSheet: View {
                     Section {
                         Button("変更をレコーダーに送る") {
                             Task {
-                                saved = await model.update(reservation, quality: quality, repeating: repeating)
+                                let moved = movedTo
+                                saved = await model.update(reservation, quality: quality, repeating: repeating,
+                                                           disk: moved)
                                 if !saved { failure = whatWentWrong }
+                                // A move to a disk no longer offered is forgotten: the reservation stays where
+                                // the recorder holds it, and the picker offers what is left.
+                                if let moved, !RecorderDisk.offers(moved, with: model.usbDisk) { movedTo = nil }
                             }
                         }
                         .disabled(model.isBusy(for: reservation.device))
                     } footer: {
                         Text(reservation.eventID != nil
                              ? "番組追従はそのままです。"
-                             : "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。")
+                             : diskChoices.isEmpty
+                             ? "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。"
+                             : "時刻を指定した予約なので、録画モード・毎回録画・録画先だけを変えられます。")
                     }
                 }
 
@@ -159,7 +177,8 @@ struct ReservationSheet: View {
         model.problem(for: reservation.device) ?? "\(reservation.device.label)がエラーを返しました"
     }
 
-    /// What the recorder holds of it beyond the times, and the two choices that can still be changed.
+    /// What the recorder holds of it beyond the times, and the choices that can still be changed: the mode, the
+    /// repeat, and the disk where there is one to move it to.
     @ViewBuilder
     private var recordersValues: some View {
         if past || reservation.recording {
@@ -178,6 +197,7 @@ struct ReservationSheet: View {
                 }
             }
         }
+        diskRow
         if reservation.eventID != nil {
             LabeledContent("番組追従", value: "時間が変わっても追いかけます")
         }
@@ -185,6 +205,25 @@ struct ReservationSheet: View {
                        : reservation.createdByApp ? "アプリから" : "不明")
         if let size = reservation.sizeMB {
             LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
+        }
+    }
+
+    /// 録画先: a picker beside the mode and the repeat while there is a disk to move it between, which a
+    /// reservation off the internal disk always has once its own is not offered -- the internal disk, and its
+    /// own. Otherwise its disk as a value: the one moved to, still named once it is no longer offered, or its
+    /// own when that is off the internal disk. Nothing in a home with no USB disk.
+    @ViewBuilder
+    private var diskRow: some View {
+        let offered = diskChoices
+        if !offered.isEmpty {
+            Picker("録画先", selection: Binding(get: { movedTo ?? reservation.destination },
+                                               set: { movedTo = $0 == reservation.destination ? nil : $0 })) {
+                ForEach(offered, id: \.destination) { choice in
+                    Text(RecorderDisk.label(choice.destination, named: choice.name)).tag(choice.destination)
+                }
+            }
+        } else if let shown = movedTo.map(model.diskLabel) ?? model.diskShown(reservation) {
+            LabeledContent("録画先", value: shown)
         }
     }
 

@@ -214,12 +214,27 @@ extension AppModel {
         }, uniquingKeysWith: { first, _ in first })
     }
 
+    /// The disk a reservation's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that only a
+    /// recorder's row off the internal disk names one, after the disk known in the slot.
+    func diskShown(_ reservation: Reservation) -> String? {
+        RecorderDisk.shown(reservation.destination, on: reservation.device, usb: usbDisk)
+    }
+
+    /// The same for a row that waits, by the device it waits for: a television's carries the internal disk's id,
+    /// which nothing sending to the television reads.
+    func diskShown(_ waiting: PendingReservation) -> String? {
+        RecorderDisk.shown(waiting.request.destination, on: waiting.target, usb: usbDisk)
+    }
+
     /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
-    /// it also proves the payload is one the recorder accepts, without recording anything.
-    func conflicts(for program: GuideProgramRow, quality: String, repeating: String) async -> [Reservation]? {
+    /// it also proves the payload is one the recorder accepts, without recording anything. `disk` is the one the
+    /// sheet shows, so that the clashes are the ones on the disk the reservation would go to.
+    func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
+                   disk: String = RecorderDisk.internalID) async -> [Reservation]? {
         await start()
         guard let client, !unreachable,
-              let request = ReservationRequest(program: program, quality: quality, repeating: repeating)
+              let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
+                                               destination: disk)
         else { return nil }
         // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
         // not, so that the reservation which usually follows goes straight through.
@@ -246,17 +261,17 @@ extension AppModel {
     /// (`TVDriver.recordsIn`), so `quality` is not read. With no television in play, as in the demo,
     /// nothing is kept and nothing sent.
     ///
-    /// The recorder's is `reserve(_:quality:repeating:)` as it stands. Its answer and its two side channels
+    /// The recorder's is `reserve(_:quality:repeating:disk:)` as it stands. Its answer and its two side channels
     /// are read here into that value: made; kept, with the sentence for that, and `queued` cleared, which
     /// is set for a screen to say once that the reservation waits, as the result now has; anything else
-    /// not done, with the recorder's line.
+    /// not done, with the recorder's line. A television has no disk to choose, and `disk` is not read for one.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
-                 repeating: String) async -> Reserved {
+                 repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
         if device == .tv {
             await start()
             return await tvHost?.reserve(program, repeating: repeating) ?? .notDone(TVDriver.notConnected)
         }
-        guard await reserve(program, quality: quality, repeating: repeating) else {
+        guard await reserve(program, quality: quality, repeating: repeating, disk: disk) else {
             return .notDone(problem ?? "レコーダーがエラーを返しました")
         }
         guard let kept = queued else { return .made(saying: nil) }
@@ -275,9 +290,20 @@ extension AppModel {
     /// silence is queued — a recorder that answers and refuses has said something the reader needs to see — and
     /// only silence before anything was sent: one that went out and met silence may have been made all the
     /// same, and the queue would make it a second time.
-    func reserve(_ program: GuideProgramRow, quality: String, repeating: String) async -> Bool {
+    ///
+    /// `disk` is the one the reader picked, sent as picked or not at all: a USB disk no longer offered by the
+    /// time it is sent -- let go of since the sheet offered it -- is refused before anything is queued or sent,
+    /// since sending the internal disk in its place would make a reservation the reader did not agree to. The
+    /// row kept for the queue carries the disk. A disk the recorder turns down is said by name, with what to do.
+    func reserve(_ program: GuideProgramRow, quality: String, repeating: String,
+                 disk: String = RecorderDisk.internalID) async -> Bool {
         await start()
-        guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating) else {
+        guard RecorderDisk.offers(disk, with: usbDisk) else {
+            problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
+            return false
+        }
+        guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
+                                               destination: disk) else {
             return false
         }
         // Known to be away: queue it now rather than spend a timeout finding out again.
@@ -304,7 +330,7 @@ extension AppModel {
                 + "再接続してから予約一覧で確かめてください。"
             return false
         } catch let error as any DeviceError {
-            problem = error.explanation
+            problem = RecorderDisk.turnedDown(error, sentTo: disk, usb: usbDisk)
             return false
         } catch {
             problem = String(describing: error)
@@ -543,21 +569,30 @@ extension AppModel {
         return outcome.sent.count
     }
 
-    /// Changes the quality or the repeat of a reservation the recorder already holds, found again in a list
-    /// read afresh, as for a deletion (`cancel`). The request keeps everything else, including the programme
-    /// id, so a reservation that follows its programme goes on following it.
+    /// Changes the quality, the repeat or the disk of a reservation the recorder already holds, found again in a
+    /// list read afresh, as for a deletion (`cancel`). The request keeps everything else, including the
+    /// programme id, so a reservation that follows its programme goes on following it.
     ///
     /// A television's reservation is its host's to change, and is handed over before anything else: nothing
     /// below is for it, whatever state the recorder is in. Looked for in the recorder's list it would not be
     /// found -- a row of another device is no match there (`current`) -- so the recorder's branch could only
     /// say that the reservation had been deleted: this routing is what sends it to the television. With no
-    /// television in play nothing is sent.
-    func update(_ reservation: Reservation, quality: String, repeating: String) async -> Bool {
+    /// television in play nothing is sent, and `disk` is not read for it.
+    ///
+    /// `disk` is where the reader moved the reservation, nil where they did not: the disk the recorder holds it
+    /// on as the change goes out is then kept, whatever the sheet was opened on. A disk moved to and no longer
+    /// offered is refused before the list is read, as a new reservation's is (`reserve`).
+    func update(_ reservation: Reservation, quality: String, repeating: String,
+                disk: String? = nil) async -> Bool {
         if reservation.device == .tv {
             return await tvHost?.update(reservation, quality: quality, repeating: repeating) ?? false
         }
         await start()
         guard client != nil else { return false }
+        if let disk, !RecorderDisk.offers(disk, with: usbDisk) {
+            problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
+            return false
+        }
         // Sending would only wait out a timeout, from a list that could not be read again first.
         guard !offline else {
             problem = notConnected
@@ -571,7 +606,8 @@ extension AppModel {
             return false
         }
         guard let client,
-              let request = ReservationRequest(changing: target, quality: quality, repeating: repeating)
+              let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
+                                               destination: disk)
         else { return false }
         let activity = activities.begin("予約を変更中")
         defer { activities.end(activity) }
@@ -585,8 +621,12 @@ extension AppModel {
             await loadReservations()
             problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
             return false
+        } catch let error as any DeviceError {
+            // A move turned down is said by the disk moved to; a change that leaves the disk, as it always was.
+            problem = RecorderDisk.turnedDown(error, sentTo: disk ?? RecorderDisk.internalID, usb: usbDisk)
+            return false
         } catch {
-            problem = (error as? any DeviceError)?.explanation ?? String(describing: error)
+            problem = String(describing: error)
             return false
         }
         problem = nil

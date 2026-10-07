@@ -222,6 +222,28 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return label(destination, named: usb?.destination == destination ? usb?.name : nil)
     }
 
+    /// What a screen says when the disk the reader picked is no longer offered as it is sent (`offers`): nothing
+    /// has been sent, and what is offered instead is the screen's own choice with that disk taken out -- the
+    /// internal disk, and on the programme's sheet the television where it can take the programme. The disk is
+    /// named as it is known now: by its name while the slot's disk is known, by the slot's id once it has gone.
+    public static func chooseAnother(than destination: String, usb: RecorderDisk?) -> String {
+        label(destination, named: usb?.destination == destination ? usb?.name : nil)
+            + "はいま使えません。別の録画先を選んでください。"
+    }
+
+    /// What to say when the recorder turns down a request that names `destination` -- a reservation, or a change
+    /// that moves one -- so that one sent to the USB disk and turned down says which disk and what to do, rather
+    /// than a code alone; the code and the action stay, as in every refusal, for looking it up. For the internal
+    /// disk, for anything but a refusal, and for a refusal that names a cause of its own -- a channel the
+    /// recorder cannot receive, which another disk would not change -- what the error says, as it always has.
+    public static func turnedDown(_ error: any DeviceError, sentTo destination: String,
+                                  usb: RecorderDisk?) -> String {
+        guard let disk = shown(destination, on: .recorder, usb: usb),
+              case .soap(let action, _, let code?, _) = error as? RecorderError,
+              case .refused = error.failure, code != "831" else { return error.explanation }
+        return "レコーダーが\(disk)を録画先として受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
+    }
+
     /// What the low-space notification says of a disk with `freeGB` left. Without a disk to name it is the
     /// sentence a recorder with its own disk alone has always had; with two disks it says which, by its label.
     /// The number goes in by itself, so that a `%` in a name the owner gave the disk is not read as a format.

@@ -4,8 +4,8 @@ import XCTest
 
 /// The disks a recorder records to: the slot read as the recorder answers it, what counts as a USB disk being
 /// there, how one disk is told from another and named, what the low-space notice says, which disks a reservation
-/// is offered and may be sent to and when a row's disk is named, the recordings of one disk, and the attach that
-/// reads the slot.
+/// is offered and may be sent to, when a row's disk is named and what is said when a disk cannot be had, the
+/// recordings of one disk, and the attach that reads the slot.
 @MainActor
 final class RecorderDiskTests: XCTestCase {
     /// The slot as `X_GetMediaInfo` describes a disk: the root, the elements and their order as a BDZ-FBT4100
@@ -214,6 +214,40 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertNil(RecorderDisk.shown("HDD", on: .recorder, usb: nil), "the recorder's own disk, no USB disk")
         XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: usb), "録画用ディスク")
         XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: nil), "USBHDD", "no disk known")
+    }
+
+    /// A disk picked and no longer offered as it is sent is named as it is known now -- by its name while the
+    /// slot's disk is known, not mounted, by the slot's id once it has gone -- and the reader is asked for
+    /// another. Pinned as written, for the review of the wording.
+    func testADiskNoLongerOfferedIsNamedAndAnotherAskedFor() {
+        XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: Self.disk(mounted: false)),
+                       "録画用ディスクはいま使えません。別の録画先を選んでください。")
+        XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: nil),
+                       "USBHDDはいま使えません。別の録画先を選んでください。", "no disk known")
+    }
+
+    /// The recorder turning down a request to the USB disk is said as the disk and what to do, the code kept;
+    /// to the internal disk it is said as it always was, character for character, and so is a refusal that
+    /// names a cause of its own, and anything that is no refusal.
+    func testARefusalOfTheUSBDiskSaysWhichDiskAndWhatToDo() {
+        func fault(_ code: String, _ action: String = "X_CreateRecordSchedule") -> RecorderError {
+            .soap(action: action, status: 500, code: code, body: "")
+        }
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: usb),
+                       "レコーダーが録画用ディスクを録画先として受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("701", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
+                       "レコーダーがUSBHDDを録画先として受け付けませんでした。別の録画先を選んでください"
+                           + " (701: X_UpdateRecordSchedule)", "no disk known")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "HDD", usb: usb),
+                       "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)", "the internal disk")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("831"), sentTo: "USBHDD", usb: usb), fault("831").explanation,
+                       "a channel the recorder cannot receive")
+        for other in [fault("880"), fault("804"), RecorderError.transport("timed out"),
+                      .busy(action: "X_CreateRecordSchedule")] {
+            XCTAssertEqual(RecorderDisk.turnedDown(other, sentTo: "USBHDD", usb: usb), other.explanation, "\(other)")
+        }
     }
 
     // MARK: - the recordings of one disk

@@ -344,6 +344,29 @@ struct WakingSection: View {
     }
 }
 
+/// 録画先 on a sheet that makes something new on the recorder: which of its disks it records to, as a picker
+/// while a USB disk that takes recordings is known (`AppModel.diskChoices`), starting on the internal disk. Once
+/// the picker has gone, the disk the reader picked, as a value: one let go of since is still named, and refused
+/// when it is sent rather than swapped for another. Nothing in a home with no USB disk, where nothing is picked.
+struct NewDiskRow: View {
+    @Environment(AppModel.self) private var model
+    /// What the reader picked, kept as picked; nil until they pick.
+    @Binding var chosen: String?
+
+    var body: some View {
+        let offered = model.diskChoices
+        if !offered.isEmpty {
+            Picker("録画先", selection: Binding(get: { model.diskOffered(chosen) }, set: { chosen = $0 })) {
+                ForEach(offered, id: \.destination) { choice in
+                    Text(RecorderDisk.label(choice.destination, named: choice.name)).tag(choice.destination)
+                }
+            }
+        } else if let chosen {
+            LabeledContent("録画先", value: model.diskLabel(chosen))
+        }
+    }
+}
+
 extension View {
     /// Puts the activity strip above a screen's content, inside its navigation stack. `inSheet` for a sheet's
     /// own, which leaves out the demo's strip (see `RecorderActivityBar.inSheet`).

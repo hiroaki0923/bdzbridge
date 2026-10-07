@@ -89,6 +89,31 @@ final class AppModel: LinkHost {
     /// is then shown nothing of one (`RecorderDriver.usbDisk`). Shown as it was read while the slot, right after a
     /// waking, answers none and is to be read again (`SessionState.usbDisk`).
     var usbDisk: RecorderDisk? { session.usbDisk }
+    /// What a new reservation or condition can be made to, for the pickers (`RecorderDisk.choices`): nothing in a
+    /// home with no USB disk, which is then drawn no picker. A disk kept through an answer of none is offered as
+    /// one answered is, as the settings show it: the recorder answers it seconds after a wake, and a picker that
+    /// waited for the read again would turn up under the reader half a minute later.
+    var diskChoices: [RecorderDisk] { RecorderDisk.choices(with: usbDisk) }
+
+    /// What a reservation can be moved between on its sheet, the internal disk always among them once it is off
+    /// it; nothing for a television's, nor in a home with no USB disk (`RecorderDisk.choices(keeping:on:with:)`).
+    func diskChoices(for reservation: Reservation) -> [RecorderDisk] {
+        RecorderDisk.choices(keeping: reservation.destination, on: reservation.device, with: usbDisk)
+    }
+
+    /// One of the recorder's disks as the screens name it: the internal disk as the recorder writes it, the slot
+    /// by the name of the disk known there, or by its id once none is. For a disk picked, which a row's rule
+    /// (`diskShown`) would leave unnamed when it is the internal one.
+    func diskLabel(_ destination: String) -> String {
+        RecorderDisk.label(destination, named: usbDisk?.destination == destination ? usbDisk?.name : nil)
+    }
+
+    /// The disk a picker shows for what the reader picked: that while it is offered, otherwise the internal
+    /// disk. What is sent is what was picked, not this, so that a disk gone meanwhile is refused (`reserve`).
+    func diskOffered(_ picked: String?) -> String {
+        picked.flatMap { id in diskChoices.contains { $0.destination == id } ? id : nil } ?? RecorderDisk.internalID
+    }
+
     var counts: [String: GuideCounts] = [:]
     var channels: [Channel] = []
     /// Every channel's name and logo, of every broadcasting type, so a reservation or a search result can
