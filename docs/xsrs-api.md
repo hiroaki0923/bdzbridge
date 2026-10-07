@@ -67,12 +67,18 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 振る舞い:
 - `recordDestinationID` を `USBHDD` にした作成要求は、ほかを 1 バイトも変えずに受け付けられ、一覧にも
   `USBHDD` で載る（時刻指定の予約と、番組追従の予約で確認）。同じ要求での重複確認（`X_GetConflictList`）も通る。
-- **更新は録画先も書き換える。** USB HDD への予約を `HDD` を書いた item で `X_UpdateRecordSchedule` すると、
-  何も言わずに本体の HDD に移る（実測）。逆向き（本体の HDD への予約を `USBHDD` を書いた item で更新して USB HDD に
-  移るか）は、まだ確かめていない。
+  **USB HDD を外していても受け付けられ**、一覧に `USBHDD` で載り、重複確認も通った（時刻指定の予約で一度。
+  `LiveRecorderTests.testAReservationToTheSlotAsItAnswersNow`、書き込みあり）。外したまま録画の時刻が来たときに
+  どこに録画されるかは確かめていない。
+- **更新は録画先も書き換える。** item に書いた `recordDestinationID` に、何も言わずに移る（実測）。USB HDD への
+  予約を `HDD` を書いた item で `X_UpdateRecordSchedule` すると本体の HDD に、本体の HDD への予約を `USBHDD` を
+  書いた item で更新すると USB HDD に移り、どちらでも予約の ID は変わらず、番組追従の予約は番組追従のままだった
+  （番組追従の予約で両向き。時刻指定の予約でも、USB HDD を外した状態で両向き）。
   録画先を変えない更新では、一覧で読み直したその予約の値をそのまま送る。番組追従の予約を `USBHDD` に作り、
   `USBHDD` を書いた更新で画質を変えると、録画先は `USBHDD` のまま、番組追従も続く（実測。
   `LiveRecorderTests.testAChangeKeepsTheUSBDisk`、書き込みあり）。
+- 起こした直後、USB HDD を「無し」と答える数秒のうちに `USBHDD` へ作った予約がどうなるかは、まだ確かめていない
+  （同じ `testAReservationToTheSlotAsItAnswersNow` を、ネットワークから外れたレコーダーに `RECORDER_MAC` を付けて）。
 - `desiredMatchingID` を付けて作成すると、`title` はレコーダー自身の番組表の番組名で上書きされる。
 - 時刻指定で作成した予約に、レコーダーが後から event_id を補うことはない。
 - 一覧の item には上記に加えて `conflictID`、`recordingFlag`（録画中）、`reservationCreatorID`、`recordSize`（MB）などが付く。一覧に付く `mediaRemainAlertID`・`recordSize`・`portableRecordFile`（値付き）などを作成要求に含めると 402 になる。
@@ -392,7 +398,11 @@ USB HDD がつながっているかとその残容量を 3 つの経路で確か
   （`RecorderDriver.learnTheSlot`）。深夜の処理は、「無し」と読んでも知っている USB HDD を手放しません。
   それが録画できるディスクなら、内蔵 HDD の通知には「HDD」と名前を付け、番組表を取ったあとにもう一度だけ読み、
   ディスクを答えれば USB HDD の通知を出します（`BackgroundWork.refresh`）。
-- **ディスクを外したとき、一度も登録していない機体、つないだが登録していないディスクの答えは未確認**です。
+- **ディスクを外したときの答えは、起こした直後と同じでした**（`name` と `registeredTime` が空、`mount`・`remain`・
+  `total` が `0`）。1 回の読み取りでは、外したのか起こした直後なのかを見分けられません。アプリの決まり（知っている
+  ディスクは一度の「無し」では手放さず、30 秒後の読み直しでも「無し」なら外れたとする）は、外したときにもそのまま
+  働きます。差し直すと最初の読み取りで、外す前と同じ名前と登録時刻のディスクを答えました。
+- **一度も登録していない機体、つないだが登録していないディスクの答えは未確認**です。
   アプリは `registeredTime` のある（登録済みの）ディスクだけを USB HDD とし、断り、読めない答え、`mount` の
   無い答え、登録時刻の無い答えは、どれも「USB HDD なし」と読みます（`RecorderDriver.usbDisk`）。登録済みで
   `mount` が `0` のディスクは、つながっていないものとして扱います。

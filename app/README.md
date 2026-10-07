@@ -110,8 +110,9 @@ the calls named to it, one with a broadcast on its disk twice, something that an
 recorders that each say which they are, one of which can start answering as another or stop saying which, be
 busy when asked who it is, hold or ignore requests of one kind, or answer a request of one kind as the test
 tells it -- a fault with one of the recorder's own codes, a 503, a list a moment behind itself (`answer`,
-`beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) -- and a network it
-changes when the phone is meant to have moved. A bench's phone is on no Wi-Fi until a test puts it on one
+`beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) and what the last
+request of one kind carried (`elements(of:)`) -- and a network it changes when the phone is meant to have
+moved. A bench's phone is on no Wi-Fi until a test puts it on one
 (`joinWiFi`): a /24 of addresses reserved for documentation, whose requests go to the bench's `Subnet` -- the
 recorders the test put there, and nobody at any other address, who times out, or refuses at the addresses the
 test names (`refusing`) -- and nowhere else. A test can take the phone off that Wi-Fi again (`leaveWiFi`) or
@@ -817,9 +818,10 @@ columns and decoded logos, made when the guide screen makes the grid rather than
 ### Changing a reservation
 
 Quality and repeat can be changed on a reservation the recorder already holds, from its own sheet -- the
-guide's sheet sends you there rather than growing a second set of pickers. Everything else goes back
-unchanged, the programme id included, so a reservation that follows its programme goes on following it. A
-recording in progress and a programme already over are shown but not editable.
+guide's sheet sends you there rather than growing a second set of pickers -- and so can its disk, while there is
+a USB disk to move it to or from (below). Everything else goes back unchanged, the programme id included, so a
+reservation that follows its programme goes on following it. A recording in progress and a programme already
+over are shown but not editable.
 
 The reservation is found again by channel and start time before the change is sent, because the recorder
 renumbers the reservations its own automatic recording made, in blocks; the same reason a deletion does it.
@@ -859,8 +861,10 @@ sees nothing else new. An attach reads it after what waits has been sent, so tha
 silent holds back no reservation, and an overnight run that meets silence there stops rather than wait it out
 again for the free space and the guide. Only a disk the recorder has registered counts
 (`RecorderDriver.usbDisk`); a refusal, an answer that cannot be read, and a disk with no registration are all
-no disk. What the slot answers with the disk unplugged, and from a recorder that never registered one, has not
-been seen; it was read once in network standby, and answered as with the recorder on.
+no disk. With the disk unplugged the slot answers as it does right after a wake, so one read cannot tell the two
+apart, and the rule below holds for both; plugged back in, it answered the same disk at the first read. What it
+answers from a recorder that never registered one has not been seen; it was read once in network standby, and
+answered as with the recorder on.
 
 Read once right after a wake, the slot answered as if no disk were registered, with one connected, and
 answered the disk later: timed once with the slot read every five seconds, by the read five seconds after the
@@ -878,6 +882,43 @@ keep, and goes where the cache goes. The overnight run never lets it go either. 
 disk known takes recordings, the internal disk's notice still names its disk, and the slot is read once more
 after the guide, the USB disk's notice following if the disk answers then: one request more on such a night,
 none in a home with no USB disk.
+
+### Recording to the USB disk
+
+While the recorder has a USB disk that takes recordings -- registered, mounted and of some size -- a new
+reservation on the programme's sheet has a 録画先 picker under 予約先: 「HDD」, the recorder's word for its own
+disk, first and chosen on every sheet, then the USB disk under the name the recorder gives it
+(`AppModel.diskChoices`). The clash check is asked for the disk the picker shows, and the question before
+reserving names the disk on its second line. The reservation's sheet has the same picker beside the mode and the
+repeat. A reservation moved is sent with the disk it was moved to; one not moved is sent with whatever disk the
+recorder holds it on when the change goes out, so that a disk changed on the recorder's own screen meanwhile is
+kept. A reservation on the slot whose disk is no longer offered -- gone, or there and not mounted -- can still
+be moved to the internal disk. The recorder takes a move either way, keeping the reservation's id and its
+following of the programme.
+
+A disk kept through an answer of none right after a wake is offered as one answered is, as the settings show
+it: the recorder answered the disk seconds after the wake when that was timed, and a picker that waited for the
+read again would turn up under the reader half a minute later.
+
+Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB
+disk let go of between the choice and the press is refused before anything is queued or sent, with a line that
+names it and asks for another destination (`RecorderDisk.chooseAnother`), and the sheet goes back to the
+internal disk, named, with the television beside it under 予約先 where it can take the programme: sending the
+internal disk in its place would make a reservation the reader did not agree to. A reservation or a move to the
+USB disk that the recorder turns down is said the same way, naming the disk, with the recorder's code kept for
+looking it up (`RecorderDisk.turnedDown`); a refusal that names a cause of its own, such as a channel the
+recorder cannot receive, is said as it always was.
+
+A reservation made while the recorder is away keeps its disk on the phone -- the queue's table has a column for
+it, which a row from an earlier version reads as the internal disk -- and is sent with it, and the recorder's
+answer decides: it was seen to take a reservation to the slot with the disk unplugged. Once the recorder takes a
+reservation it is the recorder's, and the app checks nothing about the disk at recording time.
+
+A recorder's reservation or waiting row off the internal disk names its disk -- on the reservations tab and in
+the search after the device, on the sheets as a 録画先 value -- by the name of the disk known, or 「USBHDD」 once
+none is (`AppModel.diskShown`, over `RecorderDisk.shown`). A television's row never names one. In a home with
+no USB disk no picker is drawn and no disk is named, and every request carries the internal disk as it always
+has. `USBDiskChoiceTests` holds all of this on the bench, with the slot's answer given through its recorder.
 
 ### Coming back to the app
 
