@@ -15,16 +15,14 @@ import Network
 /// retries the connection." So a connection is opened towards the address in question, to watch what it
 /// comes to.
 ///
-/// The wait (`waitForAccess`) reads that sign where the technote reads it, in a state the connection has come
-/// to, and nowhere sooner. A connection is handed its first path before it has tried anything -- satisfied, on
-/// a Mac's loopback, while the connection is still being set up -- and a wait that took that path for the
-/// answer let a search go ahead behind the system's question on a phone, which said it had found nobody while
-/// the question was still up. That the first path is satisfied on a phone's Wi-Fi whatever the permission is
-/// taken from those two and has not been seen; the old wait answering no path for another reason would have
-/// let the search through as well (`docs/porting.md`).
-///
-/// The one look (`access`) still reads the path as soon as there is one, and is left as it was: it can take a
-/// permission still to be given for given (`docs/porting.md`, ローカルネットワークの許可).
+/// The wait (`waitForAccess`) and the one look (`access`) read that sign where the technote reads it, in a
+/// state the connection has come to, and nowhere sooner (`settled`). A connection is handed its first path
+/// before it has tried anything -- satisfied, on a Mac's loopback, while the connection is still being set up
+/// -- and a wait that took that path for the answer let a search go ahead behind the system's question on a
+/// phone, which said it had found nobody while the question was still up. That the first path is satisfied on
+/// a phone's Wi-Fi whatever the permission is taken from those two and has not been seen; the old wait
+/// answering no path for another reason would have let the search through as well (`docs/porting.md`). The one
+/// look was built as that wait was, and reads as the wait now does.
 ///
 /// None of this is seen off a phone: "The simulator doesn't support local network privacy", and a Mac lets
 /// what is run from a terminal through unasked.
@@ -43,14 +41,81 @@ extension LocalNetwork {
         case unavailable
     }
 
-    /// One look at the permission, for when the answer is wanted now and waiting is not an option: nil when
-    /// the probe said nothing within `limit`. Aimed at a recorder's own address, it tells a recorder that
-    /// is asleep (`.allowed`, so a magic packet is worth sending) from one the app is not allowed to reach.
-    public static func access(probing host: String, within limit: Duration = .seconds(2)) async -> Access? {
-        let probe = AccessProbe(host: host, lifetime: limit)
-        defer { probe.stop() }
-        for await verdict in probe.verdicts { return verdict }
-        return nil
+    /// One look at the permission, for when the answer is wanted now and waiting is not an option. Aimed at a
+    /// recorder's or a television's own address after it was silent, it tells one that is asleep (`.allowed`,
+    /// so a magic packet is worth sending) from one the app is not allowed to reach (`.blocked`).
+    ///
+    /// The look makes one connection of the kind the wait makes (`WaitConnection`) and reads it as the wait
+    /// does: the first state the connection comes to that says anything of the permission (`settled`) is the
+    /// answer, and nil when none has within `limit`, or the task was cancelled. The connection is stopped
+    /// whichever way the look ends. `limit` is `secondsALookIsGiven` unless the caller says otherwise.
+    ///
+    /// What a connection to a device's own address comes to while the system's question is up, or after the
+    /// reader said no, has not been seen on a phone. The technote says that without the permission "the
+    /// connection enters the NWConnection.State.waiting(_:) state and the current path lists an unsatisfied
+    /// reason of NWPath.UnsatisfiedReason.localNetworkDenied", which `settled` takes for `.blocked`. So what the
+    /// look read goes to the log (`ScanLog`) as the wait's readings do: a phone is where it is to be seen, and
+    /// there a look that was not `.blocked` shows the same on the screen whatever it read, the device woken.
+    public static func access(probing host: String,
+                              within limit: Duration = .seconds(secondsALookIsGiven)) async -> Access? {
+        await access(on: WaitConnection(host: host), within: limit,
+                     timeGiven: { try? await Task.sleep(for: $0) }, note: { ScanLog.note($0) })
+    }
+
+    /// How long the one look gives its connection when nothing else is said: a second longer than the
+    /// connection's handshake. A device that is asleep says nothing, and a connection to it comes to something
+    /// only when its handshake runs out (`handshakeSeconds`) -- as seen on a Mac's loopback, at an address where
+    /// nobody answers, and not yet on a phone -- so that a look given no longer than the handshake would race
+    /// it, and could have nothing to say of the very device it is asked about after silence. Usable from inline
+    /// because the public look's default names it. That the default names this, and not a number of its own, is
+    /// held by reading only: the loopback's handshake was seen to run out just inside a look of two seconds, so
+    /// no test there tells such a look from this one.
+    @usableFromInline static let secondsALookIsGiven = handshakeSeconds + 1
+
+    /// The one look itself, on the connection it is handed, letting the time it is given go by as it is told,
+    /// and writing where it is told: one line when it ends, in the words of a wait's reading (`reading`) for
+    /// the first thing its connection came to that says anything, or that it came to nothing -- in its time,
+    /// before its connection had gone, or before its task was cancelled -- with how long it took. It is never
+    /// handed the address, so no line can hold it.
+    static func access(on connection: any WatchedConnection, within limit: Duration,
+                       timeGiven: @escaping @Sendable (Duration) async -> Void,
+                       note: (String) -> Void) async -> Access? {
+        let began = ContinuousClock.now
+        // What the connection comes to, raced against the time given, as a turn of the wait races them. Both are
+        // children of the look, which ends them once it has what it waited for, so that nothing outlives it.
+        let (events, heard) = AsyncStream.makeStream(of: Watched.self)
+        let (answer, read) = await withTaskGroup(of: Void.self, returning: (Access?, String).self) { looksOwn in
+            looksOwn.addTask {
+                for await sighting in connection.sightings { heard.yield(.cameTo(sighting)) }
+                heard.finish()
+            }
+            looksOwn.addTask {
+                await timeGiven(limit)
+                heard.yield(.timeUp)
+            }
+            var answer: Access?
+            var read = "its connection gone without coming to anything, no answer"
+            for await event in events {
+                guard case .cameTo(let sighting) = event else {
+                    read = "come to nothing in \(String(format: "%g", limit / .seconds(1))) s, no answer"
+                    break
+                }
+                if let taken = settled(sighting) {
+                    answer = taken
+                    read = reading(status: sighting.status, reason: sighting.reason, connection: sighting.state,
+                                   verdict: taken)
+                    break
+                }
+            }
+            connection.stop()
+            looksOwn.cancelAll()
+            return (answer, read)
+        }
+        // A look whose task was cancelled was not wanted any more, whatever its connection had come to.
+        let cancelled = Task.isCancelled
+        let seconds = String(format: "%.2f", (ContinuousClock.now - began) / .seconds(1))
+        note("look: \(cancelled ? "cancelled, no answer" : read), after \(seconds) s")
+        return cancelled ? nil : answer
     }
 
     /// Waits for the local network to be reachable, on one connection towards `host`. `.allowed` as soon as
@@ -197,7 +262,8 @@ extension LocalNetwork {
             : ended("no connection came to anything, and given up on", after: turns, .unavailable)
     }
 
-    /// What a turn of the wait hears: what its connection came to, or that the time it was given is up.
+    /// What a turn of the wait, or the one look, hears: what its connection came to, or that the time it was
+    /// given is up.
     private enum Watched: Sendable {
         case cameTo(Sighting)
         case timeUp
@@ -229,10 +295,11 @@ extension LocalNetwork {
         }
     }
 
-    /// What a probe's path says about the permission, or nil while it says nothing yet. `ended` is set once
-    /// the connection has failed, when a missing path is an answer rather than a path still to come.
+    /// What a settled connection's path says about the permission (`settled`, for the wait and the look alike,
+    /// both aimed at the device), or nil while it says nothing yet. `ended` is set once the connection has
+    /// failed, when a missing path is an answer rather than a path still to come.
     ///
-    /// A satisfied path means allowed whatever became of the connection: a router refusing port 9 has
+    /// A satisfied path means allowed whatever became of the connection: a device refusing port 9 has
     /// answered from the local network, which is all this needs to know.
     static func verdict(status: NWPath.Status?, reason: NWPath.UnsatisfiedReason?, ended: Bool) -> Access? {
         switch status {
@@ -246,9 +313,9 @@ extension LocalNetwork {
         }
     }
 
-    /// What a wait's connection came to, in the log's words: the path's status, with the reason when it is
-    /// unsatisfied, how the connection stands, with the code of what stopped it, and what the two are taken
-    /// for. Words of the system's and numbers, and nothing of the address the connection was aimed at.
+    /// What a wait's connection, or the look's, came to, in the log's words: the path's status, with the reason
+    /// when it is unsatisfied, how the connection stands, with the code of what stopped it, and what the two are
+    /// taken for. Words of the system's and numbers, and nothing of the address the connection was aimed at.
     static func reading(status: NWPath.Status?, reason: NWPath.UnsatisfiedReason?,
                         connection: NWConnection.State?, verdict: Access?) -> String {
         let path = switch status {
@@ -288,18 +355,18 @@ extension LocalNetwork {
     }
 }
 
-/// A connection for a wait to watch (`LocalNetwork.waitForAccess`): each state it comes to, until it has
-/// gone. A test hands the wait one it plays itself.
+/// A connection for a wait, or the one look, to watch (`LocalNetwork.waitForAccess`, `LocalNetwork.access`):
+/// each state it comes to, until it has gone. A test hands them one it plays itself.
 protocol WatchedConnection: Sendable {
     var sightings: AsyncStream<LocalNetwork.Sighting> { get }
     /// Ends the connection, and with it `sightings`.
     func stop()
 }
 
-/// One TCP connection towards the address, kept for as long as the wait watches it. `sightings` yields each
-/// state it comes to, with its path at that moment, and finishes when the connection has gone. Which of those
-/// states say anything of the permission is not decided here (`LocalNetwork.settled`). Not private, so that
-/// a test can make one towards this machine's loopback and look at it.
+/// One TCP connection towards the address, kept for as long as the wait, or the one look, watches it.
+/// `sightings` yields each state it comes to, with its path at that moment, and finishes when the connection
+/// has gone. Which of those states say anything of the permission is not decided here (`LocalNetwork.settled`).
+/// Not private, so that a test can make one towards this machine's loopback and look at it.
 final class WaitConnection: WatchedConnection {
     let sightings: AsyncStream<LocalNetwork.Sighting>
     let connection: NWConnection
@@ -315,7 +382,7 @@ final class WaitConnection: WatchedConnection {
         // address could be tried that way, where there is no local network to be allowed onto -- "Such
         // interfaces include Wi-Fi and Ethernet, but not cellular (WWAN) or VPN" (TN3179) -- and a handshake
         // that ran out there would be taken for the local network reached. Barred from it, the connection is
-        // taken to have no path then, which the wait answers as no path for another reason than the
+        // taken to have no path then, which the wait and the look answer as no path for another reason than the
         // permission. Neither the one nor the other has been seen on a phone.
         parameters.prohibitedInterfaceTypes = [.cellular]
         let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 9,
@@ -340,66 +407,4 @@ final class WaitConnection: WatchedConnection {
     func stop() {
         connection.cancel()
     }
-}
-
-/// One TCP connection towards the address, watched for what its path says and cancelled after `lifetime`
-/// at the latest. `verdicts` yields each change of verdict and finishes when the connection has gone.
-private final class AccessProbe: Sendable {
-    let verdicts: AsyncStream<LocalNetwork.Access>
-    private let connection: NWConnection
-
-    init(host: String, port: UInt16 = 9, lifetime: Duration) {
-        // Port 9 is discard, which nothing on a home network is expected to listen on. At most a connection
-        // attempt goes out, and it is cancelled as soon as the path has been read.
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 9,
-                                      using: .tcp)
-        self.connection = connection
-        let (verdicts, continuation) = AsyncStream.makeStream(of: LocalNetwork.Access.self)
-        self.verdicts = verdicts
-
-        // Both handlers run on this one queue, which is what makes the last verdict safe to keep here.
-        let queue = DispatchQueue(label: "RecorderKit.LocalNetwork.access")
-        let last = LastVerdict()
-        let report: @Sendable (LocalNetwork.Access?) -> Void = { verdict in
-            guard let verdict, verdict != last.value else { return }
-            last.value = verdict
-            continuation.yield(verdict)
-        }
-        connection.pathUpdateHandler = { path in
-            report(LocalNetwork.verdict(status: path.status, reason: path.unsatisfiedReason, ended: false))
-        }
-        connection.stateUpdateHandler = { [weak connection] state in
-            switch state {
-            case .ready:
-                report(.allowed)
-            case .preparing, .waiting, .failed:
-                // The path handler is called with the first path before the connection is even preparing;
-                // reading it here as well is for whichever of the two a system version calls first.
-                var ended = false
-                if case .failed = state { ended = true }
-                let path = connection?.currentPath
-                report(LocalNetwork.verdict(status: path?.status, reason: path?.unsatisfiedReason, ended: ended))
-            case .cancelled:
-                continuation.finish()
-            default:
-                break
-            }
-        }
-        // The consumer stopping early -- a cancelled task -- ends the connection too.
-        continuation.onTermination = { _ in connection.cancel() }
-        let (seconds, attoseconds) = lifetime.components
-        queue.asyncAfter(deadline: .now() + Double(seconds) + Double(attoseconds) / 1e18) {
-            connection.cancel()
-        }
-        connection.start(queue: queue)
-    }
-
-    func stop() {
-        connection.cancel()
-    }
-}
-
-/// The last verdict a probe reported, so that it reports changes only. Touched on the probe's queue alone.
-private final class LastVerdict: @unchecked Sendable {
-    var value: LocalNetwork.Access?
 }
