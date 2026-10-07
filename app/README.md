@@ -850,11 +850,17 @@ answered the disk when read again a minute and a half or so later; when in betwe
 The waking attach is the app's common one, so a disk known is not let go of on one answer of none: it stays,
 shown as it was read, and the slot is read once more a minute later (a minute, between the eight seconds and the
 minute and a half seen). Only a second answer of none lets it go; a disk answered, the same or another, is
-taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`), holds back
-nothing, changes nothing when met by silence, and goes with the recorder: another answering, the recorder let
-go of, the app leaving. The disk known is kept with the recorder's cache, so that the first attach after a
-launch has one to keep, and goes where the cache goes. The overnight run never lets it go: none there means no
-USB notice that night.
+taken at once. The read again is one request in a task of the link's own (`DeviceLink.readLater`) and holds
+back nothing. Only an answer settles it, a refusal included: silence, and a recorder still busy with another
+client's request after the client's tries, change nothing, and an answer that comes back once the link asks
+through another client, a connect under way, is left. It goes with the recorder: another answering, the recorder
+let go of. The app leaving ends it too, and a return that makes no attach leaves it for later again, so that a
+disk gone is not kept for as long as the reader comes back inside the minute in which a return does not
+reconnect. The disk known is kept with the recorder's cache, so that the first attach after a launch has one to
+keep, and goes where the cache goes. The overnight run never lets it go either. When it reads none while the
+disk known takes recordings, the internal disk's notice still names its disk, and the slot is read once more
+after the guide, the USB disk's notice following if the disk answers then: one request more on such a night,
+none in a home with no USB disk.
 
 ### Coming back to the app
 
