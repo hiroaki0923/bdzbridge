@@ -31,10 +31,24 @@ extension AppModel {
 
     private static let rulesNotAsked = "レコーダーに接続していません"
 
+    /// The disk a condition's row names, or nil for none: only one off the internal disk, by the one rule the
+    /// reservations' rows go by (`RecorderDisk.shown`).
+    func diskShown(_ rule: RecorderRule) -> String? {
+        RecorderDisk.shown(rule.destination, on: .recorder, usb: usbDisk)
+    }
+
     /// Registers a condition on the recorder itself, which then records by it with nothing else running.
+    ///
+    /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
+    /// refused before anything is sent, as a reservation's is (`reserve`). A condition is never changed, so one
+    /// made to a disk the reader did not pick could only be deleted and made again.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
         guard let client else { return false }
+        guard RecorderDisk.offers(request.destination, with: usbDisk) else {
+            problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
+            return false
+        }
         let made = await run("レコーダーに登録中", sending: true) {
             _ = try await client.createRecorderRule(request)
         }

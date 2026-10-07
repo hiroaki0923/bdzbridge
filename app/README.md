@@ -894,31 +894,37 @@ repeat. A reservation moved is sent with the disk it was moved to; one not moved
 recorder holds it on when the change goes out, so that a disk changed on the recorder's own screen meanwhile is
 kept. A reservation on the slot whose disk is no longer offered -- gone, or there and not mounted -- can still
 be moved to the internal disk. The recorder takes a move either way, keeping the reservation's id and its
-following of the programme.
+following of the programme. A keyword condition's sheet has the same picker under 録画モード in 絞り込み, and
+the condition is made to the disk it shows; like every condition it is never changed afterwards, so its disk
+is changed by deleting it and making it again. The recorder takes a condition to the slot and lists it back
+there, and its own screen calls the slot 後面ＵＳＢ, by its port rather than by the disk's name.
 
 A disk kept through an answer of none right after a wake is offered as one answered is, as the settings show
 it: the recorder answered the disk seconds after the wake when that was timed, and a picker that waited for the
 read again would turn up under the reader half a minute later.
 
 Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB
-disk let go of between the choice and the press is refused before anything is queued or sent, with a line that
-names it and asks for another destination (`RecorderDisk.chooseAnother`), and the sheet goes back to the
-internal disk, named, with the television beside it under 予約先 where it can take the programme: sending the
-internal disk in its place would make a reservation the reader did not agree to. A reservation or a move to the
-USB disk that the recorder turns down is said the same way, naming the disk, with the recorder's code kept for
-looking it up (`RecorderDisk.turnedDown`); a refusal that names a cause of its own, such as a channel the
-recorder cannot receive, is said as it always was.
+disk let go of between the choice and the press is refused before anything is queued or sent -- a reservation,
+a move or a condition -- with a line that names it and asks for another destination
+(`RecorderDisk.chooseAnother`), and the sheet goes back to the internal disk, named, with the television beside
+it under 予約先 on the programme's sheet where it can take the programme: sending the internal disk in its place
+would make a reservation or a condition the reader did not agree to. A reservation or a move to the USB disk
+that the recorder turns down is said the same way, naming the disk, with the recorder's code kept for looking it
+up (`RecorderDisk.turnedDown`); a refusal that names a cause of its own, such as a channel the recorder cannot
+receive, is said as it always was, and so is a condition turned down, whose line comes from the link's own
+refusal.
 
 A reservation made while the recorder is away keeps its disk on the phone -- the queue's table has a column for
 it, which a row from an earlier version reads as the internal disk -- and is sent with it, and the recorder's
 answer decides: it was seen to take a reservation to the slot with the disk unplugged. Once the recorder takes a
 reservation it is the recorder's, and the app checks nothing about the disk at recording time.
 
-A recorder's reservation or waiting row off the internal disk names its disk -- on the reservations tab and in
-the search after the device, on the sheets as a 録画先 value -- by the name of the disk known, or 「USBHDD」 once
-none is (`AppModel.diskShown`, over `RecorderDisk.shown`). A television's row never names one. In a home with
-no USB disk no picker is drawn and no disk is named, and every request carries the internal disk as it always
-has. `USBDiskChoiceTests` holds all of this on the bench, with the slot's answer given through its recorder.
+A recorder's reservation, waiting row or condition off the internal disk names its disk -- on the reservations
+tab and in the search after the device, last on a condition's line, on the sheets as a 録画先 value -- by the
+name of the disk known, or 「USBHDD」 once none is (`AppModel.diskShown`, over `RecorderDisk.shown`). A
+television's row never names one. In a home with no USB disk no picker is drawn and no disk is named, and every
+request carries the internal disk as it always has. `USBDiskChoiceTests` holds all of this on the bench, with
+the slot's answer given through its recorder.
 
 ### Coming back to the app
 

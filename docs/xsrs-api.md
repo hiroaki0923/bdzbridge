@@ -229,7 +229,7 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 | 対象チャンネル | `presetID`（複数可） | **この機種は返しません。** 下記 |
 | 録画モード(地上/BS/CS) | `desiredQualityMode` | `object` 直下。上の録画モード表と同じ値 |
 | 録画モード(BS4K/CS4K) | `desiredQualityModeForAdvanced` | 同じ。送らなければ `100`（DR）で埋まるので、`ALL` の条件では両方に入れる |
-| 録画先 | `recordDestinationID` | `object` 直下 |
+| 録画先 | `recordDestinationID` | `object` 直下。`HDD` か `USBHDD`（下記） |
 
 本体の「時間帯」は任意の範囲ではなく、次の 5 つから選ぶものでした（境界は画面の表記のまま。意図的に重なって
 います）。`ALL` 以外を送るときの綴りは未確認です。
@@ -243,6 +243,12 @@ Video & TV SideView が「予約リスト」と「おまかせ予約リスト」
 | 深夜 | 11 時 − 5 時 | `MIDNIGHT`（実測） |
 
 5 つとも実機で確認しました。
+
+**録画先は `USBHDD` でも通ります。** `recordDestinationID` に `USBHDD` を書いて作った条件は受け付けられ、一覧
+（`Filter` に `*`）にも `USBHDD` で返り、本体のおまかせ・まる録の画面では録画先が「後面ＵＳＢ」と出ました（実測。
+地上波だけの条件で一度。`LiveRecorderTests.testARecorderRuleToTheUSBDisk`、書き込みあり）。本体の画面は USB HDD を、
+`X_GetMediaInfo` が返すディスクの名前ではなく差し込み口の名前で呼びます。その条件が入れる自動予約の録画先と、
+ディスクを外したまま条件が働いたときの振る舞いは確かめていません。
 
 ### 条件を作る・変える・消す
 

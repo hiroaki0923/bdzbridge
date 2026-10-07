@@ -32,7 +32,7 @@ struct RecorderRulesScreen: View {
             Section {
                 listState
                 ForEach(model.recorderRules) { rule in
-                    RecorderRuleRow(rule: rule)
+                    RecorderRuleRow(rule: rule, disk: model.diskShown(rule))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("削除") { removing = rule }.tint(.red)
                         }
@@ -112,6 +112,9 @@ struct RecorderRulesScreen: View {
 
 struct RecorderRuleRow: View {
     let rule: RecorderRule
+    /// The disk it records to, last on its line: only off the internal disk (`AppModel.diskShown`), so that
+    /// nothing changes in a home with no USB disk.
+    var disk: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -132,6 +135,7 @@ struct RecorderRuleRow: View {
         // The 4K waves have a mode of their own. A condition on every wave made without it records BS4K and
         // CS4K in DR whatever the mode beside it says, and this is where one is seen, to be made again.
         if let quality = rule.qualityName4K { parts.append("4K: " + (Codes.qualityLabel[quality] ?? quality)) }
+        if let disk { parts.append(disk) }
         return parts.joined(separator: " · ")
     }
 }
@@ -150,6 +154,10 @@ struct RecorderRuleSheet: View {
     @State private var timeScope = "ALL"
     /// From the settings, and not written back: see `ProgramSheet.quality`.
     @State private var quality = DefaultQuality.current
+    /// The disk the reader picked under 録画先, kept as picked, as on the programme's sheet
+    /// (`ProgramSheet.chosenDisk`): nil until a disk is picked, and the internal disk after one was refused for
+    /// being no longer offered.
+    @State private var chosenDisk: String?
     @State private var failure: String?
 
     /// A row of the list needs an identity of its own; the text alone would reorder rows as it is typed.
@@ -254,6 +262,7 @@ struct RecorderRuleSheet: View {
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
                     }
+                    NewDiskRow(chosen: $chosenDisk)
                 } header: {
                     Text("絞り込み")
                 } footer: {
@@ -273,11 +282,17 @@ struct RecorderRuleSheet: View {
                                                               genreLevel1: genreLevel1 < 0 ? nil : genreLevel1,
                                                               genreLevel2: genreLevel2 < 0 ? nil : genreLevel2,
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
-                                                              qualityCode: Codes.quality[quality] ?? 240)
+                                                              qualityCode: Codes.quality[quality] ?? 240,
+                                                              destination: chosenDisk ?? RecorderDisk.internalID)
                             if await model.addRecorderRule(request) {
                                 dismiss()
                             } else {
                                 failure = model.problem ?? "レコーダーがエラーを返しました"
+                                // Refused for a disk no longer offered: the sheet goes back to the internal disk,
+                                // named, for the reader to send again or leave.
+                                if !RecorderDisk.offers(request.destination, with: model.usbDisk) {
+                                    chosenDisk = RecorderDisk.internalID
+                                }
                             }
                         }
                     }
