@@ -442,8 +442,9 @@ public final class DeviceLink {
             }
             return nil
         case .refused:
-            // On the probe: something answered, so what is wrong is for the request itself to say. After the
-            // waking: it answered only to refuse, which the attach has said already.
+            // On the probe: something answered, so what is wrong is for the request itself to say, or for the
+            // driver, which may send nothing on the strength of it (`TVDriver.check`). After the waking: it
+            // answered only to refuse, which the attach has said already.
             return answeredTheProbe ? nil : .turnedAway
         case .blocked:
             waitForPermission()

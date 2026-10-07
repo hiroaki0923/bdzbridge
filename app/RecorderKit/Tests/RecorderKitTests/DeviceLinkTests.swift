@@ -505,8 +505,10 @@ final class DeviceLinkTests: XCTestCase {
 
     /// With the television nowhere on the subnet, what answered at its address is not taken up and the app gives
     /// up as on silence, saying what answered: another television, or the status of a device that is no
-    /// television. A television that refuses its first ask as a television does -- asking for the registration,
-    /// busy, in standby with its display off -- is the television, and is neither looked past nor given up on.
+    /// television. A television that refuses its first ask as a television does -- refusing the cookie, busy, in
+    /// standby with its display off -- is the television, and is neither looked past nor given up on. A call for
+    /// a PIN is looked past once, and with the television not found it is the registration wanted: nothing is
+    /// given up on there either.
     func testWhatAnswersWhereTheTelevisionWasIsSaidWhenItIsNotFound() async {
         let page = ScalarError.http(status: 404, method: "getSystemSupportedFunction").explanation
         let strangers: [(String, any HTTPTransport, String)] = [
@@ -531,6 +533,7 @@ final class DeviceLinkTests: XCTestCase {
         let displayOff = HTTPResponse(statusCode: 200, body: Data(#"{"error":[40005,"display off"],"id":1}"#.utf8))
         let refusals: [(String, HTTPResponse, ScalarError)] = [
             ("asking for the registration", HTTPResponse(statusCode: 401), .http(status: 401, method: method)),
+            ("refusing the cookie", HTTPResponse(statusCode: 403), .http(status: 403, method: method)),
             ("busy", HTTPResponse(statusCode: 503), .http(status: 503, method: method)),
             ("its display off", displayOff, .rpc(method: method, version: "1.0", code: 40005, message: "display off")),
         ]
@@ -546,7 +549,8 @@ final class DeviceLinkTests: XCTestCase {
             XCTAssertFalse(link.session.unreachable, what)
             XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, error.failure == .needsPairing, what)
             XCTAssertEqual(world.problem, error.explanation, what)
-            XCTAssertEqual(world.count("search for television"), 0, "a television \(what) was looked past")
+            let looks = error == .http(status: 401, method: method) ? 1 : 0
+            XCTAssertEqual(world.count("search for television"), looks, "the looks past a television \(what)")
         }
     }
 
@@ -683,43 +687,211 @@ final class DeviceLinkTests: XCTestCase {
 
     /// The address changing hands while the app is connected, and the phone then joining another Wi-Fi with the
     /// same subnet: the check that follows asks which television answers, and reads another television -- one
-    /// that would take the very cookie -- or a device that is no television as something else in its place. The
-    /// host is told, the app is not connected to it and not given up on, and nothing that needs the registration
-    /// is asked from then on: the next operation is refused, and its check too. What answered heard which
-    /// television it is and nothing else, never the cookie.
+    /// that would take the very cookie -- as something else in its place. The host is told, the app is not
+    /// connected to it and not given up on, and nothing that needs the registration is asked from then on: the
+    /// next operation is refused, and its check too. What answered heard which television it is and nothing
+    /// else, never the cookie.
     func testTheCookieGoesToNothingThatTookTheAddressWhileConnected() async {
         let other = DemoTV(mac: Self.otherTV)
         await other.knows("BDBridge:test", cookie: "kept")
-        let strangers: [(String, any HTTPTransport)] = [
-            ("another television", other),
-            ("a page on port 80", StubTransport(always: HTTPResponse(statusCode: 404))),
-        ]
-        for (what, stranger) in strangers {
-            let world = LinkWorld()
-            let address = Address(await registeredTelevision(at: nil, in: world))
-            world.devices[Stub.host] = address
-            let link = makeTVLink(world)
-            let driver = link.driver as? TVDriver
-            await link.connect()
-            XCTAssertEqual(driver?.canBeAsked, true, what)
+        let world = LinkWorld()
+        let address = Address(await registeredTelevision(at: nil, in: world))
+        world.devices[Stub.host] = address
+        let link = makeTVLink(world)
+        let driver = link.driver as? TVDriver
+        await link.connect()
+        XCTAssertEqual(driver?.canBeAsked, true)
 
-            let heard = StubTransport { request, _ in try await stranger.send(request) }
-            await address.handTo(heard)
+        let heard = StubTransport { request, _ in try await other.send(request) }
+        await address.handTo(heard)
+        world.network = "another"
+        world.events = []
+        await link.networkChangedWhileOpen()
+
+        XCTAssertEqual(world.count("another device on the check"), 1, "the host was not told")
+        XCTAssertEqual(driver?.canBeAsked, false)
+        XCTAssertFalse(link.session.connected)
+        XCTAssertFalse(link.session.gaveUp, "another television was given up on as silence")
+        expectNil(await driver?.reservations(), "the list was read")
+        let up = await link.ensureUp(evenIfRecent: true)
+        XCTAssertFalse(up, "the next check let the operation through")
+        let asked = await heard.requests
+        XCTAssertFalse(asked.isEmpty, "another television was not asked which television it is")
+        XCTAssertTrue(onlyAskedWhichItIs(asked), "another television was asked more than which television it is")
+    }
+
+    /// A reservation the television holds, for a read to find and a delete to send.
+    private static let held = DemoTV.Schedule(id: "recording.41", title: "サンプル劇場",
+                                              start: Date().addingTimeInterval(7200), eventId: 12345)
+
+    /// A link connected to the television saved, behind an address that can be handed to something else.
+    private func connectedBehindAnAddress(_ world: LinkWorld) async -> (DeviceLink, TVDriver?, DemoTV, Address) {
+        let television = await registeredTelevision(at: nil, in: world)
+        await television.put([Self.held])
+        let address = Address(television)
+        world.devices[Stub.host] = address
+        let link = makeTVLink(world)
+        await link.connect()
+        return (link, link.driver as? TVDriver, television, address)
+    }
+
+    /// A call for the registration at the check before an operation -- 401 or 403 to the ask of which television
+    /// answers, from the television or from whatever has taken its address -- is read as an attach reads it: the
+    /// registration is wanted, and said. Nothing is given up on and nothing is taken for another device, and
+    /// nothing that carries the cookie is sent from then on: a read and a delete asked next send nothing at all.
+    /// What answered heard which television it is and nothing else.
+    func testACallForTheRegistrationAtTheCheckWantsItAndTheCookieGoesNowhere() async throws {
+        for status in [401, 403] {
+            let what = "HTTP \(status)"
+            let world = LinkWorld()
+            let (link, driver, _, address) = await connectedBehindAnAddress(world)
+            let list = await driver?.reservations()
+            let held = try XCTUnwrap(list?.first, what)
+
+            let refusing = StubTransport(always: HTTPResponse(statusCode: status))
+            await address.handTo(refusing)
             world.network = "another"
             world.events = []
             await link.networkChangedWhileOpen()
 
-            XCTAssertEqual(world.count("another device on the check"), 1, "\(what): the host was not told")
-            XCTAssertEqual(driver?.canBeAsked, false, what)
-            XCTAssertFalse(link.session.connected, what)
-            XCTAssertFalse(link.session.gaveUp, "\(what) was given up on as silence")
+            XCTAssertEqual(driver?.facts.needsPairing, true, "\(what): the registration was not wanted")
+            XCTAssertEqual(world.problem,
+                           ScalarError.http(status: status, method: "getSystemSupportedFunction").explanation, what)
+            XCTAssertFalse(link.session.gaveUp, what)
+            XCTAssertEqual(world.count("another device on the check"), 0, what)
             expectNil(await driver?.reservations(), "\(what): the list was read")
-            let up = await link.ensureUp(evenIfRecent: true)
-            XCTAssertFalse(up, "\(what): the next check let the operation through")
-            let asked = await heard.requests
-            XCTAssertFalse(asked.isEmpty, "\(what) was not asked which television it is")
+            expectEqual(await driver?.cancel(held).deleted, false, what)
+            let asked = await refusing.requests
+            XCTAssertEqual(asked.count, 1, "\(what): asked again")
             XCTAssertTrue(onlyAskedWhichItIs(asked), "\(what) was asked more than which television it is")
         }
+    }
+
+    /// A fault at the check before an operation -- busy, an HTTP status a television does not give, a page --
+    /// says nothing of which device gave it. It is said as itself, as an attach says it, and not as another
+    /// device; nothing is given up on and the app stays connected. Nothing that carries the cookie is sent on
+    /// its strength: the read asked next, though the address answered a moment ago, asks again which television
+    /// answers, and sends nothing after the same fault. Once the television answers there again, the next read
+    /// asks the same and then goes.
+    func testAFaultAtTheCheckIsSaidAsItselfAndTheNextOperationAsksAgain() async {
+        let faults: [(String, Int)] = [("busy", 503), ("a fault", 500), ("a page on port 80", 404)]
+        for (what, status) in faults {
+            let world = LinkWorld()
+            let (link, driver, television, address) = await connectedBehindAnAddress(world)
+
+            let faulty = StubTransport(always: HTTPResponse(statusCode: status))
+            await address.handTo(faulty)
+            world.network = "another"
+            world.events = []
+            await link.networkChangedWhileOpen()
+
+            XCTAssertEqual(world.problem,
+                           ScalarError.http(status: status, method: "getSystemSupportedFunction").explanation, what)
+            XCTAssertEqual(world.count("another device on the check"), 0, "\(what) was said to be another device")
+            XCTAssertTrue(link.session.connected, what)
+            XCTAssertFalse(link.session.gaveUp, "\(what) was given up on")
+            XCTAssertEqual(driver?.facts.needsPairing, false, what)
+            expectNil(await driver?.reservations(), "\(what): the list was read")
+            let asked = await faulty.requests
+            XCTAssertEqual(asked.count, 2, "\(what): the read did not ask again")
+            XCTAssertTrue(onlyAskedWhichItIs(asked), "\(what): the cookie went")
+
+            await address.handTo(television)
+            let calls = await television.calls.count
+            let list = await driver?.reservations()
+            XCTAssertEqual(list?.count, 1, what)
+            XCTAssertNil(world.problem, what)
+            expectEqual(Array(await television.calls.dropFirst(calls)),
+                        [Self.askedWhich, "getScheduleList cookie=yes pin=no"], what)
+        }
+    }
+
+    /// A call for a PIN where the television was, with its MAC saved, is looked past as silence is: the
+    /// television is looked for by its MAC and followed where it answers. The first ask needs no registration,
+    /// and a television has been seen to call for a PIN only when it is asked to register, with its panel on: a
+    /// router's or a camera's login answers so. What called for it heard which television it is and nothing
+    /// else.
+    func testATelevisionIsFollowedPastACallForAPINWhereItWas() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: Self.moved, in: world)
+        let login = StubTransport(always: HTTPResponse(statusCode: 401))
+        world.devices[Stub.host] = login
+        world.near = [Stub.host, Self.nobodyHere, Self.moved]
+        let link = makeTVLink(world)
+
+        await link.connect()
+
+        XCTAssertEqual(link.host, Self.moved)
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        XCTAssertNil(world.problem)
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, false)
+        XCTAssertEqual(world.count("search for television"), 1)
+        let asked = await login.requests
+        XCTAssertTrue(onlyAskedWhichItIs(asked), "what called for a PIN was asked more than which television it is")
+        XCTAssertLessThanOrEqual(asked.count, 2)
+        let calls = await television.calls
+        XCTAssertEqual(calls.first, Self.askedWhich)
+        XCTAssertFalse(calls.contains { $0.hasPrefix("actRegister") })
+    }
+
+    /// Found by the look where the call for a PIN came from, the television is the one calling for it there: the
+    /// registration is wanted, as an attach that makes no look says, and it is not asked again. Nothing is given
+    /// up on, and the next connect on the same network makes no look.
+    func testACallForAPINWhereTheTelevisionStillIsWantsTheRegistrationAfterTheLook() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: nil, in: world)
+        // Every ask calls for a PIN but the look's, which the television answers.
+        let calling = StubTransport { request, index in
+            guard index == 1 else { return HTTPResponse(statusCode: 401) }
+            return try await television.send(request)
+        }
+        world.devices[Stub.host] = calling
+        world.near = [Stub.host, Self.nobodyHere]
+        let link = makeTVLink(world)
+        let pin = ScalarError.http(status: 401, method: "getSystemSupportedFunction").explanation
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 1)
+        XCTAssertTrue(world.begun.contains(TVDriver.lookingLine), "the strip said nothing")
+        XCTAssertEqual(link.host, Stub.host)
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
+        XCTAssertEqual(world.problem, pin)
+        XCTAssertFalse(link.session.gaveUp)
+        XCTAssertFalse(link.session.unreachable)
+        var asked = await calling.requests
+        XCTAssertEqual(asked.count, 2, "asked again after the look")
+        XCTAssertTrue(onlyAskedWhichItIs(asked))
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 1, "looked again on the same network")
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
+        XCTAssertEqual(world.problem, pin)
+        XCTAssertFalse(link.session.gaveUp)
+        asked = await calling.requests
+        XCTAssertEqual(asked.count, 3)
+        XCTAssertTrue(onlyAskedWhichItIs(asked))
+    }
+
+    /// With no MAC saved there is nothing to look for the television by: a call for a PIN at the first ask is the
+    /// registration wanted, as ever. Nothing is looked for, and the session never goes through silence.
+    func testACallForAPINWithNoMACSavedWantsTheRegistrationWithoutALook() async {
+        let world = LinkWorld()
+        let television = await registeredTelevision(at: Self.moved, in: world)
+        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 401))
+        world.near = [Self.moved]
+        let link = makeTVLink(saved: nil, world)
+
+        await link.connect()
+
+        XCTAssertEqual(world.count("search for television"), 0)
+        XCTAssertEqual(world.count("permission"), 0, "looked past as silence")
+        XCTAssertEqual(link.host, Stub.host)
+        XCTAssertEqual((link.driver as? TVDriver)?.facts.needsPairing, true)
+        XCTAssertEqual(world.problem, ScalarError.http(status: 401, method: "getSystemSupportedFunction").explanation)
+        XCTAssertFalse(link.session.gaveUp)
+        expectEqual(await television.calls, [])
     }
 
     // MARK: - letting go

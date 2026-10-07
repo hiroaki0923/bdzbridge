@@ -176,14 +176,14 @@ extension DeviceLink {
     /// the check's. Going through clears that line; it is not cleared on the way in, where it would wipe the
     /// failure of the request before. A failure is said (`say`). `sending` is the sentence for silence met by
     /// what changes the device, nil for a read. `work` is handed the client that was in hand as the check was
-    /// asked (`check`).
-    public func run<T>(line: String? = nil, sending: String? = nil,
+    /// asked (`check`), which `evenIfRecent` is handed to.
+    public func run<T>(line: String? = nil, sending: String? = nil, evenIfRecent: Bool = false,
                        _ work: @MainActor (_ client: any LinkClient) async throws -> T)
         async -> Result<T, OperationFailure> {
         // Read once, as the line's is: what went wrong is cleared on the host the operation began under.
         let owner = owner
         return await underALine(line) { _ in
-            switch await self.check() {
+            switch await self.check(evenIfRecent: evenIfRecent) {
             case .notUp(let why):
                 return .failure(.notSent(why))
             case .up(let client):

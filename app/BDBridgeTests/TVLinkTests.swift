@@ -169,6 +169,34 @@ final class TVLinkTests: XCTestCase {
         XCTAssertEqual(Array(after), ["getSystemSupportedFunction cookie=no pin=no"])
     }
 
+    /// The television's own passing fault at the check before an operation -- an HTTP 500 where it is asked which
+    /// television it is -- is said on its line as that fault, and not in the words for another device, which
+    /// would send the reader to テレビを外す: it stays connected, and is not said to want a registration. Nothing
+    /// with the cookie goes to it meanwhile: the list a screen asks for asks again which television it is, and
+    /// reads nothing.
+    func testTheTelevisionsOwnFaultAtTheCheckIsSaidAsItsFault() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let television = DemoTV()
+        let faulting = FaultingTelevision(television)
+        let model = bench.model(recorder: DemoRecorder(), television: faulting,
+                                credentials: await registered(with: television))
+        await model.start()
+        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+
+        await faulting.fail(with: 500)
+        let before = await television.calls.count
+        _ = await model.tv?.ensureUp(evenIfRecent: true)
+        await model.tvHost?.loadReservations()
+
+        let fault = ScalarError.http(status: 500, method: "getSystemSupportedFunction").explanation
+        XCTAssertEqual(model.tvHost?.problem, fault, "not said as the television's own fault")
+        XCTAssertEqual(model.tv?.session.connected, true)
+        XCTAssertEqual(model.tvDriver?.facts.needsPairing, false)
+        let after = await television.calls.dropFirst(before)
+        XCTAssertEqual(Array(after), Array(repeating: "getSystemSupportedFunction cookie=no pin=no", count: 2))
+    }
+
     /// A registration writes down the MAC the television gave as it registered: the link made next knows the
     /// television by it. A television that gives no MAC leaves none saved: the one from before would be kept as
     /// its own. Another television takes the place of the one saved only after テレビを外す
@@ -354,5 +382,23 @@ final class TVLinkTests: XCTestCase {
         host.keepMAC(DemoTV.mac)
         XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvHost))
         XCTAssertNil(bench.defaults.string(forKey: DefaultsKey.tvMac))
+    }
+}
+
+/// The invented television, answering the ask of which television it is with `status` while one is set: a
+/// passing fault of its own. Every request still reaches it, so that its `calls` say what was sent.
+private actor FaultingTelevision: HTTPTransport {
+    private let television: DemoTV
+    private var status: Int?
+
+    init(_ television: DemoTV) { self.television = television }
+
+    func fail(with status: Int?) { self.status = status }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let answer = try await television.send(request)
+        let asksWhich = String(decoding: request.body ?? Data(), as: UTF8.self).contains("getSystemSupportedFunction")
+        guard let status, asksWhich else { return answer }
+        return HTTPResponse(statusCode: status)
     }
 }

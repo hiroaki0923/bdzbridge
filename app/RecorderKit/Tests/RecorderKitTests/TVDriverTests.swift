@@ -240,6 +240,70 @@ final class TVDriverTests: XCTestCase {
         XCTAssertTrue(madeSure, "a television known by no MAC was refused by the check")
     }
 
+    /// The television's own fault at the check before an operation -- an HTTP 500 to the ask of which television
+    /// it is -- is said as that fault, not as another device: the television stays connected, is not given up
+    /// on and is not said to want a registration. Nothing that carries the cookie goes until a check hears it
+    /// say which it is. Each operation asked meanwhile, though the television answered a moment ago, makes that
+    /// check again -- one request with no cookie -- and sends nothing after it: a read, a delete, a change, a
+    /// sending of what waits, a reservation, which is kept on the phone, and a pull, which is a sending and
+    /// then a read and asks before each. Once the television says which it is again, the next read goes; and
+    /// after a connect that heard it, a read asks nothing first.
+    func testAFaultAtTheCheckHoldsEveryOperationUntilACheckHearsTheTelevision() async throws {
+        let bench = try await attachedQueueBench()
+        await bench.television.put([Self.drama])
+        try await bench.store.queue(waiting("サンプル紀行", 50102, in: 3))
+        let drama = try XCTUnwrap(Self.drama.row.reservation())
+        let fault = ScalarError.http(status: 500, method: Self.asksWhich).explanation
+        await bench.gate.answer(Self.asksWhich, with: HTTPResponse(statusCode: 500))
+
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+
+        XCTAssertEqual(bench.world.problem, fault)
+        XCTAssertEqual(bench.world.count("another device on the check"), 0)
+        XCTAssertTrue(bench.link.session.connected)
+        XCTAssertFalse(bench.link.session.gaveUp)
+        XCTAssertFalse(bench.driver.facts.needsPairing)
+
+        var asked: [String: [String]] = [:]
+        func ask(_ what: String, _ operation: () async -> Void) async {
+            let before = await bench.gate.asked.count
+            await operation()
+            asked[what] = Array(await bench.gate.asked.dropFirst(before))
+        }
+        await ask("read") { expectNil(await bench.driver.reservations()) }
+        await ask("pull") { expectNil(await bench.driver.refreshReservations()) }
+        await ask("delete") { expectFalse(await bench.driver.cancel(drama).deleted) }
+        await ask("change") {
+            expectEqual(await bench.driver.update(drama, repeating: "daily").altered, .notDone(fault))
+        }
+        await ask("sending") { expectNil(await bench.driver.sendWhatWaits()) }
+        await ask("reservation") {
+            guard case .waiting = await bench.driver.reserve(programme("サンプル劇場", 50101), repeating: "none").reserved
+            else { return XCTFail("the reservation was not kept on the phone") }
+        }
+
+        let once = [Self.asksWhich]
+        XCTAssertEqual(asked, ["read": once, "pull": once + once, "delete": once, "change": once, "sending": once,
+                               "reservation": once])
+        XCTAssertEqual(bench.world.problem, fault)
+        expectEqual(await bench.television.schedules, [Self.drama])
+
+        await bench.gate.stopAnswering(Self.asksWhich)
+        var before = await bench.gate.asked.count
+        let list = await bench.driver.reservations()
+        XCTAssertEqual(list?.map(\.id), ["recording.41"])
+        XCTAssertNil(bench.world.problem)
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.asksWhich, Self.read])
+
+        await bench.gate.answer(Self.asksWhich, with: HTTPResponse(statusCode: 500))
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        await bench.gate.stopAnswering(Self.asksWhich)
+        await bench.link.connect()
+        before = await bench.gate.asked.count
+        _ = await bench.driver.reservations()
+        expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.read], "made sure of after a connect")
+    }
+
     // MARK: - its reservations, after the attach
 
     private nonisolated static let start = Date(timeIntervalSince1970: 1_793_534_400)
@@ -2616,6 +2680,9 @@ actor TVGate: HTTPTransport {
 
     /// Answers `method` itself from now on, the television not asked.
     func answer(_ method: String, with response: HTTPResponse) { answers[method] = response }
+
+    /// Passes `method` on to the television again.
+    func stopAnswering(_ method: String) { answers[method] = nil }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let object = (try? JSONSerialization.jsonObject(with: request.body ?? Data())) as? [String: Any]
