@@ -78,15 +78,18 @@ nobody's recordings. See `scripts/screenshots/README.md`.
 `DemoRecorder` answers the app's requests out of `DemoData` with the XML a BDZ-FBT4100 really sends, and
 remembers what is done to it, so a reservation made in the demo turns up in the list. It is in the shipped
 build, offered at the end of the tutorial and in the settings, because the first thing the app asks for is a
-recorder on the network and not everybody has one to hand — an App Store reviewer least of all. Its guide
-goes in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back.
-Choosing a recorder from inside the demo — one a scan found, or an address typed in — ends it as well, and
-keeps the recorder chosen rather than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests`
-is there to keep both true. The demo's dramas list an invented cast in their details, the same two names a
-recording's text gives, so the search by a name can be tried without a recorder; the same tests do. They
-also read the guide's list at an accessibility text size, where the time goes above the title and the line
-under it wraps as one text. The demo's automatic reservations carry the recorder's own creator id, 1100, so
-the list marks them おまかせ, and one reservation marked 重複 has another at the same hours for its sheet to
+recorder on the network and not everybody has one to hand — an App Store reviewer least of all. Its guide goes
+in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back. Choosing a
+recorder from inside the demo — an address typed in — ends it as well, and keeps the recorder chosen rather
+than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests` is there to keep both true. The
+demo's search asks the invented recorder alone, at its own address and port (`DemoDevices`), and reads neither
+the Wi-Fi nor the search's session, so nothing goes on the LAN and the system's question about the local
+network is never raised in the demo; that recorder is listed 使用中, and chosen, the demo goes on. A real device
+is found once the demo has ended (`ScanTests`). The demo's dramas list an invented cast in their details, the
+same two names a recording's text gives, so the search by a name can be tried without a recorder; the same
+tests do. They also read the guide's list at an accessibility text size, where the time goes above the title
+and the line under it wraps as one text. The demo's automatic reservations carry the recorder's own creator id,
+1100, so the list marks them おまかせ, and one reservation marked 重複 has another at the same hours for its sheet to
 name. The tests pin the guide's broadcasting type and the two sort orders with launch arguments
 (`-guideBroadcasting td -reservationSort time -recordingsSort newest`), since the app keeps them between
 launches and a test that switched to CS would otherwise start the next one there.
@@ -96,46 +99,46 @@ launches and a test that switched to CS would otherwise start the next one there
 `BDBridgeTests` tries `AppModel` as the app makes it at launch with a recorder saved, without a phone, a
 recorder or the network. The model takes what it reaches beyond itself as one value,
 `BDBridge/Surroundings.swift`: the defaults it keeps the address and the screens' choices in, the folder its
-databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it
-may put anything on the LAN by itself -- the magic packet, the look at the local network permission, the
-search for a recorder the router has moved, the watch on the network -- or ask about notifications, and how
-long the recorder's client pauses before sending a 503 again and a write to the cache waits for another
-connection's. And what the search begun by レコーダーを探す reaches: the interfaces it looks round, the
-transport its requests go through, the pause between the single requests it makes after a look that was turned
-away, and where it writes its log. The app passes `Surroundings.app` and
-nothing else. A test builds its model on a `Bench`: a
-defaults suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an
-invented recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the
-demo's pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse
-the calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and
+databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it may
+put anything on the LAN by itself -- the magic packet, the look at the local network permission, the search for
+a recorder the router has moved, the watch on the network -- or ask about notifications, and how long the
+recorder's client pauses before sending a 503 again and a write to the cache waits for another connection's.
+And what the search begun by レコーダーとテレビを探す reaches: the interfaces it looks round, the transport its requests go
+through, the pause between the single requests it makes after a look that was turned away, and where it writes
+its log. The app passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults
+suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an invented
+recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the demo's
+pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse the
+calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and
 recorders that each say which they are, one of which can start answering as another or stop saying which, be
 busy when asked who it is, hold or ignore requests of one kind, or answer a request of one kind as the test
 tells it -- a fault with one of the recorder's own codes, a 503, a list a moment behind itself (`answer`,
 `beBusy`, `beAMomentBehind`), and say afterwards what it heard and in what order (`heard`) and what the last
 request of one kind carried (`elements(of:)`) -- and a network it changes when the phone is meant to have
-moved. A bench's phone is on no Wi-Fi until a test puts it on one
-(`joinWiFi`): a /24 of addresses reserved for documentation, whose requests go to the bench's `Subnet` -- the
-recorders the test put there, and nobody at any other address, who times out, or refuses at the addresses the
-test names (`refusing`) -- and nowhere else. A test can take the phone off that Wi-Fi again (`leaveWiFi`) or
-put it on another; can have the subnet turn every request away at once, as the system may behind its question,
-all but those to one address it lets through unasked, as the system does a DNS server or a proxy on the local
-network (`turnEverythingAway(but:)`); can hold the requests, from now or once so many more have gone by
-(`hold(after:)`); and can hold the pause before each single request a search makes after a look that was
-turned away (`holdTheSingleRequests`).
+moved. A bench's phone is on no Wi-Fi until a test puts it on one (`joinWiFi`): a /24 of addresses reserved for
+documentation, whose requests go to the bench's `Subnet` -- by address and port, the recorders the test put
+there at the recorder's port and the televisions at port 80, and nobody anywhere else, who times out, or
+refuses at both ports of the addresses the test names (`refusing`) -- and nowhere else; it says what was asked
+of each address, its port and its method (`askedAt`). A test can take the phone off that Wi-Fi again
+(`leaveWiFi`) or put it on another; can have the subnet turn every request away at once, as the system may
+behind its question, all but those to one address it lets through unasked, as the system does a DNS server or a
+proxy on the local network (`turnEverythingAway(but:)`); can hold the requests, from now or once so many more
+have gone by, all but those to one address if it names one (`hold(after:but:)`); and can hold the pause before
+each single request a search makes after a look that was turned away (`holdTheSingleRequests`).
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
 `untilConnected` and `untilGivenUp`, and `expectEqual` and its kin, which check a value that has to be awaited
-in the line that reads it. Nothing leaves the machine. So what the link does on the LAN itself -- the
-packet before the first ask, the wait for the local network permission, the search for a recorder or a
-television the router has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is
-handed a world of the test's own; the television's search there is the package's own (`TVDiscovery.find`),
-its requests sent to the devices the world has at each address, so that which television it takes is decided
-by the code the app runs. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
+in the line that reads it. Nothing leaves the machine. So what the link does on the LAN itself -- the packet
+before the first ask, the wait for the local network permission, the search for a recorder or a television the
+router has moved -- is tried in RecorderKit instead (`DeviceLinkTests`), where the link is handed a world of
+the test's own; the television's search there is the package's own (`TVDiscovery.find`), its requests sent to
+the devices the world has at each address, so that which television it takes is decided by the code the app
+runs. A television is the package's invented one (`DemoTV`), here and there (`TVLinkTests`,
 `TVReservationTests`, `QueueWithATelevisionTests`, `TVDriverTests`, `TVNoScreenTests`). All of these hand the
 client a transport of their own; what `URLSession` itself does with an answer -- it sends a request again for a
-401 that asks for a password, and follows a redirect, which a television's session does not -- is tried
-against a server on the loopback (`URLSessionTransportTests`).
+401 that asks for a password, and follows a redirect, which a television's session does not -- is tried against
+a server on the loopback (`URLSessionTransportTests`).
 
 What they try is what went wrong once and was only ever seen on a phone: `start()` and a search returning
 while the recorder says nothing, and the first connect finishing with one that answers (the launch that
@@ -244,13 +247,17 @@ programme reserved then waits. With no screen, the Shortcuts action's sending an
 recorder the cache is not of alone -- nothing sent, nothing fetched, nothing taken up -- and say so only when
 something was waiting. The demo leaves the real recorder's cache as it was.
 
-`ScanTests` presses レコーダーを探す, which no test could while the search reached for the device's
-interfaces, the permission and a session of its own: a press finds the recorder on the bench's Wi-Fi, or
-nobody, having asked each address once, or says there is no Wi-Fi and asks nobody. With the permission given,
-a press looks through the addresses at once, with nothing asked before the look -- no wait, no request to an
-address fixed beforehand -- and says at once what it found, whatever the app's phase did meanwhile, with no
-pause and no other request. The app's own surroundings hand the search a pause that lasts as long as the
-search asks, and the real session's transport, where the bench's defaults take no time and reach nobody.
+`ScanTests` presses レコーダーとテレビを探す, which no test could while the search reached for the device's interfaces, the
+permission and a session of its own: a press finds the recorder and the television on the bench's Wi-Fi, each
+as it answers -- the television while the recorder's answer is still to come -- or nobody, having asked each
+address once of each kind, a recorder's description at its port and a television's interface at port 80,
+through neither device's link; or says there is no Wi-Fi and asks nobody. What is said is the recorder's own
+sentence when recorders are all it found, the television's when it found televisions alone, both in one, or
+neither with five causes, the television's among them. With the permission given, a press looks through the
+addresses at once, with nothing asked before the look -- no wait, no request to an address fixed beforehand --
+and says at once what it found, whatever the app's phase did meanwhile, with no pause and no other request. The
+app's own surroundings hand the search a pause that lasts as long as the search asks, and the real session's
+transport, where the bench's defaults take no time and reach nobody.
 
 A look that got out and found nobody -- every address silent, or some refusing and the rest silent, or most out
 and a few turned away, as when the permission comes while the look goes -- is said at once, with no pause and
@@ -273,6 +280,20 @@ way, which the tests read off the log. The tests tell the model the app's phase 
 writes for the log, the whole course of a first press, and holds that none has an address in it -- not the one
 the search asks again -- or anything the recorder said of itself; the phone's case holds how its single
 requests came back, in a code or a status, the first turned away and the one that got out.
+
+The same case in a home with both: the address let through refuses the recorder's port and answers port 80
+with a page of its own, and the look, counted over both kinds together, is turned away as before. The single
+requests are the recorder's, a GET at its port, to an address turned away there, and once let out one look lists
+both. Where that address is the first asked and fails at port 80 with a code read as turned away before anything
+else has come back, it is still never the address asked again, and no single request reads as let out while
+everything else is turned away: the address asked again is kept from the recorder's requests alone. A look that
+found a television is said at once whatever its counts, as one that found a recorder is, and the log names no
+address and nothing either kind said of itself. A television tapped while the look goes on -- what the sheet
+asks of it first -- leaves the look going, and a recorder further up the subnet is listed beside it; a recorder
+chosen then stops the look and clears the recorders' list, and the television stays listed. Entering and leaving
+the demo clears both lists and what was said. In the demo a press asks the invented recorder alone, reads no
+interface and makes no session, lists it 使用中 with no notice and no pause, and choosing it keeps the demo. And
+a television found can be tapped only while none is saved, the saved one listed in use.
 
 The wait itself is the package's to try (`LocalNetworkAccessTests`). On connections the tests play: one that is
 answered or refused is allowed, and so is one left unanswered until its handshake ran out, with nothing said of
@@ -307,7 +328,7 @@ session as a request that was out: timed out, or cancelled when the search ends 
 
 No test puts a screen up, so none holds where the settings hang the sheet for adding a television: on the
 form, and not on the television's section, where a sheet hung on each of the section's rows went by itself at
-the first press (`TVSection`'s comment says so). A test hosted by the app would have to find テレビを追加 by its
+the first press (`TVSection`'s comment says so). A test hosted by the app would have to find アドレスを入力して追加 by its
 words, and SwiftUI tells UIKit nothing of a row's words until accessibility is on, for which the system has no
 public switch there; a UI test finds it by its words in the supported way, but needs a television's section in
 the demo, which the demo does not have yet.
@@ -556,12 +577,35 @@ which runs the real task the real way rather than only its body.
 
 ## What works
 
-Finding the recorder: a button looks through the subnet the device is on and offers whatever answers as a
-recorder, so the address does not have to be typed. On a home network 253 addresses take about six seconds
-(seen on one phone, 2026-10-06). The first tap is also what makes iOS ask about the local network, and the
-search does not stop at that question: it looks at once, and when what it sent was turned away behind the
-question it says nothing of having looked and asks again until it is let out -- so that one tap finds the
-recorder.
+Finding the recorder and the television: one button, レコーダーとテレビを探す, in the tutorial and in the
+settings, looks through the subnet the device is on and offers whatever answers as a recorder and whatever
+answers as a television, so no address has to be typed. Each address is asked both at once
+(`DeviceSearch.scan`): the recorder's `description.xml` at 64220, and the television's `getInterfaceInformation`
+at port 80, which needs no registration and carries no cookie; a television is what says its category is `tv`.
+At an address where nothing lives each costs its timeout, so together an address takes as long as the slower of
+the two, and a look about as long as the recorder's alone: 253 addresses took about six seconds on one phone,
+2026-10-06, for the recorder's alone; with both, 48 addresses at once and so 96 requests out, that is still to
+be read on a phone. Each kind is listed as its own request answers. The first tap is also what makes iOS ask
+about the local network, and the search does not stop at that question: it looks at once, and when what it sent
+was turned away behind the question it says nothing of having looked and asks again until it is let out -- so
+that one tap finds the recorder and the television.
+
+What a home with a recorder alone sends beyond what it did is one POST of about 80 bytes to port 80 of each
+address of each look, its own recorder's included, a port never asked on a BDZ before; what the recorder makes of
+it, and whether one in network standby stays so, is to be read on a phone. A router's, a printer's or a NAS's page
+on port 80 answers it and is listed as nothing. The search's session is the one every request to a television
+goes through (`URLSessionTransport.withoutCookies`), which keeps no cookie and follows no redirect, so a 3xx from
+such a page is an answer and nothing goes to an address or a port the search did not choose.
+
+Recorders and televisions are listed apart, 見つかったレコーダー and 見つかったテレビ, each in the order it
+answered. A recorder is chosen as before, which stops the search, and in the tutorial closes it once the recorder
+answers. A television is tapped while none is saved, and its sheet opens going straight on to テレビに接続 --
+the number on its panel when it is on -- the search going on behind it, so that a recorder further up the subnet
+is still listed; the tutorial stays up, its button 閉じる once the television is saved. With a television saved,
+the found ones are listed and cannot be tapped, the saved one 使用中, and the foot says another is added after
+テレビを外す. A choice of recorder leaves the televisions listed, so that one the tutorial found is still there
+to register in the settings after the tutorial closed. The テレビ section, with none saved, offers
+アドレスを入力して追加 for a television the search did not find.
 
 What the first tap did on one phone, on 2026-10-06, its log says in counts and codes. The search then waited
 for the permission first, on a connection to the subnet's first address, which is usually the router; that
@@ -632,7 +676,7 @@ look a press makes at most a hundred and twenty single requests and as many look
 over the connections it may make, each turn one connection, going round again only when that connection has
 gone without an answer.
 
-レコーダーを探す is held back, with its spinner, only while a search is under way and the notice is not up
+レコーダーとテレビを探す is held back, with its spinner, only while a search is under way and the notice is not up
 (`AppModel.scanHoldsTheButton`, which both screens read); behind the notice a press starts over. Closing the
 tutorial, choosing a recorder or turning to the demo ends a search wherever it has got to. Leaving the
 settings tab does not, as it never did.
@@ -640,27 +684,29 @@ settings tab does not, as it never did.
 None of this can be seen off a phone: the simulator has no local network privacy, and a Mac lets what is run
 from a terminal through unasked. Still to be seen, on an iPhone the app has been deleted from and installed on
 again, the recorder on, with the phone's iOS version written down beside each result: behind the system's
-question the app's notice and 設定を開く, and no red line; at 許可, the search starting by itself within a
-couple of seconds and finding the recorder, the log saying "search: ... turned away", then "single request:
-got out", then a search with "recorders 1"; after 許可しない, the notice staying, and Local Network switched on
-in the Settings app within the two minutes starting the search by itself; the question left up longer than
-that, and a press then starting over; what the app sent to the background under the question shows when it
-comes back; the Wi-Fi dropped while the question is up; and whether the system ever holds the requests behind
-its question until they time out, which the search cannot tell from a home with nobody in it.
-`docs/porting.md` has the list in full.
+question the app's notice and 設定を開く, and no red line; at 許可, the search starting by itself within a couple of
+seconds and finding the recorder and the television, the log saying "search: ... turned away", then "single
+request: got out", then a search with "recorders 1; televisions 1"; the look's seconds with two requests an
+address, and whether any came back with a code other than a timeout or a refusal; after 許可しない, the notice
+staying, and Local Network switched on in the Settings app within the two minutes starting the search by
+itself; the question left up longer than that, and a press then starting over; what the app sent to the
+background under the question shows when it comes back; the Wi-Fi dropped while the question is up; and whether
+the system ever holds the requests behind its question until they time out, which the search cannot tell from a
+home with nobody in it. `docs/porting.md` has the list in full.
 
 A search also writes its course to the system's log, so that a first tap on a phone can be read afterwards:
 subsystem `RecorderKit`, category `scan`, at the default level, which the system keeps for a while (`ScanLog`).
-The press; how long each look took and how its requests came back -- answered by status, timed out, failed by
-the system's code (`ScanTally`); a look turned away, a single request that got out, with the status or code it
-came back with and after how many, and the code of the first turned away, a look made again on another subnet
-in place of one, and the single requests used up; each change of the app's phase while a search is under way,
-which nothing goes by; and what was said. The link's wait writes there as well: what its connection came to,
-with its path each time, and what ended it; and so does the link's one look at the permission, in one line when it
-ends: the first thing its connection came to that says anything, in the wait's words, or that it came to nothing,
-and how long it took. Counts and codes only: no address and no name is written, the address the search asks again
-included. It is read with Console on a Mac the phone is connected to, or from an archive taken with
-`log collect --device`, by `log show --predicate 'subsystem == "RecorderKit" && category == "scan"'`.
+The press; how long each look took, how its requests of both kinds came back -- answered by status, timed out,
+failed by the system's code (`ScanTally`) -- and how many recorders and televisions it found; a look turned
+away, a single request that got out, with the status or code it came back with and after how many, and the code
+of the first turned away, a look made again on another subnet in place of one, and the single requests used up;
+each change of the app's phase while a search is under way, which nothing goes by; and what was said. The
+link's wait writes there as well: what its connection came to, with its path each time, and what ended it; and
+so does the link's one look at the permission, in one line when it ends: the first thing its connection came to
+that says anything, in the wait's words, or that it came to nothing, and how long it took. Counts and codes
+only: no address and no name is written, the address the search asks again included. It is read with Console on
+a Mac the phone is connected to, or from an archive taken with `log collect --device`, by `log show --predicate
+'subsystem == "RecorderKit" && category == "scan"'`.
 
 How the waiting is done, what the technote says and what is still to be seen, and what the app says when the
 answer is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because
@@ -676,12 +722,13 @@ the question is up, or after a "no", has not been seen on a phone; the technote 
 "the connection enters the `NWConnection.State.waiting(_:)` state and the current path lists an unsatisfied reason
 of `NWPath.UnsatisfiedReason.localNetworkDenied`".
 
-The recorders found stay in the order they answered, the scan's end adding only what had not arrived yet,
-and the one the app is set to -- by address, or by UDN once the router has moved it -- is marked 使用中. A
-scan that finds nothing lists the likely reasons: a recorder left off long enough to leave the network, an
-iPhone on a guest network, a recorder not on the network at all, and a recorder that is not one of Sony's BDZ
-series, which the tutorial also says at its top. It does not say that a recorder in standby cannot be found:
-one in network standby answers.
+The recorders and the televisions found stay in the order they answered, the scan's end adding only what had not
+arrived yet, and the recorder the app is set to -- by address, or by UDN once the router has moved it -- is marked
+使用中, as is the television saved. A scan that finds nothing lists the likely reasons: an iPhone on a guest
+network, a recorder left off long enough to leave the network, a television switched off, which some models or
+settings may leave unfound, a device not on the network at all, and a recorder that is not one of Sony's BDZ
+series or a television that is not Sony's. It does not say that a recorder in standby cannot be found: one in
+network standby answers. Of a television it says "may": the one television measured answered in standby.
 
 Typing in a recorder's address and connecting to it, fetching all four broadcasting types' guides and logos
 into the on-device cache, browsing a day's programmes as a list or as a time-by-channel grid with the station
