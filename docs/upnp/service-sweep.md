@@ -44,7 +44,7 @@
 | `X_GetPrivateIp` | **`macAddress` と `wirelessMacAddress`**、`ipAddress`、`subNetMask`、`defaultGateWay`、`primaryDns`、`secondaryDns`、`useDhcp`、`autoDns`、`ipUp` |
 | `X_GetPlayStatus` | `powerstatus`（`PowerInternalOn` など）と `playstatus`（`Stopped` など） |
 | `X_GetFirmwareVersion` | ファームウェア版 |
-| `X_GetMediaInfo(recordDestinationID)` | `mount`、`remain` / `total`（**MB**）、`recordableRemain`（別単位。録画可能時間と思われる）、`registeredTime` |
+| `X_GetMediaInfo(recordDestinationID)` | `name`、`mount`、`remain` / `total`（**MB**。10^6 バイトと推定）、`recordableRemain`（意味は未確定。USB HDD では `remain` と同じ値、本体の HDD では `remain` より大きい）、`registeredTime`（USB HDD のみ）。`xsrs-api.md` の「USB HDD」 |
 | `X_GetTitleInfo(TitleID)` | `chapterNum` / `chapterTime`、`resumePoint`、`userPlaybackTime`（秒）、`recordStartDate`、`startPTS`、**`dlnaFlag`**、**`remoteViewFlag`**、`titleHevcFlag`、ダイジェスト再生用の `longest/normal/shortestDigestSceneList` |
 | `X_GetTitleInfoExt(TitleID, Filter, Format)` | 1 件ぶんの `X_GetTitleList` 相当。`markingID`、`targetQualityMode` も付く |
 | `X_GetRecordScheduleInfoExt(RecordScheduleID, ...)` | 1 件ぶんの `X_GetRecordScheduleList` 相当。**予約 1 件の生存確認に使える** |

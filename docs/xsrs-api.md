@@ -27,7 +27,7 @@ Sony BDZ シリーズ（確認機種: BDZ-FBT4100、ファーム 35.003.1）が 
 | `X_UpdateRecordSchedule` | Elements（`id` 付き） | 予約変更 |
 | `X_DeleteRecordSchedule` | RecordScheduleID | 予約削除 |
 | `X_GetConflictList` | Elements | 作成前の競合確認。重なる既存予約の item を返す（無ければ空） |
-| `X_GetTitleList` | SearchCriteria（例 `recordDestinationID=HDD`）, … | 録画済みタイトル一覧 |
+| `X_GetTitleList` | SearchCriteria（本体の HDD は空、USB HDD は `recordDestinationID="USBHDD"`）, … | 録画済みタイトル一覧 |
 | `X_DeleteTitle` | TitleID | 録画済みタイトルの削除（保護中・録画中は失敗） |
 | `X_UpdateTitle` | Elements | 録画済みタイトルの変更。`<item id="…">` に変更したい要素だけを入れる: `title`, `titleProtectFlag`（0/1、保護）, `titleNewFlag`, `markingID` |
 | `X_DeleteTitle` / `X_UpdateTitle` | TitleID / Elements | 録画済みタイトルの削除・更新（本プロジェクト未使用） |
@@ -355,11 +355,36 @@ LAN から作った条件は、本体の画面でもそのまま条件として�
 | `X_GetLiveChList(BroadcastType, SkipChannel)` | チャンネル（service_id）の `_` 区切り一覧。BroadcastType は 2/3/4 |
 | `X_InputRemoteKey(RemoteKey)` | リモコンキー送信。確認済みのキー名: `BACK`, `CH_UP`, `PROGRAM_LIST`, `TITLE_INFO` |
 | `X_GetTitleDetail(Id)` / `X_GetTitleInfo(TitleID)` | 録画済みタイトルの番組内容 / チャプター情報 |
-| `X_GetMediaInfo(recordDestinationID)` | `remain`（MB）と `total`（MB）。バイト単位が欲しいときは ContentDirectory の `X_HDLnkGetRecordDestinationInfo(RecordDestinationID)` が `totalCapacity` / `availableCapacity` を返す |
+| `X_GetMediaInfo(recordDestinationID)` | 録画先 1 つの様子（下記）。本体の HDD のバイト単位の残容量は ContentDirectory の `X_HDLnkGetRecordDestinationInfo(RecordDestinationID)` が `totalCapacity` / `availableCapacity` で返す（何を渡しても本体の HDD の値） |
 | `X_PlayControlTitle(TitleID, Operation, Position)` | レコーダーに接続したテレビで再生。Operation は小文字の `play` / `pause` / `stop`（`pause` は再送で再生に戻るトグル。`resume` は 803）。`play` に Position を付けても先頭から始まる。ネットワークスタンバイ中は 880 |
 
 エラーコード: 401 Invalid Action、402 Invalid Args（形式不正）、501/701 該当なし、803/820 アクション失敗。
 実測した一覧は `upnp/service-sweep.md` にあります。
+
+### USB HDD（`X_GetMediaInfo`）
+
+USB HDD がつながっているかと、その残容量を言うのは `X_GetMediaInfo(USBHDD)` だけです。
+`X_HDLnkGetRecordDestinations` は USB HDD をつないで登録しても `HDD` しか返さず、
+`X_HDLnkGetRecordDestinationInfo` は何を渡しても本体の HDD の値を返します。USB HDD の id は `USBHDD` 1 つで、
+どのディスクがつながっていてもこの id です（ほかの id は 803）。
+
+| 要素 | 内容 |
+|---|---|
+| `name` | レコーダーがディスクに付けた名前。レコーダーの画面で変えられる。本体の HDD は空 |
+| `mount` | `1` でつながっている |
+| `remain` / `total` | 空きと全体（MB）。1 MB = 10^6 バイトと推定（USB HDD の全体と、本体の HDD の空きがこの値で合う）。未加工のバイト数と並べた確認はまだ |
+| `registeredTime` | USB HDD を登録した時刻（`2026-01-02T03:04:05+0900` の形）。ディスクを見分ける手がかりになる |
+| `recordableRemain` | 意味は未確定。USB HDD では `remain` と同じ値、本体の HDD では `remain` より大きい |
+
+- ネットワークスタンバイ中も、電源が入っているときと同じ答えが返ります。
+- `Result` の中の要素の包み方は記録していないので、アプリは要素を名前で探して読みます（2 台分が書かれていれば
+  1 つめ）。
+- **ディスクを外したとき、一度も登録していない機体、つないだが登録していないディスクの答えは未確認**です。
+  アプリは `registeredTime` のある（登録済みの）ディスクだけを USB HDD とし、断り、読めない答え、`mount` の
+  無い答え、登録時刻の無い答えは、どれも「USB HDD なし」と読みます（`RecorderDriver.usbDisk`）。登録済みで
+  `mount` が `0` のディスクは、つながっていないものとして扱います。
+- 実機での読み取りは `LiveRecordingDestinationTests`（読むだけ。`RECORDER_HOST` を指定したときだけ動く）。
+  各ディスクの答えを、件数とコード、要素の並びだけで出します（名前や時刻は長さと要約値に置き換える）。
 
 ### 受信できないチャンネルは番組指定で予約できない（831）
 

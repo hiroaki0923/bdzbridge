@@ -625,10 +625,10 @@ is sent (`RecorderKit/RecorderAddress.swift`). The client used to force such a U
 the address is saved as it is set, it crashed again at every launch, before the settings could come up to
 correct it.
 
-Whether the app is connected is decided by the recorder's description alone. The firmware version, the MAC
-and the free space read after it are only shown; one the recorder refuses, or answers in a shape the app does
-not know, is left unknown rather than failing the connect. Only the BDZ-FBT4100 has been tried, and the rest
-of the series need not answer the same.
+Whether the app is connected is decided by the recorder's description alone. The firmware version, the MAC,
+the free space and the disk in the USB slot read after it are only shown; one the recorder refuses, or
+answers in a shape the app does not know, is left unknown rather than failing the connect. Only the
+BDZ-FBT4100 has been tried, and the rest of the series need not answer the same.
 
 Choosing a recorder in the tutorial closes it as soon as the recorder answers, not once its guide is in: the
 first guide is four broadcasting types and their logos, and takes a while. The guide screen says it is being fetched, and
@@ -826,6 +826,20 @@ who only used it at home never heard about the disk. The low-space warning is sa
 line, not once a night, and only counts as said when notifications were allowed to carry it. A recorder that
 does not say how big its disk is -- an answer in a shape the app cannot read, or a size of nothing -- is not
 warned about: reading such an answer as no room at all warned about a full disk that was not.
+
+A USB disk registered on the recorder is warned about in the same way, under a notification of its own, so
+that neither takes the other's place, and with a mark of its own that says which disk was warned about: another
+disk put in the slot, already low, has not been warned about yet. While there are two disks the internal
+disk's notice names it 「HDD」, the recorder's word for it, and the USB disk's names the disk as the recorder
+does; with no USB disk the notice says what it always has. The settings then list the free space a row to a
+disk, in the words the television's USB disk is described in.
+
+Whether a USB disk is there is read once at every attach and in every overnight run (`X_GetMediaInfo`), and by
+nothing else the screens do: the recorder lists no other destination, and its capacity call answers with the
+internal disk's figures whatever it is asked. So a home with no USB disk pays that one request and sees
+nothing else new. Only a disk the recorder has registered counts (`RecorderDriver.usbDisk`); a refusal, an
+answer that cannot be read, and a disk with no registration are all no disk. What the slot answers with the
+disk unplugged, and what a recorder that never registered one answers, have not been seen.
 
 ### Coming back to the app
 
