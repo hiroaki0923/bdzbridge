@@ -174,6 +174,122 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return name
     }
 
+    /// The recorder's own disk as a choice beside a USB disk: its id, and no name, so that it is labelled as the
+    /// recorder writes it. Nothing that offers it reads its sizes, and it is always there.
+    public static let internalDisk = RecorderDisk(destination: internalID, name: "", mounted: true, freeMB: nil,
+                                                  totalMB: nil, registered: "")
+
+    /// What a new reservation can be made to: the internal disk first, the default, then the USB disk known, and
+    /// only while that disk takes recordings. Otherwise nothing, which is no choice at all: a home with no USB
+    /// disk is offered nothing to choose, and its reservations go to the internal disk as they always have.
+    public static func choices(with usb: RecorderDisk?) -> [RecorderDisk] {
+        guard let usb, usb.takesRecordings else { return [] }
+        return [internalDisk, usb]
+    }
+
+    /// What a reservation already on `destination` can be moved between: what a new one is offered, while that
+    /// holds its disk or it is on the internal disk. A reservation on a disk not offered -- one gone from the
+    /// slot, or there and not mounted -- is the one a reader most wants to move, and the internal disk is always
+    /// there: so it is offered that and its own disk, which is the USB disk known when that is in its slot, and
+    /// otherwise a disk known by its id alone. Left on its own disk, or put back on it, a change names no disk, so
+    /// that a disk not offered is never sent from here. A television's reservation is offered nothing, as `shown`
+    /// names no disk of one: what its rows carry for a disk is never read by what sends to the television.
+    public static func choices(keeping destination: String, on device: DeviceSlot,
+                               with usb: RecorderDisk?) -> [RecorderDisk] {
+        guard device == .recorder else { return [] }
+        let offered = choices(with: usb)
+        if destination == internalID || offered.contains(where: { $0.destination == destination }) { return offered }
+        let own = usb.flatMap { $0.destination == destination ? $0 : nil }
+            ?? RecorderDisk(destination: destination, name: "", mounted: false, freeMB: nil, totalMB: nil,
+                            registered: "")
+        return [internalDisk, own]
+    }
+
+    /// Whether a disk chosen on a screen may be sent: the internal disk always, any other only while it is
+    /// offered. Asked just before sending, since the USB disk can have gone between the choice and the press, and
+    /// sending the internal disk in its place would make a reservation the reader did not agree to.
+    public static func offers(_ destination: String, with usb: RecorderDisk?) -> Bool {
+        destination == internalID || choices(with: usb).contains { $0.destination == destination }
+    }
+
+    /// The one rule for naming the disk of a row on screen, or nil to name none: only a recorder's row, and only
+    /// off the internal disk, so that a home with no USB disk sees no disk named anywhere. A television's row is
+    /// never named: its listed reservations carry no disk, and what waits for it carries the internal disk's id,
+    /// neither of which it reads. A row on the slot is named after the disk known there, or by the slot's id
+    /// when none is known.
+    public static func shown(_ destination: String, on device: DeviceSlot, usb: RecorderDisk?) -> String? {
+        guard device == .recorder, destination != internalID else { return nil }
+        return label(destination, named: usb?.destination == destination ? usb?.name : nil)
+    }
+
+    /// What a screen says when the disk the reader picked is no longer offered as it is sent (`offers`): nothing
+    /// has been sent, and what is offered instead is the screen's own choice with that disk taken out -- the
+    /// internal disk, and on the programme's sheet the television where it can take the programme. The disk is
+    /// named as it is known now: by its name while the slot's disk is known, by the slot's id once it has gone.
+    public static func chooseAnother(than destination: String, usb: RecorderDisk?) -> String {
+        label(destination, usb: usb) + "はいま使えません。別の録画先を選んでください。"
+    }
+
+    /// What the reservation's sheet says when a move to `destination` is no longer offered as it is sent and the
+    /// sheet has nothing else to offer -- a reservation on the internal disk, with the USB disk gone -- so that
+    /// it does not ask for a choice it cannot show: the disk cannot be had, and the reservation stays on its own
+    /// disk, `keeping`, named as the sheet names it.
+    public static func stays(on keeping: String, notMovedTo destination: String, usb: RecorderDisk?) -> String {
+        label(destination, usb: usb) + "はいま使えません。録画先は" + label(keeping, usb: usb) + "のままです。"
+    }
+
+    /// What to say when the recorder turns down a request that names `destination` -- a reservation, or a change
+    /// that moves one -- so that one sent to the USB disk and turned down says which disk and what to do, rather
+    /// than a code alone; the code and the action stay, as in every refusal, for looking it up. It says the
+    /// reservation was not taken there, not that the disk was refused: the code alone does not say which. For
+    /// the internal disk, for anything but a refusal, and for a refusal that names a cause of its own
+    /// (`refusalTheDiskCanBeBehind`), what the error says, as it always has.
+    public static func turnedDown(_ error: any DeviceError, sentTo destination: String,
+                                  usb: RecorderDisk?) -> String {
+        guard let disk = shown(destination, on: .recorder, usb: usb),
+              let (code, action) = refusalTheDiskCanBeBehind(error) else { return error.explanation }
+        return "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
+    }
+
+    /// The reason a row waiting for `destination` carries when the recorder turns it down
+    /// (`QueueTarget.sentByCreating`), by the same rule as `turnedDown`. A row that waits keeps the disk it was made
+    /// to, and has no way to another, so it is told to be deleted and reserved again elsewhere. It does not name the
+    /// disk: what sends it does not know the disk's name, and the row says its disk on the line above its reason.
+    public static func waitingRowTurnedDown(_ error: any DeviceError, sentTo destination: String) -> String {
+        guard destination != internalID, let (code, action) = refusalTheDiskCanBeBehind(error) else {
+            return error.explanation
+        }
+        return "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
+            + " (\(code): \(action))"
+    }
+
+    /// The reason a row waiting for the USB slot carries when the slot, waited for before it is sent, answers no
+    /// disk that takes recordings (`RecorderClient`'s round): nothing was sent for it. Passed over in silence, the
+    /// row could wait until its programme was over -- a run with no screen never lets the disk known go, and
+    /// nothing sends the row again when the disk answers later -- so it is held for the reader as a refusal is, and
+    /// told what to do: connect the disk and send it again, or delete it and reserve again elsewhere. It does not
+    /// name the disk, which the row says on the line above it, as `waitingRowTurnedDown` does not.
+    public static let waitingRowNotAnswered = "録画先のディスクが応答しませんでした。"
+        + "つなぎ直してからもう一度送るか、この予約を消して別の録画先で予約し直してください"
+
+    /// The code and the action of a recorder turning a request down for a reason the disk could be behind:
+    /// any code it refuses with (`DeviceFailure.refused`) but those that name a cause of their own, which
+    /// another disk would not change (docs/xsrs-api.md): 831, a channel the recorder cannot receive, for a
+    /// reservation that follows a programme; 401, an action the recorder does not have; 501 and 701, no such
+    /// item. 804, an id that is no longer the
+    /// reservation's -- the recorder renumbers its automatic ones -- is read as the reservation gone rather than
+    /// as a refusal (`DeviceFailure.unknownItem`), and so is never the disk's either. Nil for anything else.
+    private static func refusalTheDiskCanBeBehind(_ error: any DeviceError) -> (code: String, action: String)? {
+        guard case .soap(let action, _, let code?, _) = error as? RecorderError, case .refused = error.failure,
+              !["831", "401", "501", "701"].contains(code) else { return nil }
+        return (code, action)
+    }
+
+    /// One of the recorder's disks named as the screens name it: the slot by the name of the disk known there.
+    private static func label(_ destination: String, usb: RecorderDisk?) -> String {
+        label(destination, named: usb?.destination == destination ? usb?.name : nil)
+    }
+
     /// What the low-space notification says of a disk with `freeGB` left. Without a disk to name it is the
     /// sentence a recorder with its own disk alone has always had; with two disks it says which, by its label.
     /// The number goes in by itself, so that a `%` in a name the owner gave the disk is not read as a format.

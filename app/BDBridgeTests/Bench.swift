@@ -19,6 +19,10 @@ final class Bench {
     /// How long after an attach found the USB slot answering none, while a disk was known, a model made here reads
     /// it again: the app's minute, unless a test that waits for that read shortens it before making the model.
     var slotReadAgainAfter = RecorderDriver.slotReadAgainAfter
+    /// How long a model made here waits for the USB slot before something that names it is sent while the slot has
+    /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
+    /// first.
+    var slotSettling = SlotSettling.afterAWaking
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -185,6 +189,7 @@ final class Bench {
             busyRetryDelay: 0...0,
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
+            slotSettling: slotSettling,
             tvTransport: tvTransport,
             tvCredentials: tvCredentials,
             lanInterfaces: { [weak self] in (self?.wifi).map { [$0] } ?? [] },
@@ -375,7 +380,7 @@ actor NotARecorder: HTTPTransport {
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
 /// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
 /// busy, and `beAMomentBehind` has the list after its next delete be the one from before it. `heard` is
-/// everything it was asked, in the order it arrived.
+/// everything it was asked, in the order it arrived, and `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -399,6 +404,8 @@ actor NamedRecorder: HTTPTransport {
     private var behind = false
     private var lastList: HTTPResponse?
     private var staleList: HTTPResponse?
+    /// The `Elements` argument of the last request of each kind that carried one (`elements(of:)`).
+    private var lastElements: [String: String] = [:]
 
     init(_ last: Int) {
         udn = Self.udn(last)
@@ -486,12 +493,21 @@ actor NamedRecorder: HTTPTransport {
         Array(heard.dropFirst(count))
     }
 
+    /// The `Elements` the last request of one kind carried, as it was sent -- a create, a change, a clash check,
+    /// a condition -- whatever was answered; nil when no request of that kind carried any.
+    func elements(of what: String) -> String? {
+        lastElements[what]
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let action = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
         let what = action ?? request.url.lastPathComponent
         asked[what, default: 0] += 1
         heard.append(what)
+        if let body = request.body, let elements = (try? XmlNode.parse(body))?.firstDescendantText("Elements") {
+            lastElements[what] = elements
+        }
         if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
         if quietOn == what {
             quietOn = nil

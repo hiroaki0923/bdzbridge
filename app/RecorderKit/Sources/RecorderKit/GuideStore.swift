@@ -171,9 +171,11 @@ public actor GuideStore {
     /// never dropped, so `CREATE TABLE IF NOT EXISTS` gives one made by an earlier version nothing: they are
     /// added. A table made today gets them the same way, so that there is one path and every cache has been
     /// down it. An earlier version names the columns it knows, and goes on reading and writing a table that
-    /// has more.
+    /// has more. Each default is what a row from before the column was going to be: for the recorder, and to its
+    /// own disk, as nothing else could be asked for then.
     private static let columnsTheQueueHasGained = [
         (name: "target", declaration: "TEXT NOT NULL DEFAULT '\(DeviceSlot.recorder.rawValue)'"),
+        (name: "destination", declaration: "TEXT NOT NULL DEFAULT '\(RecorderDisk.internalID)'"),
     ]
 
     private static func columnsTheQueueLacks(_ db: Sqlite) throws -> [(name: String, declaration: String)] {
@@ -602,12 +604,14 @@ public actor GuideStore {
         try db.run("""
         INSERT OR REPLACE INTO pending_reservations
           (id, title, start, duration_sec, repeat_code, bt, service_id, service_name, quality_code, event_id,
-           queued_at, problem, target)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           queued_at, problem, target, destination)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, values(for: pending))
     }
 
-    /// Built a piece at a time: as one literal of thirteen mixed values the type checker gives up.
+    /// Built a piece at a time: as one literal of fourteen mixed values the type checker gives up. The disk is
+    /// kept by the recorder's id as it will be sent, and by no name: the recorder records to the slot, not to a
+    /// disk, and a name kept now could name a disk no longer in it when the row is sent.
     private func values(for pending: PendingReservation) -> [SqlValue] {
         let r = pending.request
         var out: [SqlValue] = [.text(pending.id), .text(r.title)]
@@ -622,6 +626,7 @@ public actor GuideStore {
         out.append(.integer(Int(pending.queuedAt.timeIntervalSince1970)))
         out.append(SqlValue(pending.problem))
         out.append(.text(pending.target.rawValue))
+        out.append(.text(r.destination))
         return out
     }
 
@@ -636,7 +641,8 @@ public actor GuideStore {
                                              broadcastingType: row.int("bt"),
                                              serviceID: row.int("service_id"),
                                              qualityCode: row.int("quality_code"),
-                                             eventID: row.optionalInt("event_id"))
+                                             eventID: row.optionalInt("event_id"),
+                                             destination: row.string("destination"))
             let problem = row.string("problem")
             // The device is read as it is written: a name this version does not know is kept, and nothing
             // here sends it.

@@ -3,8 +3,9 @@ import XCTest
 @testable import RecorderKit
 
 /// The disks a recorder records to: the slot read as the recorder answers it, what counts as a USB disk being
-/// there, how one disk is told from another and named, what the low-space notice says, the recordings of one
-/// disk, and the attach that reads the slot.
+/// there, how one disk is told from another and named, what the low-space notice says, which disks a reservation
+/// is offered and may be sent to, when a row's disk is named and what is said when a disk cannot be had, the
+/// recordings of one disk, and the attach that reads the slot.
 @MainActor
 final class RecorderDiskTests: XCTestCase {
     /// The slot as `X_GetMediaInfo` describes a disk: the root, the elements and their order as a BDZ-FBT4100
@@ -144,6 +145,163 @@ final class RecorderDiskTests: XCTestCase {
                        "100%ディスクの残りが 7 GB です。古い録画を整理するか、録画モードを見直してください。")
     }
 
+    // MARK: - what is offered, what is sent and what is named
+
+    /// Nothing to choose without a USB disk that takes recordings -- none known, one not mounted, one of no size --
+    /// and otherwise the internal disk first, called as the recorder calls it, then the USB disk.
+    func testWhatIsOfferedIsTheInternalDiskThenAUSBDiskThatTakesRecordings() {
+        XCTAssertEqual(RecorderDisk.choices(with: nil), [], "no disk known")
+        XCTAssertEqual(RecorderDisk.choices(with: Self.disk(mounted: false)), [], "a disk not mounted")
+        XCTAssertEqual(RecorderDisk.choices(with: Self.disk(total: 0)), [], "a disk of no size")
+
+        let offered = RecorderDisk.choices(with: Self.disk())
+        XCTAssertEqual(offered, [RecorderDisk.internalDisk, Self.disk()])
+        XCTAssertEqual(offered.map { RecorderDisk.label($0.destination, named: $0.name) }, ["HDD", "録画用ディスク"])
+    }
+
+    /// A reservation on the internal disk, or on the disk offered, can be moved between what a new one is offered.
+    /// One on a disk not offered -- none known in the slot, or one known there and not mounted -- can still be
+    /// moved to the internal disk, or left on its own: the disk known when that is in its slot, else the slot by
+    /// its id.
+    func testWhatAReservationOnADiskCanBeMovedBetween() {
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .recorder, with: nil), [],
+                       "a choice in a home with no USB disk")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .recorder, with: usb), [RecorderDisk.internalDisk, usb])
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: usb),
+                       [RecorderDisk.internalDisk, usb])
+
+        let gone = RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: nil)
+        XCTAssertEqual(gone.map(\.destination), ["HDD", "USBHDD"], "no move off a disk that has gone")
+        XCTAssertEqual(gone.map { RecorderDisk.label($0.destination, named: $0.name) }, ["HDD", "USBHDD"])
+
+        let unplugged = Self.disk(mounted: false)
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: unplugged),
+                       [RecorderDisk.internalDisk, unplugged], "no move off a disk not mounted")
+    }
+
+    /// A television's reservation is offered no disk, with a USB disk that takes recordings known: not as listed,
+    /// carrying no disk, nor as it waits, carrying the internal disk's id, nor with the slot's id.
+    func testATelevisionsReservationIsOfferedNoDisk() {
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.choices(keeping: "", on: .tv, with: usb), [], "a television's listed reservation")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .tv, with: usb), [], "what waits for a television")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .tv, with: usb), [],
+                       "a television's row with the slot's id")
+    }
+
+    /// What may be sent of a disk chosen on a screen: the internal disk whatever is known of the slot, the USB disk
+    /// only while it takes recordings, and an id never offered never.
+    func testOnlyWhatIsOfferedIsSent() {
+        XCTAssertTrue(RecorderDisk.offers("HDD", with: nil), "the internal disk with no USB disk known")
+        XCTAssertTrue(RecorderDisk.offers("HDD", with: Self.disk()))
+        XCTAssertTrue(RecorderDisk.offers("USBHDD", with: Self.disk()))
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: nil), "no disk known")
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: Self.disk(mounted: false)), "a disk not mounted")
+        XCTAssertFalse(RecorderDisk.offers("USBHDD", with: Self.disk(total: 0)), "a disk of no size")
+        XCTAssertFalse(RecorderDisk.offers("BD", with: Self.disk()), "an id never offered")
+    }
+
+    /// Only a recorder's row off the internal disk has its disk named: never a television's, whether it carries no
+    /// disk as its listed reservations do, the internal disk's id as what waits for it does, or the slot's. A row
+    /// on the slot is named after the disk known there, or by the slot's id with none known.
+    func testARowsDiskIsNamedOnlyForTheRecorderOffItsOwnDisk() {
+        let usb = Self.disk()
+        XCTAssertNil(RecorderDisk.shown("", on: .tv, usb: usb), "a television's listed reservation")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .tv, usb: usb), "what waits for a television")
+        XCTAssertNil(RecorderDisk.shown("USBHDD", on: .tv, usb: usb), "a television's row with the slot's id")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .recorder, usb: usb), "the recorder's own disk")
+        XCTAssertNil(RecorderDisk.shown("HDD", on: .recorder, usb: nil), "the recorder's own disk, no USB disk")
+        XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: usb), "録画用ディスク")
+        XCTAssertEqual(RecorderDisk.shown("USBHDD", on: .recorder, usb: nil), "USBHDD", "no disk known")
+    }
+
+    /// A disk picked and no longer offered as it is sent is named as it is known now -- by its name while the
+    /// slot's disk is known, not mounted, by the slot's id once it has gone -- and the reader is asked for
+    /// another. Pinned as written, for the review of the wording.
+    func testADiskNoLongerOfferedIsNamedAndAnotherAskedFor() {
+        XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: Self.disk(mounted: false)),
+                       "録画用ディスクはいま使えません。別の録画先を選んでください。")
+        XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: nil),
+                       "USBHDDはいま使えません。別の録画先を選んでください。", "no disk known")
+    }
+
+    /// The recorder turning down a request to the USB disk is said as the disk and what to do, the code kept;
+    /// to the internal disk it is said as it always was, character for character, and so is a refusal that
+    /// names a cause of its own, and anything that is no refusal.
+    func testARefusalOfTheUSBDiskSaysWhichDiskAndWhatToDo() {
+        func fault(_ code: String, _ action: String = "X_CreateRecordSchedule") -> RecorderError {
+            .soap(action: action, status: 500, code: code, body: "")
+        }
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: usb),
+                       "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("701", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
+                       "レコーダーがエラーを返しました (701: X_UpdateRecordSchedule, HTTP 500)", "no disk known")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "HDD", usb: usb),
+                       "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)", "the internal disk")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("831"), sentTo: "USBHDD", usb: usb), fault("831").explanation,
+                       "a channel the recorder cannot receive")
+        for other in [fault("880"), fault("804"), RecorderError.transport("timed out"),
+                      .busy(action: "X_CreateRecordSchedule")] {
+            XCTAssertEqual(RecorderDisk.turnedDown(other, sentTo: "USBHDD", usb: usb), other.explanation, "\(other)")
+        }
+    }
+
+    /// Which refusals the disk could be behind, for a sheet's sentence and a waiting row's alike: any code the
+    /// recorder turns a request down with, named after the disk, but those that name a cause of their own -- 831,
+    /// a channel it cannot receive; 501 and 701, no such item; 804, an id no longer the reservation's -- which
+    /// keep the recorder's own sentence, as the internal disk's refusals and anything that is no refusal do. A
+    /// waiting row is told to be reserved again elsewhere, its disk unnamed: its row names it.
+    func testOnlyARefusalTheDiskCouldBeBehindNamesTheDisk() {
+        func fault(_ code: String, _ action: String = "X_CreateRecordSchedule") -> RecorderError {
+            .soap(action: action, status: 500, code: code, body: "")
+        }
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: usb),
+                       "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
+                       "レコーダーがUSBHDDへの予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_UpdateRecordSchedule)", "no disk known")
+        XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(fault("402"), sentTo: "USBHDD"),
+                       "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
+                           + " (402: X_CreateRecordSchedule)")
+
+        for code in ["831", "401", "501", "701", "804"] {
+            let error = fault(code)
+            XCTAssertEqual(RecorderDisk.turnedDown(error, sentTo: "USBHDD", usb: usb), error.explanation, code)
+            XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(error, sentTo: "USBHDD"), error.explanation,
+                           "a waiting row, \(code)")
+        }
+
+        let plain = "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)"
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "HDD", usb: usb), plain, "the internal disk")
+        XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(fault("402"), sentTo: "HDD"), plain,
+                       "a waiting row on the internal disk")
+
+        let noCode = RecorderError.soap(action: "X_CreateRecordSchedule", status: 500, code: nil, body: "")
+        for other in [fault("880"), noCode, RecorderError.transport("timed out"),
+                      .busy(action: "X_CreateRecordSchedule")] {
+            XCTAssertEqual(RecorderDisk.turnedDown(other, sentTo: "USBHDD", usb: usb), other.explanation, "\(other)")
+            XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(other, sentTo: "USBHDD"), other.explanation,
+                           "a waiting row, \(other)")
+        }
+    }
+
+    /// A move to a disk no longer offered, from a sheet with no other disk left to offer, says the disk cannot be
+    /// had and where the reservation stays, each disk named as the sheet names it. Pinned as written, for the
+    /// review of the wording.
+    func testAMoveWithNothingElseToOfferSaysWhereTheReservationStays() {
+        XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: nil),
+                       "USBHDDはいま使えません。録画先はHDDのままです。", "no disk known")
+        XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: Self.disk(mounted: false)),
+                       "録画用ディスクはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(RecorderDisk.stays(on: "USBHDD", notMovedTo: "BD", usb: Self.disk(mounted: false)),
+                       "BDはいま使えません。録画先は録画用ディスクのままです。", "its own disk named after the disk known")
+    }
+
     // MARK: - the recordings of one disk
 
     private static func titleItem(_ id: String, on destination: String?) -> String {
@@ -212,6 +370,8 @@ final class RecorderDiskTests: XCTestCase {
         private(set) var slotReads = 0
         private var throughBeforeHolding: Int?
         private var held: [CheckedContinuation<Void, Never>] = []
+        /// The answer the slot gives once so many more reads have been answered as it is now (`answer(_:after:)`).
+        private var next: (after: Int, slot: Slot)?
 
         init(_ slot: Slot, udn: String = RecorderDiskTests.vectorUDN) {
             self.slot = slot
@@ -224,6 +384,8 @@ final class RecorderDiskTests: XCTestCase {
         }
 
         func answer(_ slot: Slot) { self.slot = slot }
+        /// Answers `slot` from the read after the next `reads`, which are answered as now.
+        func answer(_ slot: Slot, after reads: Int) { next = (reads, slot) }
         func become(udn: String) { description = Self.describing(udn) }
         func holdSlotReads(after count: Int) { throughBeforeHolding = count }
 
@@ -246,6 +408,13 @@ final class RecorderDiskTests: XCTestCase {
                     throughBeforeHolding = through - 1
                 } else {
                     await withCheckedContinuation { held.append($0) }
+                }
+            }
+            if let (left, then) = next {
+                if left > 0 {
+                    next = (left - 1, then)
+                } else {
+                    (slot, next) = (then, nil)
                 }
             }
             switch slot {
@@ -608,5 +777,162 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertEqual(world.count("another device"), 0, "the session knew the last recorder for another")
         XCTAssertNil(link.session.usbDisk, "the disk known stayed through the cache made over")
         XCTAssertNil(link.readLeftForLater)
+    }
+
+    // MARK: - the slot settled before something that names it is sent
+
+    private func recorderDriver(of link: DeviceLink) throws -> RecorderDriver {
+        try XCTUnwrap(link.driver as? RecorderDriver)
+    }
+
+    /// While the disk known is kept through an answer of none, the slot is settled before something that names it
+    /// is sent: read, and read again while it answers none. A disk answered on a later read is taken as it answers,
+    /// in the session and with the cache, and the read left for later is ended, under a line of its own.
+    func testTheSettlingTakesADiskAnsweredOnALaterReadAndEndsTheReadLeftForLater() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        let before = await recorder.slotReads
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot(remain: "100000"))), after: 1)
+
+        let settled = try await recorderDriver(of: link).settleTheSlot(for: RecorderDisk.usbID)
+
+        var fuller = Self.disk()
+        fuller.freeMB = 100_000
+        XCTAssertEqual(settled, .answered(fuller))
+        expectEqual(await recorder.slotReads - before, 2, "not read again after an answer of none, or past the disk")
+        XCTAssertEqual(link.session.usbDisk, fuller, "the disk answered was not taken")
+        expectEqual(try await cache.knownUSBDisk(), fuller)
+        XCTAssertNil(link.readLeftForLater, "the read left for later was not ended")
+        XCTAssertTrue(later.isCancelled)
+        XCTAssertEqual(world.begun.last, RecorderDriver.settlingLine)
+        XCTAssertNil(world.line)
+        XCTAssertFalse(link.session.settlingTheSlot)
+    }
+
+    /// None throughout: the slot is read once and again every interval of the settling, six times in all, under a
+    /// line of its own, and the disk known and the read left for later stay as they were, in the session and with
+    /// the cache. The recorder is still connected, and nothing is said.
+    func testTheSettlingLeavesTheDiskAndTheReadAsTheyWereOnNoneThroughout() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        let driver = try recorderDriver(of: link)
+        let before = await recorder.slotReads
+        await recorder.holdSlotReads(after: 0)
+
+        let settling = Task { await driver.settleTheSlot(for: RecorderDisk.usbID) }
+        try await untilTheSlotIsAsked(before + 1, by: recorder)
+        XCTAssertTrue(link.session.settlingTheSlot)
+        XCTAssertEqual(world.line, RecorderDriver.settlingLine)
+        await recorder.letGo()
+        let settled = await settling.value
+
+        XCTAssertEqual(settled, .noDisk)
+        expectEqual(await recorder.slotReads - before, 6)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the disk known was let go of")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        XCTAssertEqual(link.readLeftForLater, later, "the read left for later was not left as it was")
+        XCTAssertFalse(later.isCancelled)
+        XCTAssertFalse(link.session.settlingTheSlot)
+        XCTAssertNil(world.line)
+        XCTAssertTrue(link.session.connected)
+        XCTAssertNil(world.problem)
+    }
+
+    /// Nothing is settled, and the slot is not asked, for what names the internal disk, nor for the slot once the
+    /// disk has been answered since the recorder woke: in a home with no USB disk, and with a disk answered, a
+    /// request goes as it always has.
+    func testNothingIsSettledForTheInternalDiskOrADiskAnswered() async throws {
+        let (kept, keptRecorder, _) = await waitingToReadAgain(after: .seconds(60))
+        let keptReads = await keptRecorder.slotReads
+        expectNil(try await recorderDriver(of: kept).settleTheSlot(for: RecorderDisk.internalID))
+        expectEqual(await keptRecorder.slotReads, keptReads, "the slot was asked for the internal disk")
+
+        let answering = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        let (answered, _) = await connected(to: answering)
+        XCTAssertNil(answered.readLeftForLater)
+        let answeredReads = await answering.slotReads
+        expectNil(try await recorderDriver(of: answered).settleTheSlot(for: RecorderDisk.usbID))
+        expectEqual(await answering.slotReads, answeredReads, "the slot was asked again with its disk answered")
+    }
+
+    /// Silence while the slot is waited for loses the recorder and says so, as a read that meets it does, at the
+    /// first read: nothing more is asked, and nothing is kept -- the disk known stays, in the session and with the
+    /// cache, as it was.
+    func testSilenceWhileTheScreensWaitLosesTheRecorderAndKeepsNothing() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let driver = try recorderDriver(of: link)
+        let before = await recorder.slotReads
+        await recorder.answer(.silence)
+
+        let settled = await driver.settleTheSlot(for: RecorderDisk.usbID)
+
+        XCTAssertEqual(settled, .silent)
+        expectEqual(await recorder.slotReads - before, 1, "the slot was read on past the silence")
+        XCTAssertFalse(link.session.connected, "the recorder was not lost")
+        XCTAssertTrue(link.session.unreachable)
+        XCTAssertEqual(world.problem, driver.noAnswerLine)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the disk known was let go of on silence")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        XCTAssertFalse(link.session.settlingTheSlot)
+        XCTAssertNil(world.line)
+    }
+
+    /// From the moment the recorder answers an attach with a disk known, the disk is waited for: though the slot
+    /// answered it at the attach before, a request to the slot made while what waits is sent -- before this attach
+    /// has read the slot, and before anything has been left to read again -- waits for the slot, and finds the
+    /// waking's answer of none. The wait stands once the attach has kept the disk through that answer, and ends
+    /// when the slot answers a disk, after which nothing is waited for.
+    func testTheSlotIsWaitedForFromTheMomentTheRecorderAnswers() async throws {
+        let world = LinkWorld()
+        world.slotReadAgainAfter = .seconds(60)
+        let recorder = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        let (link, _) = await connected(to: recorder, in: world)
+        let driver = try recorderDriver(of: link)
+        XCTAssertFalse(link.session.usbDiskUnanswered, "a disk the slot answered was waited for")
+        await recorder.answer(.answer(Self.wakingAnswer))
+        var asSent: SlotSettled?
+        var readsWhileSent = 0
+        world.onSendWhatWaits = {
+            let before = await recorder.slotReads
+            asSent = await driver.settleTheSlot(for: RecorderDisk.usbID)
+            readsWhileSent = await recorder.slotReads - before
+        }
+
+        await link.connect()
+        world.onSendWhatWaits = nil
+
+        XCTAssertEqual(asSent, .noDisk, "a request to the slot was not held back as the recorder answered")
+        XCTAssertEqual(readsWhileSent, 6)
+        XCTAssertTrue(link.session.usbDiskUnanswered, "the disk kept through an answer of none was not waited for")
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        expectEqual(await driver.settleTheSlot(for: RecorderDisk.usbID), .answered(Self.disk()))
+        XCTAssertFalse(link.session.usbDiskUnanswered, "the disk answered was still waited for")
+        let answered = await recorder.slotReads
+        expectNil(await driver.settleTheSlot(for: RecorderDisk.usbID))
+        expectEqual(await recorder.slotReads, answered)
+    }
+
+    /// A read again that meets silence leaves the disk kept and nothing left to read later, and the slot has still
+    /// not answered since the recorder woke: a request to it waits for the slot all the same.
+    func testTheSlotIsWaitedForThoughTheReadAgainMetSilence() async throws {
+        let (link, recorder, _) = await waitingToReadAgain(after: .milliseconds(1), holding: true)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        await recorder.answer(.silence)
+        await recorder.letGo()
+        await untilOver(later)
+        XCTAssertNil(link.readLeftForLater)
+        XCTAssertEqual(link.session.usbDisk, Self.disk())
+        let before = await recorder.slotReads
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+
+        let settled = try await recorderDriver(of: link).settleTheSlot(for: RecorderDisk.usbID)
+
+        XCTAssertEqual(settled, .answered(Self.disk()), "a request to the slot was not held back")
+        expectEqual(await recorder.slotReads - before, 1)
     }
 }

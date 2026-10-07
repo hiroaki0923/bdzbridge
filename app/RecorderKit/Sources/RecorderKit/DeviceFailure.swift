@@ -1,7 +1,7 @@
 import Foundation
 
 /// What went wrong, in the terms the rules care about, whichever device said it -- a recorder with a SOAP
-/// fault, a television with a JSON error code. The sending of a waiting reservation (`ReservationTarget.send`),
+/// fault, a television with a JSON error code. The sending of a waiting reservation (`QueueTarget.sentByCreating`),
 /// the waking loop and the guide refresh read an error
 /// only for what to do about it: wake the device, try again later, hold the request back, tell the reader. So
 /// each device's own error says which of these it is (`DeviceError.failure`), and the rules read only that.
@@ -31,7 +31,7 @@ public enum DeviceFailure: Sendable, Equatable {
     case unexpected(String)
 
     /// True when the device answered about the request itself and the answer will not change by asking again.
-    /// What a waiting reservation is held back for (`ReservationTarget.send`), with the reason written on it.
+    /// What a waiting reservation is held back for (`QueueTarget.sentByCreating`), with the reason written on it.
     public var turnsTheRequestDown: Bool {
         switch self {
         case .refused, .unknownItem: true

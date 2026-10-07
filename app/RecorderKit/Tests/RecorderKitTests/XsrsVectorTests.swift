@@ -209,4 +209,45 @@ final class XsrsVectorTests: XCTestCase {
             XCTAssertEqual(XsrsElements.recorderRule(request), testCase.string("elements"), testCase.string("name"))
         }
     }
+
+    /// A keyword condition to the USB disk is each condition the vectors pin with its disk changed and nothing
+    /// else: the recorder took every other element of those as they are, and a condition is created and deleted,
+    /// never written back, so an element that moved could not be put right in place.
+    func testAConditionToTheUSBDiskIsTheConditionWithOnlyItsDiskChanged() throws {
+        let cases = try Vectors.load("xsrs.json").dictionary("recorder_rules").dictionaries("create_elements")
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = testCase.dictionary("input")
+            let request = RecorderRuleRequest(keywords: input["keywords"] as? [String] ?? [],
+                                              excluded: input["excluded"] as? [String] ?? [],
+                                              logic: input["logic"] as? String ?? "OR",
+                                              genreLevel1: input.int("genre_level1"),
+                                              genreLevel2: input.int("genre_level2"),
+                                              timeScope: input["time_scope"] as? String ?? "ALL",
+                                              broadcastingScope: input["broadcasting_scope"] as? String ?? "ALL",
+                                              qualityCode: try XCTUnwrap(input.int("quality_code")),
+                                              destination: "USBHDD")
+            let pinned = testCase.string("elements")
+            XCTAssertEqual(pinned.components(separatedBy: ">HDD<").count, 2, "the internal disk is named once")
+            XCTAssertEqual(XsrsElements.recorderRule(request),
+                           pinned.replacingOccurrences(of: "<recordDestinationID>HDD</recordDestinationID>",
+                                                       with: "<recordDestinationID>USBHDD</recordDestinationID>"),
+                           testCase.string("name"))
+        }
+    }
+
+    /// A condition's disk is read from the list as the request carries it, and one listed with none is on the
+    /// internal disk. The list is the captured one with its disk changed, a made-up answer until the recorder has
+    /// been seen to list a condition to its USB disk.
+    func testAConditionsDiskIsReadBack() throws {
+        let captured = try Vectors.load("xsrs.json").dictionary("recorder_rules").string("list_result")
+        let onUSB = captured.replacingOccurrences(of: "<recordDestinationID>HDD</recordDestinationID>",
+                                                  with: "<recordDestinationID>USBHDD</recordDestinationID>")
+        XCTAssertNotEqual(onUSB, captured, "the captured list names a disk")
+
+        let rules = try XsrsParse.objects(inResult: onUSB).map(XsrsParse.recorderRule)
+        let named = try XsrsParse.objects(inResult: captured).map { $0.child("recordDestinationID") != nil }
+        XCTAssertEqual(rules.map(\.destination), named.map { $0 ? "USBHDD" : "HDD" })
+        XCTAssertTrue(named.contains(false), "every condition in the list names a disk")
+    }
 }
