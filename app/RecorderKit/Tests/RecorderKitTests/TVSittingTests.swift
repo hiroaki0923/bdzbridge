@@ -104,15 +104,16 @@ final class TVSittingTests: XCTestCase {
     /// The line to the invented television, which a test can have fail at one request: the nth of a method,
     /// counted from nought, is carried out and its answer lost, never arrives, is answered with something
     /// else and not carried out, is carried out and answered with something else, arrives just after the
-    /// household has set something with the remote or taken something off with it, arrives just after the
-    /// television has put its newest recording under another number or has put something else under an id it
-    /// had given, is carried out and what it took off then listed again under a new number, or arrives just
-    /// after the ledger was taken away or written over with another. It keeps the method of everything sent,
-    /// which is what says a request went once, and what the ledger held as each create arrived.
+    /// household has set something with the remote -- and is then carried out and its answer lost, where the
+    /// test says so -- or taken something off with it, arrives just after the television has put its newest
+    /// recording under another number or has put something else under an id it had given, is carried out and
+    /// what it took off then listed again under a new number, or arrives just after the ledger was taken away
+    /// or written over with another. It keeps the method of everything sent, which is what says a request
+    /// went once, and what the ledger held as each create arrived.
     private actor Line: HTTPTransport {
         enum Fault: Sendable {
             case answerLost, neverArrives, answered(String), carriedOutAndAnswered(String)
-            case afterTheHouseholdSets(DemoTV.Schedule), afterTheHouseholdTakesOff(String)
+            case afterTheHouseholdSets(DemoTV.Schedule, answerLost: Bool = false), afterTheHouseholdTakesOff(String)
             case afterTheNewestIsRenumbered, carriedOutAndListedAgain, afterTheLedgerBecomes(TVLedger?)
             /// The row the television holds under this schedule's id is this schedule from here on.
             case afterWhatIsUnderItsIDBecomes(DemoTV.Schedule)
@@ -145,9 +146,11 @@ final class TVSittingTests: XCTestCase {
                                           + (held?.entries.last?.struck == false ? "open" : "not open"))
             }
             switch faults["\(method) \(nth)"] {
-            case .afterTheHouseholdSets(let schedule):
+            case .afterTheHouseholdSets(let schedule, let answerLost):
                 await television.put(await television.schedules + [schedule])
-                return try await television.send(request)
+                let answer = try await television.send(request)
+                if answerLost { throw RecorderError.transport("The request timed out.") }
+                return answer
             case .afterTheNewestIsRenumbered:
                 var held = await television.schedules
                 let recordings = held.indices.filter { held[$0].type == "recording" }
@@ -2126,10 +2129,10 @@ final class TVSittingTests: XCTestCase {
     /// After silence at a change nothing is sent again: the list is read, once, the check ends, and a row of
     /// its own is taken off as it does, its entry struck out with its delete. So whether the change arrived
     /// or not, in the change in place and in the repeat on a day with two, where the three are taken off. The
-    /// owner's reservation is never deleted: a change to it that met no answer is the last thing sent to it,
-    /// and the check fails, saying how it reads, for the owner to set it back with the remote. And the change
-    /// of a row just deleted is sent as a create is: after silence at it, with nothing in the list, its entry
-    /// is left open and the next check makes nothing.
+    /// owner's reservation is never deleted: a change to it that met no answer, or a change back that did, is
+    /// the last thing sent to it, and the check fails, saying how the list last read it, for the owner to set
+    /// it back with the remote. And the change of a row just deleted is sent as a create is: after silence at
+    /// it, with nothing in the list, its entry is left open and the next check makes nothing.
     func testAfterSilenceAtAChangeNothingIsSentAgain() async throws {
         let silence = "a change met no answer, and nothing is sent again"
         for fault in [Line.Fault.neverArrives, .answerLost] {
@@ -2154,19 +2157,27 @@ final class TVSittingTests: XCTestCase {
             XCTAssertEqual(try TVLedger.read(three.ledger).open, 0, "\(fault)")
         }
 
-        let owners = await changeWorld(faults: ["addSchedule 0": .answerLost])
-        let stopped = await thrown {
-            try await owners.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
-                                                                   alsoNamed: Self.remoteByItsTimes)
-        } as? TVSitting.Stopped
-        XCTAssertEqual(stopped?.what, silence + "; and the list does not read as it did before the check: rows then 9,"
-                       + " now 9, of those gone or read otherwise 1")
-        expectEqual(await owners.line.sent, ["getPowerStatus", "getScheduleList"] + Self.changed)
         var changedByIt = Self.household
         changedByIt[7].repeatType = "w4"
-        expectEqual(await owners.television.schedules, changedByIt, "the owner's reservation was deleted")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: owners.ledger.path))
-        expectTheChangeNamesNothing((stopped?.what ?? "") + owners.said.text)
+        let setBack = "; the owner's reservation was last read with repeatType w4: it is to be set back with the"
+            + " remote; and the list does not read as it did before the check: rows then 9, now 9, of those gone or"
+            + " read otherwise 1"
+        let silences: [(String, String, Line.Fault, Int)] = [
+            ("the change", "addSchedule 0", .answerLost, 1), ("the change back", "addSchedule 1", .neverArrives, 2),
+        ]
+        for (name, request, fault, changes) in silences {
+            let owners = await changeWorld(faults: [request: fault])
+            let stopped = await thrown {
+                try await owners.sitting.aChangeOfARowMadeWithTheRemote(startingAt: Self.remote,
+                                                                       alsoNamed: Self.remoteByItsTimes)
+            } as? TVSitting.Stopped
+            XCTAssertEqual(stopped?.what, silence + setBack, name)
+            expectEqual(await owners.line.sent, ["getPowerStatus", "getScheduleList"]
+                        + Array(repeating: Self.changed, count: changes).flatMap { $0 }, name)
+            expectEqual(await owners.television.schedules, changedByIt, "\(name): the owner's reservation was deleted")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: owners.ledger.path), name)
+            expectTheChangeNamesNothing((stopped?.what ?? "") + owners.said.text)
+        }
 
         let gone = await changeWorld(faults: ["addSchedule 9": .neverArrives])
         let unknown = await thrown { try await gone.sitting.aChangeInPlace() } as? TVSitting.Stopped
@@ -2186,7 +2197,9 @@ final class TVSittingTests: XCTestCase {
 
     /// Where the first change is refused, the request the app is to send is not taken as it stands: the same
     /// change follows with the title the create was sent with, and then with none, each read back, and nothing
-    /// more. The row is taken off and the check fails, saying so.
+    /// more. The row is taken off and the check fails, saying so. An answer that is not the television's
+    /// refusal -- here one that cannot be read, from a television that carried the change out -- is not taken
+    /// for one: no other change is sent, the row is taken off and the check fails, saying what the answer was.
     func testWhereTheFirstChangeIsRefusedTwoMoreAreSentAndTheRestIsNot() async throws {
         let refusal = #"{"error":[\#(DemoTV.inventedError),"refused"],"id":1}"#
         let world = await changeWorld(faults: ["addSchedule 1": .answered(refusal)])
@@ -2211,6 +2224,16 @@ final class TVSittingTests: XCTestCase {
         expectEqual(await world.television.schedules, Self.household)
         XCTAssertEqual(try TVLedger.read(world.ledger).open, 0)
         expectTheChangeNamesNothing((stopped?.what ?? "") + world.said.text)
+
+        let unread = await changeWorld(faults: ["addSchedule 1": .carriedOutAndAnswered("<html></html>")])
+        let unreadable = "an answer that cannot be read"
+        let ended = await thrown { try await unread.sitting.aChangeInPlace() } as? TVSitting.Stopped
+        XCTAssertEqual(ended?.what, "the first change: " + unreadable)
+        expectEqual(await unread.line.sent, Self.opening + Self.made + Self.changed + Self.takenOff)
+        XCTAssertTrue(unread.said.lines.contains("change 1, w3: " + Self.readBack(unreadable, "w3")))
+        expectEqual(await unread.television.schedules, Self.household)
+        XCTAssertEqual(try TVLedger.read(unread.ledger).open, 0)
+        expectTheChangeNamesNothing((ended?.what ?? "") + unread.said.text)
     }
 
     /// The change of a row just deleted is sent as a create is, its entry in the ledger first. A row the
@@ -2357,20 +2380,24 @@ final class TVSittingTests: XCTestCase {
     }
 
     /// A change makes nothing, and the list read after it is to show the row under its id at its start and
-    /// nothing new. A recording somebody sets meanwhile on another station is not the check's: it is left
+    /// nothing new. A recording new in it -- here one somebody sets meanwhile on another station, with the
+    /// change's answer and with none -- may be somebody else's or the changed row under a new id: it is left
     /// where it is, the check's own row is taken off, and its entry stays open, so that nothing goes on until
-    /// somebody has looked. A row the list has under another start after a change, which its entry would not
-    /// find it by, ends the check as well, and so does one the list no longer has under its id, whose delete
-    /// is then refused and whose entry stays open.
+    /// somebody has looked at the television's own list. A row the list has under another start after a
+    /// change, which its entry would not find it by, ends the check as well, and so does one the list no
+    /// longer has under its id, whose delete is then refused and whose entry stays open.
     func testAChangeAfterWhichTheListReadsOtherwiseEndsTheCheck() async throws {
         let set = Self.owned("recording.70", on: 3, "サンプル名画座", Self.at(7, 1, 10), 1200, programme: 60121)
         let moved = Self.owned("recording.48", on: 0, DemoTV.title(ofProgramme: 60102), Self.at(4, 6, 5),
                                programme: 60102)
+        let newInTheList = ": 1. They may be somebody else's, or the changed row under a new id: they are left alone,"
+            + " and the check's entries are left in the ledger. Look at the television's own list; and "
+            + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1)
         let cases: [(String, Line.Fault, String, [DemoTV.Schedule], Int)] = [
             ("a recording set meanwhile", .afterTheHouseholdSets(set),
-             "recordings new in the list after a change: 1. A change makes nothing, so they are not the check's and"
-                + " are left alone, and its entries are left in the ledger; and "
-                + Self.afterTheDeletes(unanswered: 0, left: 0, new: 1), [set], 1),
+             "recordings new in the list after a change" + newInTheList, [set], 1),
+            ("a recording set meanwhile, and no answer", .afterTheHouseholdSets(set, answerLost: true),
+             "recordings new in the list after a change that met no answer" + newInTheList, [set], 1),
             ("the row under another start", .afterWhatIsUnderItsIDBecomes(moved),
              "the list after a change has the row under another start", [], 0),
             ("the row gone from under its id", .afterTheHouseholdTakesOff("recording.48"),
