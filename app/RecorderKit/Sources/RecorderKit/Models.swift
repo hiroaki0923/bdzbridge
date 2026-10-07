@@ -192,8 +192,11 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// slot, or there and not mounted -- is the one a reader most wants to move, and the internal disk is always
     /// there: so it is offered that and its own disk, which is the USB disk known when that is in its slot, and
     /// otherwise a disk known by its id alone. Left on its own disk, or put back on it, a change names no disk, so
-    /// that a disk not offered is never sent from here.
-    public static func choices(keeping destination: String, with usb: RecorderDisk?) -> [RecorderDisk] {
+    /// that a disk not offered is never sent from here. A television's reservation is offered nothing, as `shown`
+    /// names no disk of one: what its rows carry for a disk is never read by what sends to the television.
+    public static func choices(keeping destination: String, on device: DeviceSlot,
+                               with usb: RecorderDisk?) -> [RecorderDisk] {
+        guard device == .recorder else { return [] }
         let offered = choices(with: usb)
         if destination == internalID || offered.contains(where: { $0.destination == destination }) { return offered }
         let own = usb.flatMap { $0.destination == destination ? $0 : nil }
@@ -218,10 +221,6 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         guard device == .recorder, destination != internalID else { return nil }
         return label(destination, named: usb?.destination == destination ? usb?.name : nil)
     }
-
-    /// What is said when the disk chosen on a screen is no longer offered by the time it would be sent. Nothing
-    /// is sent: the screen named that disk, and by then it offers no other choice to make again.
-    public static let noLongerOffered = "選んだ録画先がいまは使えないため、送っていません。"
 
     /// What the low-space notification says of a disk with `freeGB` left. Without a disk to name it is the
     /// sentence a recorder with its own disk alone has always had; with two disks it says which, by its label.

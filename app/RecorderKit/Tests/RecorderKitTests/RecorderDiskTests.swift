@@ -165,17 +165,29 @@ final class RecorderDiskTests: XCTestCase {
     /// its id.
     func testWhatAReservationOnADiskCanBeMovedBetween() {
         let usb = Self.disk()
-        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", with: nil), [], "a choice in a home with no USB disk")
-        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", with: usb), [RecorderDisk.internalDisk, usb])
-        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", with: usb), [RecorderDisk.internalDisk, usb])
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .recorder, with: nil), [],
+                       "a choice in a home with no USB disk")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .recorder, with: usb), [RecorderDisk.internalDisk, usb])
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: usb),
+                       [RecorderDisk.internalDisk, usb])
 
-        let gone = RecorderDisk.choices(keeping: "USBHDD", with: nil)
+        let gone = RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: nil)
         XCTAssertEqual(gone.map(\.destination), ["HDD", "USBHDD"], "no move off a disk that has gone")
         XCTAssertEqual(gone.map { RecorderDisk.label($0.destination, named: $0.name) }, ["HDD", "USBHDD"])
 
         let unplugged = Self.disk(mounted: false)
-        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", with: unplugged), [RecorderDisk.internalDisk, unplugged],
-                       "no move off a disk not mounted")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .recorder, with: unplugged),
+                       [RecorderDisk.internalDisk, unplugged], "no move off a disk not mounted")
+    }
+
+    /// A television's reservation is offered no disk, with a USB disk that takes recordings known: not as listed,
+    /// carrying no disk, nor as it waits, carrying the internal disk's id, nor with the slot's id.
+    func testATelevisionsReservationIsOfferedNoDisk() {
+        let usb = Self.disk()
+        XCTAssertEqual(RecorderDisk.choices(keeping: "", on: .tv, with: usb), [], "a television's listed reservation")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "HDD", on: .tv, with: usb), [], "what waits for a television")
+        XCTAssertEqual(RecorderDisk.choices(keeping: "USBHDD", on: .tv, with: usb), [],
+                       "a television's row with the slot's id")
     }
 
     /// What may be sent of a disk chosen on a screen: the internal disk whatever is known of the slot, the USB disk
