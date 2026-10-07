@@ -524,7 +524,8 @@ public actor GuideStore {
     /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
     /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
     /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
-    /// its logos, and the marks of when each type was fetched -- and every reservation waiting for a recorder
+    /// its logos, the marks of when each type was fetched, and the USB disk it was last known to have
+    /// registered (`knownUSBDisk`) -- and every reservation waiting for a recorder
     /// is held with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
     /// set stays: which channels are hidden, and their order. So does what waits for another device, which
     /// one recorder taking another's place says nothing about.
@@ -553,7 +554,8 @@ public actor GuideStore {
                 try db.run("DELETE FROM programs")
                 try db.run("DELETE FROM channels")
                 try db.run("DELETE FROM logos")
-                try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'")
+                try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%' OR key=?",
+                           [.text(Self.knownUSBDiskKey)])
                 if let reason {
                     try db.run("UPDATE pending_reservations SET problem = ? WHERE target = ?",
                                [.text(reason), .text(DeviceSlot.recorder.rawValue)])
@@ -567,6 +569,30 @@ public actor GuideStore {
             return who
         }
     }
+
+    // MARK: - the disk in the recorder's USB slot
+
+    /// The USB disk the recorder this cache is of was last known to have registered, or nil. Kept here, with what
+    /// else the cache holds of that recorder, for the first attach after a launch: that is usually one that woke
+    /// the recorder, and right after a waking the slot answers as if no disk were registered (`RecorderDriver`).
+    /// It goes to no other recorder (`claim`). What cannot be read back counts as none.
+    public func knownUSBDisk() throws -> RecorderDisk? {
+        guard let text = try meta(Self.knownUSBDiskKey) else { return nil }
+        return try? JSONDecoder().decode(RecorderDisk.self, from: Data(text.utf8))
+    }
+
+    /// Keeps `disk` as the USB disk known, or keeps none.
+    public func keep(knownUSBDisk disk: RecorderDisk?) throws {
+        guard let disk else {
+            try db.run("DELETE FROM meta WHERE key=?", [.text(Self.knownUSBDiskKey)])
+            return
+        }
+        let text = String(decoding: try JSONEncoder().encode(disk), as: UTF8.self)
+        try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                   [.text(Self.knownUSBDiskKey), .text(text)])
+    }
+
+    private static let knownUSBDiskKey = "usb_disk"
 
     // MARK: - reservations waiting for the recorder
 

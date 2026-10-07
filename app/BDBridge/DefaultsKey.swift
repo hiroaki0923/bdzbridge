@@ -54,6 +54,9 @@ enum DefaultsKey {
     static let lastBackgroundRefresh = "lastBackgroundRefresh"
     /// Whether the low-space warning has been given since the disk last had room. See `Notify.lowSpace`.
     static let warnedLowSpace = "warnedLowSpace"
+    /// The same for the disk in the recorder's USB slot, as which disk was warned about (`RecorderDisk.identity`),
+    /// so that another disk in the slot has not been. See `Notify.lowSpace(on:)`.
+    static let warnedLowSpaceOnUSB = "warnedLowSpaceOnUSB"
 
     // MARK: - the demo
 

@@ -54,7 +54,8 @@ extension WhichRecorderTests {
     private func telling(_ told: Told) -> BackgroundWork.Telling {
         BackgroundWork.Telling(heldBack: { await told.say("held back") },
                                flushed: { await told.say("sent \($0.sent.count)") },
-                               freeSpace: { _, _ in await told.say("free space") },
+                               freeSpace: { _, _, _ in await told.say("free space") },
+                               usbSpace: { _ in await told.say("USB space") },
                                fetched: { _ in Task { await told.say("fetched") } })
     }
 

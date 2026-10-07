@@ -26,7 +26,11 @@ struct TVSection: View {
                     LabeledContent("IP アドレス", value: tv.host)
                     LabeledContent("状態", value: state(of: tv))
                     if let storage = model.tvDriver?.facts.storage {
-                        LabeledContent("USB ハードディスク", value: Self.describe(storage))
+                        // The television's MB taken as a million bytes, as the recorder's are.
+                        LabeledContent("USB ハードディスク",
+                                       value: Format.storage(mounted: storage.mounted,
+                                                             freeBytes: storage.freeMB.map { $0 * 1_000_000 },
+                                                             totalBytes: storage.totalMB.map { $0 * 1_000_000 }))
                     }
                     if model.tvDriver?.facts.needsPairing == true {
                         Button("登録する") { registering = true }
@@ -85,11 +89,6 @@ struct TVSection: View {
         return tv.session.gaveUp ? "応答がありません" : "接続していません"
     }
 
-    private static func describe(_ storage: TVStorage) -> String {
-        guard storage.mounted else { return "つながっていません" }
-        guard let free = storage.freeMB, let total = storage.totalMB else { return "つながっています" }
-        return "残り \(Format.gigabytes(free * 1_000_000)) / \(Format.gigabytes(total * 1_000_000))"
-    }
 }
 
 /// Adding a television, or registering with it again: its address, and then the PIN it shows on its screen.
