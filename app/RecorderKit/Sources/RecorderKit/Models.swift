@@ -251,10 +251,10 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         return "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
     }
 
-    /// The reason a row waiting for `destination` carries when the recorder turns it down (`ReservationTarget`),
-    /// by the same rule as `turnedDown`. A row that waits keeps the disk it was made to, and has no way to another,
-    /// so it is told to be deleted and reserved again elsewhere. It does not name the disk: what sends it does
-    /// not know the disk's name, and the row says its disk on the line above its reason.
+    /// The reason a row waiting for `destination` carries when the recorder turns it down
+    /// (`QueueTarget.sentByCreating`), by the same rule as `turnedDown`. A row that waits keeps the disk it was made
+    /// to, and has no way to another, so it is told to be deleted and reserved again elsewhere. It does not name the
+    /// disk: what sends it does not know the disk's name, and the row says its disk on the line above its reason.
     public static func waitingRowTurnedDown(_ error: any DeviceError, sentTo destination: String) -> String {
         guard destination != internalID, let (code, action) = refusalTheDiskCanBeBehind(error) else {
             return error.explanation

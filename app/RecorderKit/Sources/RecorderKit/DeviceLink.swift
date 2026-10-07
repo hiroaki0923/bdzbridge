@@ -35,6 +35,10 @@ public struct LinkEnvironment {
     /// read again: the driver's minute (`RecorderDriver.slotReadAgainAfter`), unless a test, which has no minute
     /// to wait, gives less.
     public var slotReadAgainAfter: Duration
+    /// How long the slot is waited for before something that names it is sent while the disk known there is kept
+    /// rather than answered (`RecorderDriver.settleTheSlot`), and in the queue's round of the clients the link
+    /// makes: the driver's ten seconds, unless a test gives less.
+    public var slotSettling: SlotSettling
 
     public init(transport: @escaping (_ host: String) -> any HTTPTransport,
                 networkSignature: @escaping () -> String,
@@ -42,7 +46,8 @@ public struct LinkEnvironment {
                 lanIsBlocked: @escaping (_ host: String) async -> Bool,
                 hostsNear: @escaping (_ host: String) -> [String],
                 findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?,
-                slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter) {
+                slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter,
+                slotSettling: SlotSettling = .afterAWaking) {
         self.transport = transport
         self.networkSignature = networkSignature
         self.sendPacket = sendPacket
@@ -50,6 +55,7 @@ public struct LinkEnvironment {
         self.hostsNear = hostsNear
         self.findRecorder = findRecorder
         self.slotReadAgainAfter = slotReadAgainAfter
+        self.slotSettling = slotSettling
     }
 }
 

@@ -41,7 +41,7 @@ public final class RecorderDriver: LinkDriver {
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         RecorderClient(host: link.host, transport: link.environment.transport(link.host),
-                       busyRetryDelay: busyRetryDelay)
+                       busyRetryDelay: busyRetryDelay, slotSettling: link.environment.slotSettling)
     }
 
     /// Once a MAC is known, which is what a magic packet needs. The address cannot be guessed and iOS will not
@@ -240,6 +240,70 @@ public final class RecorderDriver: LinkDriver {
         link.session.learned(usbDisk: disk)
     }
 
+    // MARK: - before something that names the slot is sent
+
+    /// The slot read until it answers a disk: at once, and while it answers none, again every `settling.interval`
+    /// until `settling.limit` has gone by -- six reads in about ten seconds, with the app's settling. A disk and
+    /// none are what `usbDisk` reads them as, a refusal and a recorder still busy after the client's tries among
+    /// none; silence ends it there. Nothing is kept of what it read: that is for whoever asked. The one place the
+    /// slot is waited for, by the screens (`settleTheSlot`) and by the queue's round (`RecorderClient.send`).
+    public nonisolated static func settle(_ client: RecorderClient, by settling: SlotSettling) async -> SlotSettled {
+        for read in 1...settling.reads {
+            if Task.isCancelled { return .cancelled }
+            do {
+                if let disk = try await usbDisk(of: client) { return .answered(disk) }
+            } catch {
+                return .silent
+            }
+            guard read < settling.reads else { break }
+            do {
+                try await Task.sleep(for: settling.interval)
+            } catch {
+                return .cancelled
+            }
+        }
+        return .noDisk
+    }
+
+    /// What a screen says while it waits for the slot to answer before something that names it is sent.
+    public static let settlingLine = "録画先のディスクを確かめています"
+
+    /// Before a screen sends something that names `destination` -- a reservation, a change, a keyword condition, a
+    /// clash check -- once the recorder has been made sure of. Nothing is sent to the slot on the strength of a disk
+    /// it has not answered since the recorder woke: while the USB disk known is kept rather than answered (an attach
+    /// found the slot answering none and left it to be read again, `learnTheSlot`), the slot is settled first
+    /// (`settle`), under a line of its own on the host's screen (`settlingLine`, `SessionState.settlingTheSlot`).
+    ///
+    /// A disk answered is taken as the read again takes one, in the session and with the cache, and the read is
+    /// ended -- unless the link asks through another client by then, whose attach reads the slot itself. None
+    /// throughout leaves the disk known and the read as they were, and what to say of it is the caller's, which
+    /// knows what else its screen offers. Silence loses the recorder and says so, as a read that meets it does;
+    /// nothing has been sent. What it came to is handed back. Nil, with nothing asked, for any other destination,
+    /// and for a disk the slot has answered since the recorder woke: in a home with no USB disk nothing is added.
+    public func settleTheSlot(for destination: String) async -> SlotSettled? {
+        guard destination == RecorderDisk.usbID, let link, link.readLeftForLater != nil, !link.offline,
+              let client = link.client as? RecorderClient else { return nil }
+        let owner = link.owner
+        link.session.beganSettlingTheSlot()
+        let line = owner?.beginActivity(Self.settlingLine)
+        defer {
+            link.session.endedSettlingTheSlot()
+            if let line { owner?.endActivity(line) }
+        }
+        let settled = await Self.settle(client, by: link.environment.slotSettling)
+        switch settled {
+        case .answered(let disk):
+            guard link.client === client else { break }
+            link.endTheReadLeftForLater()
+            await Self.keep(disk, link)
+        case .silent:
+            _ = link.say(.silentOnARead(sentence: noAnswerLine))
+        case .noDisk, .cancelled:
+            break
+        }
+        return settled
+    }
+
     // MARK: - waking
 
     /// The magic packet, then waiting for the recorder to answer; a BDZ-FBT4100 is back in about ten seconds.
@@ -387,4 +451,36 @@ public final class RecorderDriver: LinkDriver {
         }
         return who != .another
     }
+}
+
+/// How long the USB slot is waited for before something that names it is sent, while it answers none
+/// (`RecorderDriver.settle`): read again every `interval`, until `limit` has gone by. Handed to a link with its
+/// surroundings (`LinkEnvironment.slotSettling`) and to a client for the queue's round, where a test gives less.
+public struct SlotSettling: Sendable, Equatable {
+    public var interval: Duration
+    public var limit: Duration
+
+    public init(every interval: Duration, for limit: Duration) {
+        self.interval = interval
+        self.limit = limit
+    }
+
+    /// Every two seconds for ten: twice the five seconds after which a BDZ-FBT4100, timed once right after a
+    /// waking, answered the disk it had first answered as none (`RecorderDriver.slotReadAgainAfter`).
+    public static let afterAWaking = SlotSettling(every: .seconds(2), for: .seconds(10))
+
+    /// How many times the slot is read at most: once, and once more after each interval the limit holds.
+    var reads: Int { interval > .zero ? 1 + max(0, Int(limit / interval)) : 1 }
+}
+
+/// What the USB slot came to, read until it answered a disk or its time was up (`RecorderDriver.settle`).
+public enum SlotSettled: Sendable, Equatable {
+    /// A registered disk, as the slot answered it.
+    case answered(RecorderDisk)
+    /// No disk, each time it was read.
+    case noDisk
+    /// Nothing answered: the recorder has gone.
+    case silent
+    /// Whoever waited for it gave up first.
+    case cancelled
 }

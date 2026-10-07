@@ -40,6 +40,10 @@ public final class SessionState {
     /// Set while the app is only waiting for the device to come back from a magic packet, or looking for it
     /// at another address after that.
     public private(set) var waking = false
+    /// Set while a recorder's USB slot is waited for before something that names it is sent
+    /// (`RecorderDriver.settleTheSlot`), some seconds at most: a sheet says so, as it says a waking.
+    public var settlingTheSlot: Bool { slotSettlings > 0 }
+    private var slotSettlings = 0
     public private(set) var connecting = false
     /// Set while the local network permission is why the device cannot be reached, and the app is waiting
     /// for it rather than for the device.
@@ -216,6 +220,8 @@ public final class SessionState {
 
     public func beginWaking() { waking = true }
     public func endWaking() { waking = false }
+    public func beganSettlingTheSlot() { slotSettlings += 1 }
+    public func endedSettlingTheSlot() { slotSettlings = max(0, slotSettlings - 1) }
     public func powerNeeded(_ needed: Bool) { needsPower = needed }
 
     /// Keeps a MAC for waking the device. Anything that is not one is ignored rather than kept, so a

@@ -370,6 +370,8 @@ final class RecorderDiskTests: XCTestCase {
         private(set) var slotReads = 0
         private var throughBeforeHolding: Int?
         private var held: [CheckedContinuation<Void, Never>] = []
+        /// The answer the slot gives once so many more reads have been answered as it is now (`answer(_:after:)`).
+        private var next: (after: Int, slot: Slot)?
 
         init(_ slot: Slot, udn: String = RecorderDiskTests.vectorUDN) {
             self.slot = slot
@@ -382,6 +384,8 @@ final class RecorderDiskTests: XCTestCase {
         }
 
         func answer(_ slot: Slot) { self.slot = slot }
+        /// Answers `slot` from the read after the next `reads`, which are answered as now.
+        func answer(_ slot: Slot, after reads: Int) { next = (reads, slot) }
         func become(udn: String) { description = Self.describing(udn) }
         func holdSlotReads(after count: Int) { throughBeforeHolding = count }
 
@@ -404,6 +408,13 @@ final class RecorderDiskTests: XCTestCase {
                     throughBeforeHolding = through - 1
                 } else {
                     await withCheckedContinuation { held.append($0) }
+                }
+            }
+            if let (left, then) = next {
+                if left > 0 {
+                    next = (left - 1, then)
+                } else {
+                    (slot, next) = (then, nil)
                 }
             }
             switch slot {
@@ -766,5 +777,83 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertEqual(world.count("another device"), 0, "the session knew the last recorder for another")
         XCTAssertNil(link.session.usbDisk, "the disk known stayed through the cache made over")
         XCTAssertNil(link.readLeftForLater)
+    }
+
+    // MARK: - the slot settled before something that names it is sent
+
+    private func recorderDriver(of link: DeviceLink) throws -> RecorderDriver {
+        try XCTUnwrap(link.driver as? RecorderDriver)
+    }
+
+    /// While the disk known is kept through an answer of none, the slot is settled before something that names it
+    /// is sent: read, and read again while it answers none. A disk answered on a later read is taken as it answers,
+    /// in the session and with the cache, and the read left for later is ended, under a line of its own.
+    func testTheSettlingTakesADiskAnsweredOnALaterReadAndEndsTheReadLeftForLater() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        let before = await recorder.slotReads
+        await recorder.answer(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot(remain: "100000"))), after: 1)
+
+        let settled = try await recorderDriver(of: link).settleTheSlot(for: RecorderDisk.usbID)
+
+        var fuller = Self.disk()
+        fuller.freeMB = 100_000
+        XCTAssertEqual(settled, .answered(fuller))
+        expectEqual(await recorder.slotReads - before, 2, "not read again after an answer of none, or past the disk")
+        XCTAssertEqual(link.session.usbDisk, fuller, "the disk answered was not taken")
+        expectEqual(try await cache.knownUSBDisk(), fuller)
+        XCTAssertNil(link.readLeftForLater, "the read left for later was not ended")
+        XCTAssertTrue(later.isCancelled)
+        XCTAssertEqual(world.begun.last, RecorderDriver.settlingLine)
+        XCTAssertNil(world.line)
+        XCTAssertFalse(link.session.settlingTheSlot)
+    }
+
+    /// None throughout: the slot is read once and again every interval of the settling, six times in all, under a
+    /// line of its own, and the disk known and the read left for later stay as they were, in the session and with
+    /// the cache. The recorder is still connected, and nothing is said.
+    func testTheSettlingLeavesTheDiskAndTheReadAsTheyWereOnNoneThroughout() async throws {
+        let cache = try temporaryStore()
+        let (link, recorder, world) = await waitingToReadAgain(after: .seconds(60), cache: cache)
+        let later = try XCTUnwrap(link.readLeftForLater)
+        let driver = try recorderDriver(of: link)
+        let before = await recorder.slotReads
+        await recorder.holdSlotReads(after: 0)
+
+        let settling = Task { await driver.settleTheSlot(for: RecorderDisk.usbID) }
+        try await untilTheSlotIsAsked(before + 1, by: recorder)
+        XCTAssertTrue(link.session.settlingTheSlot)
+        XCTAssertEqual(world.line, RecorderDriver.settlingLine)
+        await recorder.letGo()
+        let settled = await settling.value
+
+        XCTAssertEqual(settled, .noDisk)
+        expectEqual(await recorder.slotReads - before, 6)
+        XCTAssertEqual(link.session.usbDisk, Self.disk(), "the disk known was let go of")
+        expectEqual(try await cache.knownUSBDisk(), Self.disk())
+        XCTAssertEqual(link.readLeftForLater, later, "the read left for later was not left as it was")
+        XCTAssertFalse(later.isCancelled)
+        XCTAssertFalse(link.session.settlingTheSlot)
+        XCTAssertNil(world.line)
+        XCTAssertTrue(link.session.connected)
+        XCTAssertNil(world.problem)
+    }
+
+    /// Nothing is settled, and the slot is not asked, for what names the internal disk, nor for the slot once the
+    /// disk has been answered since the recorder woke: in a home with no USB disk, and with a disk answered, a
+    /// request goes as it always has.
+    func testNothingIsSettledForTheInternalDiskOrADiskAnswered() async throws {
+        let (kept, keptRecorder, _) = await waitingToReadAgain(after: .seconds(60))
+        let keptReads = await keptRecorder.slotReads
+        expectNil(try await recorderDriver(of: kept).settleTheSlot(for: RecorderDisk.internalID))
+        expectEqual(await keptRecorder.slotReads, keptReads, "the slot was asked for the internal disk")
+
+        let answering = SlotRecorder(.answer(Stub.soap("X_GetMediaInfo", result: Self.slot())))
+        let (answered, _) = await connected(to: answering)
+        XCTAssertNil(answered.readLeftForLater)
+        let answeredReads = await answering.slotReads
+        expectNil(try await recorderDriver(of: answered).settleTheSlot(for: RecorderDisk.usbID))
+        expectEqual(await answering.slotReads, answeredReads, "the slot was asked again with its disk answered")
     }
 }

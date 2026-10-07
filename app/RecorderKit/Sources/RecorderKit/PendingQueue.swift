@@ -50,10 +50,10 @@ public enum PendingQueue {
     /// reservation of a programme on air has not been seen, and it is sent one all the same. A device that
     /// goes away mid-flush leaves the rest queued.
     ///
-    /// The device is read for the round (`QueueTarget.openRound`) at the first row that is to go, and only
-    /// then: a queue with nothing to send asks it nothing. A round that cannot be opened ends the flush with
-    /// every row that is not over as it was. A row the opening found on the device leaves the queue unsent,
-    /// whether or not a reason is on it.
+    /// The device is read for the round (`QueueTarget.openRound`, with the cache to hand) at the first row that
+    /// is to go, and only then: a queue with nothing to send asks it nothing. A round that cannot be opened ends
+    /// the flush with every row that is not over as it was. A row the opening found on the device leaves the queue
+    /// unsent, whether or not a reason is on it.
     ///
     /// One the device refused with a reason of its own keeps that reason and is not sent again, since the
     /// answer would be the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`)
@@ -127,7 +127,7 @@ public enum PendingQueue {
             let consented = consenting[pending.id].map { $0 == pending.problem } == true
             let isToGo = pending.problem == nil || consented
             if round == nil, isToGo {
-                switch await client.openRound(for: waiting.filter { $0.request.end >= now }) {
+                switch await client.openRound(for: waiting.filter { $0.request.end >= now }, keeping: store) {
                 case .stopped(let stop):
                     outcome.stopped = stop
                     break sending

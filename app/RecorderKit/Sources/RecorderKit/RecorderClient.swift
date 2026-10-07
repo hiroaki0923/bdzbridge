@@ -22,6 +22,9 @@ public actor RecorderClient {
     private let busyRetryDelay: ClosedRange<Double>
     /// How many times a request answered 503 is sent again before the 503 is thrown.
     static let busyRetries = 2
+    /// How long the USB slot is waited for in the queue's round before a row that names it is sent
+    /// (`send(_:consented:in:)`).
+    public nonisolated let slotSettling: SlotSettling
     private var streamPortConfirmed: Bool
     /// Whether the DLNA tree has already been walked looking for the port. A tree that gives nothing away
     /// leaves `streamPortConfirmed` false, and asking again for every one of the eight guide files would
@@ -41,11 +44,13 @@ public actor RecorderClient {
     public static let wakeProbeTimeout: TimeInterval = 2
 
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
-                upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1) {
+                upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1,
+                slotSettling: SlotSettling = .afterAWaking) {
         self.host = host
         self.upnpPort = upnpPort
         self.transport = transport
         self.busyRetryDelay = busyRetryDelay
+        self.slotSettling = slotSettling
         self.streamPort = streamPort ?? Upnp.defaultStreamPort
         self.streamPortConfirmed = streamPort != nil
     }
