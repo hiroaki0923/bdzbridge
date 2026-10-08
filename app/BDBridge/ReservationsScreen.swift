@@ -20,6 +20,7 @@ struct ReservationsScreen: View {
     /// of one the reader was deleting: said once, in the alert.
     @State private var said: String?
     @State private var opened: Reservation?
+    @State private var welcoming = false
 
     private struct Picked {
         var listKey: String
@@ -63,7 +64,7 @@ struct ReservationsScreen: View {
                 // Away from home there is still something to show: what the recorder said last time, and
                 // the television, and above all the queue, which is in use exactly then.
                 if !model.connected, model.allReservations.isEmpty, model.pending.isEmpty {
-                    NoRecorderView(icon: "clock")
+                    NoRecorderView(icon: "clock", welcoming: $welcoming)
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
                     // down still reloads: a plain placeholder has nothing to pull.
@@ -203,6 +204,7 @@ struct ReservationsScreen: View {
                 }
             }
         }
+        .welcomesHere($welcoming)
     }
 
     /// Lets go of whatever the alert was up for, as it closes.

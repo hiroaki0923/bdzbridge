@@ -82,7 +82,8 @@ recorder on the network and not everybody has one to hand — an App Store revie
 in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back. Choosing a
 recorder from inside the demo — an address typed in — ends it as well, and keeps the recorder chosen rather
 than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests` is there to keep both true. The
-demo's search asks the invented recorder alone, at its own address and port (`DemoDevices`), and reads neither
+demo's search asks the demo's own address alone, at both ports, where only the invented recorder answers
+(`DemoDevices`), and reads neither
 the Wi-Fi nor the search's session, so nothing goes on the LAN and the system's question about the local
 network is never raised in the demo; that recorder is listed 使用中, and chosen, the demo goes on. A real device
 is found once the demo has ended (`ScanTests`). The demo's dramas list an invented cast in their details, the
@@ -291,7 +292,8 @@ found a television is said at once whatever its counts, as one that found a reco
 address and nothing either kind said of itself. A television tapped while the look goes on -- what the sheet
 asks of it first -- leaves the look going, and a recorder further up the subnet is listed beside it; a recorder
 chosen then stops the look and clears the recorders' list, and the television stays listed. Entering and leaving
-the demo clears both lists and what was said. In the demo a press asks the invented recorder alone, reads no
+the demo clears both lists and what was said, and leaving it stops a look still going there. In the demo a press
+asks the demo's own address alone, where only the invented recorder answers, reads no
 interface and makes no session, lists it 使用中 with no notice and no pause, and choosing it keeps the demo. And
 a television found can be tapped only while none is saved, the saved one listed in use.
 

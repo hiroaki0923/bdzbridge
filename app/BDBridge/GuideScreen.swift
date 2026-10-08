@@ -8,6 +8,7 @@ struct GuideScreen: View {
     /// the store screenshots pass it on the command line. See `GuideClock`.
     @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
     @State private var tapped: GuideProgramRow?
+    @State private var welcoming = false
     @State private var arranging = false
 
     private var grid: Bool { mode == "grid" }
@@ -20,7 +21,7 @@ struct GuideScreen: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if nothingAndNoRecorder {
-                    NoRecorderView(icon: "calendar")
+                    NoRecorderView(icon: "calendar", welcoming: $welcoming)
                 } else if nothing, !nothingByChoice, model.guideOnItsWay {
                     // The first run lands here as soon as the recorder answers. Saying there is nothing for the
                     // day would read as though the download had come to nothing.
@@ -125,6 +126,7 @@ struct GuideScreen: View {
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
         }
+        .welcomesHere($welcoming)
     }
 
     /// What the title says: the channel when one is picked, otherwise the broadcasting type.

@@ -27,6 +27,8 @@ extension AppModel {
     /// in their own database, which is deleted here rather than left to be mistaken for a real one.
     func leaveDemo() async {
         guard demo, canChangeRecorder else { return }
+        // A look still going in the demo would list the invented recorder outside it.
+        stopScanning()
         host = endDemo()
         await openStore()
         if !host.isEmpty { await connect() }

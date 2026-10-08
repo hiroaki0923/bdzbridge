@@ -97,7 +97,10 @@ struct WelcomeView: View {
                         }
                     }
                 }
+                // Not while a recorder chosen here is being connected to: its answer closes the tutorial, which
+                // would take a television's registration with it, its number left on the panel for nobody.
                 FoundTelevisionsSection(sheet: $tvSheet)
+                    .disabled(chosenAt != nil)
                 Section {
                     if typing {
                         let typed = RecorderAddress.tidy(typedHost)

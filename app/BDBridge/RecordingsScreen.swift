@@ -8,6 +8,7 @@ struct RecordingsScreen: View {
     // written here, so a pick would appear to do nothing. See app/README.md.
     @AppStorage(DefaultsKey.recordingsMode) private var mode = "list"
     @State private var opened: RecordedTitle?
+    @State private var welcoming = false
     @State private var openedGroup: TitleGroup?
     /// The row swiped, by id rather than by value: the recording is read back out of the model when the
     /// dialog asks, so a delete can only ever be sent for a row the list still holds.
@@ -131,6 +132,7 @@ struct RecordingsScreen: View {
                 }
             }
         }
+        .welcomesHere($welcoming)
     }
 
     private var shownTitle: String {
@@ -161,7 +163,7 @@ struct RecordingsScreen: View {
     @ViewBuilder
     private var content: some View {
         if !model.connected {
-            NoRecorderView(icon: "play.rectangle")
+            NoRecorderView(icon: "play.rectangle", welcoming: $welcoming)
         } else if model.busy != nil && model.titles.isEmpty {
             ContentUnavailableView {
                 Label("読み込み中", systemImage: "play.rectangle")
