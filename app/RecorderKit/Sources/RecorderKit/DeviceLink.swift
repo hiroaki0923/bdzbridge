@@ -105,6 +105,9 @@ public protocol LinkHost: AnyObject, Sendable {
     /// Sends what waits for this device, and says what became of it. A driver asks for it from inside its
     /// attach, and a television's again when its list is pulled down, before the list is read.
     func sendWhatWaits() async
+    /// The phone's queue may have changed -- the driver has written it, or is about to send from it: what the
+    /// screens show of it is to be read again.
+    func queueWritten() async
     /// A connect reached the device: the reads that follow one, inside the connect.
     func reached() async
     /// The check before an operation heard another device where this one was. What was asked is not sent.

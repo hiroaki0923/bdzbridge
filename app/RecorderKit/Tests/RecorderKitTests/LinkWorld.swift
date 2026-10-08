@@ -116,6 +116,7 @@ final class LinkWorld: LinkHost {
         events.append("send what waits")
         await onSendWhatWaits?()
     }
+    func queueWritten() async { events.append("queue written") }
     func reached() async {
         events.append("reached")
         await onReached?()
