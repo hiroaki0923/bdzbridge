@@ -29,7 +29,7 @@ struct ReservationSheet: View {
     @State private var repeating = ""
     /// The disk the reader moved it to, nil while it is left on its own, kept as picked: a move to a disk let
     /// go of since is refused when it is sent, not sent to another. Moved back, it is nil again, so that what
-    /// the recorder holds it on is kept (`AppModel.update`).
+    /// the recorder holds it on is kept (`RecorderDriver.update`).
     @State private var movedTo: String?
     @State private var saved = false
     /// A change made, and what its device added to it, said before the sheet closes.

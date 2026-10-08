@@ -491,7 +491,7 @@ final class AppModel: LinkHost {
         // the one its caller had in hand, which is the one the check is asked with.
         let activity = activities.begin(what)
         defer { activities.end(activity) }
-        let ran = await recorder.run(sending: sending ? Self.mayHaveArrived : nil) { _ in
+        let ran = await recorder.run(sending: sending ? RecorderDriver.mayHaveArrived : nil) { _ in
             try await work(activity)
         }
         if case .success = ran { return true }

@@ -75,10 +75,6 @@ extension AppModel {
         recorder.lost()
     }
 
-    /// Said when a write met silence: the driver's sentence (`RecorderDriver.mayHaveArrived`), for the writes
-    /// still made here.
-    static let mayHaveArrived = RecorderDriver.mayHaveArrived
-
     /// Why something the reader asked for was not sent at all: the app is not connected.
     var notConnected: String {
         connectBlocked ? LocalNetworkNotice.title
