@@ -446,7 +446,6 @@ final class QueueWithATelevisionTests: XCTestCase {
         let row = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
         XCTAssertEqual(kept, .waiting(row, saying: "レコーダーに届かなかったので、予約を端末に保存しました。"
                                       + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"))
-        XCTAssertNil(model.queued, "what the result said is still set for a screen to say")
         XCTAssertEqual(model.pending(for: other, on: .recorder), row)
         expectEqual(await recorder.heard(since: heard), [], "a recorder known to be away was asked")
     }

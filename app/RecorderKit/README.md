@@ -62,14 +62,18 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 Every file in `docs/port/` is checked from here: `codes.json`, `xsrs.json`, `description.json`,
 `epg-sample`, `logo-sample`, `series.json` and `titles.json`.
 
-A read-only check against a real recorder is included and skipped by default:
+A check against a real recorder is included and skipped by default:
 
 ```
 RECORDER_HOST=<recorder ip> swift test --filter LiveRecorderTests
 ```
 
-It only reads, so it cannot change what the recorder is going to record. Compare its printed figures with the
-same ones from the Python server to see that both agree. A recorder that has left the network answers
+So run, it only reads, and cannot change what the recorder is going to record. Compare its printed figures with
+the same ones from the Python server to see that both agree. With `RECORDER_WRITE=1` set as well, the tests that
+say so write: they make a reservation or a keyword condition and delete it again. The one that makes, changes
+and deletes a reservation through the recorder's driver, as the app does
+(`testTheDriverMakesChangesAndDeletesAReservation`), runs only with `RECORDER_MAC` set too, and is rehearsed
+on an invented recorder by `DriverCheckRehearsalTests`. A recorder that has left the network answers
 nothing; with `RECORDER_MAC=<the recorder's MAC>` set as well, each test first wakes it as the app does and
 waits up to a minute for it to answer, printing how long that took. The MAC is never printed.
 

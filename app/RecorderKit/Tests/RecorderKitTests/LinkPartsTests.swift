@@ -380,7 +380,8 @@ private extension LinkCheck {
 /// A recorder at one address that says who it is as the test tells it to, an ask at a time: under a UDN that
 /// can be changed, with nothing or with a 503 in place of its description, or not until the test lets the ask
 /// go. It says who it is as the recorder of the vectors does and refuses the rest, which an attach does
-/// without. Each ask is put down in the world.
+/// without -- unless it has been given reservations to keep (`keep`), which then answer what is asked of them
+/// and of the guide. Each ask is put down in the world.
 actor ScriptedRecorder: HTTPTransport {
     /// What an ask of who it is gets: its description, nothing at all, or a 503.
     enum Answer: Sendable {
@@ -395,6 +396,8 @@ actor ScriptedRecorder: HTTPTransport {
     private var held: CheckedContinuation<Void, Never>?
     private var watching: CheckedContinuation<Void, Never>?
     private weak var world: LinkWorld?
+    /// The reservations it keeps, and the guide it serves beside them, once a test has given it some.
+    private var reservations: RecorderReservations?
 
     init(at host: String, udn: String, world: LinkWorld) throws {
         self.host = host
@@ -430,10 +433,17 @@ actor ScriptedRecorder: HTTPTransport {
         held = nil
     }
 
+    /// Answers from `reservations` from now on whatever is not an ask of who it is.
+    func keep(_ reservations: RecorderReservations) {
+        self.reservations = reservations
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let asked = request.url.lastPathComponent
         await world?.put("ask \(asked) at \(host)")
-        guard asked == "description.xml" else { return HTTPResponse(statusCode: 500) }
+        guard asked == "description.xml" else {
+            return try await reservations?.answer(request) ?? HTTPResponse(statusCode: 500)
+        }
         if holdsTheNext {
             holdsTheNext = false
             await withCheckedContinuation { ask in

@@ -839,6 +839,271 @@ extension LiveRecorderTests {
     }
 }
 
+extension LiveRecorderTests {
+    /// **Writes to the recorder.** A reservation made, changed and deleted as the app makes, changes and deletes
+    /// one: through a link with the recorder's driver (`RecorderDriver.reserve`, `update`, `cancel`), sent through
+    /// the app's own transport, with a world of the tests' own as the link's host -- a cache in a temporary folder,
+    /// and the app's timings for the USB slot rather than the moments the other tests of links give. It prints how
+    /// soon the list shows the reservation, the change and the delete, which is what a later change that looks for
+    /// a reservation by its programme, or waits for the list to show a change, is to be built on. The steps are
+    /// `DriverCheck.run`, rehearsed on an invented recorder first (`DriverCheckRehearsalTests`).
+    ///
+    ///     RECORDER_HOST=192.0.2.63 RECORDER_MAC=<the recorder's MAC> RECORDER_WRITE=1 \
+    ///         swift test --filter LiveRecorderTests/testTheDriverMakesChangesAndDeletesAReservation
+    ///
+    /// Skipped unless all three are set: the recorder leaves the network soon after it was last asked, and is woken
+    /// first (`LiveWaking`). The MAC goes to that wake alone. The link is given none, so nothing it does puts a
+    /// packet on the LAN, and what its host puts down (`LinkWorld.events`, which holds the MAC the recorder reports)
+    /// is never printed.
+    @MainActor
+    func testTheDriverMakesChangesAndDeletesAReservation() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RECORDER_WRITE"] == "1" else {
+            throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
+        }
+        guard let host = environment["RECORDER_HOST"], !host.isEmpty, environment["RECORDER_MAC"]?.isEmpty == false
+        else {
+            throw XCTSkip("set RECORDER_HOST and RECORDER_MAC as well: the recorder is woken first")
+        }
+        let (world, driver, link) = DriverCheck.link(to: host, cache: try temporaryStore())
+        world.devices[host] = URLSessionTransport()
+        try await DriverCheck.run(link, driver: driver, world: world, now: Date(),
+                                  pause: { try await Task.sleep(for: .seconds(1)) }, say: { print($0) })
+    }
+}
+
+/// The steps of the device check of the recorder's driver, written once for the recorder
+/// (`LiveRecorderTests.testTheDriverMakesChangesAndDeletesAReservation`) and for its rehearsal on an invented one
+/// (`DriverCheckRehearsalTests`), so that what is rehearsed is what runs. Everything goes through the link and its
+/// driver as the app's screens ask it, except the guide, which a refresh fetches on the link's client as the app's
+/// does, and the clean-up at the end, which is the client's alone: it has to go on after the link has given up.
+///
+/// **Which row is the check's own.** It cannot be told by a name: the recorder lists a reservation that follows its
+/// programme under the programme's own title. So every write after the create, and the clean-up, acts only on a row
+/// that was not in the list read before the create, is on the chosen channel at the chosen start, and was made by
+/// an app (`Reservation.createdByApp`). The recorder makes the reservations it made for itself again, all at once
+/// and under new ids, so a row of its own for the same programme can appear while the check runs, and the channel
+/// and the start alone would take it. The driver finds the row it is handed by its id, and by its channel and start
+/// only once the id has gone (`current`), so a change or a delete is asked only right after a read in which the
+/// check's own is listed, and the check stops, cleaning up, when it is not. That narrows what the driver could
+/// take for the check's own, and does not close it: the driver reads the list again itself before it writes, and
+/// an id gone between the two reads would still be found by its channel and start.
+///
+/// It says counts, seconds and whether something was found: never a title, an id, an address or a MAC.
+@MainActor
+enum DriverCheck {
+    /// A step that did not come out as it should, in words that carry no title, id, address or MAC.
+    struct Failed: Error, CustomStringConvertible {
+        var description: String
+    }
+
+    /// A link to the recorder at `host` made as the app makes its own, with a world of the tests' own as its host
+    /// and `cache` as the phone's: no MAC, so that it wakes nothing, and the app's timings for the slot. What
+    /// answers at `host` is for the caller to put in the world.
+    static func link(to host: String, cache: GuideStore) -> (world: LinkWorld, driver: RecorderDriver,
+                                                             link: DeviceLink) {
+        let world = LinkWorld()
+        world.cache = cache
+        world.slotReadAgainAfter = RecorderDriver.slotReadAgainAfter
+        world.slotSettling = .afterAWaking
+        let driver = RecorderDriver()
+        let link = DeviceLink(host: host, session: SessionState(), driver: driver, environment: world.environment)
+        link.owner = world
+        return (world, driver, link)
+    }
+
+    /// The check, in its eight steps: connected and the list read; a programme taken from the guide; the clash
+    /// check; the reservation made; changed; deleted; whatever happened, the check's own deleted if it is still,
+    /// again or only now listed; and as many reservations at the end as at the start. A step that fails ends it
+    /// there, after the clean-up, and is thrown; so is a skip. `now` is when the programme is to be four hours ahead
+    /// of, `pause` what goes by between two reads of a step, and `say` where its lines go.
+    static func run(_ link: DeviceLink, driver: RecorderDriver, world: LinkWorld, now: Date,
+                    pause: @MainActor () async throws -> Void, say: @MainActor (String) -> Void) async throws {
+        // A sentence of the recorder's or of the line's, with the recorder's address taken out of it.
+        func said(_ sentence: String?) -> String {
+            (sentence ?? "nothing said").replacingOccurrences(of: link.host, with: "<the recorder>")
+        }
+        // What a reservation came to, without the row kept, whose title it would print.
+        func words(_ reserved: Reserved) -> String {
+            switch reserved {
+            case .made: "made"
+            case .wouldStop: "held for what it would stop"
+            case .waiting(_, let saying): "kept on the phone: \(said(saying))"
+            case .notDone(let why): "not done: \(said(why))"
+            }
+        }
+        func seconds(since moment: ContinuousClock.Instant) -> String {
+            String(format: "%.2f s", (ContinuousClock.now - moment) / .seconds(1))
+        }
+        // One read of the list after a pause, as a screen reads it.
+        func readAgain() async throws -> [Reservation] {
+            try await pause()
+            guard let list = await driver.reservations() else {
+                throw Failed(description: "a read of the list failed: \(said(world.problem))")
+            }
+            return list
+        }
+
+        // 1. Connected as the app connects, its attach and all, and the list read through the driver.
+        await link.connect()
+        guard link.session.connected, let client = link.client as? RecorderClient, let cache = world.cache else {
+            throw Failed(description: "not connected: \(said(world.problem))")
+        }
+        guard let before = await driver.reservations() else {
+            throw Failed(description: "the list could not be read: \(said(world.problem))")
+        }
+        // One read lists at most 200, the latest first: past that the soonest are not seen, and one held at the
+        // chosen time could be taken for the check's own.
+        guard before.count < 200 else { throw XCTSkip("more reservations than one read lists") }
+        // Read only: whether the recorder's own can be found by their programme at all.
+        let itsOwn = before.filter(\.createdByRecorder)
+        say("reservations: \(before.count); the recorder's own: \(itsOwn.filter { $0.eventID != nil }.count)"
+            + " with a programme id, \(itsOwn.filter { $0.eventID == nil }.count) without")
+
+        // 2. The terrestrial guide put into the cache by a refresh, and the programme taken from it as a sheet is
+        // handed one: the first four or more hours ahead at a time no reservation overlaps.
+        // What a fetch that met nothing throws names the address it was sent to, so it is said in words.
+        let refreshed: GuideRefresh.Outcome
+        do {
+            refreshed = try await GuideRefresh.run(client: client, store: cache, types: ["td"])
+        } catch {
+            throw Failed(description: "no terrestrial guide: \(said(LiveRecorderTests.code(error)))")
+        }
+        if let failed = refreshed.failed.first {
+            throw Failed(description: "no terrestrial guide: \(said(failed.reason))")
+        }
+        let soon = now.addingTimeInterval(4 * 3600)
+        let candidates = try await cache.programs(broadcasting: "td", since: soon, limit: 5000)
+        guard let program = candidates.first(where: { program in
+            program.start >= soon && !program.title.isEmpty
+                && !before.contains { $0.start < program.end && program.start < $0.end }
+        }) else { throw Failed(description: "the guide has no programme ahead that no reservation overlaps") }
+
+        let held = Set(before.map(\.id))
+        let channel = Codes.broadcasting[program.broadcasting]
+        func isOurs(_ row: Reservation) -> Bool {
+            !held.contains(row.id) && row.createdByApp && row.broadcastingType == channel
+                && row.serviceID == program.serviceID && row.start == program.start
+        }
+        func ours(in list: [Reservation]?) -> Reservation? { list?.first(where: isOurs) }
+
+        var failure: (any Error)?
+        // Whether the create went out, made or met by silence; and whether a delete of the check's own went through.
+        var sent = false
+        var gone = false
+        do {
+            // 3. Nothing the recorder holds is to be put in a clash by a reservation made only to be deleted.
+            guard let clashes = await driver.conflicts(for: program, quality: "LSR", repeating: "none",
+                                                       disk: RecorderDisk.internalID) else {
+                throw Failed(description: "the clash check was not answered: \(said(world.problem))")
+            }
+            say("the clash check on the internal disk: \(clashes.count) clash(es)")
+            guard clashes.isEmpty else { throw XCTSkip("the conflict check named a clash") }
+
+            // 4. Made, and looked for in the list handed back, then in a read every second for ten: how soon a new
+            // reservation is listed, and whether it carries the programme id it would be looked for by.
+            let asked = ContinuousClock.now
+            let came = await driver.reserve(program, quality: "LSR", repeating: "none", disk: RecorderDisk.internalID)
+            switch came.reserved {
+            case .made: sent = true
+            case .notDone(let why): sent = why == RecorderDriver.reservationMayHaveArrived
+            case .waiting, .wouldStop: break
+            }
+            guard case .made = came.reserved else { throw Failed(description: "not made: \(words(came.reserved))") }
+            let made = ContinuousClock.now
+            say("made in \(seconds(since: asked)); in the list handed back: \(ours(in: came.list) != nil)")
+            var found = ours(in: came.list)
+            var reads = 0
+            while found == nil, reads < 10 {
+                reads += 1
+                found = ours(in: try await readAgain())
+                if found != nil { say("listed at read \(reads), \(seconds(since: made)) after it was made") }
+            }
+            guard var current = found else { throw Failed(description: "made and not listed in ten reads") }
+            say("it carries the programme id: \(current.eventID == program.eventID)")
+
+            // 5. Changed, and the list read until it shows the change: the one handed back, then a read every second
+            // for ten. Each must still list it.
+            let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil, inHand: { [] })
+            switch change.altered {
+            case .done?: break
+            case .notDone(let why)?: throw Failed(description: "not changed: \(said(why))")
+            case nil: throw Failed(description: "not changed: taken for another device's")
+            }
+            let changed = ContinuousClock.now
+            var list = change.list
+            reads = 0
+            while true {
+                if let list {
+                    guard let listed = ours(in: list) else {
+                        throw Failed(description: "no longer listed after the change")
+                    }
+                    current = listed
+                    if listed.qualityName == "SR" { break }
+                }
+                guard reads < 10 else { throw Failed(description: "the change not listed in ten reads") }
+                reads += 1
+                list = try await readAgain()
+            }
+            say(reads == 0 ? "the change shown in the list handed back"
+                : "the change shown at read \(reads), \(seconds(since: changed)) after it was made")
+
+            // 6. Deleted, and then whether it comes back in a read every second for ten: in what each read hands
+            // back, not in the list the delete handed back, from which the driver takes the row out itself.
+            let deletion = await driver.cancel(current, inHand: { [] })
+            guard deletion.deleted else { throw Failed(description: "not deleted: \(said(world.problem))") }
+            gone = true
+            let deleted = ContinuousClock.now
+            var back: String?
+            for read in 1...10 {
+                let listed = try await readAgain()
+                if back == nil, ours(in: listed) != nil {
+                    back = "listed again at read \(read), \(seconds(since: deleted)) after the delete"
+                }
+            }
+            say(back ?? "not listed again in ten reads after the delete")
+        } catch {
+            failure = error
+        }
+
+        // 7. Whatever happened, any row of the check's own still or again listed is deleted: through the client, by
+        // the id just read, so that it goes on after the link has given up and never falls back on a row's channel
+        // and start. One that went out and was neither listed nor deleted yet is waited for as step 4 waits, and
+        // said to be left, with its time, when it is still not listed.
+        let mayBeLeft = "may be left on the recorder: a reservation at \(RecorderTime.format(program.start))"
+            + " on the internal disk"
+        var last: [Reservation]?
+        do {
+            var listed = try await client.reservations()
+            var left = listed.filter(isOurs)
+            var reads = 0
+            while left.isEmpty, sent, !gone, reads < 10 {
+                reads += 1
+                try await pause()
+                listed = try await client.reservations()
+                left = listed.filter(isOurs)
+            }
+            if left.isEmpty, sent, !gone { say(mayBeLeft + ", sent and not found in the list") }
+            for row in left { try await client.deleteReservation(id: row.id) }
+            if !left.isEmpty {
+                say("cleaned up: \(left.count) of the check's own deleted")
+                listed = try await client.reservations()
+            }
+            if listed.contains(where: isOurs) { say(mayBeLeft + ", listed after its delete") }
+            last = listed
+        } catch {
+            say(mayBeLeft + " (\(said(LiveRecorderTests.code(error))))")
+        }
+
+        // 8. As many as at the start.
+        say("reservations before \(before.count), after \(last.map { "\($0.count)" } ?? "not read")")
+        if let failure { throw failure }
+        guard last?.count == before.count else {
+            throw Failed(description: "the recorder does not hold as many reservations as before")
+        }
+    }
+}
+
 /// A write the recorder turned down, said by its code alone where a thrown `RecorderError` would print the body.
 private struct TurnedDown: Error, CustomStringConvertible {
     var description: String

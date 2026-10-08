@@ -5,12 +5,12 @@ import SwiftUI
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.
 ///
-/// The recorder's are read, changed and deleted by its driver, and what waits for it is sent there too
-/// (`RecorderDriver`): here the app asks, and keeps what comes back. They are made here. A television's are its
-/// host's (`TVHost`), which keeps them apart from the recorder's: here the two lists are only put together for
-/// the screens, and a change or a delete is sent to the device that holds the row (`Reservation.device`), before
-/// anything else is done. So is a waiting reservation the reader asks to have sent again, to the device it waits
-/// for (`PendingReservation.target`).
+/// The recorder's are read, made, changed and deleted by its driver, what waits for it is sent there too, and
+/// what a new one would clash with is asked there (`RecorderDriver`): here the app asks, and keeps what comes
+/// back. A television's are its host's (`TVHost`), which keeps them apart from the recorder's:
+/// here the two lists are only put together for the screens, and a change or a delete is sent to the device
+/// that holds the row (`Reservation.device`), before anything else is done. So is a waiting reservation the
+/// reader asks to have sent again, to the device it waits for (`PendingReservation.target`).
 ///
 /// Making one is the same from a screen whichever device it is for: where a reservation of a programme can
 /// still go (`destinations(for:)`), and one entry that reserves on the device named and on no other, and
@@ -241,42 +241,14 @@ extension AppModel {
         RecorderDisk.shown(waiting.request.destination, on: waiting.target, usb: usbDisk)
     }
 
-    /// Before something that names `disk` is sent, once the recorder has been made sure of: the driver's wait for
-    /// the slot, and why not when it may not go (`RecorderDriver.withholds`). For the requests still made here,
-    /// until they are the driver's too.
-    func slotWithholds(_ disk: String) async -> RecorderDriver.Withheld? { await recorderDriver?.withholds(disk) }
-
-    /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
-    /// it also proves the payload is one the recorder accepts, without recording anything. `disk` is the one the
-    /// sheet shows, so that the clashes are the ones on the disk the reservation would go to: a USB disk the slot
-    /// has not answered since the recorder last answered is waited for first (`slotWithholds`), and one not had is
-    /// said as a reservation to it is, with no clashes asked.
+    /// Reservations that would clash, as a programme's sheet asks as it opens: the recorder's driver asks the
+    /// recorder with the very payload a reservation of `program` would send to `disk`, the disk the sheet shows
+    /// (`RecorderDriver.conflicts`). Nil when it was not asked or its answer could not be had; what there was to
+    /// say of that is on the recorder's line.
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
                    disk: String = RecorderDisk.internalID) async -> [Reservation]? {
         await start()
-        recorderDriver?.clearTheDiskNotHad()
-        guard let client, !unreachable,
-              let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
-                                               destination: disk)
-        else { return nil }
-        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
-        // not, so that the reservation which usually follows goes straight through.
-        guard await wakeIfDozing() else { return nil }
-        if let withheld = await slotWithholds(disk) {
-            if withheld == .noDisk { problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk) }
-            return nil
-        }
-        do {
-            return try await client.conflicts(elements: XsrsElements.create(request))
-        } catch {
-            // As for a recording's details (`detail(of:)`): what a client the model no longer holds ran into
-            // is not about the recorder in play, and is neither taken for its silence nor put on its screens.
-            guard client === self.client else { return nil }
-            let deviceError = error as? any DeviceError
-            if deviceError?.failure == .silent { lostTheRecorder() }
-            problem = deviceError?.explanation ?? String(describing: error)
-            return nil
-        }
+        return await recorderDriver?.conflicts(for: program, quality: quality, repeating: repeating, disk: disk)
     }
 
     /// What the programme's sheet asks: a reservation of `program` on `device`, and what it came to, in the
@@ -284,129 +256,36 @@ extension AppModel {
     ///
     /// A television's is its host's, and is handed over before anything else: nothing below is for it,
     /// whatever state the recorder is in. The recorder is asked nothing on its account, not its check,
-    /// and neither `problem` nor `queued` is touched. A television records in its one mode
-    /// (`TVDriver.recordsIn`), so `quality` is not read. With no television in play, as in the demo before
-    /// its television is added, nothing is kept and nothing sent.
+    /// and its line is not touched. A television records in its one mode (`TVDriver.recordsIn`), so
+    /// `quality` is not read. With no television in play, as in the demo before its television is added,
+    /// nothing is kept and nothing sent.
     ///
-    /// The recorder's is `reserve(_:quality:repeating:disk:)` as it stands. Its answer and its two side channels
-    /// are read here into that value: made; kept, with the sentence for that, and `queued` cleared, which
-    /// is set for a screen to say once that the reservation waits, as the result now has; anything else
-    /// not done, with the recorder's line. A television has no disk to choose, and `disk` is not read for one.
+    /// The recorder's is its driver's (`RecorderDriver.reserve`): made, kept on the phone when the recorder
+    /// cannot be asked, or not done with the recorder's line, the driver's result saying which. The list it
+    /// hands back after a reservation made is kept by the count noted here (`keepReservations`): a reservation
+    /// for a recorder let go of meanwhile leaves the list of the one after it alone. A television has no disk to
+    /// choose, and `disk` is not read for one.
+    ///
+    /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
+    /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
+    /// the result is said, and once the reservation's line is down. The dialog waits on the reader, who may
+    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
                  repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
         if device == .tv {
             await start()
             return await tvHost?.reserve(program, repeating: repeating) ?? .notDone(TVDriver.notConnected)
         }
-        guard await reserve(program, quality: quality, repeating: repeating, disk: disk) else {
-            return .notDone(problem ?? RecorderDriver.returnedAnError)
-        }
-        guard let kept = queued else { return .made(saying: nil) }
-        queued = nil
-        // The row as the phone keeps it, to the second: the row that waits, as a television's is handed back.
-        return .waiting(pending.first { $0.id == kept.id } ?? kept, saying: Self.keptForTheRecorder)
-    }
-
-    /// Said of a reservation that went to the queue because the recorder was not there.
-    static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
-        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
-
-    /// Writes to the recorder: after this the box really will record the programme.
-    ///
-    /// A reservation that cannot be delivered is queued and sent the next time the recorder answers. Only
-    /// silence is queued — a recorder that answers and refuses has said something the reader needs to see — and
-    /// only silence before anything was sent: one that went out and met silence may have been made all the
-    /// same, and the queue would make it a second time.
-    ///
-    /// `disk` is the one the reader picked, sent as picked or not at all: a USB disk no longer offered by the
-    /// time it is sent -- let go of since the sheet offered it -- is refused before anything is queued or sent,
-    /// since sending the internal disk in its place would make a reservation the reader did not agree to. So is
-    /// one the slot has not answered since the recorder last answered and does not answer while it is waited for,
-    /// once the recorder is made sure of (`slotWithholds`): the press that woke the recorder is the common case. The
-    /// row kept for the queue carries the disk. A disk the recorder turns down is said by name, with what to do.
-    func reserve(_ program: GuideProgramRow, quality: String, repeating: String,
-                 disk: String = RecorderDisk.internalID) async -> Bool {
         let forgotten = timesForgotten
         await start()
-        recorderDriver?.clearTheDiskNotHad()
-        guard RecorderDisk.offers(disk, with: usbDisk) else {
-            problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
-            return false
-        }
-        guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
-                                               destination: disk) else {
-            return false
-        }
-        // Known to be away: queue it now rather than spend a timeout finding out again.
-        guard let client, !offline else {
-            return await queue(request, serviceName: program.serviceName)
-        }
-        let activity = activities.begin("予約を登録中")
-        defer { activities.end(activity) }
-        // A recorder quiet for a while is made sure of first, and woken if it is asleep. When it cannot be,
-        // nothing has been sent, so the queue is the place for this -- unless the check heard another recorder
-        // and let go of this one: queued, the reservation would be held as one made for the recorder before.
-        guard await wakeIfDozing() else {
-            guard client === self.client else { return false }
-            return await queue(request, serviceName: program.serviceName)
-        }
-        switch await slotWithholds(disk) {
-        case nil:
-            break
-        case .noDisk?:
-            problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
-            return false
-        case .silence?:
-            // Nothing was sent, as when the recorder could not be made sure of.
-            guard client === self.client else { return false }
-            return await queue(request, serviceName: program.serviceName)
-        case .givenUp?:
-            return false
-        }
-        do {
-            try await client.create(request)
-            problem = nil
-            await loadReservations(since: forgotten)
-            return true
-        } catch let error as any DeviceError where error.failure == .silent {
-            lostTheRecorder()
-            problem = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
-                + "再接続してから予約一覧で確かめてください。"
-            return false
-        } catch let error as any DeviceError {
-            problem = RecorderDisk.turnedDown(error, sentTo: disk, usb: usbDisk)
-            return false
-        } catch {
-            problem = String(describing: error)
-            return false
-        }
+        guard let came = await recorderDriver?.reserve(program, quality: quality, repeating: repeating, disk: disk)
+        else { return .notDone(problem ?? RecorderDriver.returnedAnError) }
+        keepReservations(came.list, since: forgotten)
+        if case .waiting = came.reserved { await askForNotifications() }
+        return came.reserved
     }
 
     // MARK: - reservations waiting for the recorder
-
-    /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns whether
-    /// it was kept: one that could not be saved has been made nowhere.
-    private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
-        guard let store else {
-            problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
-            return false
-        }
-        let waiting = PendingReservation(request: request, serviceName: serviceName)
-        do {
-            try await store.queue(waiting)
-            pending = try await store.pendingReservations()
-            problem = nil
-            queued = waiting
-        } catch {
-            problem = "予約を端末に保存できませんでした: \(error)"
-            return false
-        }
-        // The reader learns that this was finally sent through a notification, so a queued reservation is where
-        // the system's dialog belongs. After the reservation is saved, not before: the dialog waits on the
-        // reader, who may leave the app instead of answering, and the reservation must not wait with it.
-        await askForNotifications()
-        return true
-    }
 
     func loadPending() async {
         guard let store else { return }
