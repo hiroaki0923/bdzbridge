@@ -788,6 +788,38 @@ public final class RecorderDriver: LinkDriver {
             : RecorderDisk.stays(on: reservation.destination, notMovedTo: disk, usb: usb)
     }
 
+    // MARK: - what a reservation's sheet offers and says
+
+    /// The modes the recorder records in, by their names in `Codes.quality`, in the order a sheet lists them.
+    public static let recordsIn = Codes.qualityOrder
+
+    /// The repeats a reservation starting at `start` can be given on the recorder, by their names in
+    /// `Codes.repeatCodes` and in the order a sheet lists them: the six, the weekly one the weekday of `start` in
+    /// Japan. A weekly repeat has to fall on the programme's own weekday, so that is the only weekly one offered.
+    public nonisolated static func repeats(startingAt start: Date) -> [String] {
+        ["none", "title", "daily", Codes.weekdayRepeat(for: start), "mon-fri", "mon-sat"]
+    }
+
+    /// What a sheet says under the button that sends a change of the recorder's reservation: one that follows its
+    /// programme goes on following it; one made by its times can have its mode and its repeat changed, and its
+    /// disk while the sheet offers one to move it to.
+    public static func changeFooter(followsItsProgramme: Bool, offersADisk: Bool) -> String {
+        followsItsProgramme ? "番組追従はそのままです。"
+            : offersADisk ? "時刻を指定した予約なので、録画モード・毎回録画・録画先だけを変えられます。"
+            : "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。"
+    }
+
+    /// What the sheet of a reservation the recorder made by itself says of it (`Reservation.createdByRecorder`).
+    public static let madeByItself = "おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
+        + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。"
+
+    /// What the question before such a reservation is deleted adds, asked on its sheet; `mayComeBackFromTheList`
+    /// is the same asked from the list. Two wordings of one thing, kept as they are; a later review of the
+    /// wording makes them one.
+    public static let mayComeBack = "おまかせ・まる録による予約のため、レコーダーが再登録することがあります。"
+    public static let mayComeBackFromTheList = "これはおまかせ・まる録によって自動登録された予約です。"
+        + "削除してもレコーダーが再登録することがあります。"
+
     // MARK: - the check before an operation
 
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
