@@ -184,7 +184,7 @@ final class TVReservationTests: XCTestCase {
         host.problem = Self.left
         let calls = await television.calls
 
-        expectFalse(await model.update(televisions, quality: "DR", repeating: "daily"))
+        expectFalse(await changeOnTheRecorder(model, televisions, quality: "DR", repeating: "daily"))
 
         expectEqual(await television.calls, calls, "the recorder's change sent a television's row to the television")
         expectEqual(await recorder.asked, asked, "the recorder's change looked for a television's row")

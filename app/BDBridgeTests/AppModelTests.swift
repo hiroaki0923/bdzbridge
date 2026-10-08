@@ -129,11 +129,11 @@ final class AppModelTests: XCTestCase {
         let askedBefore = await recorder.asked
 
         let program = try await aProgramme(model)
-        let kept = await model.reserve(program, quality: "DR", repeating: "none")
+        let kept = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
 
         XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
         XCTAssertNotNil(model.pending(for: program), "the guide would not show the reservation as waiting")
-        XCTAssertEqual(model.queued?.request.eventID, program.eventID)
+        XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
         let askedAfter = await recorder.asked
         XCTAssertEqual(askedAfter, askedBefore, "the recorder was asked although the app knew it was not there")
         let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()

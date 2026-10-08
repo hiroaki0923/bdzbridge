@@ -939,6 +939,9 @@ enum Said {
     }
     static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、"
         + "送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
+    /// Said of a reservation kept on the phone because the recorder was not there.
+    static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
+        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
     static let gone = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
@@ -1016,6 +1019,54 @@ func isMakingSure(_ model: AppModel) -> Bool {
 func isConnecting(_ model: AppModel) -> Bool {
     model.connecting
 }
+
+// MARK: - what the tests ask of the recorder's reservations
+//
+// As the screens ask for it, through the entries they use, and by what each does rather than by the model's name
+// for the recorder's own operation: where that operation lives can change, and only the bodies here change with it.
+
+/// A reservation of `program` on the recorder, as the programme's sheet asks for it: whether it was made or kept.
+@MainActor
+func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality: String, repeating: String,
+                          disk: String = RecorderDisk.internalID) async -> Bool {
+    let came = await model.reserve(program, on: .recorder, quality: quality, repeating: repeating, disk: disk)
+    var kept: PendingReservation?
+    if case .waiting(let row, _) = came { kept = row }
+    keptRows.removeAll { $0.model == nil || $0.model === model }
+    keptRows.append(KeptRow(model: model, row: kept))
+    switch came {
+    case .made, .waiting: return true
+    case .wouldStop, .notDone: return false
+    }
+}
+
+/// The row the last reservation on the recorder kept on the phone; nil when it was made or not done.
+@MainActor
+func keptJustNow(_ model: AppModel) -> PendingReservation? {
+    keptRows.first { $0.model === model }?.row
+}
+
+/// A change of a reservation as the recorder's own change takes it: whether it went through. A row of another
+/// device is put to the recorder's door, which turns it away with nothing asked.
+@MainActor
+func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String, repeating: String,
+                         disk: String? = nil) async -> Bool {
+    guard row.device == .recorder else {
+        return await model.update(row, quality: quality, repeating: repeating, disk: disk)
+    }
+    if case .done = await model.change(row, quality: quality, repeating: repeating, disk: disk) { return true }
+    return false
+}
+
+/// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands
+/// the row back once, and the model keeps nothing of it after. Held weakly, so that a model a test is done with is
+/// not kept, and one made later is never taken for it.
+private struct KeptRow {
+    weak var model: AppModel?
+    var row: PendingReservation?
+}
+
+@MainActor private var keptRows: [KeptRow] = []
 
 /// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take
 /// their arguments as autoclosures, which cannot await, so each such check took a line to read the value and
