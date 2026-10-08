@@ -125,7 +125,11 @@ of each address, its port and its method (`askedAt`). A test can take the phone 
 behind its question, all but those to one address it lets through unasked, as the system does a DNS server or a
 proxy on the local network (`turnEverythingAway(but:)`); can hold the requests, from now or once so many more
 have gone by, all but those to one address if it names one (`hold(after:but:)`); and can hold the pause before
-each single request a search makes after a look that was turned away (`holdTheSingleRequests`).
+each single request a search makes after a look that was turned away (`holdTheSingleRequests`). It says what
+the one look at the local network permission comes to at an address given for a television -- allowed, unless the
+test has the system keep the app off (`permissionLookSays`) -- and holds each wait for the permission that follows
+until the test ends it (`permissionComes`), as one does that the permission ends; the app's own surroundings hand
+the model the links' look and wait instead.
 `Bench.model(recorders:)` puts a device of its own at each address, for a test that chooses another recorder,
 and `Bench.modelWithNoRecorder()` is the app at its first launch. `aBench()` hands a test a bench that is
 thrown away when it ends, and what the tests wait for and look at over and over is beside it: `untilIdle`,
@@ -297,6 +301,14 @@ asks the demo's own address alone, where only the invented recorder answers, rea
 interface and makes no session, lists it 使用中 with no notice and no pause, and choosing it keeps the demo. And
 a television found can be tapped only while none is saved, the saved one listed in use.
 
+`TVLinkTests` holds an address typed for a television while the system keeps the app off the local network: where
+nothing answers and the look says the app is kept off, the sheet's notice goes up in place of the address not
+answering, and the model waits; once the permission comes the address is asked again by itself, and what the
+television hears after that is what a registration sends and nothing else. Closing the sheet during the wait takes
+the notice down, and a permission that comes after it has the address asked nothing more. With the permission
+given, an address that answers is asked nothing of the permission, and a silent one is said at once, after one look
+that does not say the app is kept off and no wait; and in the demo nothing is looked at or waited for.
+
 The wait itself is the package's to try (`LocalNetworkAccessTests`). On connections the tests play: one that is
 answered or refused is allowed, and so is one left unanswered until its handshake ran out, with nothing said of
 the permission; one kept waiting for the permission is said to be, and stayed on until the system tries it
@@ -346,7 +358,8 @@ a restore are a phone's to show.
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
 wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
 permission itself and the link's wait for it, and the search for a recorder or a television the router has
-moved.
+moved. The sheet that adds a television reaches the same look and wait through its surroundings, which a test
+answers for: what the model does around them is held, not they.
 Nor what a screen decides for itself: what sets its list loading,
 closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
 of the app's phase. Nor the two entries with no screen as the
@@ -694,7 +707,10 @@ staying, and Local Network switched on in the Settings app within the two minute
 itself; the question left up longer than that, and a press then starting over; what the app sent to the
 background under the question shows when it comes back; the Wi-Fi dropped while the question is up; and whether
 the system ever holds the requests behind its question until they time out, which the search cannot tell from a
-home with nobody in it. `docs/porting.md` has the list in full.
+home with nobody in it. And an address typed for a television with Local Network switched off in the Settings app:
+the notice in the sheet and not 応答がありません; キャンセル, the switch on, and a minute later no number on the
+panel; again with the switch off and then on, the number on the panel with no second press; and the log's look and
+wait lines for each. `docs/porting.md` has the list in full.
 
 A search also writes its course to the system's log, so that a first tap on a phone can be read afterwards:
 subsystem `RecorderKit`, category `scan`, at the default level, which the system keeps for a while (`ScanLog`).
@@ -723,6 +739,22 @@ nothing by then is no answer, and the recorder is woken. What a connection to a 
 the question is up, or after a "no", has not been seen on a phone; the technote says that without the permission
 "the connection enters the `NWConnection.State.waiting(_:)` state and the current path lists an unsatisfied reason
 of `NWPath.UnsatisfiedReason.localNetworkDenied`".
+
+An address typed for a television, in the sheet that adds one, is read the same way. Nothing answering there may be
+the system keeping the app off the local network, behind its question or after a no, which looks the same as an
+address where nobody is. So the sheet then looks at the permission once at that address, with the links' look
+(`AppModel.findTV`), and when the look says the app is kept off it shows the notice and 設定を開く in place of
+応答がありません, waits with the links' wait, and once the permission comes asks the address again and goes on by
+itself -- to the number on the panel of a television that is on, with no second press. Closing the sheet, by
+キャンセル or by swiping it away, ends the wait (`AppModel.stopFindingTV`, and the sheet's step cancelled): the
+address is not asked again, so no registration is asked for and no number is put on a panel after the sheet has
+gone, a permission given after it included. The address field is held while a step is under way, so that the
+number goes to the address that was asked. With the permission given, an address that answers is asked nothing of
+the permission, and one that says nothing costs the look -- about two seconds at a silent address, as seen on a
+Mac's loopback -- before 応答がありません. Never in the demo. The same goes for a television tapped in a search's
+list, whose sheet takes the same step. What the look and the wait read at a television's own address behind the
+question has not been seen on a phone; if the look comes to nothing in its three seconds there, the sheet says
+応答がありません, as the recorder's connect would say nothing of the permission.
 
 The recorders and the televisions found stay in the order they answered, the scan's end adding only what had not
 arrived yet, and the recorder the app is set to -- by address, or by UDN once the router has moved it -- is marked
