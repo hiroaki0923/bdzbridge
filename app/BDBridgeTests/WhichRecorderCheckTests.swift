@@ -85,7 +85,7 @@ extension WhichRecorderTests {
             let program = try await aProgramme(model)
 
             let reserved = try await asking(model, on: bench, of: recorder, heard: heard) {
-                await model.reserve(program, quality: "DR", repeating: "none")
+                await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
             }
 
             let exit = heard.rawValue

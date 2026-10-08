@@ -184,11 +184,14 @@ the queue of waiting reservations and in what words -- so that the same can be s
 test's body unchanged. That includes behaviour nobody would choose, and a test says so where it holds some.
 They ask only what a screen asks and read only what a screen reads, and the sentences they compare with are
 written out once, in `Bench` (`Said`): one of them is stored on the rows of the phone's queue and counted by
-being equal to it, so a letter changed there is a row no longer counted. The funnel's own body has moved
-already, onto the link (`DeviceLink.run`), with these as they were: what its parts are is tried in
-RecorderKit (`LinkPartsTests`), and that the app still does the same with them is what the gates show. So
-has the sending of the queue: its loop asks the device to send a row (`QueueTarget`) and its sentences are
-beside its outcome, both tried in RecorderKit (`QueueTargetTests`, `QueueSentenceTests`, `DeviceSeamTests`).
+being equal to it, so a letter changed there is a row no longer counted. A reservation made, kept or changed
+on the recorder is asked for through `Bench` as well, by what it does (`reserveOnTheRecorder`, `keptJustNow`,
+`changeOnTheRecorder`) and through the entries the screens use, so that when the recorder's operations move
+only those bodies change. The funnel's own body has moved already, onto the link (`DeviceLink.run`), with
+these as they were: what its parts are is tried in RecorderKit (`LinkPartsTests`), and that the app still does
+the same with them is what the gates show. So has the sending of the queue: its loop asks the device to send a
+row (`QueueTarget`) and its sentences are beside its outcome, both tried in RecorderKit (`QueueTargetTests`,
+`QueueSentenceTests`, `DeviceSeamTests`).
 
 `QueueWithATelevisionTests` holds what a television being saved changes about the queue. Its words: each
 sentence then says which device the reservations went to, on the strip and in the Shortcuts action's answer.

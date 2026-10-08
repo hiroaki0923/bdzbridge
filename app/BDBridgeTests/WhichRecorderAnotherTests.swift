@@ -161,7 +161,8 @@ extension WhichRecorderTests {
         writer.letGo()
         XCTAssertTrue(model.offline, "the recorder turned away from is still there to be asked")
         let program = try await aProgramme(model, skipping: 1)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"), model.problem ?? "no reason given")
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0,
                     "reserved on the recorder the app would not connect to")
 

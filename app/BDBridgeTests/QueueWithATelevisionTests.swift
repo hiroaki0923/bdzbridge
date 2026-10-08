@@ -318,7 +318,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(model.queueReport, "a reservation made now is said on the strip as one that had waited")
         expectEqual(await recorder.heard(since: heard), [], "the television's reservation asked the recorder")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
-        XCTAssertNil(model.queued, "the television's reservation is said to wait for the recorder")
+        XCTAssertNil(model.pending(for: wanted, on: .recorder),
+                     "the television's reservation is said to wait for the recorder")
         XCTAssertNil(model.busy, "a line was left up")
 
         await television.goSilent()
@@ -483,7 +484,8 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         expectEqual(await recorder.heard(since: heard), [], "the television's reservation asked the recorder")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
-        XCTAssertNil(model.queued, "the television's reservation is said to wait for the recorder")
+        XCTAssertNil(model.pending(for: wanted, on: .recorder),
+                     "the television's reservation is said to wait for the recorder")
         XCTAssertNil(model.queueReport, "a reservation made now is said on the strip as one that had waited")
         XCTAssertEqual(model.destinations(for: wanted), [.recorder], "the television is offered what it holds")
         let asked = await recorder.asked, calls = await television.calls
@@ -516,7 +518,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(waits([its, theirs]), ["\(later.eventID) for tv in 100, no reason",
                                               "\(later.eventID) for recorder in 260, no reason"])
         XCTAssertEqual(forTheTelevision, .waiting(its, saying: TVDriver.waitsNotConnected))
-        XCTAssertEqual(forTheRecorder, .waiting(theirs, saying: AppModel.keptForTheRecorder))
+        XCTAssertEqual(forTheRecorder, .waiting(theirs, saying: Said.keptForTheRecorder))
         XCTAssertEqual([model.pending(for: later, on: .tv), model.pending(for: later, on: .recorder)], [its, theirs])
         XCTAssertEqual(model.pending(for: later), rows.first, "the guide's mark does not find the first of the two")
         XCTAssertEqual(model.destinations(for: later), [])

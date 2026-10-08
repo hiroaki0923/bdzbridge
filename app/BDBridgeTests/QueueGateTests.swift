@@ -150,21 +150,21 @@ final class QueueGateTests: XCTestCase {
         let store = try GuideStore(path: bench.guidePath)
         let asked = await recorder.asked
         func reserve(with model: AppModel) async -> Bool {
-            await model.reserve(program, quality: "DR", repeating: "none")
+            await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
         }
 
         let writer = Writer(to: bench.guidePath)
         expectFalse(await reserve(with: model), "a reservation that could not be saved is said to have been kept")
         let said = model.problem(for: .recorder) ?? "nothing"
         XCTAssertTrue(said.hasPrefix("予約を端末に保存できませんでした: "), "what is said instead: \(said)")
-        XCTAssertNil(model.queued, "a reservation that was not saved is said to be waiting")
+        XCTAssertNil(keptJustNow(model), "a reservation that was not saved is said to be waiting")
         XCTAssertNil(model.pending(for: program))
         expectEqual(reasons(try await store.pendingReservations()), [:])
 
         writer.letGo()
         expectTrue(await reserve(with: model), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertNil(model.problem(for: .recorder))
-        XCTAssertEqual(model.queued?.request.eventID, program.eventID)
+        XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
         XCTAssertNotNil(model.pending(for: program), "the reservation kept is not shown as waiting")
         expectEqual(try await store.pendingReservations().map(\.request.eventID), [program.eventID])
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
@@ -176,7 +176,7 @@ final class QueueGateTests: XCTestCase {
         expectFalse(await reserve(with: without), "a reservation with nowhere to be saved is said to have been kept")
         XCTAssertEqual(without.problem(for: .recorder),
                        "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）")
-        XCTAssertNil(without.queued)
+        XCTAssertNil(keptJustNow(without))
         XCTAssertTrue(without.pending.isEmpty)
         XCTAssertEqual(other.clientsMade, 0, "a connect was set going with no cache to connect over")
     }

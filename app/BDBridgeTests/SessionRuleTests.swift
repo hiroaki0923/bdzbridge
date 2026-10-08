@@ -213,7 +213,8 @@ final class SessionRuleTests: XCTestCase {
         await away.start()
         try await untilGivenUp(away)
         let program = try await aProgramme(away)
-        expectTrue(await away.reserve(program, quality: "DR", repeating: "none"), away.problem ?? "no reason given")
+        expectTrue(await reserveOnTheRecorder(away, program, quality: "DR", repeating: "none"),
+                   away.problem ?? "no reason given")
 
         let recorder = NamedRecorder(1)
         let model = bench.model(recorder: recorder)
@@ -237,7 +238,8 @@ final class SessionRuleTests: XCTestCase {
         await recorder.goQuiet(for: 1)
         expectFalse(await makeSure(model))
         let program = try await aProgramme(model)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"), model.problem ?? "no reason given")
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
         XCTAssertNotNil(model.pending(for: program))
         let attached = model.timesAttached
 
@@ -348,7 +350,7 @@ final class SessionRuleTests: XCTestCase {
 
         await recorder.setReachable(false)
         let asked = await recorder.asked
-        let made = await model.reserve(program, quality: "DR", repeating: "none")
+        let made = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
 
         XCTAssertFalse(made)
         expectEqual(await recorder.asked, asked + 1, "the reservation was sent more than once, or not at all")
@@ -375,7 +377,7 @@ final class SessionRuleTests: XCTestCase {
         let asked = await recorder.asked
         let check = Task { await lookAtTheNetwork(model) }
         try await until("the recorder was never made sure of") { await recorder.asked > asked }
-        let reserving = Task { await model.reserve(program, quality: "DR", repeating: "none") }
+        let reserving = Task { await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none") }
         try await Task.sleep(for: .milliseconds(200))
         await recorder.letGo()
         _ = await check.value
@@ -395,7 +397,7 @@ final class SessionRuleTests: XCTestCase {
         let model = try await started(bench, recorder: recorder)
         XCTAssertTrue(model.gaveUp)
         let program = try await aProgramme(model)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"))
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"))
         XCTAssertNotNil(model.pending(for: program))
 
         await recorder.setReachable(true)
@@ -550,7 +552,8 @@ final class SessionRuleTests: XCTestCase {
         await model.start()
         try await untilGivenUp(model)
         let program = try await aProgramme(model)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"), model.problem ?? "no reason given")
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
 
         await model.adopt(host: Bench.otherHost)
 
@@ -634,7 +637,8 @@ final class SessionRuleTests: XCTestCase {
         await model.start()
         try await untilGivenUp(model)
         let program = try await aProgramme(model)
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"), model.problem ?? "no reason given")
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
         await recorder.setReachable(true)
         await model.connect()
         XCTAssertNotNil(model.flushReport, "nothing on the strip says the waiting reservation was sent")

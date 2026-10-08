@@ -128,7 +128,7 @@ final class ReservationGateTests: XCTestCase {
         }
 
         var count = await recorder.heard.count
-        expectFalse(await model.update(kept, quality: "知らない画質", repeating: "none"))
+        expectFalse(await changeOnTheRecorder(model, kept, quality: "知らない画質", repeating: "none"))
         expectEqual(await recorder.heard(since: count), [Kind.list], "a change to a mode nobody knows was sent")
         XCTAssertNil(model.problem(for: .recorder))
 
@@ -172,7 +172,7 @@ final class ReservationGateTests: XCTestCase {
         stale.title = "読んだときの題名"
 
         var count = await recorder.heard.count
-        expectTrue(await model.update(stale, quality: "ER", repeating: "none"),
+        expectTrue(await changeOnTheRecorder(model, stale, quality: "ER", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
         var held = there(model.reservations)
@@ -186,7 +186,7 @@ final class ReservationGateTests: XCTestCase {
         odd.serviceID += 1
         odd.eventID = odd.eventID.map { $0 + 1 }
         count = await recorder.heard.count
-        expectTrue(await model.update(odd, quality: "SR", repeating: "none"),
+        expectTrue(await changeOnTheRecorder(model, odd, quality: "SR", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
         held = there(model.reservations)
@@ -303,7 +303,7 @@ final class ReservationGateTests: XCTestCase {
 
         count = await recorder.heard.count
         await recorder.beBusy(with: Kind.list)
-        expectTrue(await model.update(rows[1], quality: "ER", repeating: "none"),
+        expectTrue(await changeOnTheRecorder(model, rows[1], quality: "ER", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.list, Kind.list, Kind.change, Kind.list])
         XCTAssertNil(model.problem(for: .recorder))
@@ -334,12 +334,12 @@ final class ReservationGateTests: XCTestCase {
         await model.loadReservations()
         XCTAssertFalse(model.reservations.isEmpty, "the list of a recorder that has not said which it is was not read")
         let program = try await programmesNotReserved(model, 1)[0]
-        expectTrue(await model.reserve(program, quality: "DR", repeating: "none"),
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertNil(model.queued, "the reservation went to the queue")
+        XCTAssertNil(keptJustNow(model), "the reservation went to the queue")
         XCTAssertNil(model.pending(for: program))
         let made = try XCTUnwrap(model.reservation(for: program), "the programme is not marked as reserved")
-        expectTrue(await model.update(made, quality: "ER", repeating: "none"),
+        expectTrue(await changeOnTheRecorder(model, made, quality: "ER", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.reservation(for: program)?.qualityCode, Codes.quality["ER"])
         expectTrue(await model.cancel(made), model.problem(for: .recorder) ?? "no reason given")
@@ -372,12 +372,12 @@ final class ReservationGateTests: XCTestCase {
             let (bench, recorder, model) = try await connectedHome(wakeable: true)
             let program = try await programmesNotReserved(model, 1)[0]
             let (kept, heard) = try await duringACheckTurnedAwayAfterAWaking(by: model, of: recorder) {
-                await model.reserve(program, quality: "DR", repeating: "none")
+                await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
             }
             XCTAssertTrue(kept, model.problem(for: .recorder) ?? "no reason given")
             XCTAssertEqual(heard, [], "something was sent after a check that said no")
             XCTAssertNotNil(model.pending(for: program), "the reservation is not shown as waiting")
-            XCTAssertEqual(model.queued?.request.eventID, program.eventID)
+            XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
             expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.request.eventID),
                         [program.eventID])
             XCTAssertNil(model.problem(for: .recorder), "what the attach said stayed over a reservation kept")
@@ -491,10 +491,10 @@ final class ReservationGateTests: XCTestCase {
         let programmes = try await programmesNotReserved(model, 2)
         let (taken, refused) = (programmes[0], programmes[1])
         func reserve(_ program: GuideProgramRow, quality: String = "DR") async -> Bool {
-            await model.reserve(program, quality: quality, repeating: "none")
+            await reserveOnTheRecorder(model, program, quality: quality, repeating: "none")
         }
         func expectNothingWaits(_ what: String, line: UInt = #line) {
-            XCTAssertNil(model.queued, "\(what) is said to be waiting", line: line)
+            XCTAssertNil(keptJustNow(model), "\(what) is said to be waiting", line: line)
             XCTAssertTrue(model.pending.isEmpty, "\(what) was queued", line: line)
         }
 
@@ -583,7 +583,7 @@ enum ReservationWrite: String, CaseIterable {
     func ask(_ model: AppModel, _ row: Reservation) async -> Bool {
         switch self {
         case .delete: return await model.cancel(row)
-        case .change: return await model.update(row, quality: "ER", repeating: "none")
+        case .change: return await changeOnTheRecorder(model, row, quality: "ER", repeating: "none")
         }
     }
 
