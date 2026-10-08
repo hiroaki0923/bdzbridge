@@ -216,8 +216,6 @@ final class AppModel: LinkHost {
     /// Set when the recorder answered nothing at all rather than answering with an error.
     var unreachable: Bool { session.unreachable }
     var problem: String?
-    /// Set when a reservation went to the queue instead of the recorder, so a screen can say so once.
-    var queued: PendingReservation?
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     var mac: String? { session.mac }

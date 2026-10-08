@@ -192,7 +192,7 @@ struct ProgramSheet: View {
                         // Alive even while the recorder is being woken or cannot be reached at all: a
                         // reservation made now goes to the queue and is sent when the recorder next answers.
                         // With a disk picked and let go of since, what 予約する would do is done at once: the
-                        // question would promise a registration the model is about to refuse.
+                        // question would promise a registration the recorder's driver is about to refuse.
                         Button("録画予約する") {
                             turn = .recorder
                             if let gone = pickedAndGone {
@@ -252,7 +252,7 @@ struct ProgramSheet: View {
                 lastRecorderGone = true
             }
             // A disk let go of while the question that names it is up: the question would promise a
-            // registration the model is about to refuse. It goes, as above, and 録画予約する says why.
+            // registration the recorder's driver is about to refuse. It goes, as above, and 録画予約する says why.
             .onChange(of: model.usbDisk) {
                 if case .reserve(.recorder, let named?) = ask, !RecorderDisk.offers(named, with: model.usbDisk) {
                     (ask, turn) = (nil, nil)
@@ -382,8 +382,8 @@ struct ProgramSheet: View {
     /// 予約する: a reservation on `device`, sent with the disk the question named, or the internal disk where it
     /// named none. The mode and the repeat are read now, as the question showed them, and not when the request
     /// sets out. A disk that cannot be had -- no longer offered, or not answered by the slot while it was waited
-    /// for -- is refused by the model before anything is queued or sent, and the sheet goes back to the internal
-    /// disk, named, with the television beside it under 予約先 where it is free.
+    /// for -- is refused by the recorder's driver before anything is queued or sent, and the sheet goes back to
+    /// the internal disk, named, with the television beside it under 予約先 where it is free.
     private func reserve(on device: DeviceSlot, disk named: String?) {
         let (quality, repeating) = (quality, repeating)
         let sent = named ?? RecorderDisk.internalID
