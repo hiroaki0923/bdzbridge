@@ -358,8 +358,11 @@ extension AppModel {
     /// no longer there.
     func takeTheTelevisionAway(counted: Int?) async -> Bool {
         guard !isBusy(for: .tv) else { return false }
+        // The television the question was about: the demo begun or ended while this waits for the queue's turn
+        // puts another in play, which the reader was not asked about.
+        let asked = tvHost
         return await PendingQueue.betweenFlushes { @MainActor in
-            guard await self.waitingForTheTelevision() == counted else { return false }
+            guard self.tvHost === asked, await self.waitingForTheTelevision() == counted else { return false }
             guard let store = self.store, (try? await store.removePending(waitingFor: .tv)) != nil else {
                 self.tvHost?.problem = AppModel.rowsNotTakenAway
                 return false

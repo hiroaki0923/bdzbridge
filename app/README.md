@@ -104,8 +104,8 @@ demo is a home with both, and a programme can be reserved on it, its repeat chan
 deleted, or the television taken away again. It is the model's for as long as the demo lasts, and in memory
 alone (`demoTV`, `demoTVCredentials`, `demoTVHost`): the real television's address, MAC, Keychain item and key
 file, and what the runs with no screen told of it, are neither read nor written in the demo, and nothing in it
-asks the system about notifications for that television. Every request to a television goes through the
-model's own `televisionTransport`, which in the demo reaches the demo's television at its address and nothing
+asks the system about notifications for that television. In the demo every request to a television goes
+through the model's own `televisionTransport`, which reaches the demo's television at its address and nothing
 anywhere else, and which hands the demo's address nothing but silence once the demo is over, so that a link of
 the demo's let go of with a request still to make reaches nobody; such a link looks at nothing on the LAN
 either. Ending the demo lets go of the demo's link first -- the real one's is made from what is saved right

@@ -130,6 +130,9 @@ final class DemoTelevisionTests: XCTestCase {
         model.scanForDevices()
         try await until("the demo's search never ended") { model.scanOutcome != nil }
         await expectNothingReal(home, since: then, keeping: before)
+        // A registration again begun in the demo and not gone through: its client id is in hand as it ends.
+        _ = await model.registerTV(at: "192.0.2.31", pin: nil)
+        XCTAssertNotNil(model.tvClientID, "the demo's registration left no client id to outlive it")
 
         await model.leaveDemo()
 
@@ -214,6 +217,39 @@ final class DemoTelevisionTests: XCTestCase {
         let received = await DemoData.television().stations
         XCTAssertEqual(received.map { "\($0.scheme) \($0.serviceID) \($0.name)" }.sorted(), listed.sorted())
         XCTAssertTrue(received.allSatisfy { $0.subscribed && $0.programMediaType == "tv" })
+    }
+
+    /// テレビを外す pressed on the demo's television while a sending of a run with no screen has the queue's
+    /// turn, and the demo ended before that turn comes: what goes through then would be about the real
+    /// television, which the reader was not asked about. It goes through not at all, and the real television,
+    /// its registration and what the app keeps of it are as they were.
+    func testTakingTheDemosTelevisionAwayHeldOverTheDemosEndTakesNothingReal() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let before = kept(home)
+        _ = try await intoTheDemo(home)
+        try await register(model)
+        expectEqual(await model.waitingForTheTelevision(), 0)
+
+        let (released, release) = AsyncStream<Void>.makeStream()
+        let holding = Task { await PendingQueue.betweenFlushes { for await _ in released { break }; return true } }
+        try await Task.sleep(for: .milliseconds(300))
+        let away = Task { await model.takeTheTelevisionAway(counted: 0) }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(model.tv?.host, DemoData.tvHost, "外す did not wait for the queue's turn")
+        let leaving = Task { await model.leaveDemo() }
+        try await until("the demo never ended") { !model.demo }
+        XCTAssertEqual(model.tv?.host, Bench.tvHost, "the real television's link was not made again")
+
+        release.yield()
+        release.finish()
+        _ = await holding.value
+        let tookAway = await away.value
+        await leaving.value
+        XCTAssertFalse(tookAway, "外す of the demo's television went through after the demo")
+        XCTAssertEqual(model.tv?.host, Bench.tvHost, "the real television was taken away by the demo's 外す")
+        XCTAssertNotNil(home.credentials.held, "the real television's registration was removed")
+        XCTAssertEqual(kept(home), before, "what the app keeps of the real television changed")
     }
 
     // MARK: - what the tests set up
