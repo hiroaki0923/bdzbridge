@@ -1,14 +1,22 @@
 import XCTest
 
+/// A label that holds each of these words, wherever it has them.
+private func labelContains(_ words: String...) -> NSPredicate {
+    NSCompoundPredicate(andPredicateWithSubpredicates: words.map { NSPredicate(format: "label CONTAINS %@", $0) })
+}
+
 /// The demo is offered to people who have no recorder, and it has to leave nothing behind for the ones who
 /// then go and set a real one up. That is the promise worth a test: the invented guide lives in its own
 /// database, ending the demo deletes it and puts the previous recorder back, and choosing a recorder from
 /// inside the demo ends it too and keeps the one chosen. Its invented guide is also what a screen that needs
 /// a guide is tried against, as the search by a name in the cast, the channel settings and the guide's list
 /// at a large text size are below, and its reservations and recordings what the sheets opened from them are.
+/// Its invented television, which the reader adds from the demo's search, is what the television's screens are
+/// tried against, and it has to go with the demo as well.
 final class DemoModeTests: XCTestCase {
     private static let demoHost = "192.0.2.63"
     private static let demoMac = "f8:4e:17:00:00:00"
+    private static let demoTVHost = "192.0.2.64"
 
     override func setUp() {
         continueAfterFailure = false
@@ -285,6 +293,126 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// The demo's television, added and used as a reader would, and gone with the demo. The demo's search lists
+    /// it beside the demo's recorder; tapped, its sheet goes straight to the number, says the number, and stays
+    /// up -- a sheet hung on the television's section went by itself at the first press, as the section turned
+    /// from one form to the other under it; registered with that number, the section says it is connected. Its
+    /// own recording is on the reservations tab as the television's. A programme reserved on it from its sheet
+    /// is marked in the search and listed as the television's, its repeat changed, and deleted. Ended, the demo
+    /// takes the television with it, and started again it has none.
+    func testTheDemosTelevisionIsFoundReservedAndGoesWithTheDemo() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        // The television's section is there in the demo, saying that a television can be tried there.
+        app.tabBars.buttons["設定"].tap()
+        let add = app.buttons["アドレスを入力して追加"]
+        scroll(app, to: add)
+        XCTAssertTrue(add.exists, "the demo had no television's section")
+        XCTAssertTrue(app.staticTexts.matching(labelContains("架空のテレビを追加して試せます")).firstMatch.exists,
+                      "the television's section did not say what the demo has")
+        let found = searchForTheDemosTelevision(app)
+        let recorder = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", Self.demoHost)).firstMatch
+        XCTAssertTrue(recorder.label.contains("使用中"), "the demo's recorder was \(recorder.label)")
+        found.tap()
+        let number = app.textFields["4 桁の番号"]
+        XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
+        XCTAssertTrue(app.staticTexts.matching(labelContains("サンプルのテレビの番号は 1234 です。")).firstMatch.exists,
+                      "the sheet did not say the demo's number")
+        XCTAssertFalse(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 2), "the sheet went by itself")
+        number.tap()
+        number.typeText("1234")
+        app.buttons["登録する"].tap()
+        XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
+        // A row of a form reads as its name and its value, joined.
+        let connected = app.staticTexts["状態、接続済み"]
+        scroll(app, to: connected)
+        XCTAssertTrue(connected.exists, "the demo's television was not said to be connected")
+        XCTAssertTrue(app.staticTexts["機種、KJ-SAMPLE"].exists, "the section did not say which television")
+        XCTAssertFalse(app.buttons["アドレスを入力して追加"].exists, "the section still offered to add one")
+
+        // What it holds from the start, as the television's.
+        app.tabBars.buttons["予約"].tap()
+        let held = app.staticTexts.matching(labelContains("テレビ", "みほんBS")).firstMatch
+        scroll(app, to: held)
+        XCTAssertTrue(held.exists, "the television's own recording was not listed as the television's")
+
+        // A programme of the guide reserved on it, ahead of now: one under way could not have its repeat changed.
+        app.tabBars.buttons["検索"].tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        // The return key puts the keyboard away, which otherwise covers the tab bar.
+        field.typeText("みほん自然紀行\n")
+        let ahead = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND NOT label CONTAINS %@",
+                                                         "サンプル教育", "放送中")).firstMatch
+        XCTAssertTrue(ahead.waitForExistence(timeout: 20), "the search found nothing ahead")
+        ahead.tap()
+        let destination = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "予約先")).firstMatch
+        XCTAssertTrue(destination.waitForExistence(timeout: 20), "the programme's sheet offered no 予約先")
+        destination.tap()
+        let television = app.buttons["テレビ"]
+        XCTAssertTrue(television.waitForExistence(timeout: 10), "予約先 offered no television")
+        television.tap()
+        XCTAssertTrue(says(destination, "テレビ"), "予約先 was \(destination.debugDescription)")
+        app.buttons["録画予約する"].tap()
+        let reserve = app.alerts.buttons["予約する"]
+        XCTAssertTrue(reserve.waitForExistence(timeout: 10), "録画予約する asked nothing")
+        reserve.tap()
+        XCTAssertTrue(app.navigationBars["番組"].waitForNonExistence(timeout: 20), "the sheet did not close once made")
+        XCTAssertTrue(app.staticTexts.matching(labelContains("サンプル教育", "予約")).firstMatch.waitForExistence(timeout: 10),
+                      "the search did not mark the programme reserved")
+        if app.keyboards.firstMatch.exists { field.typeText("\n") }
+
+        // On the reservations tab as the television's: its repeat changed, and then deleted.
+        app.tabBars.buttons["予約"].tap()
+        let row = app.staticTexts.matching(labelContains("テレビ", "サンプル教育")).firstMatch
+        find(app, row)
+        XCTAssertTrue(row.exists, "the reservation was not listed as the television's")
+        row.tap()
+        let repeating = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "毎回録画")).firstMatch
+        XCTAssertTrue(repeating.waitForExistence(timeout: 20), "the reservation's sheet offered no repeat")
+        repeating.tap()
+        let daily = app.buttons["毎日"]
+        XCTAssertTrue(daily.waitForExistence(timeout: 10), "the repeat offered no 毎日")
+        daily.tap()
+        app.buttons["変更をテレビに送る"].tap()
+        XCTAssertTrue(app.navigationBars["予約"].waitForNonExistence(timeout: 20), "the sheet did not close once changed")
+        find(app, row)
+        row.tap()
+        XCTAssertTrue(repeating.waitForExistence(timeout: 20), "the reservation's sheet did not open again")
+        XCTAssertTrue(says(repeating, "毎日"), "the change was not kept: \(repeating.debugDescription)")
+        app.buttons["予約を削除"].tap()
+        let delete = app.alerts.buttons["削除する"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "予約を削除 asked nothing")
+        delete.tap()
+        XCTAssertTrue(app.navigationBars["予約"].waitForNonExistence(timeout: 20), "the sheet did not close once deleted")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the reservation was still listed")
+
+        // Gone with the demo, and not there when it starts again.
+        endTheDemo(app)
+        app.tabBars.buttons["設定"].tap()
+        find(app, add)
+        XCTAssertTrue(add.exists, "the television's section did not go back to adding one")
+        XCTAssertFalse(app.staticTexts["機種、KJ-SAMPLE"].exists, "the demo's television stayed after the demo")
+        // Held back while anything is under way with the recorder in play, as entering the demo is.
+        // Scrolled back to, it can stop under the navigation bar, where a tap does not reach it: once more brings
+        // it clear, the form being near its top by then.
+        let tryAgain = app.buttons["サンプルデータで試す"]
+        scrollBack(app, to: tryAgain)
+        app.swipeDown()
+        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: tryAgain)
+        wait(for: [enabled], timeout: 30)
+        tryAgain.tap()
+        // The settings have no strip of their own: the button says the demo is on.
+        XCTAssertTrue(app.buttons["サンプルデータを終了する"].waitForExistence(timeout: 30),
+                      "the demo did not start again: \(tryAgain.debugDescription)")
+        let again = searchForTheDemosTelevision(app)
+        XCTAssertFalse(again.label.contains("使用中"), "the demo's television was kept for the next demo")
+        app.tabBars.buttons["番組表"].tap()
+        endTheDemo(app)
+    }
+
     // MARK: - steps
 
     /// Whether a picker's row shows this choice, which it gives as its label or as its value.
@@ -303,6 +431,34 @@ final class DemoModeTests: XCTestCase {
         for _ in 0..<8 where !element.waitForExistence(timeout: 2) || !element.isHittable {
             app.swipeUp()
         }
+    }
+
+    /// The same for a row further up, once a form has been scrolled down.
+    private func scrollBack(_ app: XCUIApplication, to element: XCUIElement) {
+        for _ in 0..<8 where !element.waitForExistence(timeout: 2) || !element.isHittable {
+            app.swipeDown()
+        }
+    }
+
+    /// A row of a list that was left scrolled somewhere earlier: looked for back up the list first, then down it.
+    private func find(_ app: XCUIApplication, _ element: XCUIElement) {
+        scrollBack(app, to: element)
+        scroll(app, to: element)
+    }
+
+    /// Presses レコーダーとテレビを探す in the settings, once it can be pressed -- the demo's own connect holds it
+    /// back -- and hands back the demo's television's row, which says its model and its address.
+    private func searchForTheDemosTelevision(_ app: XCUIApplication) -> XCUIElement {
+        let search = app.buttons["レコーダーとテレビを探す"]
+        find(app, search)
+        XCTAssertTrue(search.exists, "the settings had no search")
+        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: search)
+        wait(for: [enabled], timeout: 30)
+        search.tap()
+        let found = app.buttons.matching(labelContains(Self.demoTVHost)).firstMatch
+        XCTAssertTrue(found.waitForExistence(timeout: 20), "the demo's search did not list its television")
+        XCTAssertTrue(found.label.contains("KJ-SAMPLE"), "the demo's television's row was \(found.label)")
+        return found
     }
 
     /// The guide's broadcasting type and channel menu, by what its title says.
