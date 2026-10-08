@@ -39,6 +39,13 @@ final class AppModel: LinkHost {
     var televisionLines: Set<Activities.Token> = []
     /// The client id a registration under way goes with, until the PIN it asked for comes back with it.
     var tvClientID: String?
+    /// Set while an address given for a television said nothing because the system keeps the app off the local
+    /// network: the sheet that adds it says so, with the way to the Settings app, and goes on by itself once the
+    /// permission comes (`findTV`).
+    var tvAddressTurnedAway = false
+    /// Counts what is asked at an address given for a television (`findTV`), so that one the sheet's closing
+    /// ended (`stopFindingTV`) does not go on when the permission comes after it.
+    var tvFindRun = 0
 
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
     /// has moved it since (`RecorderDriver.findElsewhere`). Written down whenever it is set (`keepAddress`).

@@ -110,6 +110,10 @@ struct TVSection: View {
 ///
 /// Opened for a television a scan found (`connectAtOnce`), it goes straight on to テレビに接続 as it appears:
 /// the reader tapped the television, and a second tap would only stand between them and its number.
+///
+/// An address that says nothing because the system keeps the app off the local network is not said to answer
+/// nothing: the sheet says what is in the way, as the screens do for the recorder, and goes on by itself once
+/// the permission comes (`AppModel.findTV`).
 struct TVRegisterSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -121,6 +125,7 @@ struct TVRegisterSheet: View {
     @State private var message: String?
     /// The step under way, from a button or from the sheet's appearing, kept so that closing the sheet ends
     /// it: a registration is not asked for, nor a number put on a panel, for a sheet that is no longer there.
+    /// A wait for the local network permission at the address ends with it (`AppModel.stopFindingTV`).
     @State private var step: Task<Void, Never>?
     /// Whether the step the sheet's appearing starts has been started: nothing promises that a view appears
     /// once, and the step is not to be sent twice.
@@ -142,7 +147,9 @@ struct TVRegisterSheet: View {
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                     }
-                    .disabled(askingForPIN)
+                    // Nor while a step is under way, which may wait for the permission for as long as the reader
+                    // takes: the PIN goes to the address the field shows, which is to be the one asked.
+                    .disabled(askingForPIN || working)
                 } footer: {
                     Text("テレビと同じ Wi-Fi につないだ iPhone から登録します。")
                 }
@@ -155,13 +162,19 @@ struct TVRegisterSheet: View {
                              + "テレビで放送を映してから、最初からやり直してください。")
                     }
                 }
-                if let message {
+                if model.tvAddressTurnedAway {
+                    // In place of the address not answering: the sheet goes on by itself once it is allowed.
+                    Section {
+                        LocalNetworkNotice(aboutAConnect: true)
+                        OpenSettingsButton()
+                    }
+                } else if let message {
                     Section { Text(message).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
                     Button(askingForPIN ? "登録する" : "テレビに接続") { start() }
                         .disabled(working || !RecorderAddress.isUsable(tidied) || (askingForPIN && pin.count != 4))
-                    if working { ProgressView() }
+                    if working && !model.tvAddressTurnedAway { ProgressView() }
                 }
             }
             .navigationTitle("テレビを追加")
@@ -176,7 +189,10 @@ struct TVRegisterSheet: View {
                 begun = true
                 start()
             }
-            .onDisappear { step?.cancel() }
+            .onDisappear {
+                step?.cancel()
+                model.stopFindingTV()
+            }
         }
     }
 
