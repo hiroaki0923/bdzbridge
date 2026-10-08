@@ -206,6 +206,11 @@ extension LiveRecorderTests {
     /// quality, checks the change took, and deletes it again -- the only way to know the update payload is
     /// one the recorder accepts, since a conflict check cannot exercise it. Skipped unless RECORDER_WRITE is
     /// set as well as RECORDER_HOST, and it cleans up even when an assertion fails.
+    ///
+    /// It cannot tell its reservation by a name: the recorder lists one that follows its programme under the
+    /// programme's own title. So it takes a programme at a time no reservation overlaps, asks the conflict check
+    /// for none, and writes only to a row that was not listed before, on that channel at that time, made by an
+    /// app: never to one of the household's, the recorder's own renumbered ones included.
     func testCreatingChangingAndDeletingAReservation() async throws {
         guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
             throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
@@ -213,11 +218,16 @@ extension LiveRecorderTests {
         let client = try liveClient()
         _ = try await client.describe()
         guard let services = try await client.guide("td") else { throw XCTSkip("no terrestrial channels") }
+        let before = try await client.reservations()
+        // One read lists at most 200, the latest first: past that the soonest are not seen, and one held at the
+        // chosen time could be taken for this test's own.
+        guard before.count < 200 else { throw XCTSkip("more reservations than one read lists") }
 
         let soon = Date().addingTimeInterval(4 * 3600)
         let program = try XCTUnwrap(services
             .flatMap { $0.programs.filter { !$0.isReference && $0.start > soon && !$0.title.isEmpty } }
-            .sorted { $0.start < $1.start }.first, "the guide should reach a few hours ahead")
+            .filter { program in !before.contains { $0.start < program.end && program.start < $0.end } }
+            .sorted { $0.start < $1.start }.first, "the guide should have a programme no reservation overlaps")
 
         func request(_ quality: String) -> ReservationRequest {
             ReservationRequest(title: program.title, start: program.start, durationSec: program.durationSec,
@@ -225,12 +235,17 @@ extension LiveRecorderTests {
                                serviceID: program.serviceID, qualityCode: Codes.quality[quality]!,
                                eventID: program.eventID)
         }
+        let held = Set(before.map(\.id))
         func mine() async throws -> Reservation? {
             try await client.reservations().first {
-                $0.serviceID == program.serviceID && $0.start == program.start
+                !held.contains($0.id) && $0.createdByApp && $0.serviceID == program.serviceID
+                    && $0.start == program.start
             }
         }
 
+        // Nothing the recorder holds is to be put in a clash by a reservation made only to be deleted.
+        let clashes = try await client.conflicts(elements: XsrsElements.create(request("LSR")))
+        guard clashes.isEmpty else { throw XCTSkip("the conflict check named a clash") }
         try await client.create(request("LSR"))
         print("created one for \(RecorderTime.format(program.start))")
         do {
@@ -294,11 +309,13 @@ extension LiveRecorderTests {
                                          qualityCode: Codes.quality["LSR"]!, eventID: program.eventID,
                                          destination: "USBHDD")
 
-        // Only a row that was not there before, on that channel at that time: never one the recorder already held.
+        // Only a row that was not there before, on that channel at that time, made by an app: never one the recorder
+        // already held, nor one of its own that it renumbered meanwhile.
         let held = Set(before.map(\.id))
         func mine() async throws -> Reservation? {
             try await client.reservations().first {
-                !held.contains($0.id) && $0.serviceID == program.serviceID && $0.start == program.start
+                !held.contains($0.id) && $0.createdByApp && $0.serviceID == program.serviceID
+                    && $0.start == program.start
             }
         }
         // What it made goes whatever failed; when it cannot be found and deleted, that is said, since the recorder
@@ -566,11 +583,12 @@ extension LiveRecorderTests {
                                          qualityCode: try XCTUnwrap(Codes.quality["LSR"]),
                                          destination: RecorderDisk.usbID)
 
-        // Only a row that was not there before, on that channel at that time: never one the recorder already held.
+        // Only a row that was not there before, on that channel at that time, made by an app: never one the recorder
+        // already held, nor one of its own that it renumbered meanwhile.
         let held = Set(before.map(\.id))
         func mine() async throws -> Reservation? {
             try await client.reservations().first {
-                !held.contains($0.id) && $0.serviceID == channel && $0.start == start
+                !held.contains($0.id) && $0.createdByApp && $0.serviceID == channel && $0.start == start
             }
         }
         func deleteMine() async {
