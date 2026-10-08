@@ -120,13 +120,14 @@ final class TVHost: LinkHost {
     ///
     /// A reservation kept to go by itself is heard of again in a notification, as one kept for the recorder
     /// is, so the system's dialog comes here as it does there: after the row is kept, before the result is
-    /// said. Not for one held with a reason, which waits for the reader.
+    /// said. Not for one held with a reason, which waits for the reader, nor in the demo, whose television
+    /// is nobody's to be told of.
     func reserve(_ program: GuideProgramRow, repeating: String) async -> Reserved {
         guard let driver else { return .notDone(TVDriver.notConnected) }
         let (reserved, list) = await driver.reserve(program, repeating: repeating)
         if let list { keep(list) }
         await model?.loadPending()
-        if case .waiting(let row, _) = reserved, row.problem == nil { await model?.askForNotifications() }
+        if case .waiting(let row, _) = reserved, row.problem == nil, !isDemo { await model?.askForNotifications() }
         return reserved
     }
 

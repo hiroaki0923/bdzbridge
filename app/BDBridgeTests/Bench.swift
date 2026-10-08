@@ -36,6 +36,9 @@ final class Bench {
     /// search sends through: what a search in the demo is to read and make none of.
     private(set) var interfacesRead = 0
     private(set) var scanTransportsMade = 0
+    /// The addresses a model made here took the surroundings' way to a television for, in order: what nothing in
+    /// the demo is to take, the demo's own address least of all.
+    private(set) var televisionTransportsMade: [String] = []
     /// Each pause a search of a model made here asked for between one single request and the next, by how
     /// long it asked for, in order and from the moment it asked.
     private(set) var scanPauses: [Duration] = []
@@ -234,7 +237,10 @@ final class Bench {
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling,
-            tvTransport: tvTransport,
+            tvTransport: { [weak self] host in
+                self?.televisionTransportsMade.append(host)
+                return tvTransport(host)
+            },
             tvCredentials: tvCredentials,
             localNetworkAccess: { [weak self] host in
                 guard let self else { return .allowed }

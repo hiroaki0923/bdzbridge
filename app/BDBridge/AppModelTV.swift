@@ -8,8 +8,13 @@ import RecorderKit
 /// the app coming back, the network changing -- and answering to a host of its own (`TVHost`), so that neither
 /// device's silence, problem or wait for the local network permission is the other's. What the television said
 /// is kept by that host too -- its reservations, and what became of what waited for it -- and goes when the
-/// link is let go of. Not in the demo, whose recorder is invented: a real television would otherwise answer
-/// beside it.
+/// link is let go of.
+///
+/// In the demo the real television is let go of, or it would answer beside the invented recorder, and the
+/// demo's own is the one in play once the reader adds it (`theDemoTV`): reached in memory, registered in
+/// memory, and never through the surroundings' way to the LAN or their Keychain (`televisionTransport`,
+/// `televisionCredentials`). What is saved of the real one, and what the runs with no screen told of it, are
+/// left as they are.
 extension AppModel {
     var tvDriver: TVDriver? { tv?.driver as? TVDriver }
 
@@ -54,15 +59,15 @@ extension AppModel {
             && pending.contains { $0.target == .tv && $0.problem == nil }
     }
 
-    /// Makes the television's link from what is saved, when a television is saved and the demo is off: known by
-    /// the MAC saved with it from the first answer, and renewing its registration only with the app in front.
-    /// Connects nothing.
+    /// Makes the television's link from what is saved, when a television is saved -- in the demo, the demo's
+    /// once it is added: known by the MAC saved with it from the first answer, and renewing its registration
+    /// only with the app in front. Connects nothing.
     func makeTVLink() {
-        guard tv == nil, !demo, let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return }
+        guard tv == nil, let host = savedTVHost else { return }
         let owner = TVHost(model: self)
-        let driver = TVDriver(credentials: surroundings.tvCredentials, nickname: Self.tvNickname,
+        let driver = TVDriver(credentials: televisionCredentials(), nickname: Self.tvNickname,
                               inFront: { [weak self] in self.map { !$0.inBackground } ?? false })
-        let link = DeviceLink(host: host, session: SessionState(device: defaults.string(forKey: DefaultsKey.tvMac)),
+        let link = DeviceLink(host: host, session: SessionState(device: savedTVMac),
                               driver: driver, environment: tvLinkEnvironment())
         link.owner = owner
         owner.link = link
@@ -83,22 +88,28 @@ extension AppModel {
         tvHost = nil
     }
 
-    /// The LAN as the television's link sees it: requests by the television's transport, the permission asked
-    /// about as the recorder's link asks, and a television that moved looked for as the recorder's link looks for
-    /// a recorder -- never in the demo or in the background, and only on a Wi-Fi whose subnet the address saved
-    /// belongs to -- through one session for the whole look that keeps no cookies and follows no redirect, as
-    /// every request to a television does. It is never woken.
+    /// The LAN as the television's link sees it: requests by the television's transport (`televisionTransport`),
+    /// the permission asked about as the recorder's link asks, and a television that moved looked for as the
+    /// recorder's link looks for a recorder -- never in the demo or in the background, and only on a Wi-Fi whose
+    /// subnet the address saved belongs to -- through one session for the whole look that keeps no cookies and
+    /// follows no redirect, as every request to a television does. It is never woken.
+    ///
+    /// A link made in the demo is the demo's for good: let go of as the demo ends with a request of its own
+    /// still to come back, what it does next looks at nothing on the LAN either.
     func tvLinkEnvironment() -> LinkEnvironment {
-        LinkEnvironment(
-            transport: { [weak self] host in self?.surroundings.tvTransport(host) ?? NoTelevision() },
+        let demosOwn = demo
+        return LinkEnvironment(
+            transport: { [weak self] host in self?.televisionTransport(host) ?? NoTelevision() },
             networkSignature: { [weak self] in self?.surroundings.networkSignature() ?? "" },
             sendPacket: { _, _ in },
             lanIsBlocked: { [weak self] host in
-                guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
+                guard let self, !demosOwn, !self.demo, self.surroundings.reachesTheLAN else { return false }
                 return await LocalNetwork.access(probing: host) == .blocked
             },
             hostsNear: { [weak self] host in
-                guard let self, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else { return [] }
+                guard let self, !demosOwn, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else {
+                    return []
+                }
                 return LocalNetwork.hostsToScan(near: host)
             },
             findRecorder: { _, _ in nil },
@@ -107,12 +118,53 @@ extension AppModel {
             })
     }
 
+    /// How requests reach a television at `host`: the surroundings' way outside the demo; in it, the demo's
+    /// television at its own address and nothing anywhere else. The demo's address is the demo's whichever way:
+    /// once the demo has ended, a client made for it -- by a link of the demo's let go of with a request still
+    /// to make -- reaches nothing, and never the LAN.
+    func televisionTransport(_ host: String) -> any HTTPTransport {
+        if RecorderAddress.same(host, DemoData.tvHost) { return demo ? theDemoTV() : NoTelevision() }
+        return demo ? NoTelevision() : surroundings.tvTransport(host)
+    }
+
+    /// Where the registration with the television in play is kept: the surroundings' -- the Keychain, in the app
+    /// -- outside the demo, and the demo's own in memory in it, made the first time it is asked for.
+    func televisionCredentials() -> any TVCredentialStore {
+        guard demo else { return surroundings.tvCredentials }
+        let credentials = demoTVCredentials ?? MemoryTVCredentials()
+        demoTVCredentials = credentials
+        return credentials
+    }
+
+    /// The demo's television, made the first time the demo reaches its address and kept for as long as the demo
+    /// lasts, because it holds what the reader has done to it: its registration and its reservations. The
+    /// demo's search and the demo's link both reach this one.
+    func theDemoTV() -> DemoTV {
+        let television = demoTV ?? DemoData.television()
+        demoTV = television
+        return television
+    }
+
+    /// The address of the television in play: the one saved, or in the demo the demo's once it is added. Nil
+    /// for none.
+    private var savedTVHost: String? {
+        guard !demo else { return demoTVHost }
+        guard let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// The MAC saved with the television in play, or nil when none is in play or it gave none. The demo's is
+    /// the invented one, which its television gives.
+    private var savedTVMac: String? {
+        guard savedTVHost != nil else { return nil }
+        return demo ? DemoTV.mac : defaults.string(forKey: DefaultsKey.tvMac)
+    }
+
     // MARK: - adding one
 
-    /// Whether a television the scan found can be tapped to register it: while no television is saved. With
-    /// one saved the rows are listed and cannot be tapped -- a tap would register the saved one again, or be
-    /// refused for another (`registerTV`) -- and another is added after テレビを外す. The demo has none of its
-    /// own, and finds none.
+    /// Whether a television the scan found can be tapped to register it: while no television is in play, the
+    /// demo's in the demo. With one the rows are listed and cannot be tapped -- a tap would register it again, or
+    /// be refused for another (`registerTV`) -- and another is added after テレビを外す.
     var canAddAFoundTelevision: Bool { tv == nil }
 
     /// Whether a television the scan found is the one saved, which its row says: by the address the saved
@@ -135,7 +187,7 @@ extension AppModel {
     /// off, the sheet says so (`tvAddressTurnedAway`) in place of the address not answering, the permission is
     /// waited for as the links wait, and once it comes the address is asked again and that answer is the one
     /// handed back: the sheet goes on from it by itself, to the PIN on the panel of a television that is on.
-    /// Never in the demo.
+    /// Never in the demo, where only the demo's television answers, at its own address.
     ///
     /// Closing the sheet ends the wait (`stopFindingTV`): what is handed back then is that nothing answered,
     /// and the address is not asked again, so nothing goes on to the registration -- no number is put on a panel
@@ -143,8 +195,8 @@ extension AppModel {
     func findTV(at host: String) async -> TVFound {
         tvFindRun += 1
         let run = tvFindRun
-        let client = ScalarClient(host: host, transport: surroundings.tvTransport(host),
-                                  credentials: surroundings.tvCredentials)
+        let client = ScalarClient(host: host, transport: televisionTransport(host),
+                                  credentials: televisionCredentials())
         let found = await client.presence()
         guard found == .nothing, !demo, await surroundings.localNetworkAccess(host) == .blocked,
               run == tvFindRun else { return found }
@@ -179,36 +231,40 @@ extension AppModel {
     /// With a television saved, the registration is for that one: another, by the MAC saved with it, is
     /// refused before anything is asked of it, and what is saved and what waits for the one saved stay as they
     /// were. Another television takes its place only after テレビを外す, which asks about what waits for it.
+    ///
+    /// In the demo it is the demo's television's, kept in memory (`demoTVHost`, `televisionCredentials`), and
+    /// nothing saved of the real one is written. A registration that went through after the demo began or ended
+    /// under it is kept nowhere: it is the other side's.
     func registerTV(at host: String, pin: String?) async -> TVRegistered {
-        let credentials = surroundings.tvCredentials
+        let inDemo = demo
+        let credentials = televisionCredentials()
         let clientID = credentials.load()?.clientID ?? tvClientID ?? "BDBridge:\(UUID().uuidString)"
         tvClientID = clientID
-        let client = ScalarClient(host: host, transport: surroundings.tvTransport(host), credentials: credentials)
+        let client = ScalarClient(host: host, transport: televisionTransport(host), credentials: credentials)
         switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin, expecting: savedTVMac) {
         case .pinNeeded:
             return .pinNeeded
         case .failed(let why):
             return .failed(why)
         case .registered(let mac):
+            guard demo == inDemo else { return .failed(TVDriver.notConnected) }
             tvClientID = nil
             dropTVLink()
-            defaults.set(host, forKey: DefaultsKey.tvHost)
-            if let mac {
-                defaults.set(mac, forKey: DefaultsKey.tvMac)
+            if demo {
+                demoTVHost = host
             } else {
-                defaults.removeObject(forKey: DefaultsKey.tvMac)
+                defaults.set(host, forKey: DefaultsKey.tvHost)
+                if let mac {
+                    defaults.set(mac, forKey: DefaultsKey.tvMac)
+                } else {
+                    defaults.removeObject(forKey: DefaultsKey.tvMac)
+                }
             }
             forgetWhatWasTold()
             makeTVLink()
             await tv?.connect()
             return .registered
         }
-    }
-
-    /// The MAC saved with the television saved, or nil when none is saved or it gave none.
-    private var savedTVMac: String? {
-        guard let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty else { return nil }
-        return defaults.string(forKey: DefaultsKey.tvMac)
     }
 
     /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play
@@ -218,7 +274,11 @@ extension AppModel {
     /// which must not outlive the registration, and the reservations it names went unsent with a television
     /// taken away. When the stop told last is the registration, their notice of what became of the queue
     /// goes too: it is the one that asked for the registration whenever the warning did not.
+    ///
+    /// Not in the demo: what was told is of the real television, which the demo's registering or taking away
+    /// changes nothing of.
     private func forgetWhatWasTold() {
+        guard !demo else { return }
         let stop = defaults.data(forKey: DefaultsKey.tvTold)
             .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) }?.stop
         defaults.removeObject(forKey: DefaultsKey.tvTold)
@@ -232,8 +292,9 @@ extension AppModel {
     /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
+    /// Not in the demo, whose queue is not the one the warning was about.
     func forgetTheWarningOnceSent() async {
-        guard let saved = defaults.data(forKey: DefaultsKey.tvTold),
+        guard !demo, let saved = defaults.data(forKey: DefaultsKey.tvTold),
               let told = try? JSONDecoder().decode(TVTold.self, from: saved),
               let store, let waiting = try? await store.pendingReservations(),
               let after = told.afterTheScreensSent(waiting: waiting),
@@ -244,12 +305,17 @@ extension AppModel {
 
     /// Takes the television away: its link, its address and its registration. What the television itself
     /// lists as registered is left; it can be removed from the list in the television's settings. What the
-    /// runs with no screen told of it goes too (`forgetWhatWasTold`).
+    /// runs with no screen told of it goes too (`forgetWhatWasTold`). In the demo, the demo's, in memory, and
+    /// nothing of the real one's.
     func removeTV() {
         dropTVLink()
-        surroundings.tvCredentials.remove()
-        defaults.removeObject(forKey: DefaultsKey.tvHost)
-        defaults.removeObject(forKey: DefaultsKey.tvMac)
+        televisionCredentials().remove()
+        if demo {
+            demoTVHost = nil
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.tvHost)
+            defaults.removeObject(forKey: DefaultsKey.tvMac)
+        }
         forgetWhatWasTold()
         tvClientID = nil
     }

@@ -26,9 +26,9 @@ final class AppModel: LinkHost {
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
     let recorder: DeviceLink
-    /// The television's link, while one is saved and the demo is off (`makeTVLink`), and what it tells the app:
-    /// kept by a host of its own, the television's reservations with it, so that what a television said goes
-    /// when its link does.
+    /// The television's link, while one is saved -- in the demo, while the demo's is added -- (`makeTVLink`), and
+    /// what it tells the app: kept by a host of its own, the television's reservations with it, so that what a
+    /// television said goes when its link does.
     var tv: DeviceLink?
     var tvHost: TVHost?
     /// Bumped each time the television's link is let go of (`dropTVLink`), for the screens to let go of what
@@ -237,6 +237,14 @@ final class AppModel: LinkHost {
     /// Kept for as long as the demo lasts, because it holds what the reader has done to it: a reservation
     /// made in the demo has to still be there after a reconnect.
     var demoRecorder: DemoRecorder?
+    /// The demo's television, made the first time the demo reaches its address (`theDemoTV`) and kept for as
+    /// long as the demo lasts, as the recorder is; what the demo registered with it, and the address it was
+    /// added at, which is the demo's in place of the one saved (`makeTVLink`). In memory only, and never in the
+    /// defaults or the Keychain: the real television's are as they were when the demo ends, and a launch with
+    /// the demo on has no television.
+    var demoTV: DemoTV?
+    var demoTVCredentials: MemoryTVCredentials?
+    var demoTVHost: String?
     /// Two connects at once would mean two clients, two magic packets and two conversations with a recorder
     /// that answers 503 to the second. The network monitor can fire at any moment, so this is not academic.
     var connecting: Bool { session.connecting }

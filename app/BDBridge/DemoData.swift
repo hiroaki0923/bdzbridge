@@ -12,6 +12,10 @@ import UIKit
 /// parses the real thing, and `DemoRecorder` remembers what is done to it. Everything in it is invented: the
 /// stations, the programmes, the recordings, the keyword conditions, the address and the MAC. The guide goes
 /// in a database of its own, so that trying the demo leaves nothing in the cache of a real recorder.
+///
+/// It has a television too, which the reader adds from the demo's search (`television()`): the package's
+/// invented one, receiving the guide's stations and listing what it records under the guide's titles. It is
+/// kept in memory alone, with its registration, and goes with the demo.
 enum DemoData {
     static var on: Bool { on(in: .standard) }
 
@@ -45,6 +49,9 @@ enum DemoData {
 
     static let host = "192.0.2.63"          // reserved for documentation (RFC 5737): never a real host
     static let mac = "f8:4e:17:00:00:00"    // Sony's OUI, the rest zeroed, as everywhere else in this repo
+    /// The demo's television's address, beside the recorder's and reserved for documentation as well. Its MAC,
+    /// its model and its number are the package's invented ones (`DemoTV`).
+    static let tvHost = "192.0.2.64"
     /// How long the demo's recorder takes to answer: slow enough to look like a recorder on the far side of a
     /// room, fast enough not to wait about.
     static let answerDelay: Duration = .milliseconds(120)
@@ -275,6 +282,9 @@ enum DemoData {
         for broadcasting in ["cs", "bs4k"] {
             try await store.noteNoGuide(broadcasting: broadcasting)
         }
+        // The demo's television is in memory alone, and a launch with the demo on has none: what waited for it
+        // in the demo's cache would wait for nobody.
+        try await store.removePending(waitingFor: .tv)
     }
 
     /// Invented station logos: a coloured tile with two characters on it (`Station.logo`). A real recorder
@@ -320,7 +330,7 @@ enum DemoData {
     private static func program(_ slot: Slot, on day: Int, of station: Station, index: Int) -> GuideProgram {
         let start = at(slot.at, dayOffset: day)
         return GuideProgram(serviceID: station.serviceID,
-                            eventID: 1000 + day * 100 + index,
+                            eventID: eventID(day: day, index: index),
                             start: start,
                             end: start.addingTimeInterval(TimeInterval(slot.minutes * 60)),
                             title: slot.title,
@@ -328,6 +338,11 @@ enum DemoData {
                             extended: details(of: slot),
                             genres: [Genre(level1: slot.level1, level2: slot.level2)],
                             copyControl: 2)
+    }
+
+    /// The programme id of a station's `index`th programme on the guide's `day`th day.
+    private static func eventID(day: Int, index: Int) -> Int {
+        1000 + day * 100 + index
     }
 
     /// The details, laid out as a broadcaster's are: the description again, and for a drama the cast, which
@@ -374,7 +389,7 @@ enum DemoData {
         guard let station = stations.first(where: { $0.serviceID == serviceID }),
               let index = station.schedule.firstIndex(where: { $0.title == title }) else { return nil }
         let slot = station.schedule[index]
-        return (1000 + dayOffset * 100 + index, at(slot.at, dayOffset: dayOffset), slot.minutes,
+        return (eventID(day: dayOffset, index: index), at(slot.at, dayOffset: dayOffset), slot.minutes,
                 slot.level1 * 16 + slot.level2)
     }
 
@@ -458,6 +473,50 @@ enum DemoData {
     /// The weekly repeat code for the day a programme falls on. The recorder refuses any other weekday.
     private static func weekly(_ start: Date) -> String {
         Codes.repeatCodes[Codes.weekdayRepeat(for: start)] ?? "1"
+    }
+
+    // MARK: - the television
+
+    /// The demo's television, whole as it is made, since the app makes it where nothing can be awaited (in its
+    /// transport): on, so that it is registered as a real one is with its panel on, by its number; receiving
+    /// every station of the guide, terrestrial and BS, by the same service ids and names, so that any programme
+    /// of the guide can be reserved on it; listing what it records under the guide's titles, as a real one
+    /// lists its own guide's; and holding one recording from the start (`heldOnTheTelevision`). It answers at
+    /// once.
+    static func television() -> DemoTV {
+        DemoTV(power: "active", stations: tvStations, holding: [heldOnTheTelevision].compactMap { $0 },
+               titles: tvTitles)
+    }
+
+    private static var tvStations: [DemoTV.Station] {
+        terrestrial.map { DemoTV.Station(scheme: "isdbt", serviceID: $0.serviceID, name: $0.name) }
+            + satellite.map { DemoTV.Station(scheme: "isdbbs", serviceID: $0.serviceID, name: $0.name) }
+    }
+
+    /// Every programme of the guide, on every day it covers, by its station and its id, with its title.
+    private static var tvTitles: [DemoTV.Programme: String] {
+        var titles: [DemoTV.Programme: String] = [:]
+        for station in stations {
+            for day in 0..<guideDays {
+                for (index, slot) in station.schedule.enumerated() {
+                    titles[DemoTV.Programme(serviceID: station.serviceID, eventId: eventID(day: day, index: index))]
+                        = slot.title
+                }
+            }
+        }
+        return titles
+    }
+
+    /// What the television holds when the reader adds it, as if set with its remote: a programme of the guide
+    /// two days ahead that the demo's recorder does not hold, once, so that the reservations tab has a row of
+    /// the television's to show before anything is made on it.
+    private static var heldOnTheTelevision: DemoTV.Schedule? {
+        let (title, serviceID, dayOffset) = ("みほんBS特集　港の一年", 2056, 2)
+        guard let station = stations.first(where: { $0.serviceID == serviceID }),
+              let found = slot(title, at: serviceID, dayOffset: dayOffset) else { return nil }
+        return DemoTV.Schedule(id: "recording.1", scheme: "isdbbs", serviceID: serviceID, station: station.name,
+                               title: title, start: found.start, durationSec: found.minutes * 60,
+                               eventId: found.eventID)
     }
 
     // MARK: - what is on the disk
@@ -679,16 +738,22 @@ enum DemoData {
 
 
 /// The demo's devices as its search meets them (`AppModel.scanForDevices`): the invented recorder at its own
-/// address and port, and silence at every other address and port, its own port 80 included. So the search in
-/// the demo sends nothing on the LAN and never raises the system's question about the local network.
+/// address and port, the invented television at its own address and port 80, and silence at every other
+/// address and port, the recorder's port 80 and the television's recorder port included. So the search in the
+/// demo sends nothing on the LAN and never raises the system's question about the local network.
 struct DemoDevices: HTTPTransport {
     let recorder: DemoRecorder
+    let television: any HTTPTransport
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        guard RecorderAddress.same(request.url.host() ?? "", DemoData.host), request.url.port == Upnp.port else {
-            throw RecorderError.transport("Nobody here.")
+        let host = request.url.host() ?? ""
+        if RecorderAddress.same(host, DemoData.host), request.url.port == Upnp.port {
+            return try await recorder.send(request)
         }
-        return try await recorder.send(request)
+        if RecorderAddress.same(host, DemoData.tvHost), (request.url.port ?? 80) == 80 {
+            return try await television.send(request)
+        }
+        throw RecorderError.transport("Nobody here.")
     }
 }
 

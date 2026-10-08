@@ -11,8 +11,9 @@ struct TVSheetRequest: Identifiable {
 }
 
 /// The television in the settings: a way to add one by its address, and once added, what is known of it and
-/// the ways to reconnect, register again or take it away. Not in the demo, whose recorder is invented. A
-/// television is found by the search above it; this is the way in for one the search did not find.
+/// the ways to reconnect, register again or take it away. A television is found by the search above it; this
+/// is the way in for one the search did not find. In the demo it is the demo's television, which the demo's
+/// search finds and which goes with the demo.
 struct TVSection: View {
     @Environment(AppModel.self) private var model
     /// The sheet that adds a television, or registers with it again, asked for. Only set here: the sheet is
@@ -72,14 +73,17 @@ struct TVSection: View {
                     Text("この iPhone から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
                          + "テレビの設定から消してください。" + whatGoesWithIt)
                 }
-            } else if !model.demo {
+            } else {
                 Section {
                     Button("アドレスを入力して追加") { sheet = TVSheetRequest(host: "", connectAtOnce: false) }
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    Text("テレビは、上の「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
-                         + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
+                    Text(model.demo
+                         ? "サンプルデータでは、架空のテレビを追加して試せます。"
+                           + "サンプルを終了すると、架空のテレビも消えます。"
+                         : "テレビは、上の「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
+                           + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
                 }
             }
         }
@@ -158,8 +162,10 @@ struct TVRegisterSheet: View {
                         TextField("4 桁の番号", text: $pin)
                             .keyboardType(.numberPad)
                     } footer: {
+                        // The demo's television has no panel to show its number on, so the sheet says it.
                         Text("テレビの画面に表示された 4 桁の番号を入力してください。番号が表示されないときは、"
-                             + "テレビで放送を映してから、最初からやり直してください。")
+                             + "テレビで放送を映してから、最初からやり直してください。"
+                             + (model.demo ? "サンプルのテレビの番号は \(DemoTV.pin) です。" : ""))
                     }
                 }
                 if model.tvAddressTurnedAway {

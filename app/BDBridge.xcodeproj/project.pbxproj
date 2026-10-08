@@ -22,6 +22,7 @@
 		2A5F2491A817C5DE1C5445D9 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5AB54284C614E923F22A57 /* AppModelTests.swift */; };
 		30543778DC43FE92D8967822 /* TVHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC398961D91396135008B6FC /* TVHost.swift */; };
 		426EBB116230210D4B6B1BBB /* AppModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDBFD7114EA90269BA42645D /* AppModelSetup.swift */; };
+		430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */; };
 		45F163AFB25C6A065FB29111 /* AppModelRecordings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE306E3A1B9409A422224064 /* AppModelRecordings.swift */; };
 		467EA934EB54A71683BFA00F /* KeychainTVCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4733264672C0A733226AA131 /* KeychainTVCredentials.swift */; };
 		47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */; };
@@ -140,6 +141,7 @@
 		E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsScreen.swift; sourceTree = "<group>"; };
 		E9060C02E42A759BACAAC943 /* AppModelTV.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTV.swift; sourceTree = "<group>"; };
 		EB8A034B9C079BA7DAF2995C /* WhichRecorderAnotherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderAnotherTests.swift; sourceTree = "<group>"; };
+		EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoTelevisionTests.swift; sourceTree = "<group>"; };
 		EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramSheet.swift; sourceTree = "<group>"; };
 		F236DC36276A804ED1553D29 /* Surroundings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Surroundings.swift; sourceTree = "<group>"; };
 		F2CB9DBB1951F32BC6D89CF6 /* AppModelSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelSession.swift; sourceTree = "<group>"; };
@@ -223,6 +225,7 @@
 				BE5AB54284C614E923F22A57 /* AppModelTests.swift */,
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
+				EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
 				29C6866852333929A48A535D /* QueueGateTests.swift */,
 				3CD87B8AFF4E69F2228DC1A7 /* QueueWithATelevisionTests.swift */,
@@ -452,6 +455,7 @@
 				2A5F2491A817C5DE1C5445D9 /* AppModelTests.swift in Sources */,
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
+				430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
 				0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */,
 				245DF4F2D1A518481C28B063 /* QueueWithATelevisionTests.swift in Sources */,
