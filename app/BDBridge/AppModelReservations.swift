@@ -292,6 +292,11 @@ extension AppModel {
     /// are read here into that value: made; kept, with the sentence for that, and `queued` cleared, which
     /// is set for a screen to say once that the reservation waits, as the result now has; anything else
     /// not done, with the recorder's line. A television has no disk to choose, and `disk` is not read for one.
+    ///
+    /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
+    /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
+    /// the result is said, and once the reservation's line is down. The dialog waits on the reader, who may
+    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
                  repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
         if device == .tv {
@@ -304,7 +309,9 @@ extension AppModel {
         guard let kept = queued else { return .made(saying: nil) }
         queued = nil
         // The row as the phone keeps it, to the second: the row that waits, as a television's is handed back.
-        return .waiting(pending.first { $0.id == kept.id } ?? kept, saying: Self.keptForTheRecorder)
+        let row = pending.first { $0.id == kept.id } ?? kept
+        await askForNotifications()
+        return .waiting(row, saying: Self.keptForTheRecorder)
     }
 
     /// Said of a reservation that went to the queue because the recorder was not there.
@@ -385,7 +392,9 @@ extension AppModel {
     // MARK: - reservations waiting for the recorder
 
     /// Keeps a reservation the recorder never heard, and says so on screen rather than failing. Returns whether
-    /// it was kept: one that could not be saved has been made nowhere.
+    /// it was kept: one that could not be saved has been made nowhere. The system's question about
+    /// notifications is asked by whoever asked for the reservation, once its line is down
+    /// (`reserve(_:on:quality:repeating:disk:)`), and not here, where the line can still be up.
     private func queue(_ request: ReservationRequest, serviceName: String) async -> Bool {
         guard let store else {
             problem = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
@@ -401,10 +410,6 @@ extension AppModel {
             problem = "予約を端末に保存できませんでした: \(error)"
             return false
         }
-        // The reader learns that this was finally sent through a notification, so a queued reservation is where
-        // the system's dialog belongs. After the reservation is saved, not before: the dialog waits on the
-        // reader, who may leave the app instead of answering, and the reservation must not wait with it.
-        await askForNotifications()
         return true
     }
 
