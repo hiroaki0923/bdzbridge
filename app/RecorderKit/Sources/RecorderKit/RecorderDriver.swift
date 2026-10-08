@@ -8,15 +8,16 @@ import Foundation
 ///
 /// What is asked of the recorder's reservations after its attach is here as well, as a television's is its
 /// driver's: reading them (`reservations`, `refreshReservations`), sending what waits for the recorder in the
-/// phone's queue (`sendWhatWaits`, `resend`), and deleting and changing one (`cancel`, `update`) -- the steps,
-/// and what each hands back for the app to keep. A reservation and the clash check are still the app's
-/// (`AppModel`).
+/// phone's queue (`sendWhatWaits`, `resend`), deleting and changing one (`cancel`, `update`), and what a new one
+/// would clash with (`conflicts`) -- the steps, and what each hands back for the app to keep. A reservation is
+/// still the app's (`AppModel`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
-    /// again, a delete and a change, and the slot's settling and what it came to. The recorder's other
+    /// again, a delete and a change, and the slot's settling and what it came to. The clash check goes through
+    /// on the link's check and its silence (`ensureUp`, `lost`), as it did in the app. The recorder's other
     /// operations are still the app's, and will be asked of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
@@ -786,6 +787,58 @@ public final class RecorderDriver: LinkDriver {
             .contains { $0.destination != reservation.destination && $0.destination != disk }
         link.owner?.problem = another ? RecorderDisk.chooseAnother(than: disk, usb: usb)
             : RecorderDisk.stays(on: reservation.destination, notMovedTo: disk, usb: usb)
+    }
+
+    // MARK: - what a reservation would clash with
+
+    /// The recorder's reservations that a reservation of `program` would clash with, as the recorder lists them;
+    /// nil when it was not asked, or its answer could not be had. It is asked with the very payload a creation
+    /// would send, so it also proves the payload is one the recorder accepts, without recording anything. `disk`
+    /// is the one the sheet shows, so that the clashes are the ones on the disk the reservation would go to.
+    ///
+    /// The disk the last request found not to be had is forgotten as it begins, as for every request that can
+    /// name a disk (`clearTheDiskNotHad`). With the link gone, no recorder's client in hand, the recorder silent
+    /// at the last ask, or a mode or a repeat the tables do not know, nothing is asked and nothing said. The
+    /// recorder is made sure of first, and woken if it is asleep (`DeviceLink.ensureUp`); when it cannot be, the
+    /// check has said why. A USB disk the slot has not answered since the recorder last answered is waited for
+    /// (`withholds`), and one not had is said as a reservation to it is, with no clashes asked; the slot
+    /// silent or given up on says nothing more.
+    ///
+    /// No line of its own: it is asked as a programme's sheet opens, before anybody has asked for anything, and
+    /// the line of what went wrong is left as it was by an answer. It is asked on the client in hand at the door,
+    /// before the check. A failure is said on the line, silence losing the recorder, unless the link asks through
+    /// another client by then.
+    public func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
+                          disk: String) async -> [Reservation]? {
+        clearTheDiskNotHad()
+        guard let link, let client = link.client as? RecorderClient, !link.session.unreachable,
+              let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
+                                               destination: disk)
+        else { return nil }
+        let owner = link.owner
+        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
+        // not, so that the reservation which usually follows goes straight through.
+        guard await link.ensureUp() else { return nil }
+        if let withheld = await withholds(disk) {
+            if withheld == .noDisk {
+                owner?.problem = RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)
+            }
+            return nil
+        }
+        do {
+            return try await client.conflicts(elements: XsrsElements.create(request))
+        } catch {
+            // As for a recording's details, which the app reads with the client it had in hand: what a client
+            // the link no longer asks through ran into is not about the recorder in play, and is neither taken
+            // for its silence nor put on its screens. As it is today, and to stay, by the client rather than by
+            // whether the recorder was let go of meanwhile: a connect to the same recorder made while this was
+            // out has a client of its own, and lets go of nothing.
+            guard client === link.client else { return nil }
+            let deviceError = error as? any DeviceError
+            if deviceError?.failure == .silent { link.lost() }
+            owner?.problem = deviceError?.explanation ?? String(describing: error)
+            return nil
+        }
     }
 
     // MARK: - what a reservation's sheet offers and says

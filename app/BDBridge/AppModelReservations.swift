@@ -5,12 +5,12 @@ import SwiftUI
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.
 ///
-/// The recorder's are read, changed and deleted by its driver, and what waits for it is sent there too
-/// (`RecorderDriver`): here the app asks, and keeps what comes back. They are made here. A television's are its
-/// host's (`TVHost`), which keeps them apart from the recorder's: here the two lists are only put together for
-/// the screens, and a change or a delete is sent to the device that holds the row (`Reservation.device`), before
-/// anything else is done. So is a waiting reservation the reader asks to have sent again, to the device it waits
-/// for (`PendingReservation.target`).
+/// The recorder's are read, changed and deleted by its driver, what waits for it is sent there too, and what a
+/// new one would clash with is asked there (`RecorderDriver`): here the app asks, and keeps what comes back.
+/// They are made here. A television's are its host's (`TVHost`), which keeps them apart from the recorder's:
+/// here the two lists are only put together for the screens, and a change or a delete is sent to the device
+/// that holds the row (`Reservation.device`), before anything else is done. So is a waiting reservation the
+/// reader asks to have sent again, to the device it waits for (`PendingReservation.target`).
 ///
 /// Making one is the same from a screen whichever device it is for: where a reservation of a programme can
 /// still go (`destinations(for:)`), and one entry that reserves on the device named and on no other, and
@@ -242,41 +242,18 @@ extension AppModel {
     }
 
     /// Before something that names `disk` is sent, once the recorder has been made sure of: the driver's wait for
-    /// the slot, and why not when it may not go (`RecorderDriver.withholds`). For the requests still made here,
-    /// until they are the driver's too.
+    /// the slot, and why not when it may not go (`RecorderDriver.withholds`). For the reservation still made
+    /// here, until it is the driver's too.
     func slotWithholds(_ disk: String) async -> RecorderDriver.Withheld? { await recorderDriver?.withholds(disk) }
 
-    /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
-    /// it also proves the payload is one the recorder accepts, without recording anything. `disk` is the one the
-    /// sheet shows, so that the clashes are the ones on the disk the reservation would go to: a USB disk the slot
-    /// has not answered since the recorder last answered is waited for first (`slotWithholds`), and one not had is
-    /// said as a reservation to it is, with no clashes asked.
+    /// Reservations that would clash, as a programme's sheet asks as it opens: the recorder's driver asks the
+    /// recorder with the very payload a reservation of `program` would send to `disk`, the disk the sheet shows
+    /// (`RecorderDriver.conflicts`). Nil when it was not asked or its answer could not be had; what there was to
+    /// say of that is on the recorder's line.
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
                    disk: String = RecorderDisk.internalID) async -> [Reservation]? {
         await start()
-        recorderDriver?.clearTheDiskNotHad()
-        guard let client, !unreachable,
-              let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
-                                               destination: disk)
-        else { return nil }
-        // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
-        // not, so that the reservation which usually follows goes straight through.
-        guard await wakeIfDozing() else { return nil }
-        if let withheld = await slotWithholds(disk) {
-            if withheld == .noDisk { problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk) }
-            return nil
-        }
-        do {
-            return try await client.conflicts(elements: XsrsElements.create(request))
-        } catch {
-            // As for a recording's details (`detail(of:)`): what a client the model no longer holds ran into
-            // is not about the recorder in play, and is neither taken for its silence nor put on its screens.
-            guard client === self.client else { return nil }
-            let deviceError = error as? any DeviceError
-            if deviceError?.failure == .silent { lostTheRecorder() }
-            problem = deviceError?.explanation ?? String(describing: error)
-            return nil
-        }
+        return await recorderDriver?.conflicts(for: program, quality: quality, repeating: repeating, disk: disk)
     }
 
     /// What the programme's sheet asks: a reservation of `program` on `device`, and what it came to, in the
