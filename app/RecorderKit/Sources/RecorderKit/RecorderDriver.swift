@@ -7,8 +7,10 @@ import Foundation
 /// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
-    /// Not read yet: the recorder's operations are still the app's, and will be asked of this on its link,
-    /// written on the parts of an operation the link carries (`DeviceLink.run`), as the app's funnel is now.
+    /// The link holds the driver, so weak. Each operation asked of the driver reads it once, as it is asked for,
+    /// and goes through on the link it found there, written on the parts of an operation the link carries
+    /// (`DeviceLink.run`): the read of the reservations, and the slot's settling. The recorder's other
+    /// operations are still the app's, and will be asked of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`).
@@ -395,6 +397,29 @@ public final class RecorderDriver: LinkDriver {
     private func macWasReadHere(_ link: DeviceLink) -> Bool {
         guard let readAt = link.owner?.macReadAt else { return true }
         return readAt == link.host
+    }
+
+    // MARK: - the reservations
+
+    /// The line on screen while the reservations are read.
+    public static let readingLine = "予約一覧を取得中"
+
+    /// What the recorder is set to record, read now: nil when it could not be read, and the host's line says
+    /// why. With no recorder's client, or the recorder silent at the last ask, nothing is sent and nothing is
+    /// said: every screen asks this as it appears, and a recorder known to be away costs no timeout.
+    ///
+    /// One operation through the link (`DeviceLink.run`): under a line of its own, the recorder made sure of
+    /// first -- inside a connect, which has just heard it, at once -- and a read that goes through clears the
+    /// line of what went wrong. It is sent on the client `run` hands over, the one in hand as the check was
+    /// asked. A read that is a step of something else -- before a delete or a change, after a sending -- has
+    /// a line of its own all the same, as it is today; a later change reads those under the operation's line.
+    public func reservations() async -> [Reservation]? {
+        guard let link, link.client is RecorderClient, !link.session.unreachable else { return nil }
+        let read = await link.run(line: Self.readingLine) { client in
+            try await (client as? RecorderClient)?.reservations()
+        }
+        if case .success(let list) = read { return list }
+        return nil
     }
 
     // MARK: - the check before an operation

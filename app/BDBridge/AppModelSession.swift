@@ -309,7 +309,9 @@ extension AppModel {
 
     /// Provisional permission for notifications, now that there is a recorder for them to be about: no dialog,
     /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
-    /// reservations before the guide, which marks what is already set to record from that list.
+    /// reservations before the guide, which marks what is already set to record from that list: the driver's
+    /// read, kept by the count noted here (`keepReservations`). Inside the connect, so nothing here may await
+    /// `start()`.
     func reached() async {
         let forgotten = timesForgotten
         if !demo, surroundings.asksAboutNotifications {
@@ -318,7 +320,8 @@ extension AppModel {
                 await readNotifications()
             }
         }
-        await loadReservationsNow(since: forgotten)
+        let read = await recorderDriver?.reservations()
+        keepReservations(read, since: forgotten)
         await readAgainWhatWasUp()
         await refreshGuideIfStale()
     }

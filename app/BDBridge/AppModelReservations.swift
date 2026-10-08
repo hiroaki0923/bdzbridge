@@ -19,31 +19,25 @@ extension AppModel {
         await loadReservations(since: timesForgotten)
     }
 
-    /// The same for an entry that noted `timesForgotten` as it began: what it reads is kept by that count
-    /// (`loadReservationsNow`), and handed back, nil when nothing was read.
+    /// The same for an entry that noted `timesForgotten` as it began: the driver's read
+    /// (`RecorderDriver.reservations`), kept by that count (`keepReservations`), and handed back, nil when
+    /// nothing was read.
     @discardableResult
     func loadReservations(since forgotten: Int) async -> [Reservation]? {
         await start()
-        return await loadReservationsNow(since: forgotten)
+        let read = await recorderDriver?.reservations()
+        keepReservations(read, since: forgotten)
+        return read
     }
 
-    /// The load itself, for `connect()` and everything it reaches, which must not await `start()`: see there.
-    ///
-    /// `forgotten` is `timesForgotten` as the entry this reads for noted it when it began, and what is read is
-    /// kept for the screens only while the count is still that. A list read for a recorder let go of meanwhile --
-    /// another answered or was chosen while the read was out -- is not put on the screens of the one after it,
-    /// whose own connect reads its list (`reached`). The television's lists go with their host by the same rule
-    /// (`TVHost`). The list read is handed back either way, nil when nothing was read.
-    @discardableResult
-    func loadReservationsNow(since forgotten: Int) async -> [Reservation]? {
-        guard let client, !unreachable else { return nil }
-        var read: [Reservation]?
-        await run("予約一覧を取得中") {
-            let list = try await client.reservations()
-            read = list
-            if self.timesForgotten == forgotten { self.reservations = list }
-        }
-        return read
+    /// Puts a list of the recorder's reservations on the screens, one read on behalf of an entry that noted
+    /// `timesForgotten` as `forgotten` when it began: only while the count is still that. A list read for a
+    /// recorder let go of meanwhile -- another answered or was chosen while the read was out -- is not put on
+    /// the screens of the one after it, whose own connect reads its list (`reached`). The television's lists go
+    /// with their host by the same rule (`TVHost`). Nil, nothing read, leaves the list as it was.
+    func keepReservations(_ list: [Reservation]?, since forgotten: Int) {
+        guard let list, timesForgotten == forgotten else { return }
+        reservations = list
     }
 
     /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when
@@ -625,7 +619,7 @@ extension AppModel {
     /// (`TVHost.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
     /// sends nothing, and that flush would wait its turn behind a television's sending that is out.
     ///
-    /// `forgotten` is what the entry that sends noted as it began, for the list read after (`loadReservationsNow`).
+    /// `forgotten` is what the entry that sends noted as it began, for the list read after (`keepReservations`).
     @discardableResult
     func flushPending(since forgotten: Int) async -> Int {
         guard let client, let store, connected else { return 0 }
@@ -638,7 +632,7 @@ extension AppModel {
         // any silence.
         if outcome.interrupted { lostTheRecorder() }
         await loadPending()
-        if !outcome.sent.isEmpty { await loadReservationsNow(since: forgotten) }
+        if !outcome.sent.isEmpty { keepReservations(await recorderDriver?.reservations(), since: forgotten) }
         // Said on screen, since a notification does not show while the app is in front (nothing here answers
         // `willPresent`). A flush with nothing to say -- everything waiting had been refused before -- leaves
         // the last line where it was. What is held for another recorder is said each time, for as long as any
