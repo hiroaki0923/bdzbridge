@@ -62,4 +62,82 @@ final class RecorderDriverTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), waiting)
         XCTAssertEqual(world.problem, Self.left)
     }
+
+    /// A television's reservation given to the recorder's driver to delete is none of its: nothing is asked of
+    /// the recorder, not the read a delete begins with, the list in hand is not looked at, no line goes up and
+    /// the line of what went wrong is as it was. Nothing was deleted, and no list is handed back. The recorder is
+    /// there and connected, and the list in hand holds the very row, so that a delete that went on would have
+    /// asked it something.
+    func testATelevisionsReservationDeletedThroughTheRecordersDriverIsLeftAlone() async throws {
+        let (world, driver, link) = try await connected()
+        let televisions = try Self.televisionsReservation()
+        let begun = world.begun.count
+        var lookedIn = 0
+
+        let came = await driver.cancel(televisions, inHand: {
+            lookedIn += 1
+            return [televisions]
+        })
+
+        XCTAssertFalse(came.deleted)
+        XCTAssertNil(came.list, "a list was read for another device's reservation")
+        XCTAssertEqual(world.events, [], "something was asked, sent or told for another device's reservation")
+        XCTAssertEqual(lookedIn, 0, "the list in hand was looked in for another device's reservation")
+        XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for another device's reservation")
+        XCTAssertEqual(world.problem, Self.left, "something was said for another device's reservation")
+        XCTAssertTrue(link.session.connected)
+    }
+
+    /// The same for a change: no result, no list, nothing asked or looked at, no line, the line as it was. Nor is
+    /// the disk the last request found not to be had forgotten, as a change of the recorder's own begins by doing:
+    /// the sheets go on reading it for the request that found it.
+    func testATelevisionsReservationChangedThroughTheRecordersDriverIsLeftAlone() async throws {
+        let (world, driver, link) = try await connected()
+        let televisions = try Self.televisionsReservation()
+        link.session.slotHadNoDisk(for: RecorderDisk.usbID)
+        let begun = world.begun.count
+        var lookedIn = 0
+
+        let came = await driver.update(televisions, quality: "SR", repeating: "daily", disk: nil, inHand: {
+            lookedIn += 1
+            return [televisions]
+        })
+
+        XCTAssertNil(came.altered, "a change of another device's reservation was answered")
+        XCTAssertNil(came.list, "a list was read for another device's reservation")
+        XCTAssertEqual(world.events, [], "something was asked, sent or told for another device's reservation")
+        XCTAssertEqual(lookedIn, 0, "the list in hand was looked in for another device's reservation")
+        XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for another device's reservation")
+        XCTAssertEqual(world.problem, Self.left, "something was said for another device's reservation")
+        XCTAssertEqual(link.session.diskNotHad, RecorderDisk.usbID,
+                       "the disk not had was forgotten for another device's reservation")
+        XCTAssertTrue(link.session.connected)
+    }
+
+    /// A recorder at the bench's address, on a link of the test's own connected to it a moment ago, and the world
+    /// it reaches, with nothing put down yet and an earlier failure's line left. The link is handed back with the
+    /// driver, which holds it weakly.
+    private func connected() async throws -> (LinkWorld, RecorderDriver, DeviceLink) {
+        let world = LinkWorld()
+        world.devices[Stub.host] = try ScriptedRecorder(at: Stub.host, udn: DeviceLinkTests.udn, world: world)
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        world.events = []
+        world.problem = Self.left
+        return (world, driver, link)
+    }
+
+    /// A reservation of a programme as a television lists it, read the way its driver reads one.
+    private static func televisionsReservation() throws -> Reservation {
+        try XCTUnwrap(TVScheduleRow(id: "recording.41", type: "recording",
+                                    uri: "tv:isdbt?trip=65534.65533.1024&srvName=サンプルテレビ",
+                                    startDateTime: "2030-11-01T21:00:00+0900", durationSec: 3600,
+                                    title: "サンプル劇場", channelName: "サンプルテレビ", repeatType: "1",
+                                    overlapStatus: "notOverlapped", recordingStatus: "notStarted", quality: "DR",
+                                    eventId: "12345").reservation())
+    }
 }
