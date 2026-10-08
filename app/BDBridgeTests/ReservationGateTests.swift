@@ -286,6 +286,55 @@ final class ReservationGateTests: XCTestCase {
         }
     }
 
+    /// A delete or a change whose read is out when a connect finds the same recorder at another address -- the
+    /// router has handed it another lease -- with a client of its own. The write goes out once, on that client,
+    /// and nothing more goes to the address the recorder left. Each reads the recorder's client again after its
+    /// read rather than keep the one it had in hand when it was asked for: one kept would send to an address
+    /// the recorder no longer answers at, or, after a connect at the same address, out of line with the
+    /// connect's own client, whose queue it does not share, to a recorder that answers 503 to two at once.
+    ///
+    /// As it is today, and to stay: a later change that moves these writes has to read the client after the
+    /// read as they do here.
+    ///
+    /// The address is moved by hand, where the search that finds the recorder elsewhere would move it: the
+    /// choice of another address waits while the read's line is up (`canChangeRecorder`), and on the bench that
+    /// search has no LAN to look round. Then 再接続 is asked for, as the reader does.
+    func testADeleteOrAChangeGoesOutOnTheClientOfAConnectMadeWhileItsReadWasOut() async throws {
+        for write in ReservationWrite.allCases {
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            // The same recorder at either address: the one it had, and the one the router moved it to.
+            let (left, found) = (NamedRecorder(1), NamedRecorder(1))
+            let model = bench.model(recorders: [Bench.host: left, Bench.otherHost: found])
+            addTeardownBlock { await left.letGo() }
+            await model.start()
+            try await untilConnected(model)
+            let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+            let count = await left.heard.count
+            await left.hold(only: Kind.list)
+            let asking = Task { await write.ask(model, row) }
+            try await until("\(write.name): its read never got to the recorder") {
+                await left.heard(since: count).contains(Kind.list)
+            }
+
+            let made = bench.clientsMade
+            model.host = Bench.otherHost
+            await reconnect(model)
+            // What this stands on, rather than what it holds: without a client made at the other address, the
+            // client read after the read and the one in hand before it would ask the same recorder, and could
+            // not be told apart.
+            XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+            XCTAssertEqual(model.info?.host, Bench.otherHost, "the recorder was meant to answer at the other address")
+            await left.letGo()
+            expectTrue(await asking.value, "\(write.name): \(model.problem(for: .recorder) ?? "no reason given")")
+
+            expectEqual(await left.heard(since: count), [Kind.list],
+                        "\(write.name) went out on the client in hand before its read")
+            expectEqual(await found.asked(write.rawValue), 1,
+                        "\(write.name) did not go out once on the client the connect made")
+        }
+    }
+
     /// A delete out, its list read, when another recorder answers a connect beside it: the newcomer's arrival
     /// empties the lists in that turn, and the connect reads its reservations. The delete, on the recorder it
     /// began with, is then turned down, and what the reader has on screen afterwards is the newcomer's list --
