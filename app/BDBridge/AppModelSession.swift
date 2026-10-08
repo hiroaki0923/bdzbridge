@@ -300,20 +300,21 @@ extension AppModel {
     }
 
     func sendWhatWaits() async {
-        await flushPending()
+        await flushPending(since: timesForgotten)
     }
 
     /// Provisional permission for notifications, now that there is a recorder for them to be about: no dialog,
     /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
     /// reservations before the guide, which marks what is already set to record from that list.
     func reached() async {
+        let forgotten = timesForgotten
         if !demo, surroundings.asksAboutNotifications {
             Task {
                 await Notify.allowQuietly()
                 await readNotifications()
             }
         }
-        await loadReservationsNow()
+        await loadReservationsNow(since: forgotten)
         await readAgainWhatWasUp()
         await refreshGuideIfStale()
     }

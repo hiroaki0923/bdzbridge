@@ -449,12 +449,13 @@ actor NotARecorder: HTTPTransport {
 ///
 /// `become` has it answer as another recorder from then on: the address the first one had, handed to a second;
 /// `stopSayingWhich` has it go on as itself with no UDN in its description.
-/// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind -- for a test that
-/// looks at the app in between, and `goQuiet` has it say nothing to a few requests, as a recorder that has
-/// left the network does: the next ones, or the ones after it has answered so many, or the next of one kind.
-/// A request held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is
-/// asked who it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving
-/// another -- and answering everything else: there, and not saying which it is, until `comeFree()`.
+/// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind, or with `holdTheNext`
+/// only the next of one kind -- for a test that looks at the app in between, and `goQuiet` has it say nothing to
+/// a few requests, as a recorder that has left the network does: the next ones, or the ones after it has
+/// answered so many, or the next of one kind. A request held and then let go is one of them. `busyAtTheDoor`
+/// has it busy with somebody else whenever it is asked who it is -- a 503 to its description, as a BDZ answers
+/// a request that arrives while it is serving another -- and answering everything else: there, and not saying
+/// which it is, until `comeFree()`.
 ///
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
 /// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
@@ -471,6 +472,7 @@ actor NamedRecorder: HTTPTransport {
     private var quietOn: String?
     private var holding = false
     private var holdingOnly: String?
+    private var holdingNext: String?
     private var held: [CheckedContinuation<Void, Never>] = []
     private var busy = false
     private(set) var asked: [String: Int] = [:]
@@ -516,9 +518,16 @@ actor NamedRecorder: HTTPTransport {
         holdingOnly = what
     }
 
+    /// Holds the next request of one kind -- a SOAP action, or a file by its name -- until `letGo()`, and lets
+    /// every other through, the ones of that kind after it among them.
+    func holdTheNext(_ what: String) {
+        holdingNext = what
+    }
+
     func letGo() {
         holding = false
         holdingOnly = nil
+        holdingNext = nil
         for request in held { request.resume() }
         held = []
     }
@@ -586,6 +595,10 @@ actor NamedRecorder: HTTPTransport {
         heard.append(what)
         if let body = request.body, let elements = (try? XmlNode.parse(body))?.firstDescendantText("Elements") {
             lastElements[what] = elements
+        }
+        if holdingNext == what {
+            holdingNext = nil
+            await withCheckedContinuation { held.append($0) }
         }
         if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
         if quietOn == what {
