@@ -241,41 +241,10 @@ extension AppModel {
         RecorderDisk.shown(waiting.request.destination, on: waiting.target, usb: usbDisk)
     }
 
-    /// Why something that names a disk of the recorder's is not sent once the slot has been waited for
-    /// (`slotWithholds`).
-    enum Withheld {
-        /// The slot answered no disk each time, or a disk that takes no recordings: the disk cannot be had now.
-        /// The caller says so, by what its sheet has left to offer.
-        case noDisk
-        /// The recorder fell silent, which the link has said and lost it for. Nothing was sent.
-        case silence
-        /// Whoever waited gave up first. Nothing is said.
-        case givenUp
-    }
-
-    /// Before something that names `disk` is sent, once the recorder has been made sure of: while the slot has not
-    /// answered the USB disk known since the recorder last answered -- from the attach on, a waking one above all --
-    /// the slot is waited for (`RecorderDriver.settleTheSlot`). Nil when it may go: nothing had to be waited for --
-    /// another disk, a disk answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk
-    /// that is offered, which is taken. Otherwise why not, with a disk not had put down for the sheets
-    /// (`diskCannotBeHad`): a disk answered that takes no recordings is not had either.
-    func slotWithholds(_ disk: String) async -> Withheld? {
-        switch await recorderDriver?.settleTheSlot(for: disk) {
-        case nil:
-            return nil
-        case .answered?:
-            guard RecorderDisk.offers(disk, with: usbDisk) else { break }
-            return nil
-        case .noDisk?:
-            break
-        case .silent?:
-            return .silence
-        case .cancelled?:
-            return .givenUp
-        }
-        diskNotHad = disk
-        return .noDisk
-    }
+    /// Before something that names `disk` is sent, once the recorder has been made sure of: the driver's wait for
+    /// the slot, and why not when it may not go (`RecorderDriver.withholds`). For the requests still made here,
+    /// until they are the driver's too.
+    func slotWithholds(_ disk: String) async -> RecorderDriver.Withheld? { await recorderDriver?.withholds(disk) }
 
     /// Reservations that would clash. This asks the recorder with the very payload a creation would send, so
     /// it also proves the payload is one the recorder accepts, without recording anything. `disk` is the one the
@@ -285,7 +254,7 @@ extension AppModel {
     func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
                    disk: String = RecorderDisk.internalID) async -> [Reservation]? {
         await start()
-        diskNotHad = nil
+        recorderDriver?.clearTheDiskNotHad()
         guard let client, !unreachable,
               let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
                                                destination: disk)
@@ -359,7 +328,7 @@ extension AppModel {
                  disk: String = RecorderDisk.internalID) async -> Bool {
         let forgotten = timesForgotten
         await start()
-        diskNotHad = nil
+        recorderDriver?.clearTheDiskNotHad()
         guard RecorderDisk.offers(disk, with: usbDisk) else {
             problem = RecorderDisk.chooseAnother(than: disk, usb: usbDisk)
             return false
@@ -660,7 +629,7 @@ extension AppModel {
         guard reservation.device == .recorder else { return false }
         let forgotten = timesForgotten
         await start()
-        diskNotHad = nil
+        recorderDriver?.clearTheDiskNotHad()
         guard client != nil else { return false }
         if let disk, !RecorderDisk.offers(disk, with: usbDisk) {
             refuse(reservation, goingTo: disk)

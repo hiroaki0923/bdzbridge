@@ -15,8 +15,8 @@ public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
-    /// again, and the slot's settling. The recorder's other operations are still the app's, and will be asked
-    /// of this the same way.
+    /// again, and the slot's settling and what it came to. The recorder's other operations are still the app's,
+    /// and will be asked of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
@@ -323,6 +323,50 @@ public final class RecorderDriver: LinkDriver {
             break
         }
         return settled
+    }
+
+    /// Why something that names a disk of the recorder's is not sent once the slot has been waited for
+    /// (`withholds`).
+    public enum Withheld: Sendable, Equatable {
+        /// The slot answered no disk each time, or a disk that takes no recordings: the disk cannot be had now.
+        /// The caller says so, by what its sheet has left to offer.
+        case noDisk
+        /// The recorder fell silent, which the link has said and lost it for. Nothing was sent.
+        case silence
+        /// Whoever waited gave up first. Nothing is said.
+        case givenUp
+    }
+
+    /// Before something that names `disk` is sent, once the recorder has been made sure of: while the slot has not
+    /// answered the USB disk known since the recorder last answered -- from the attach on, a waking one above all --
+    /// the slot is waited for (`settleTheSlot`). Nil when it may go: nothing had to be waited for -- another disk, a
+    /// disk answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk that is
+    /// offered, which is taken. Otherwise why not, with a disk not had put down in the session for the sheets
+    /// (`SessionState.diskNotHad`): a disk answered that takes no recordings is not had either.
+    public func withholds(_ disk: String) async -> Withheld? {
+        guard let link else { return nil }
+        switch await settleTheSlot(for: disk) {
+        case nil:
+            return nil
+        case .answered?:
+            guard RecorderDisk.offers(disk, with: link.session.usbDisk) else { break }
+            return nil
+        case .noDisk?:
+            break
+        case .silent?:
+            return .silence
+        case .cancelled?:
+            return .givenUp
+        }
+        link.session.slotHadNoDisk(for: disk)
+        return .noDisk
+    }
+
+    /// A request that can name a disk of the recorder's begins -- a reservation, a change, a condition, a clash
+    /// check -- whichever disk it names: the disk the last one found not to be had is forgotten
+    /// (`SessionState.diskNotHad`).
+    public func clearTheDiskNotHad() {
+        link?.session.requestNamingADiskBegan()
     }
 
     // MARK: - waking
