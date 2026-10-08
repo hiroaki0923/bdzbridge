@@ -33,8 +33,7 @@
   the view that draws it in `BDBridgeApp.swift`). What the app knows of the recorder and of the link
   to it -- described, unreachable, given up on, being woken -- is `SessionState`, which changes only by what
   happened to it; the screens read it through `AppModel`.
-- `BDBridgeTests/` — unit tests of `AppModel`, and one test of a screen on show, run inside the app with no
-  recorder and no network (below).
+- `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
 - `project.yml` — the Xcode project is generated from this by XcodeGen, and committed (see below).
@@ -82,11 +81,11 @@ recorder on the network and not everybody has one to hand — an App Store revie
 in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back. Choosing a
 recorder from inside the demo — an address typed in — ends it as well, and keeps the recorder chosen rather
 than the one from before (`AppModel.adopt`). `BDBridgeUITests/DemoModeTests` is there to keep both true. The
-demo's search asks the demo's own address alone, at both ports, where only the invented recorder answers
-(`DemoDevices`), and reads neither
-the Wi-Fi nor the search's session, so nothing goes on the LAN and the system's question about the local
-network is never raised in the demo; that recorder is listed 使用中, and chosen, the demo goes on. A real device
-is found once the demo has ended (`ScanTests`). The demo's dramas list an invented cast in their details, the
+demo's search asks the demo's own two addresses alone, at both ports, where only the invented recorder answers at
+its port and the invented television at port 80 (`DemoDevices`), and reads neither the Wi-Fi nor the search's
+session, so nothing goes on the LAN and the system's question about the local network is never raised in the
+demo; the recorder is listed 使用中, and chosen, the demo goes on. A real device is found once the demo has ended
+(`ScanTests`). The demo's dramas list an invented cast in their details, the
 same two names a recording's text gives, so the search by a name can be tried without a recorder; the same
 tests do. They also read the guide's list at an accessibility text size, where the time goes above the title
 and the line under it wraps as one text. The demo's automatic reservations carry the recorder's own creator id,
@@ -94,6 +93,27 @@ and the line under it wraps as one text. The demo's automatic reservations carry
 name. The tests pin the guide's broadcasting type and the two sort orders with launch arguments
 (`-guideBroadcasting td -reservationSort time -recordingsSort newest`), since the app keeps them between
 launches and a test that switched to CS would otherwise start the next one there.
+
+The demo has a television too, which it starts without: the default demo, the screenshots' among them, is a
+home with a recorder alone, and its screens are that home's. The demo's search lists it, `KJ-SAMPLE` at
+192.0.2.64 (`DemoData.television()`: the package's `DemoTV`, on, receiving every station of the demo's guide by
+its service id and name, listing what it records under the guide's titles, and holding one recording of its
+own from the start, as if set with its remote, two days ahead). Tapped, it is registered as a real one is with
+its panel on, by its number, which the sheet says, since there is no panel to read it from; from then on the
+demo is a home with both, and a programme can be reserved on it, its repeat changed and the reservation
+deleted, or the television taken away again. It is the model's for as long as the demo lasts, and in memory
+alone (`demoTV`, `demoTVCredentials`, `demoTVHost`): the real television's address, MAC, Keychain item and key
+file, and what the runs with no screen told of it, are neither read nor written in the demo, and nothing in it
+asks the system about notifications for that television. Every request to a television goes through the
+model's own `televisionTransport`, which in the demo reaches the demo's television at its address and nothing
+anywhere else, and which hands the demo's address nothing but silence once the demo is over, so that a link of
+the demo's let go of with a request still to make reaches nobody; such a link looks at nothing on the LAN
+either. Ending the demo lets go of the demo's link first -- the real one's is made from what is saved right
+after, which a link left in place would stop -- and then of the television, its registration and a
+registration of it under way; what waited for it goes with the demo's guide, and the real television comes
+back connected, with nothing asked of the reader. A launch with the demo on has no television, and opening the
+demo's guide deletes what waited for one (`DemoData.seed`). `DemoTelevisionTests` holds that on the model, and
+`testTheDemosTelevisionIsFoundReservedAndGoesWithTheDemo` walks it on the screens.
 
 ## The model's tests
 
@@ -191,7 +211,7 @@ waits for it and nothing else, and stays when that cannot be deleted. And which 
 state at a time: in the order it has always had in a home with a recorder alone, the television's lines
 after the recorder's, and last the line for a disk that is away while a reservation waits for it. And what
 the programme's sheet asks of the model: where a reservation can go, by the devices saved and by what each
-holds or has waiting, with nothing asked of a television and none offered in the demo; the one entry, which
+holds or has waiting, with nothing asked of a television, and the real one offered nowhere in the demo; the one entry, which
 reserves on the device named and on no other and reads the recorder's reservation, unchanged, into the
 value both devices answer with; and the yes and the no at the question before a reservation that would stop
 another from recording -- the yes the consent to what the question named and silent on the strip for a
@@ -297,9 +317,10 @@ address and nothing either kind said of itself. A television tapped while the lo
 asks of it first -- leaves the look going, and a recorder further up the subnet is listed beside it; a recorder
 chosen then stops the look and clears the recorders' list, and the television stays listed. Entering and leaving
 the demo clears both lists and what was said, and leaving it stops a look still going there. In the demo a press
-asks the demo's own address alone, where only the invented recorder answers, reads no
-interface and makes no session, lists it 使用中 with no notice and no pause, and choosing it keeps the demo. And
-a television found can be tapped only while none is saved, the saved one listed in use.
+asks the demo's own two addresses alone, where only the invented recorder and the invented television answer,
+reads no interface, makes no session and takes no way to a television, lists the recorder 使用中 and the
+television to be added, with no notice and no pause, and choosing the recorder keeps the demo. And a television
+found can be tapped only while none is saved, the saved one listed in use.
 
 `TVLinkTests` holds an address typed for a television while the system keeps the app off the local network: where
 nothing answers and the look says the app is kept off, the sheet's notice goes up in place of the address not
@@ -308,6 +329,24 @@ television hears after that is what a registration sends and nothing else. Closi
 the notice down, and a permission that comes after it has the address asked nothing more. With the permission
 given, an address that answers is asked nothing of the permission, and a silent one is said at once, after one look
 that does not say the app is kept off and no wait; and in the demo nothing is looked at or waited for.
+
+`DemoTelevisionTests` holds the demo's television beside a real one saved before the demo -- its address and
+MAC, a registration it knows, and a record of what the runs with no screen told of it, with rows -- whose
+registration is kept in a store that writes down each call made to it, as the Keychain item and its key file
+stand in the app: with nothing saved, "as it was" would hold whatever the demo did. In the demo the demo's
+television is found at its address, turns a wrong number down and is registered with the one the sheet says;
+its own recording is listed under the guide's title and marked in the guide; a programme of the guide reserved
+on it is listed under the guide's title, its repeat changed and the reservation deleted, and a reservation
+waiting for it is sent; and テレビを外す takes it, its registration and what waits for it away. An address of the
+real television's, typed in the demo, says nothing at once. Throughout, the real television hears nothing, its
+registration's store is not called, a read included, the bench's way to a television is taken for no address
+(`Bench.televisionTransportsMade`), the permission is not looked at, and what is saved of it is as it was --
+what was told of it too, which a sending of the app's own would otherwise take a warning away from. Ending the
+demo takes its television, its registration, what waited for it and a registration of it under way with it,
+and takes none of the real one's into it; the real television comes back connected with no number asked, and
+the demo's address reaches nothing, through no way to the LAN. Started again, the demo has no television and
+its search lists the demo's to be added. A launch with the demo on has none, and nothing waits for one; and the
+demo's television receives every station of the demo's guide.
 
 The wait itself is the package's to try (`LocalNetworkAccessTests`). On connections the tests play: one that is
 answered or refused is allowed, and so is one left unanswered until its handshake ran out, with nothing said of
@@ -340,12 +379,14 @@ the one address a tally keeps -- the first the system turned away, never one tha
 made, and in none of its counts; and `URLSessionTransportTests` that a silent address comes back through the real
 session as a request that was out: timed out, or cancelled when the search ends it first.
 
-No test puts a screen up, so none holds where the settings hang the sheet for adding a television: on the
-form, and not on the television's section, where a sheet hung on each of the section's rows went by itself at
-the first press (`TVSection`'s comment says so). A test hosted by the app would have to find アドレスを入力して追加 by its
-words, and SwiftUI tells UIKit nothing of a row's words until accessibility is on, for which the system has no
-public switch there; a UI test finds it by its words in the supported way, but needs a television's section in
-the demo, which the demo does not have yet.
+No test here puts a screen up. Where the settings hang the sheet for adding a television -- on the form, and not
+on the television's section, where a sheet hung on each of the section's rows went by itself at the first press
+(`TVSection`'s comment says so) -- is held by the demo's UI test instead
+(`testTheDemosTelevisionIsFoundReservedAndGoesWithTheDemo`), which taps the demo's television in the search's list
+and finds the sheet still up two seconds later, as the section under it turns from one form to the other. A test
+hosted by the app would have to find a row by its words, and SwiftUI tells UIKit nothing of a row's words until
+accessibility is on, for which the system has no public switch there; a UI test finds them in the supported
+way.
 
 `TVCredentialStoreTests` is the one place a test reaches the simulator's own: its Keychain, under a service of
 the test's own, and a key file in a folder of the test's own, both removed when it ends; the app's own item and
