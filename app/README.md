@@ -12,8 +12,11 @@
   whichever device it is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why
   a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
   kind of failure says and leaves behind. The one funnel the recorder's actions run through (`AppModel.run`)
-  stands on it, and so does a television's read of its reservations. A television, once added in the
-  settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
+  stands on it, and so does each device's read of its reservations, which is its driver's. The recorder's
+  driver sends what waits for it in the phone's queue as well (`RecorderDriver.reservations`,
+  `refreshReservations`, `sendWhatWaits`, `resend`), and `AppModelReservations` keeps what comes back; making,
+  changing and deleting a recorder's reservation are still the model's own steps. A television, once added in
+  the settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
   `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
   driver's steps, and `AppModelReservations` only puts the two devices' lists together for the screens and

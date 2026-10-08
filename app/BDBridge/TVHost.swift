@@ -243,6 +243,11 @@ final class TVHost: LinkHost {
         await tell(outcome)
     }
 
+    /// The queue on screen is the model's, for both devices' rows, and is read again there.
+    func queueWritten() async {
+        await model?.loadPending()
+    }
+
     /// Keeps what a sending to the television came to, for a sending of what waits and for a row sent again
     /// alike. The queue on screen is read again, always: with no round too, since a row sent again may have
     /// had its reason taken off before the television could be asked. What the round has to say goes on the
