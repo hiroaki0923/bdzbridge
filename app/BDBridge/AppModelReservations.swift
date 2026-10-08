@@ -170,9 +170,9 @@ extension AppModel {
         return Self.byProgram(pending.filter { $0.target == device })[key]
     }
 
-    /// Where a reservation can be made: the recorder alone until a television is saved, which it never is
-    /// in the demo (`makeTVLink`); both with both; and the television alone where a television is saved
-    /// and no recorder is.
+    /// Where a reservation can be made: the recorder alone until a television is saved -- in the demo, until
+    /// the demo's is added (`makeTVLink`); both with both; and the television alone where a television is
+    /// saved and no recorder is.
     var destinations: [DeviceSlot] {
         tv == nil ? [.recorder] : host.isEmpty ? [.tv] : [.recorder, .tv]
     }
@@ -301,8 +301,8 @@ extension AppModel {
     /// A television's is its host's, and is handed over before anything else: nothing below is for it,
     /// whatever state the recorder is in. The recorder is asked nothing on its account, not its check,
     /// and neither `problem` nor `queued` is touched. A television records in its one mode
-    /// (`TVDriver.recordsIn`), so `quality` is not read. With no television in play, as in the demo,
-    /// nothing is kept and nothing sent.
+    /// (`TVDriver.recordsIn`), so `quality` is not read. With no television in play, as in the demo before
+    /// its television is added, nothing is kept and nothing sent.
     ///
     /// The recorder's is `reserve(_:quality:repeating:disk:)` as it stands. Its answer and its two side channels
     /// are read here into that value: made; kept, with the sentence for that, and `queued` cleared, which
@@ -634,8 +634,8 @@ extension AppModel {
     /// A television's is its host's, and is handed over before anything else, whatever state the recorder is
     /// in: the recorder is asked nothing on its account, not its check, and its line is not touched. A
     /// television records in its one mode and has no disk to choose, so `quality` and `disk` are not read for
-    /// one. With no television in play, as in the demo, nothing is sent, and the answer is that the app is not
-    /// connected to it.
+    /// one. With no television in play, as in the demo before its television is added, nothing is sent, and
+    /// the answer is that the app is not connected to it.
     ///
     /// The recorder's is `update` as it stands. Its answer and its line are read here into that value: done,
     /// with nothing to add; or not done, with the recorder's line -- what the sheet said before, in the same

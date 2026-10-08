@@ -1003,11 +1003,12 @@ final class ScanTests: XCTestCase {
         XCTAssertNil(model.scanOutcome)
     }
 
-    /// In the demo the press asks the demo's own recorder alone, at its own address: the Wi-Fi's interfaces are
-    /// not read and the search's session is not made, so nothing goes on the LAN and the system's question is
-    /// never raised. Nothing is turned away there: no notice, no pause. The demo's recorder is listed in use,
-    /// and chosen, the demo goes on and it is connected to.
-    func testTheDemosSearchAsksItsOwnRecorderAloneAndChoosingItKeepsTheDemo() async throws {
+    /// In the demo the press asks the demo's own devices alone, each at its own address: the Wi-Fi's interfaces
+    /// are not read, the search's session is not made and no television's transport is taken, so nothing goes
+    /// on the LAN and the system's question is never raised. Nothing is turned away there: no notice, no pause.
+    /// The demo's recorder is listed in use and its television beside it, to be added; and the recorder chosen,
+    /// the demo goes on and it is connected to.
+    func testTheDemosSearchAsksItsOwnDevicesAloneAndChoosingItsRecorderKeepsTheDemo() async throws {
         let bench = try aBench()
         let subnet = bench.joinWiFi(with: [Bench.host: NamedRecorder(1)], televisions: [Bench.tvHost: DemoTV()])
         let model = await aModel(on: bench)
@@ -1020,18 +1021,22 @@ final class ScanTests: XCTestCase {
         model.scanForDevices()
         try await until("the demo's search never ended") { model.scanOutcome != nil }
 
-        XCTAssertEqual(model.scanOutcome, .found(recorders: 1, televisions: 0))
+        XCTAssertEqual(model.scanOutcome, .found(recorders: 1, televisions: 1))
         XCTAssertEqual(model.found.map(\.host), [DemoData.host])
         XCTAssertTrue(model.found.first.map(model.inUse) ?? false, "the demo's recorder was not listed in use")
+        XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoData.tvHost, model: DemoTV.model)])
+        XCTAssertTrue(model.canAddAFoundTelevision, "the demo's television could not be tapped")
+        XCTAssertFalse(model.foundTelevisions.first.map(model.inUse) ?? true, "the demo's television was in use")
         XCTAssertFalse(model.scanBlocked, "the notice about the permission went up in the demo")
         XCTAssertEqual(bench.scanPauses, [], "a pause was made in the demo")
         XCTAssertEqual(bench.interfacesRead, interfaces, "the Wi-Fi's interfaces were read in the demo")
         XCTAssertEqual(bench.scanTransportsMade, sessions, "the search's session was made in the demo")
+        XCTAssertEqual(bench.televisionTransportsMade, [], "a television's transport was taken in the demo")
         expectEqual(await subnet.asked, 0, "the Wi-Fi's subnet was asked in the demo")
         XCTAssertEqual(bench.scanLog.dropFirst(written).map { $0.replacing(/; \d+\.\d\d s$/, with: "; some s") }, [
-            "press: 1 addresses to ask, the app active",
-            "search: asked 2; answered [200: 1]; timed out 0; failed []; other 1; recorders 1; televisions 0; some s",
-            "said: found 1",
+            "press: 2 addresses to ask, the app active",
+            "search: asked 4; answered [200: 2]; timed out 0; failed []; other 2; recorders 1; televisions 1; some s",
+            "said: found 2",
         ])
 
         await model.adopt(host: DemoData.host)

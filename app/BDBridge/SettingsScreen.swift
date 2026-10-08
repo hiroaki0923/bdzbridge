@@ -92,8 +92,8 @@ struct SettingsScreen: View {
                     }
                 } footer: {
                     Text(model.demo
-                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表は削除され、"
-                           + "元のレコーダーの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
+                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表と、追加した架空のテレビは削除され、"
+                           + "元のレコーダーとテレビの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
                          : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
                 }
 
@@ -124,9 +124,9 @@ struct SettingsScreen: View {
                         ScanOutcomeText(outcome: outcome)
                     }
                 } footer: {
-                    // In the demo the search finds the invented recorder alone, and nothing real.
+                    // In the demo the search finds the invented recorder and television alone, and nothing real.
                     Text(model.demo
-                         ? "サンプルデータの表示中は、架空のレコーダーだけが見つかります。"
+                         ? "サンプルデータの表示中は、架空のレコーダーとテレビだけが見つかります。"
                            + "実際の機器を探すときは、先にサンプルを終了してください。"
                          : "同じ Wi-Fi 上のレコーダーとテレビを探します。レコーダーを選ぶとそのレコーダーに切り替わり、"
                            + "テレビを選ぶとテレビの登録を始めます。")

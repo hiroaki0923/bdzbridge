@@ -13,8 +13,10 @@ extension AppModel {
         // A scan still asking behind the local network question has nothing to do with the invented recorder,
         // and the demo is exactly the path that must never raise that question.
         stopScanning()
-        // The real television is let go of for the demo's length, or it would answer beside the invented recorder.
+        // The real television is let go of for the demo's length, or it would answer beside the invented recorder,
+        // and so is a registration of it under way: its client id is not to be the demo's.
         dropTVLink()
+        tvClientID = nil
         DemoData.turnOn(realHost: host, realMac: mac, in: defaults)
         demo = true
         await openStore()
@@ -27,7 +29,7 @@ extension AppModel {
     /// in their own database, which is deleted here rather than left to be mistaken for a real one.
     func leaveDemo() async {
         guard demo, canChangeRecorder else { return }
-        // A look still going in the demo would list the invented recorder outside it.
+        // A look still going in the demo would list the invented devices outside it.
         stopScanning()
         host = endDemo()
         await openStore()
@@ -37,7 +39,16 @@ extension AppModel {
     /// Turns the demo off, deletes its guide and puts back the MAC from before it, and hands back the address
     /// from before it for the caller to go back to or not: leaving the demo does, choosing a recorder from
     /// inside it does not (see `adopt`). The demo's own MAC is nobody's, so it goes either way.
+    ///
+    /// The demo's television goes first, whole: its link, which would otherwise stand where the real one's is
+    /// made below, then the television, what it was registered with and a registration of it under way. What
+    /// waited for it goes with the demo's guide.
     private func endDemo() -> String {
+        dropTVLink()
+        demoTV = nil
+        demoTVCredentials = nil
+        demoTVHost = nil
+        tvClientID = nil
         let before = DemoData.turnOff(in: defaults)
         demo = false
         demoRecorder = nil
@@ -303,14 +314,15 @@ extension AppModel {
     /// What a scan looks round: the addresses of the Wi-Fi, or in the demo the demo's own devices' addresses,
     /// with the interfaces never read.
     private func searchAddresses() -> [String] {
-        guard !demo else { return [DemoData.host] }
+        guard !demo else { return [DemoData.host, DemoData.tvHost] }
         return surroundings.lanInterfaces().flatMap { LocalNetwork.hosts(around: $0) }
     }
 
     /// What a scan sends its requests through: the surroundings' session, made anew for each look, or in the
     /// demo the demo's devices, with the session never made.
     private func searchTransport() -> any HTTPTransport {
-        demo ? DemoDevices(recorder: theDemoRecorder()) : surroundings.scanTransport()
+        guard demo else { return surroundings.scanTransport() }
+        return DemoDevices(recorder: theDemoRecorder(), television: televisionTransport(DemoData.tvHost))
     }
 
     /// The same, for a scan that has got past the press. On none the scan is over: that is said, nobody is
