@@ -792,6 +792,9 @@ public final class RecorderDriver: LinkDriver {
 
     // MARK: - what a reservation would clash with
 
+    /// What a programme's sheet says when the recorder has named no reservation a new one would clash with.
+    public static let noClashes = "時間が重なる予約はありません"
+
     /// The recorder's reservations that a reservation of `program` would clash with, as the recorder lists them;
     /// nil when it was not asked, or its answer could not be had. It is asked with the very payload a creation
     /// would send, so it also proves the payload is one the recorder accepts, without recording anything. `disk`
@@ -856,6 +859,17 @@ public final class RecorderDriver: LinkDriver {
     /// neither kept nor sent again, and what the list says once the recorder answers is the only way to find out.
     public static let reservationMayHaveArrived = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、送信待ちにはしていません。"
         + "再接続してから予約一覧で確かめてください。"
+
+    /// What a screen says a reservation on the recorder will do, before the reader confirms it: registered, or,
+    /// with the recorder known to be away (`away`), kept on the phone and registered at the next connect.
+    public static func confirming(away: Bool) -> String {
+        away ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
+            : "レコーダーに予約を登録します。"
+    }
+
+    /// The title of that question while the recorder is known to be away, when the reservation is to wait on the
+    /// phone.
+    public static let keepingTitle = "この番組を送信待ちにしますか？"
 
     /// Reserves `program` on the recorder, in `quality`, with `repeating`, on `disk`: after this the recorder
     /// really will record it. What it came to, and the list read after a reservation made for the caller to
@@ -979,7 +993,7 @@ public final class RecorderDriver: LinkDriver {
         return .waiting(row, saying: Self.keptUnsent)
     }
 
-    // MARK: - what a reservation's sheet offers and says
+    // MARK: - what the sheets offer and say
 
     /// The modes the recorder records in, by their names in `Codes.quality`, in the order a sheet lists them.
     public static let recordsIn = Codes.qualityOrder

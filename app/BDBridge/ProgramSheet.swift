@@ -8,8 +8,9 @@ import SwiftUI
 /// and a new reservation says where it goes (予約先): to a device that neither holds the programme nor has
 /// it waiting (`AppModel.destinations(for:)`), so what one device holds neither stands in for a reservation
 /// on the other nor is in the way of one. What is offered under it is the chosen device's: the recorder's
-/// modes, repeats and what it would clash with, or the one mode and the repeats a television is sent
-/// (`TVDriver`). The television is asked nothing until the reader reserves, and what that came to is said
+/// modes, repeats and what it would clash with (`RecorderDriver`), or the one mode and the repeats a
+/// television is sent (`TVDriver`); and what the question before reserving says of the device is its driver's
+/// too. The television is asked nothing until the reader reserves, and what that came to is said
 /// in the one alert, a case of the result to a case of it (`say`).
 ///
 /// With the recorder alone none of that is drawn, and the sheet is the one it has always been. So with the
@@ -121,10 +122,9 @@ struct ProgramSheet: View {
         chosenDisk ?? (model.diskChoices.isEmpty ? nil : RecorderDisk.internalID)
     }
 
-    /// A weekly repeat has to fall on the programme's own weekday, so only that one is offered.
-    private var repeatOptions: [String] {
-        ["none", "title", "daily", Codes.weekdayRepeat(for: program.start), "mon-fri", "mon-sat"]
-    }
+    /// What a reservation on the recorder can be given, as its driver offers them: the weekly one only on the
+    /// programme's own weekday (`RecorderDriver.repeats(startingAt:)`).
+    private var repeatOptions: [String] { RecorderDriver.repeats(startingAt: program.start) }
 
     var body: some View {
         NavigationStack {
@@ -179,7 +179,7 @@ struct ProgramSheet: View {
                         destinationRow(.recorder)
                         NewDiskRow(chosen: $chosenDisk)
                         Picker("録画モード", selection: $quality) {
-                            ForEach(Codes.qualityOrder, id: \.self) { code in
+                            ForEach(RecorderDriver.recordsIn, id: \.self) { code in
                                 Text(Codes.qualityLabel[code] ?? code).tag(code)
                             }
                         }
@@ -333,10 +333,7 @@ struct ProgramSheet: View {
                          + "\(Codes.qualityLabel[mode] ?? mode) · "
                          + "\(Codes.repeatLabel[repeating] ?? repeating)"
                          + (named.map { " · " + model.diskLabel($0) } ?? "") + "\n"
-                         + (device == .tv ? TVDriver.confirming
-                            : model.offline
-                            ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
-                            : "レコーダーに予約を登録します。"))
+                         + (device == .tv ? TVDriver.confirming : RecorderDriver.confirming(away: model.offline)))
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "\(reservation.device.label)から削除されます。")
@@ -366,7 +363,7 @@ struct ProgramSheet: View {
         case .kept(_, let stays): stays ? "送信待ちのままです" : "送信待ちにしました"
         case .said: "テレビの予約"
         case .wouldStop: "それでも予約しますか？"
-        case .reserve(.recorder, _) where model.offline: "この番組を送信待ちにしますか？"
+        case .reserve(.recorder, _) where model.offline: RecorderDriver.keepingTitle
         case .reserve, nil: "この番組を録画予約しますか？"
         }
     }
@@ -543,7 +540,7 @@ struct ProgramSheet: View {
             }
         } else if let conflicts {
             if conflicts.isEmpty {
-                Label("時間が重なる予約はありません", systemImage: "checkmark.circle")
+                Label(RecorderDriver.noClashes, systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
