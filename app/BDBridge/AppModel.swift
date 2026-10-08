@@ -156,9 +156,8 @@ final class AppModel: LinkHost {
     /// guide lists is about to be replaced: see `GuideScreen.scroll`.
     var guideReads = 0
     var reservations: [Reservation] = [] {
-        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled --
-        // taken out of the list by hand, and again after a reload that can be a moment behind the recorder
-        // -- went on being marked 予約 in the guide.
+        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled -- taken
+        // out of a list the load had not built -- went on being marked 予約 in the guide.
         didSet { reservationsByProgram = Self.byProgram(reservations) }
     }
     var titles: [RecordedTitle] = []

@@ -5,12 +5,12 @@ import SwiftUI
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.
 ///
-/// The recorder's are read by its driver, and what waits for it is sent there too (`RecorderDriver`): here the
-/// app asks, and keeps what comes back. They are changed and deleted here. A television's are its host's
-/// (`TVHost`), which keeps them apart from the recorder's: here the two lists are only put together for the
-/// screens, and a change or a delete is sent to the device that holds the row (`Reservation.device`), before
-/// anything else is done. So is a waiting reservation the reader asks to have sent again, to the device it
-/// waits for (`PendingReservation.target`).
+/// The recorder's are read and deleted by its driver, and what waits for it is sent there too
+/// (`RecorderDriver`): here the app asks, and keeps what comes back. They are changed here. A television's are
+/// its host's (`TVHost`), which keeps them apart from the recorder's: here the two lists are only put together
+/// for the screens, and a change or a delete is sent to the device that holds the row (`Reservation.device`),
+/// before anything else is done. So is a waiting reservation the reader asks to have sent again, to the device
+/// it waits for (`PendingReservation.target`).
 ///
 /// Making one is the same from a screen whichever device it is for: where a reservation of a programme can
 /// still go (`destinations(for:)`), and one entry that reserves on the device named and on no other, and
@@ -645,7 +645,7 @@ extension AppModel {
         let read = await loadReservations(since: forgotten)
         guard !offline else { return false }   // the load has said why
         guard let target = (read ?? reservations).current(reservation) else {
-            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+            problem = RecorderDriver.alreadyDeleted
             return false
         }
         guard let client,
@@ -666,7 +666,7 @@ extension AppModel {
             return false
         } catch let error as any DeviceError where error.failure == .unknownItem {
             await loadReservations(since: forgotten)
-            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+            problem = RecorderDriver.renumbered
             return false
         } catch let error as any DeviceError {
             // A move turned down is said by the disk moved to; a change that leaves the disk, as it always was.
@@ -693,65 +693,26 @@ extension AppModel {
             : RecorderDisk.stays(on: reservation.destination, notMovedTo: disk, usb: usbDisk)
     }
 
-    /// Deletes one reservation, as the recorder holds it now rather than by the id the app happens to hold.
-    ///
-    /// The recorder rewrites the ids of the reservations its own automatic recording made, the whole block of
-    /// them at once, when it works through the guide again (`Reservation.createdByRecorder`): an id read a few
-    /// hours ago can be dead while the row still looks right, and deleting it answers 804. So the list is read
-    /// again first and this reservation found in it: by its id while that stands, and otherwise by its channel
-    /// and the moment it starts (`current`).
-    ///
-    /// Also a write. A recorder that refuses says why, and the reason is left on screen, not reloaded away.
+    /// Deletes one reservation, as the device that holds it holds it now. Whether it was deleted.
     ///
     /// A television's reservation is its host's to delete, handed over first as for a change (`change`).
     ///
-    /// The row deleted is taken out of the list on screen only while the recorder this began with is still the
-    /// one in play: the list of one that came after it may hold another row under the same number.
+    /// The recorder's is its driver's (`RecorderDriver.cancel`): the list read again first and the reservation
+    /// found in it, the delete sent once, and the row taken out of the list read after it. The list on screen is
+    /// handed over for the driver to look in when its read fails. The list it hands back is kept by the count
+    /// noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not touch the list of the
+    /// one after it, which may hold another row under the same number. A recorder that refuses says why, on its
+    /// line, which is what the row's screen reads.
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }
         let forgotten = timesForgotten
         await start()
-        guard client != nil else { return false }
-        // as for a change: the list has to be read first, and nothing can be read
-        guard !offline else {
-            problem = notConnected
+        guard let came = await recorderDriver?.cancel(reservation, inHand: { self.reservations }) else {
             return false
         }
-        // and the row is looked for in the list read, as for a change
-        let read = await loadReservations(since: forgotten)
-        guard !offline else { return false }
-        guard let target = (read ?? reservations).current(reservation) else {
-            problem = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
-            return false
-        }
-        guard let client else { return false }
-        let activity = activities.begin("予約を削除中")
-        do {
-            try await client.deleteReservation(id: target.id)
-        } catch let error as any DeviceError where error.failure == .silent {
-            activities.end(activity)
-            lostTheRecorder()
-            problem = Self.mayHaveArrived
-            return false
-        } catch let error as any DeviceError where error.failure == .unknownItem {
-            // the list we just read was itself out of date, which is what happens when reading it failed
-            activities.end(activity)
-            await loadReservations(since: forgotten)  // first, because a successful read clears `problem`
-            problem = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
-            return false
-        } catch {
-            activities.end(activity)
-            problem = (error as? any DeviceError)?.explanation ?? String(describing: error)
-            return false
-        }
-        activities.end(activity)
-        problem = nil
-        if timesForgotten == forgotten { reservations.removeAll { $0.id == target.id } }
-        await loadReservations(since: forgotten)
-        // the reload asks the recorder again, and if it is a moment behind itself the row would come back
-        if timesForgotten == forgotten { reservations.removeAll { $0.id == target.id } }
-        return true
+        keepReservations(came.list, since: forgotten)
+        return came.deleted
     }
 
     /// What to call the channel a reservation is on: the guide's name for it, and for a television's row on a

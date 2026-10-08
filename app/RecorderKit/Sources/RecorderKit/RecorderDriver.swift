@@ -7,16 +7,16 @@ import Foundation
 /// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
 ///
 /// What is asked of the recorder's reservations after its attach is here as well, as a television's is its
-/// driver's: reading them (`reservations`, `refreshReservations`) and sending what waits for the recorder in
-/// the phone's queue (`sendWhatWaits`, `resend`) -- the steps, and what each hands back for the app to keep. A
-/// delete, a change, a reservation and the clash check are still the app's (`AppModel`).
+/// driver's: reading them (`reservations`, `refreshReservations`), sending what waits for the recorder in the
+/// phone's queue (`sendWhatWaits`, `resend`) and deleting one (`cancel`) -- the steps, and what each hands back
+/// for the app to keep. A change, a reservation and the clash check are still the app's (`AppModel`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
-    /// again, and the slot's settling and what it came to. The recorder's other operations are still the app's,
-    /// and will be asked of this the same way.
+    /// again, a delete, and the slot's settling and what it came to. The recorder's other operations are still
+    /// the app's, and will be asked of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
@@ -584,6 +584,96 @@ public final class RecorderDriver: LinkDriver {
         }
         let (round, list) = await sendWhatWaits()
         return (round, list, nil)
+    }
+
+    // MARK: - deleting one
+
+    /// The line on screen while a reservation is deleted.
+    public static let deletingLine = "予約を削除中"
+
+    /// Said when a reservation to delete or to change is not in the list just read: the recorder no longer holds
+    /// it, and the list on screen is the one just read.
+    public static let alreadyDeleted = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+
+    /// Said when the recorder answers a delete or a change that it holds no such reservation (804 or 820) though
+    /// the list just read had one: that list was itself out of date, and it has been read again.
+    public static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+
+    /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
+    /// again, and what the list says once the recorder answers is the only way to find out.
+    public nonisolated static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "送り直していません。再接続してから一覧で確かめてください。"
+
+    /// Deletes one of the recorder's reservations, as the recorder holds it now rather than by the id the app
+    /// happens to hold. Whether it was deleted, and the freshest list read on the way for the caller to keep,
+    /// nil when none was read.
+    ///
+    /// The recorder rewrites the ids of the reservations its own automatic recording made, the whole block of
+    /// them at once, when it works through the guide again (`Reservation.createdByRecorder`): an id read a few
+    /// hours ago can be dead while the row still looks right, and deleting it answers 804. So the list is read
+    /// again first (`reservations`) and this reservation found in it: by its id while that stands, and otherwise
+    /// by its channel and the moment it starts (`current`).
+    ///
+    /// A reservation that is not the recorder's is refused before anything else: nothing is read, sent or said
+    /// for it. It is another device's to delete. With the link gone any reservation is refused the same way, and
+    /// with no recorder's client in hand nothing is said either. Known to be away, nothing is sent -- the list
+    /// has to be read first, and nothing can be read -- and the host says that the app is not connected. A read
+    /// that meets silence ends it there, under the read's sentence. A reservation not in the list has gone, and
+    /// the line says so.
+    ///
+    /// The list it is looked for in is the one the read handed back, or when the read failed some other way,
+    /// the list the caller holds as it stands after the read (`inHand`), which a pull-down may have replaced
+    /// meanwhile: a read turned down leaves the recorder there, and the delete goes out from that list. As it is
+    /// today; a later change sends nothing after a read that failed, and takes `inHand` away.
+    ///
+    /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
+    /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
+    /// an address the recorder has left. The line comes down before anything is read after it. Silence there may
+    /// be a delete that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
+    /// arrived. 804 or 820 -- the list just read was itself out of date, which is what happens when reading it
+    /// failed -- has the list read again first, since a read that goes through clears the line, and then says
+    /// so. Any other failure is said on the line by the link (`DeviceLink.say`): a refusal in the recorder's
+    /// words, the recorder kept and nothing read after it, and an error that is no device's as Swift describes it.
+    ///
+    /// After a delete that went through the list is read once more, and the row is taken out of whatever comes
+    /// back -- that read, the one before it, or the caller's list when neither went through: a recorder a moment
+    /// behind itself must not bring it back, and the delete counts though that read fails.
+    public func cancel(_ reservation: Reservation, inHand: @MainActor () -> [Reservation]) async
+        -> (deleted: Bool, list: [Reservation]?) {
+        guard reservation.device == .recorder, let link, link.client is RecorderClient else { return (false, nil) }
+        let owner = link.owner
+        guard !link.offline else {
+            owner?.sayNotConnected()
+            return (false, nil)
+        }
+        let read = await reservations()
+        // The read has said why.
+        guard !link.offline else { return (false, read) }
+        guard let target = (read ?? inHand()).current(reservation) else {
+            owner?.problem = Self.alreadyDeleted
+            return (false, read)
+        }
+        guard let client = link.client as? RecorderClient else { return (false, read) }
+        let failure = await link.underALine(Self.deletingLine) { _ -> (any Error)? in
+            do {
+                try await client.deleteReservation(id: target.id)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        guard let failure else {
+            owner?.problem = nil
+            let after = await reservations()
+            return (true, (after ?? read ?? inHand()).filter { $0.id != target.id })
+        }
+        if (failure as? any DeviceError)?.failure == .unknownItem {
+            let newer = await reservations()
+            owner?.problem = Self.renumbered
+            return (false, newer ?? read)
+        }
+        _ = link.say(OperationFailure(failure, sending: Self.mayHaveArrived))
+        return (false, read)
     }
 
     // MARK: - the check before an operation
