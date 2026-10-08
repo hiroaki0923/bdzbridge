@@ -45,14 +45,37 @@ public actor DemoTV: HTTPTransport {
     private var mounted = true
     /// What the next create comes to in place of what it would, when a test has said so.
     private var nextCreate: NextCreate?
+    /// The titles it lists a reservation of a programme under, by the programme, as a real one lists its guide's:
+    /// none unless it was made with some (`title(of:on:)`).
+    private let titles: [Programme: String]
     public private(set) var calls: [String] = []
     /// The body of each request as it came, in step with `calls`: what a test holds against what was to be
     /// sent, to the byte.
     public private(set) var bodies: [String] = []
 
-    public init(power: String = "standby", mac: String = DemoTV.mac) {
+    /// `stations` and `holding` are what `receives` and `put` would give it, and `titles` what it lists a
+    /// reservation of a programme under: given as it is made, for whoever makes it where nothing can be
+    /// awaited, as the app makes the demo's television in its transport. Each is empty unless given.
+    public init(power: String = "standby", mac: String = DemoTV.mac, stations: [Station] = [],
+                holding: [Schedule] = [], titles: [Programme: String] = [:]) {
         self.power = power
         self.mac = mac
+        self.stations = stations
+        held = holding
+        numbered = holding.map(\.number).max() ?? 0
+        self.titles = titles
+    }
+
+    /// A programme as a guide knows it: the station's service id and the programme's id, which a reservation
+    /// that follows a programme is sent with.
+    public struct Programme: Hashable, Sendable {
+        public var serviceID: Int
+        public var eventId: Int
+
+        public init(serviceID: Int, eventId: Int) {
+            self.serviceID = serviceID
+            self.eventId = eventId
+        }
     }
 
     /// Says nothing from now on, as a television does that has left the network, or answers again.
@@ -511,9 +534,9 @@ public actor DemoTV: HTTPTransport {
     ///   first stays the only one. A viewing reservation for the programme does not stand in the way: a real
     ///   one took a recording of a programme it held a viewing reservation for.
     /// - Anything else is taken, answered with `annotation` 0 and no id, and listed in DR, under a number of
-    ///   its own (`numbered`) and under a title of the television's own (`title(ofProgramme:)`), never the
-    ///   one sent. It is taken as well when it costs another reservation its recording, which the list then
-    ///   shows (`schedules`).
+    ///   its own (`numbered`) and under a title of the television's own (`title(of:on:)`), never the one sent.
+    ///   It is taken as well when it costs another reservation its recording, which the list then shows
+    ///   (`schedules`).
     ///
     /// Taken, not seen: that the weekday is the start's by the calendar in Japan, a start before four in the
     /// morning included, which a guide counts to the day before -- no real one has been sent a weekly repeat
@@ -534,7 +557,7 @@ public actor DemoTV: HTTPTransport {
         guard !there else { return json(["error": [41222, "already scheduled"], "id": id]) }
         numbered += 1
         let schedule = Schedule(id: "recording.\(numbered)", scheme: station.scheme, serviceID: station.serviceID,
-                                station: station.name, title: Self.title(ofProgramme: eventId),
+                                station: station.name, title: title(of: eventId, on: station),
                                 start: asked.start, durationSec: asked.durationSec,
                                 repeatType: asked.repeatType, eventId: eventId)
         held.append(schedule)
@@ -560,7 +583,13 @@ public actor DemoTV: HTTPTransport {
     /// The title this television lists a reservation of a programme under. A real one listed every
     /// reservation that followed a programme under a title of its own for the programme and not under the
     /// one it was sent: so a row is not to be found again by the title it was made with. A real one's comes
-    /// from its guide; this one has no guide, and makes the title of the programme's id, with an ideographic
+    /// from its guide; this one's from the table it was made with (`titles`), as the demo's television has
+    /// its guide's, and otherwise from `title(ofProgramme:)`.
+    private func title(of eventId: Int, on station: Station) -> String {
+        titles[Programme(serviceID: station.serviceID, eventId: eventId)] ?? Self.title(ofProgramme: eventId)
+    }
+
+    /// The title it makes for a programme its table does not name: the programme's id, with an ideographic
     /// space and an enclosed character in it, both of which a real one's titles were seen to have and a
     /// delete has to send back as they are.
     public static func title(ofProgramme eventId: Int) -> String {

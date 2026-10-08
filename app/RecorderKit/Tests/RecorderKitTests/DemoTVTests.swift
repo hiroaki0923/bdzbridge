@@ -22,9 +22,10 @@ final class DemoTVTests: XCTestCase {
         DemoTV.Station(scheme: "isdbcs", serviceID: 1801, name: "サンプルCS", subscribed: false),
     ]
 
-    /// An invented television that knows the client and receives `stations`, and the client to it.
-    private func television() async -> (DemoTV, ScalarClient) {
-        let television = DemoTV()
+    /// An invented television that knows the client and receives `stations`, and the client to it: `made`, or
+    /// one made as most tests make it.
+    private func television(_ made: DemoTV = DemoTV()) async -> (DemoTV, ScalarClient) {
+        let television = made
         await television.knows(Self.kept.clientID, cookie: "kept")
         await television.receives(Self.stations)
         return (television, ScalarClient(host: Stub.host, transport: television,
@@ -424,6 +425,48 @@ final class DemoTVTests: XCTestCase {
         expectEqual(await code { try await tv.changeSchedule(followed, repeatType: "title") }, nil)
         expectEqual(await code { try await tv.changeSchedule(timed.row, repeatType: "d") }, nil)
         expectEqual(await television.schedules.map(\.repeatType), ["d", "title"])
+    }
+
+    // MARK: - what it is made with
+
+    /// Made with a table of titles, as the demo's television is made with its guide's, it lists a reservation
+    /// of a programme the table names under that title, as a real one lists its guide's, and the row as read
+    /// is deleted. The table goes by the station as well as the programme: the same programme id on another
+    /// station, and a programme the table does not name, are listed under its own invented title, as before.
+    func testAProgrammeItsTableNamesIsListedUnderThatTitle() async throws {
+        let named = DemoTV.Programme(serviceID: Self.stations[0].serviceID, eventId: 50101)
+        let (television, tv) = await television(DemoTV(titles: [named: "サンプル劇場　第１話"]))
+        try await tv.addSchedule(try body(on: 0, programme: 50101))
+        try await tv.addSchedule(try body(on: 1, programme: 50101))
+        try await tv.addSchedule(try body(on: 2, programme: 50102))
+
+        expectEqual(try await tv.schedules().map(\.title), [
+            DemoTV.title(ofProgramme: 50102), DemoTV.title(ofProgramme: 50101), "サンプル劇場　第１話",
+        ])
+        try await delete("recording.1", with: tv)
+        expectEqual(await television.schedules.map(\.id), ["recording.2", "recording.3"])
+    }
+
+    /// Made with stations and rows, it receives and holds them from the first thing asked of it, with nothing
+    /// done to it before: what the demo's television is made with where nothing can be awaited. What a request
+    /// makes is numbered after the rows it holds, as after rows put. Made with neither, it receives nothing and
+    /// holds nothing, as ever.
+    func testMadeWithStationsAndRowsItHasThemFromTheFirstThingAsked() async throws {
+        let held = DemoTV.Schedule(id: "recording.7", serviceID: Self.stations[1].serviceID,
+                                   station: Self.stations[1].name, title: "サンプル紀行", start: Self.start + 86_400,
+                                   eventId: 50107)
+        let television = DemoTV(stations: Self.stations, holding: [held])
+        expectEqual(await television.stations, Self.stations)
+        expectEqual(await television.schedules, [held])
+
+        let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials(Self.kept))
+        await television.knows(Self.kept.clientID, cookie: "kept")
+        try await tv.addSchedule(try body(on: 0, programme: 50101))
+        expectEqual(try await tv.schedules().map(\.id), ["recording.8", "recording.7"])
+
+        let plain = DemoTV()
+        expectEqual(await plain.stations, [])
+        expectEqual(await plain.schedules, [])
     }
 
     // MARK: - what a test has it do
