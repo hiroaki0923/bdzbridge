@@ -5,27 +5,34 @@ import Foundation
 /// its MAC, its free space and the disk in its USB slot, which are only shown or kept and must not fail the
 /// attach; a USB disk known is not let go of on one answer of none (`learnTheSlot`). The runs with no screen,
 /// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
+///
+/// What is asked of the recorder's reservations after its attach is here as well, as a television's is its
+/// driver's: reading them (`reservations`, `refreshReservations`) and sending what waits for the recorder in
+/// the phone's queue (`sendWhatWaits`, `resend`) -- the steps, and what each hands back for the app to keep. A
+/// delete, a change, a reservation and the clash check are still the app's (`AppModel`).
 @MainActor
 public final class RecorderDriver: LinkDriver {
-    /// The link holds the driver, so weak. Each operation asked of the driver reads it once, as it is asked for,
-    /// and goes through on the link it found there, written on the parts of an operation the link carries
-    /// (`DeviceLink.run`): the read of the reservations, and the slot's settling. The recorder's other
-    /// operations are still the app's, and will be asked of this the same way.
+    /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
+    /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
+    /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
+    /// again, and the slot's settling. The recorder's other operations are still the app's, and will be asked
+    /// of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
-    /// for (`GuideStore.claim`).
-    private let heldForAnotherRecorder: String
+    /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
+    private let heldWith: String
     /// How long the screens wait for the recorder to answer after the packet, and how often they ask meanwhile.
     private let wakingLimit: TimeInterval
     private let wakingInterval: Duration
     /// How long a client waits before sending again what the recorder answered 503 (`RecorderClient`).
     private let busyRetryDelay: ClosedRange<Double>
 
-    /// The waking's limit and interval, and the pause before a 503 is sent again, are given only by the tests,
-    /// which have no seconds to wait.
-    public init(holdingTheQueueWith reason: String, wakingLimit: TimeInterval = Waking.screenLimit,
+    /// The reason written on the rows held for another recorder, the waking's limit and interval, and the pause
+    /// before a 503 is sent again, are given only by the tests, which have no seconds to wait.
+    public init(holdingTheQueueWith reason: String = RecorderDriver.heldForAnotherRecorder,
+                wakingLimit: TimeInterval = Waking.screenLimit,
                 wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1) {
-        heldForAnotherRecorder = reason
+        heldWith = reason
         self.wakingLimit = wakingLimit
         self.wakingInterval = wakingInterval
         self.busyRetryDelay = busyRetryDelay
@@ -137,7 +144,7 @@ public final class RecorderDriver: LinkDriver {
         let lastWasAnother = inMemory == .another
         let onDisk: Recognition
         do {
-            onDisk = try await store.claim(for: recorder, holdingTheQueueWith: heldForAnotherRecorder,
+            onDisk = try await store.claim(for: recorder, holdingTheQueueWith: heldWith,
                                            knownToBeAnother: lastWasAnother)
         } catch {
             // The cache could not be written to. For the recorder it is of, or the first heard from, that costs
@@ -420,6 +427,119 @@ public final class RecorderDriver: LinkDriver {
         }
         if case .success(let list) = read { return list }
         return nil
+    }
+
+    /// What pulling the list down asks for: the list read again and what waits sent, or a connect when the
+    /// recorder is not connected, which does both once it has answered (`attach`, `LinkHost.reached`), and nil
+    /// -- what a connect that got nowhere has to say is on its line. Not connected, rather than offline: a
+    /// recorder that answered the last connect without saying which it is, busy with somebody else as it was
+    /// asked, is not offline, and the queue does not go to one (`sendWhatWaits`). Otherwise the newest list
+    /// read, nil when none was, and what the sending came to, nil when none ran.
+    ///
+    /// The list is read before what waits is sent, and again after a sending that made something; the read
+    /// after is the one handed back when there is one, since the one before would put the older list over it.
+    /// The sending is this driver's own, not asked through the host as an attach asks it. As it is today; a
+    /// later change sends first and reads once, as the television's pull-down does.
+    public func refreshReservations() async -> (list: [Reservation]?, round: PendingQueue.Outcome?)? {
+        guard let link else { return nil }
+        guard link.session.connected else {
+            await link.connect()
+            return nil
+        }
+        let read = await reservations()
+        let (round, after) = await sendWhatWaits()
+        return (after ?? read, round)
+    }
+
+    // MARK: - what waits in the queue
+
+    /// The line on screen while what waits for the recorder is sent.
+    public static let sendingLine = "送信待ちの予約を登録中"
+
+    /// Written on each reservation that was waiting when another recorder took the place of the one it was
+    /// made for, which holds it as a refusal does (`PendingQueue.flush`). How to send it again is said by the
+    /// row's swipe, the programme's sheet and the reservations screen's footer. Stored on the phone's rows and
+    /// counted by these letters (`heldBack`): never to be reworded.
+    public nonisolated static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
+        + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+
+    /// What the strip says first after a sending, for as long as any row waits held for another recorder:
+    /// how many, counted from the rows by the sentence written on them (`heldForAnotherRecorder`), since the
+    /// attach that held them need not have got as far as a sending. Nil when none is.
+    public nonisolated static func heldBack(in pending: [PendingReservation]) -> String? {
+        let held = pending.filter { $0.problem == heldForAnotherRecorder }.count
+        return held == 0 ? nil
+            : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
+    }
+
+    /// Sends what waits in the phone's queue for the recorder, by the rules in `PendingQueue` -- the same ones
+    /// the overnight run uses. What the round came to, nil when none ran, and the list read after it, nil when
+    /// none was: read only when something was sent, which is what puts the new reservation on screen. Asked by
+    /// the host whenever the recorder has just answered, which means from inside a connect, and here when the
+    /// list is pulled down or a row sent again: nothing here waits for the app's start.
+    ///
+    /// Only to a recorder that has described itself: whatever answers a connect some other way -- a 503, or as
+    /// something that is no recorder -- must not be handed what was waiting for the last recorder. And only
+    /// when a row waits for the recorder. What waits for the television is its own driver's to send
+    /// (`TVDriver.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
+    /// sends nothing, and that flush would wait its turn behind a television's sending that is out. Otherwise
+    /// nothing is asked and nothing said. The host is told the queue may have changed as it is looked at and
+    /// after the round (`LinkHost.queueWritten`), so that the screens read it again.
+    ///
+    /// The rows go under a line of their own, on the client in hand as this was asked. What had not been sent
+    /// when the recorder fell silent stays queued for the next answer, and the recorder is lost as for any
+    /// silence, with nothing said: as it is today; a later change says on the line that what was out may
+    /// have arrived. What became of the round is the host's to say.
+    public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
+        guard let link, let client = link.client as? RecorderClient, let store = link.owner?.cache,
+              link.session.connected else { return (nil, nil) }
+        await link.owner?.queueWritten()
+        let rows = (try? await store.pendingReservations()) ?? []
+        guard rows.contains(where: { $0.target == RecorderClient.slot }), !link.session.unreachable else {
+            return (nil, nil)
+        }
+        let round = await link.underALine(Self.sendingLine) { _ in
+            await PendingQueue.flush(client: client, store: store)
+        }
+        if round.interrupted { link.lost() }
+        await link.owner?.queueWritten()
+        let list = round.sent.isEmpty ? nil : await reservations()
+        return (round, list)
+    }
+
+    /// Sends a row waiting for the recorder again, as the reader asked on that row: a refused row is not sent
+    /// again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to since, an
+    /// antenna put right -- and only the reader knows when it has. What the round came to, nil when none ran,
+    /// and the list read after it, as `sendWhatWaits` hands them back.
+    ///
+    /// A row that is not the recorder's is refused before anything else: nothing is read, sent, written or said
+    /// for it. It is another device's to send again. With the link or the cache gone any row is refused the
+    /// same way.
+    ///
+    /// The row's reason is taken off, so that it goes with the rest from now on, and the host is told, so that
+    /// the screens show it without one before the recorder is made sure of. Then nothing more while the recorder
+    /// is known to be away, or the check before an operation says no: the row goes the next time the recorder
+    /// answers. There, and not connected -- a recorder that answered the last connect without saying which it
+    /// is -- a connect asks it again, and its attach sends what waits if it describes itself. Connected, what
+    /// waits is sent now.
+    ///
+    /// Everything that waits for the recorder is sent, not this row alone, and nothing is handed back of the
+    /// row itself, the strip saying what was sent: as it is today; a later change sends the one row and says
+    /// what it came to, as the television's driver does.
+    public func resend(_ waiting: PendingReservation) async
+        -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?) {
+        guard waiting.target == RecorderClient.slot, let link, let store = link.owner?.cache else {
+            return (nil, nil, nil)
+        }
+        try? await store.setPendingProblem(waiting.id, nil)
+        await link.owner?.queueWritten()
+        guard !link.offline, await link.ensureUp() else { return (nil, nil, nil) }
+        guard link.session.connected else {
+            await link.connect()
+            return (nil, nil, nil)
+        }
+        let (round, list) = await sendWhatWaits()
+        return (round, list, nil)
     }
 
     // MARK: - the check before an operation

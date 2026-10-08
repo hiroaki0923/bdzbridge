@@ -5,11 +5,12 @@ import SwiftUI
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.
 ///
-/// The recorder's are read, changed and deleted here. A television's are its host's (`TVHost`), which keeps
-/// them apart from the recorder's: here the two lists are only put together for the screens, and a change or a
-/// delete is sent to the device that holds the row (`Reservation.device`), before anything else is done. So is
-/// a waiting reservation the reader asks to have sent again, to the device it waits for
-/// (`PendingReservation.target`).
+/// The recorder's are read by its driver, and what waits for it is sent there too (`RecorderDriver`): here the
+/// app asks, and keeps what comes back. They are changed and deleted here. A television's are its host's
+/// (`TVHost`), which keeps them apart from the recorder's: here the two lists are only put together for the
+/// screens, and a change or a delete is sent to the device that holds the row (`Reservation.device`), before
+/// anything else is done. So is a waiting reservation the reader asks to have sent again, to the device it
+/// waits for (`PendingReservation.target`).
 ///
 /// Making one is the same from a screen whichever device it is for: where a reservation of a programme can
 /// still go (`destinations(for:)`), and one entry that reserves on the device named and on no other, and
@@ -41,17 +42,16 @@ extension AppModel {
     }
 
     /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when
-    /// the app is not connected, which does both once the recorder has answered. Not connected, rather than
-    /// offline: a recorder that answered the last connect without saying which it is, busy with somebody else
-    /// as it was asked, is not offline, and the queue does not go to one (`flushPending`).
+    /// the app is not connected, which does both once the recorder has answered -- the driver's to decide, once
+    /// (`RecorderDriver.refreshReservations`), after `start()` whichever it does. The list it hands back is kept
+    /// by the count noted here (`keepReservations`), and what the sending came to goes on the strip
+    /// (`tellTheStrip`).
     func refreshReservations() async {
         let forgotten = timesForgotten
-        if !connected {
-            await connect()
-        } else {
-            await loadReservations(since: forgotten)
-            await flushPending(since: forgotten)
-        }
+        await start()
+        guard let pulled = await recorderDriver?.refreshReservations() else { return }
+        keepReservations(pulled.list, since: forgotten)
+        tellTheStrip(pulled.round)
     }
 
     enum ReservationSort: String, CaseIterable {
@@ -542,7 +542,9 @@ extension AppModel {
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
-    /// connected, and otherwise with the rest the next time the recorder answers.
+    /// connected, and otherwise with the rest the next time the recorder answers: the driver's steps
+    /// (`RecorderDriver.resend`). The list read after a sending is kept by the count noted here
+    /// (`keepReservations`), and what the round came to goes on the strip (`tellTheStrip`).
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
@@ -555,18 +557,9 @@ extension AppModel {
         }
         let forgotten = timesForgotten
         await start()
-        guard let store else { return }
-        try? await store.setPendingProblem(waiting.id, nil)
-        await loadPending()
-        guard !offline, await wakeIfDozing() else { return }
-        // There, and not connected: a recorder that answered the last connect without saying which it is. The
-        // queue does not go to one (`flushPending`), so a connect asks it again, and sends the queue if it
-        // describes itself.
-        guard connected else {
-            await connect()
-            return
-        }
-        await flushPending(since: forgotten)
+        guard let sent = await recorderDriver?.resend(waiting) else { return }
+        keepReservations(sent.list, since: forgotten)
+        tellTheStrip(sent.round)
     }
 
     /// 「もう一度送る」 as a screen asks for it: the row is sent again (`resend`), and what it came to is
@@ -608,43 +601,19 @@ extension AppModel {
     private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
         + "右にスワイプすると、もう一度送れます。"
 
-    /// Sends what has been waiting, by the rules in `PendingQueue` -- the same ones the overnight run uses.
-    /// Called whenever the recorder has just answered, which means from inside `connect()`: nothing here may
-    /// await `start()`.
-    ///
-    /// Only to a recorder that has described itself: whatever answers a connect some other way -- a 503, or as
-    /// something that is no recorder -- must not be handed what was waiting for the last recorder.
-    ///
-    /// And only when a row waits for the recorder. What waits for the television is its own host's to send
-    /// (`TVHost.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
-    /// sends nothing, and that flush would wait its turn behind a television's sending that is out.
-    ///
-    /// `forgotten` is what the entry that sends noted as it began, for the list read after (`keepReservations`).
-    @discardableResult
-    func flushPending(since forgotten: Int) async -> Int {
-        guard let client, let store, connected else { return 0 }
-        await loadPending()
-        guard pending.contains(where: { $0.target == .recorder }), !unreachable else { return 0 }
-        let activity = activities.begin("送信待ちの予約を登録中")
-        let outcome = await PendingQueue.flush(client: client, store: store)
-        activities.end(activity)
-        // What had not been sent stays queued for the next answer, and the app goes offline as it does for
-        // any silence.
-        if outcome.interrupted { lostTheRecorder() }
-        await loadPending()
-        if !outcome.sent.isEmpty { keepReservations(await recorderDriver?.reservations(), since: forgotten) }
-        // Said on screen, since a notification does not show while the app is in front (nothing here answers
-        // `willPresent`). A flush with nothing to say -- everything waiting had been refused before -- leaves
-        // the last line where it was. What is held for another recorder is said each time, for as long as any
-        // is, and first: counted from the rows, since the attach that held them need not have got this far.
-        // What became of the queue says which device it went to once a television is saved beside the
-        // recorder, and not before (`PendingQueue.Outcome.said`).
-        let held = pending.filter { $0.problem == Self.heldForAnotherRecorder }.count
-        let heldBack = held == 0 ? nil
-            : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
-        let lines = [heldBack, outcome.said(withATelevisionSaved: tv != nil)].compactMap { $0 }
+    /// What a sending of what waits for the recorder came to, on the strip: only when a round ran
+    /// (`RecorderDriver.sendWhatWaits`), and nothing when none did -- no row for the recorder, or the recorder
+    /// not there to send to. Said on screen, since a notification does not show while the app is in front
+    /// (nothing here answers `willPresent`). A round with nothing to say -- everything waiting had been refused
+    /// before -- leaves the last line where it was. What is held for another recorder is said each time, for as
+    /// long as any is, and first (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver
+    /// has had read again after its round (`queueWritten`). What became of the queue says which device it went
+    /// to once a television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    func tellTheStrip(_ round: PendingQueue.Outcome?) {
+        guard let round else { return }
+        let lines = [RecorderDriver.heldBack(in: pending), round.said(withATelevisionSaved: tv != nil)]
+            .compactMap { $0 }
         if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
-        return outcome.sent.count
     }
 
     /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both

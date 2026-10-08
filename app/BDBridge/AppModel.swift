@@ -279,8 +279,7 @@ final class AppModel: LinkHost {
         recorder = DeviceLink(
             host: demo ? DemoData.host : saved,
             session: SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
-            driver: RecorderDriver(holdingTheQueueWith: Self.heldForAnotherRecorder,
-                                   busyRetryDelay: surroundings.busyRetryDelay),
+            driver: RecorderDriver(busyRetryDelay: surroundings.busyRetryDelay),
             environment: Self.nowhere)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
@@ -431,7 +430,7 @@ final class AppModel: LinkHost {
     var deletingWaiting: Set<String> = []
 
     /// What the last sending of the queue came to, and how many reservations are held for another recorder,
-    /// for the strip to say until the reader closes it or leaves the app. See `flushPending`.
+    /// for the strip to say until the reader closes it or leaves the app. See `tellTheStrip`.
     var flushReport: String?
 
     /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect

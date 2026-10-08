@@ -45,12 +45,6 @@ extension AppModel {
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
 
-    /// Written on each reservation that was waiting when another recorder took the place of the one it was
-    /// made for, which holds it as a refusal does (`PendingQueue.flush`). How to send it again is said by the
-    /// row's swipe, the programme's sheet and the reservations screen's footer.
-    static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
-        + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
-
     /// Said when something the reader asked for was not done because another recorder answered where the
     /// one it was meant for had been. Not only what is sent: a read comes through the same check.
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
@@ -299,8 +293,14 @@ extension AppModel {
         problem = Self.cacheNotMadeOver
     }
 
+    /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
+    /// attach: the list it read after a sending is kept by the count noted here (`keepReservations`), and what
+    /// the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
     func sendWhatWaits() async {
-        await flushPending(since: timesForgotten)
+        let forgotten = timesForgotten
+        guard let sent = await recorderDriver?.sendWhatWaits() else { return }
+        keepReservations(sent.list, since: forgotten)
+        tellTheStrip(sent.round)
     }
 
     func queueWritten() async {
