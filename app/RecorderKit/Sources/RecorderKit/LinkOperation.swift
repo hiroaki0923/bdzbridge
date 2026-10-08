@@ -48,13 +48,14 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///
 /// - One whose result carries a sentence says in that result what its door turned away, and leaves the
 ///   device's line of what went wrong as it was: nothing was sent, and the line an earlier operation left
-///   is not its to write over. Reserving a programme is one. A waiting row sent again is another: what it
-///   came to is handed back for the screen the reader asked on, and is nil where there is nothing to say
-///   of the row -- one that is another device's, which its driver refuses as it refuses a delete of
-///   another's reservation, and one that no longer waits. Changing a television's reservation is a third
-///   (`Altered`), nil for a row of another device in the same way. Changing the recorder's hands back the
-///   same, nil for another device's row too, but still says its door on the recorder's line, which its
-///   result then gives: as it is today; a later change says it in the result alone.
+///   is not its to write over. Reserving a programme on a television is one. A waiting row sent again is
+///   another: what it came to is handed back for the screen the reader asked on, and is nil where there is
+///   nothing to say of the row -- one that is another device's, which its driver refuses as it refuses a
+///   delete of another's reservation, and one that no longer waits. Changing a television's reservation is
+///   a third (`Altered`), nil for a row of another device in the same way. Reserving on the recorder hands
+///   back the same `Reserved`, and changing one of its reservations the same `Altered`, nil for another
+///   device's row too; but both still say their door on the recorder's line, which their result then gives:
+///   as it is today; a later change says it in the result alone.
 /// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
 ///   until it too hands back a result with a sentence: a delete.
 /// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
@@ -130,8 +131,8 @@ public extension Reserved {
 /// and what silence leaves behind (`lost`), which are the link's already: the line on the screen while it is
 /// out, and what is said and done about the way it failed. `run` is the four in the order an operation of one
 /// request keeps. One of several requests can be written on the parts themselves, as the television's change
-/// is, and the recorder's delete and change; the television's delete is not yet, and still puts up its own line
-/// and says its own silence.
+/// is, and the recorder's delete, change and reservation; the television's delete is not yet, and still puts up
+/// its own line and says its own silence.
 extension DeviceLink {
     /// Runs `body` under a line of its own on the host's screen, taken away when it ends; with no text, under
     /// whatever line is up already. `body` is handed the line's token, to say how far it has got, or nil with

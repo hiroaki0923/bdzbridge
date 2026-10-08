@@ -13,12 +13,12 @@
   a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
   kind of failure says and leaves behind. The one funnel the recorder's actions run through (`AppModel.run`)
   stands on it, and so does each device's read of its reservations, which is its driver's. The recorder's
-  driver sends what waits for it in the phone's queue, and deletes and changes its reservations, as well
-  (`RecorderDriver.reservations`, `refreshReservations`, `sendWhatWaits`, `resend`, `cancel`, `update`), and
-  `AppModelReservations` keeps what comes back; making a recorder's reservation, and the clash check before
-  it, are still the model's own steps. A television, once added in the settings, has a link of its own beside
-  the recorder's, with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's
-  silence, trouble or work is the other's. What the television said --
+  driver sends what waits for it in the phone's queue, makes, changes and deletes its reservations, and asks
+  what a new one would clash with, as well (`RecorderDriver.reservations`, `refreshReservations`,
+  `sendWhatWaits`, `resend`, `reserve`, `update`, `cancel`, `conflicts`), and `AppModelReservations` keeps
+  what comes back. A television, once added in the settings, has a link of its own beside the recorder's,
+  with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's silence,
+  trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
   driver's steps, and `AppModelReservations` only puts the two devices' lists together for the screens and
   sends a change or a delete to the device that holds the row -- a change through the one entry a sheet
@@ -191,9 +191,13 @@ written out once, in `Bench` (`Said`): one of them is stored on the rows of the 
 being equal to it, so a letter changed there is a row no longer counted. A reservation made, kept or changed
 on the recorder is asked for through `Bench` as well, by what it does (`reserveOnTheRecorder`, `keptJustNow`,
 `changeOnTheRecorder`) and through the entries the screens use, so that when the recorder's operations move
-only those bodies change. The change has moved into the recorder's driver so: a row of another device, which no
-screen sends the recorder, is put to the driver's own door (`RecorderDriver.update`), and that is the one branch
-of them that changed. The funnel's own body has moved already, onto the link (`DeviceLink.run`), with
+only those bodies change. The recorder's reservation operations have all moved into its driver so -- making
+a reservation and keeping it on the phone, changing one, and deleting one, which the gates ask through the
+model's own entry (`cancel`) -- and the gates reach the driver through the screens' entries as they did: a row
+of another device, which no screen sends the recorder, is put to the driver's own door
+(`RecorderDriver.update`), and that is the one branch of those bodies that changed. One assertion went with
+the reservation: the one that looked at the side channel a kept row used to be set in for a screen
+(`queued`), which is gone. The funnel's own body has moved already, onto the link (`DeviceLink.run`), with
 these as they were: what its parts are is tried in RecorderKit (`LinkPartsTests`), and that the app still does
 the same with them is what the gates show. So has the sending of the queue: its loop asks the device to send a
 row (`QueueTarget`) and its sentences are beside its outcome, both tried in RecorderKit (`QueueTargetTests`,
@@ -221,8 +225,8 @@ state at a time: in the order it has always had in a home with a recorder alone,
 after the recorder's, and last the line for a disk that is away while a reservation waits for it. And what
 the programme's sheet asks of the model: where a reservation can go, by the devices saved and by what each
 holds or has waiting, with nothing asked of a television, and the real one offered nowhere in the demo; the one entry, which
-reserves on the device named and on no other and reads the recorder's reservation, unchanged, into the
-value both devices answer with; and the yes and the no at the question before a reservation that would stop
+reserves on the device named and on no other, the recorder's through its driver, and answers in the value both
+devices answer with; and the yes and the no at the question before a reservation that would stop
 another from recording -- the yes the consent to what the question named and silent on the strip for a
 reservation asked for just now, the no taking that row off and leaving one that waited before. How a
 reservation or a sending to a television goes step by step, and what each way it can stop leaves and says,
@@ -1120,9 +1124,12 @@ Centre.
 Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
 which shows no dialog -- so nothing lands on the local network question that comes up around the first
 connect -- and lets the notifications reach Notification Centre quietly, where the reader can keep them or
-turn them off. The system's dialog comes the first time a reservation is queued, after it has been saved, or
-when the reader asks for it in the settings, which say where permission stands and open the app's
-notification settings. Asking only when a reservation was queued, as the app used to, meant that somebody
+turn them off. The system's dialog comes the first time a reservation is queued -- after it has been saved,
+and once the reservation's line is down, for either device -- or when the reader asks for it in the settings,
+which say where permission stands and open the app's notification settings. Neither the reservation nor the
+app's work waits on the reader's answer: while the dialog is up, a connect the app makes as the reader comes
+back to it, or on a new network, can send the row just kept, and the sheet then says it was kept while the
+strip says it went. Asking only when a reservation was queued, as the app used to, meant that somebody
 who only used it at home never heard about the disk. The low-space warning is said once per fall below the
 line, not once a night, and only counts as said when notifications were allowed to carry it. A recorder that
 does not say how big its disk is -- an answer in a shape the app cannot read, or a size of nothing -- is not
@@ -1203,7 +1210,7 @@ recordings. Silence loses the recorder, as a read's does, and a reservation then
 been sent. With the disk answered since, and in a home with no USB disk, nothing is waited for and no request is
 added.
 
-Each sheet hands the model the disk the reader picked, and the model sends it as picked or not at all. A USB disk
+Each sheet hands the model the disk the reader picked, and it is sent as picked or not at all. A USB disk
 let go of between the choice and the press -- or one the slot did not answer while it was waited for (above) -- is
 refused before anything is queued or sent -- a reservation, a move or a condition -- with a line that names it:
 sending the internal disk in its place would make a reservation or a condition the reader did not agree to. Where
@@ -1215,7 +1222,7 @@ where it stays (`RecorderDisk.stays`) rather than ask for a choice the sheet doe
 says which, by the rule the sheet offers its disks from (`RecorderDisk.choices(keeping:on:with:)`). On the
 programme's sheet a disk picked and let go of while it is open stays shown under 録画先 as a value and is asked
 nothing: no clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as 予約する would,
-without the question before reserving, which would promise a registration the model is about to refuse; a question
+without the question before reserving, which would promise a registration that is about to be refused; a question
 already up when the disk is let go of goes, as one does when the recorder is let go of. While the disk picked is
 offered, and in a home with no USB disk, the sheet asks and checks as it always has.
 
@@ -1427,8 +1434,9 @@ television's answer would have the recorder asked what would clash on account of
 television's.
 
 One entry reserves for both devices (`AppModel.reserve(_:on:quality:repeating:)`) and answers in the one value
-(`Reserved`); the recorder's is its reservation as it stands, read into that value. Under a request of its own
-to the television nothing on the sheet can be pressed and the sheet cannot be closed, and the request's line
+(`Reserved`); the recorder's is its driver's (`RecorderDriver.reserve`), which hands back that value with the
+very sentences the sheet said before. Under a request of its own to the television nothing on the sheet can
+be pressed and the sheet cannot be closed, and the request's line
 (テレビに予約を登録中) is a section of its own: what the request came to is said in the sheet's one alert and nowhere
 else. Nor does such a request begin while another request of the sheet's is still out -- the recorder's
 reservation or its row sent again, a delete: the sheet counts those, and the television's 録画予約する and もう一度送る
