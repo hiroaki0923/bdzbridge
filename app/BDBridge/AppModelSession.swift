@@ -75,11 +75,6 @@ extension AppModel {
         recorder.lost()
     }
 
-    /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
-    /// again, and what the list says once the recorder answers is the only way to find out.
-    static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
-        + "送り直していません。再接続してから一覧で確かめてください。"
-
     /// Why something the reader asked for was not sent at all: the app is not connected.
     var notConnected: String {
         connectBlocked ? LocalNetworkNotice.title

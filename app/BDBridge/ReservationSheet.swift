@@ -9,7 +9,9 @@ import SwiftUI
 ///
 /// A television's is shown, changed and deleted. What can be changed is its repeat, until its programme
 /// begins, to what its driver offers (`TVDriver.repeats(changing:)`): the sheet has no rule of its own, and
-/// offers nothing the change's door would turn away. What the change came to is said in the sheet's one alert,
+/// offers nothing the change's door would turn away. A recorder's is offered the modes and the repeats its
+/// driver lists (`RecorderDriver.recordsIn`, `repeats(startingAt:)`), and what the sheet says of one in words
+/// of the recorder's is its driver's too. What the change came to is said in the sheet's one alert,
 /// under the device's name when something is to be added to a change made. While a request of the sheet's own
 /// to the television is out, the change or the delete, its line is on the sheet, nothing on it can be
 /// pressed and the sheet cannot be closed: what the request came to is said here, and a sheet that had gone
@@ -29,7 +31,7 @@ struct ReservationSheet: View {
     @State private var repeating = ""
     /// The disk the reader moved it to, nil while it is left on its own, kept as picked: a move to a disk let
     /// go of since is refused when it is sent, not sent to another. Moved back, it is nil again, so that what
-    /// the recorder holds it on is kept (`AppModel.update`).
+    /// the recorder holds it on is kept (`RecorderDriver.update`).
     @State private var movedTo: String?
     @State private var saved = false
     /// A change made, and what its device added to it, said before the sheet closes.
@@ -41,10 +43,9 @@ struct ReservationSheet: View {
     private var past: Bool { reservation.end <= Date() }
     private var onTelevision: Bool { reservation.device == .tv }
 
-    /// A weekly repeat has to fall on the programme's own weekday, so that is the only weekly one offered.
-    private var repeatOptions: [String] {
-        ["none", "title", "daily", Codes.weekdayRepeat(for: reservation.start), "mon-fri", "mon-sat"]
-    }
+    /// What a recorder's row can be given, as its driver offers them: the weekly one only on the programme's own
+    /// weekday (`RecorderDriver.repeats(startingAt:)`).
+    private var repeatOptions: [String] { RecorderDriver.repeats(startingAt: reservation.start) }
 
     /// What a television's row can be changed to, the row's own repeat among them: none once its programme
     /// has begun, and none for a repeat that has no name here.
@@ -87,8 +88,7 @@ struct ReservationSheet: View {
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
                         if reservation.conflict { conflictRow }
                         if reservation.createdByRecorder {
-                            Text("おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
-                                 + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。")
+                            Text(RecorderDriver.madeByItself)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -118,11 +118,8 @@ struct ReservationSheet: View {
                     } footer: {
                         Text(onTelevision
                              ? TVDriver.changesTheRepeatOnly
-                             : reservation.eventID != nil
-                             ? "番組追従はそのままです。"
-                             : diskChoices.isEmpty
-                             ? "時刻を指定した予約なので、録画モードと毎回録画だけを変えられます。"
-                             : "時刻を指定した予約なので、録画モード・毎回録画・録画先だけを変えられます。")
+                             : RecorderDriver.changeFooter(followsItsProgramme: reservation.eventID != nil,
+                                                           offersADisk: !diskChoices.isEmpty))
                     }
                 }
 
@@ -143,7 +140,7 @@ struct ReservationSheet: View {
             .toolbar { SheetCloseButton().disabled(asking != nil) }
             .interactiveDismissDisabled(asking != nil)
             .task {
-                quality = reservation.qualityName ?? Codes.qualityOrder.first ?? "LSR"
+                quality = reservation.qualityName ?? RecorderDriver.recordsIn.first ?? "LSR"
                 repeating = reservation.repeatName ?? "none"
                 program = await model.program(for: reservation)
             }
@@ -174,9 +171,7 @@ struct ReservationSheet: View {
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "\(reservation.device.label)から削除されます。"
-                         + (reservation.createdByRecorder
-                            ? "\nおまかせ・まる録による予約のため、レコーダーが再登録することがあります。"
-                            : ""))
+                         + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBack : ""))
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
@@ -241,7 +236,7 @@ struct ReservationSheet: View {
             LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
         } else {
             Picker("録画モード", selection: $quality) {
-                ForEach(Codes.qualityOrder, id: \.self) { code in
+                ForEach(RecorderDriver.recordsIn, id: \.self) { code in
                     Text(Codes.qualityLabel[code] ?? code).tag(code)
                 }
             }

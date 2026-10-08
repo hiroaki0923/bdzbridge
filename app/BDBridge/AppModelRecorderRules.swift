@@ -41,8 +41,9 @@ extension AppModel {
     ///
     /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
     /// refused before anything is sent, as a reservation's is (`reserve`), and so is one the slot has not answered
-    /// since the recorder last answered and does not answer while it is waited for (`slotWithholds`). A condition
-    /// is never changed, so one made to a disk the reader did not pick could only be deleted and made again.
+    /// since the recorder last answered and does not answer while it is waited for (`RecorderDriver.withholds`).
+    /// A condition is never changed, so one made to a disk the reader did not pick could only be deleted and made
+    /// again.
     ///
     /// To the slot, the recorder is made sure of, and the slot waited for, before the registration goes out --
     /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press, as
@@ -50,7 +51,7 @@ extension AppModel {
     /// press cannot make a second condition meanwhile.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
         await start()
-        diskNotHad = nil
+        recorderDriver?.clearTheDiskNotHad()
         guard let client else { return false }
         guard RecorderDisk.offers(request.destination, with: usbDisk) else {
             problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
@@ -61,7 +62,7 @@ extension AppModel {
         defer { if let line { activities.end(line) } }
         if toTheSlot {
             guard await wakeIfDozing() else { return false }
-            if let withheld = await slotWithholds(request.destination) {
+            if let withheld = await recorderDriver?.withholds(request.destination) {
                 if withheld == .noDisk {
                     problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
                 }

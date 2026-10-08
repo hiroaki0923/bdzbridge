@@ -1065,7 +1065,10 @@ func keptJustNow(_ model: AppModel) -> PendingReservation? {
 func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String, repeating: String,
                          disk: String? = nil) async -> Bool {
     guard row.device == .recorder else {
-        return await model.update(row, quality: quality, repeating: repeating, disk: disk)
+        let turnedAway = await model.recorderDriver?.update(row, quality: quality, repeating: repeating, disk: disk,
+                                                            inHand: { [] })
+        if case .done? = turnedAway?.altered { return true }
+        return false
     }
     if case .done = await model.change(row, quality: quality, repeating: repeating, disk: disk) { return true }
     return false

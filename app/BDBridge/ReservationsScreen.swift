@@ -175,9 +175,7 @@ struct ReservationsScreen: View {
                 case .confirm(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "\(reservation.device.label)から削除されます。"
-                         + (reservation.createdByRecorder
-                            ? "\nこれはおまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
-                            : ""))
+                         + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBackFromTheList : ""))
                 case .confirmPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
                          + "この端末から削除し、\(waiting.target.label)には送りません。")

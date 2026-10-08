@@ -52,6 +52,12 @@ public final class SessionState {
     /// (`RecorderDriver.settleTheSlot`), some seconds at most: a sheet says so, as it says a waking.
     public var settlingTheSlot: Bool { slotSettlings > 0 }
     private var slotSettlings = 0
+    /// The slot, when the last request that could name a disk of the recorder's -- a reservation, a change, a
+    /// condition, a clash check -- was not sent because the slot answered no disk it could record to while it was
+    /// waited for (`slotHadNoDisk`); nil once the next such request begins (`requestNamingADiskBegan`). A sheet goes
+    /// back to the internal disk on it. It is the last request's and not the device's: nothing else changes it,
+    /// another device answering and the device forgotten among them.
+    public private(set) var diskNotHad: String?
     public private(set) var connecting = false
     /// Set while the local network permission is why the device cannot be reached, and the app is waiting
     /// for it rather than for the device.
@@ -252,6 +258,12 @@ public final class SessionState {
     public func endWaking() { waking = false }
     public func beganSettlingTheSlot() { slotSettlings += 1 }
     public func endedSettlingTheSlot() { slotSettlings = max(0, slotSettlings - 1) }
+    /// The slot was waited for before a request that names `disk`, and answered no disk it could record to: the
+    /// request is not sent, and `disk` cannot be had now (`diskNotHad`).
+    public func slotHadNoDisk(for disk: String) { diskNotHad = disk }
+    /// A request that can name a disk begins, whichever disk it names: what the last one found not to be had is
+    /// forgotten.
+    public func requestNamingADiskBegan() { diskNotHad = nil }
     public func powerNeeded(_ needed: Bool) { needsPower = needed }
 
     /// Keeps a MAC for waking the device. Anything that is not one is ignored rather than kept, so a

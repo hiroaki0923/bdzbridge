@@ -334,6 +334,44 @@ final class SessionStateTests: XCTestCase {
         }
     }
 
+    /// A disk the slot answered no disk for, waited for before a request that names it, is put down for the
+    /// sheets, and the next request that can name a disk forgets it, whichever disk that one names.
+    func testTheNextRequestThatCanNameADiskForgetsTheDiskNotHad() {
+        let session = attached()
+        XCTAssertNil(session.diskNotHad)
+        session.slotHadNoDisk(for: RecorderDisk.usbID)
+        XCTAssertEqual(session.diskNotHad, RecorderDisk.usbID)
+        session.requestNamingADiskBegan()
+        XCTAssertNil(session.diskNotHad, "the next request left the disk not to be had")
+        session.requestNamingADiskBegan()
+        XCTAssertNil(session.diskNotHad)
+    }
+
+    /// The disk not had is the last request's, not the device's: what happens to the device leaves it as it was
+    /// -- the same recorder answering again or another, silence, the slot answering, the device forgotten -- and
+    /// only the next request takes it away.
+    func testADiskNotHadStandsThroughWhatHappensToTheDevice() {
+        let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true,
+                                freeMB: 1_000, totalMB: 2_000, registered: "2026-01-02T03:04:05+0900")
+        let events: [(String, (SessionState) -> Void)] = [
+            ("the same recorder", { $0.described(self.description(host: "192.0.2.11")) }),
+            ("another recorder", { $0.described(self.description(udn: Self.anotherUDN)) }),
+            ("another identity", { $0.identified(as: "f8:4e:17:00:00:02") }),
+            ("silence", { $0.lost() }),
+            ("the slot answering a disk", { $0.slotAnswered(disk) }),
+            ("the slot answering none", { $0.slotAnswered(nil) }),
+            ("forgotten", { $0.forgotTheDevice() }),
+        ]
+        for (what, event) in events {
+            let session = attached()
+            session.slotHadNoDisk(for: RecorderDisk.usbID)
+            event(session)
+            XCTAssertEqual(session.diskNotHad, RecorderDisk.usbID, "\(what) took the disk not had away")
+            session.requestNamingADiskBegan()
+            XCTAssertNil(session.diskNotHad, what)
+        }
+    }
+
     /// A UDN is a UUID, which reads the same in either case: a device that spells its own another way is the
     /// one known. Which device it is stays written as it was first given, for a caller that compares it.
     func testADeviceIsTheSameHoweverItsUDNIsCased() {

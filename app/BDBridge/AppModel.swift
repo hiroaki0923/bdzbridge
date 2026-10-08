@@ -127,15 +127,17 @@ final class AppModel: LinkHost {
     }
 
     /// Whether a disk the reader picked could not be had when it was last sent: no longer offered, or the slot
-    /// answered no disk while it was waited for (`slotWithholds`). A sheet goes back to the internal disk then.
+    /// answered no disk while it was waited for (`RecorderDriver.withholds`). A sheet goes back to the internal
+    /// disk then.
     func diskCannotBeHad(_ picked: String) -> Bool {
         !RecorderDisk.offers(picked, with: usbDisk) || diskNotHad == picked
     }
 
     /// The slot, when the last request that could name a disk of the recorder's -- a reservation, a change, a
     /// condition, a clash check -- was not sent because the slot answered no disk it could record to while it was
-    /// waited for (`slotWithholds`); nil when that request went, or failed for anything else.
-    var diskNotHad: String?
+    /// waited for; nil when that request went, or failed for anything else. The driver decides it, and the session
+    /// holds it (`SessionState.diskNotHad`).
+    var diskNotHad: String? { session.diskNotHad }
 
     /// Set while the USB slot is waited for before something that names it is sent, which a sheet says as it says
     /// a waking (`WakingSection`).
@@ -154,9 +156,8 @@ final class AppModel: LinkHost {
     /// guide lists is about to be replaced: see `GuideScreen.scroll`.
     var guideReads = 0
     var reservations: [Reservation] = [] {
-        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled --
-        // taken out of the list by hand, and again after a reload that can be a moment behind the recorder
-        // -- went on being marked 予約 in the guide.
+        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled -- taken
+        // out of a list the load had not built -- went on being marked 予約 in the guide.
         didSet { reservationsByProgram = Self.byProgram(reservations) }
     }
     var titles: [RecordedTitle] = []
@@ -490,7 +491,7 @@ final class AppModel: LinkHost {
         // the one its caller had in hand, which is the one the check is asked with.
         let activity = activities.begin(what)
         defer { activities.end(activity) }
-        let ran = await recorder.run(sending: sending ? Self.mayHaveArrived : nil) { _ in
+        let ran = await recorder.run(sending: sending ? RecorderDriver.mayHaveArrived : nil) { _ in
             try await work(activity)
         }
         if case .success = ran { return true }
