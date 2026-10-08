@@ -189,6 +189,26 @@ final class ScanTallyTests: XCTestCase {
         XCTAssertFalse(counts.summary.contains("192.0.2."), "an address in the summary: \(counts.summary)")
     }
 
+    /// A search that asks two kinds of request keeps the address from the kind it asks again, and from no
+    /// other: the address the system lets through unasked may fail at the other port with a code read as
+    /// turned away, and asked again it would read as let out. Every request is counted all the same, of
+    /// either kind.
+    func testATallyKeepingAnAddressFromOnePortKeepsNoneFromAnother() async throws {
+        let stub = StubTransport { request, _ in throw Self.failure(-1009, at: request.url.host() ?? "") }
+        let tally = ScanTally(stub, keepingAddressFrom: Upnp.port)
+
+        let atEighty = try XCTUnwrap(URL(string: "http://192.0.2.1:80/sony/system"))
+        _ = try? await tally.send(HTTPRequest(url: atEighty, method: "POST"))
+        expectNil(await tally.turnedAwayAt, "an address was kept from a request at another port")
+        let atTheRecordersPort = try XCTUnwrap(URL(string: "http://192.0.2.2:64220/description.xml"))
+        _ = try? await tally.send(HTTPRequest(url: atTheRecordersPort))
+
+        expectEqual(await tally.turnedAwayAt, "192.0.2.2", "not the first address turned away at the port named")
+        let counts = await tally.counts
+        XCTAssertEqual(counts.failed, [-1009: 2], "a request of the other kind was not counted")
+        XCTAssertEqual(counts.asked, 2)
+    }
+
     /// A tally starts with no address kept, whatever another kept before it: a search makes one for each look,
     /// and asks again only at an address that look saw turned away.
     func testATallyStartsWithNoAddressKept() async throws {

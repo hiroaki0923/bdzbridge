@@ -32,6 +32,10 @@ final class Bench {
     /// (`leaveWiFi`), and who answers a search: the subnet of the Wi-Fi the phone was last put on.
     private var wifi: LocalNetwork.Interface?
     private var subnet: Subnet?
+    /// How many times a model made here read the interfaces a search looks round, and made the transport a
+    /// search sends through: what a search in the demo is to read and make none of.
+    private(set) var interfacesRead = 0
+    private(set) var scanTransportsMade = 0
     /// Each pause a search of a model made here asked for between one single request and the next, by how
     /// long it asked for, in order and from the moment it asked.
     private(set) var scanPauses: [Duration] = []
@@ -93,9 +97,15 @@ final class Bench {
     }
 
     /// A model as the app makes one in a home with a television and no recorder: no recorder saved and nothing
-    /// answering as one anywhere, and the television saved at `tvHost` with its registration in `credentials`.
-    func modelWithNoRecorder(television: any HTTPTransport, credentials: any TVCredentialStore) -> AppModel {
-        defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+    /// answering as one anywhere, and the television at `tvHost` answering through `television`, saved with its
+    /// registration in `credentials` unless `saved` is false, as at a first launch.
+    func modelWithNoRecorder(television: any HTTPTransport, credentials: any TVCredentialStore,
+                             saved: Bool = true) -> AppModel {
+        if saved {
+            defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.tvHost)
+        }
         let nobody = SilentRecorder()
         return model(saved: nil, transport: { _ in nobody },
                      tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() }, tvCredentials: credentials)
@@ -108,15 +118,17 @@ final class Bench {
     /// documentation, so on another subnet.
     static let phoneElsewhere = "198.51.100.20"
 
-    /// Puts the phone on a Wi-Fi for a search for a recorder to look round, before or after the model is
-    /// made: a /24 as a home's is, so 253 addresses around `phone`, with `recorders` at theirs and nobody at
-    /// the rest, who are silent but for those the test has refuse (`refusing`). The search's requests go to the
-    /// subnet handed back and nowhere else. Until a test calls this the phone is on no Wi-Fi, and a search by a
-    /// model made here says so and asks nobody.
+    /// Puts the phone on a Wi-Fi for a search for a recorder and a television to look round, before or after
+    /// the model is made: a /24 as a home's is, so 253 addresses around `phone`, with `recorders` at theirs on
+    /// the recorder's port, `televisions` at theirs on port 80, and nobody at the rest, who are silent but for
+    /// those the test has refuse (`refusing`). The search's requests go to the subnet handed back and nowhere
+    /// else. Until a test calls this the phone is on no Wi-Fi, and a search by a model made here says so and
+    /// asks nobody.
     @discardableResult
-    func joinWiFi(with recorders: [String: any HTTPTransport] = [:], refusing: Set<String> = [],
+    func joinWiFi(with recorders: [String: any HTTPTransport] = [:],
+                  televisions: [String: any HTTPTransport] = [:], refusing: Set<String> = [],
                   as phone: String = Bench.phone) -> Subnet {
-        let subnet = Subnet(recorders, refusing: refusing)
+        let subnet = Subnet(recorders, televisions: televisions, refusing: refusing)
         wifi = LocalNetwork.Interface(name: "en0", address: phone, netmask: "255.255.255.0", broadcasts: true)
         self.subnet = subnet
         return subnet
@@ -192,8 +204,14 @@ final class Bench {
             slotSettling: slotSettling,
             tvTransport: tvTransport,
             tvCredentials: tvCredentials,
-            lanInterfaces: { [weak self] in (self?.wifi).map { [$0] } ?? [] },
-            scanTransport: { [weak self] in self?.subnet ?? Subnet() },
+            lanInterfaces: { [weak self] in
+                self?.interfacesRead += 1
+                return (self?.wifi).map { [$0] } ?? []
+            },
+            scanTransport: { [weak self] in
+                self?.scanTransportsMade += 1
+                return self?.subnet ?? Subnet()
+            },
             scanPause: { [weak self] in await self?.pause(for: $0) },
             scanLog: { [weak self] in self?.scanLog.append($0) }))
     }
@@ -247,42 +265,57 @@ actor SilentRecorder: HTTPTransport {
     }
 }
 
-/// The subnet of a Wi-Fi a test has put the phone on (`Bench.joinWiFi`), as a search for a recorder meets it:
-/// what is sent to an address goes to the recorder the test put there, and at any other nobody answers. A
-/// request to such an address fails as the system has one fail, in the text a search's tally reads the
-/// system's code out of (`ScanTally`): timed out where the address is silent -- at once, where a real one is
-/// silent for as long as the request waits -- or refused, at the addresses the subnet was made to have refuse.
+/// The subnet of a Wi-Fi a test has put the phone on (`Bench.joinWiFi`), as a search for a recorder and a
+/// television meets it: what is sent to an address goes, by its port, to the recorder the test put there (the
+/// recorder's port) or to the television (port 80), and anywhere else nobody answers -- a recorder's address
+/// at port 80 among them. A request to such an address and port fails as the system has one fail, in the text
+/// a search's tally reads the system's code out of (`ScanTally`): timed out where the address is silent -- at
+/// once, where a real one is silent for as long as the request waits -- or refused, at either port of the
+/// addresses the subnet was made to have refuse.
 /// `turnEverythingAway` is the phone letting nothing out, as it may behind the system's question about the
 /// local network: every request, a recorder's address included, fails at once for want of a network to send
 /// on, until `letEverythingOut` -- every one but those to the address the test names as let through unasked,
 /// as the system lets through a DNS server or a proxy on the local network (TN3179), which come back as they
 /// would with nothing turned away. `hold` keeps each request waiting until `letGo()` -- from now, or once so
-/// many more have gone by -- and it then comes back however the subnet is by then. `asked` counts the
-/// requests, and `askedOf` has the addresses they were for, in order.
+/// many more have gone by, all but those to one address if the test names one -- and it then comes back
+/// however the subnet is by then. `asked` counts the
+/// requests, `askedOf` has the addresses they were for, in order, and `askedAt` the addresses with their
+/// ports and methods.
 actor Subnet: HTTPTransport {
     private let recorders: [String: any HTTPTransport]
+    private let televisions: [String: any HTTPTransport]
     private let refusing: Set<String>
     private(set) var asked = 0
     private(set) var askedOf: [String] = []
+    private(set) var askedAt: [(host: String, port: Int, method: String)] = []
     private var turnsAway = false
     private var letThrough: String?
-    /// How many requests had been asked when the holding began: each one after them is held.
+    /// How many requests had been asked when the holding began: each one after them is held, but those to the
+    /// address named as not held.
     private var holdingAfter: Int?
+    private var notHeld: String?
     private var held: [CheckedContinuation<Void, Never>] = []
 
-    init(_ recorders: [String: any HTTPTransport] = [:], refusing: Set<String> = []) {
+    init(_ recorders: [String: any HTTPTransport] = [:], televisions: [String: any HTTPTransport] = [:],
+         refusing: Set<String> = []) {
         self.recorders = recorders
+        self.televisions = televisions
         self.refusing = refusing
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         asked += 1
         let host = request.url.host() ?? ""
+        let port = request.url.port ?? 80
         askedOf.append(host)
-        if let holdingAfter, asked > holdingAfter { await withCheckedContinuation { held.append($0) } }
+        askedAt.append((host, port, request.method))
+        if let holdingAfter, asked > holdingAfter, host != notHeld {
+            await withCheckedContinuation { held.append($0) }
+        }
         guard !turnsAway || host == letThrough else { throw Self.failure(-1009) }
-        guard let recorder = recorders[host] else { throw Self.failure(refusing.contains(host) ? -1004 : -1001) }
-        return try await recorder.send(request)
+        let device = port == Upnp.port ? recorders[host] : port == 80 ? televisions[host] : nil
+        guard let device else { throw Self.failure(refusing.contains(host) ? -1004 : -1001) }
+        return try await device.send(request)
     }
 
     func turnEverythingAway(but letThrough: String? = nil) {
@@ -294,12 +327,14 @@ actor Subnet: HTTPTransport {
         turnsAway = false
     }
 
-    func hold(after more: Int = 0) {
+    func hold(after more: Int = 0, but host: String? = nil) {
         holdingAfter = asked + more
+        notHeld = host
     }
 
     func letGo() {
         holdingAfter = nil
+        notHeld = nil
         for request in held { request.resume() }
         held = []
     }

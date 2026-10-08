@@ -107,10 +107,22 @@ public actor ScanTally: HTTPTransport {
     /// The address of the first request the system turned away (`Counts.turnedAway`), or nil while none has
     /// been. Not one refused or dropped: that came from an address, which may be one the system lets through
     /// unasked. Not one that failed with no code of the system's: nothing says the system turned it away.
+    ///
+    /// Nor, for a tally told a port (`keepingAddressFrom`), one of a request at another port. The address the
+    /// system lets through unasked is asked there too by a search that asks more than one kind of request,
+    /// and may fail there with a code read as turned away -- an answer the session cannot read, say -- where at
+    /// the port it is asked again at it refuses or is silent. Kept, it would be asked again, and read as let
+    /// out while the permission was never given.
     public private(set) var turnedAwayAt: String?
+    /// The port whose turned-away requests may give `turnedAwayAt`; nil, any.
+    private let keptFrom: Int?
 
-    public init(_ transport: any HTTPTransport) {
+    /// `port`: the port whose turned-away requests may give `turnedAwayAt`; nil, any. A search that asks more
+    /// than one kind of request names the kind it asks again (`Discovery.turnedAway`'s, `Upnp.port`). The
+    /// counts are every request's either way.
+    public init(_ transport: any HTTPTransport, keepingAddressFrom port: Int? = nil) {
         self.transport = transport
+        keptFrom = port
     }
 
     /// The answer or the failure goes back to the search as it came.
@@ -124,7 +136,9 @@ public actor ScanTally: HTTPTransport {
             case Self.timedOut?: counts.timedOut += 1
             case let code?:
                 counts.failed[code, default: 0] += 1
-                if turnedAwayAt == nil, Counts.turnedAway(code) { turnedAwayAt = request.url.host() }
+                if turnedAwayAt == nil, Counts.turnedAway(code), keptFrom == nil || request.url.port == keptFrom {
+                    turnedAwayAt = request.url.host()
+                }
             case nil: counts.other += 1
             }
             throw error

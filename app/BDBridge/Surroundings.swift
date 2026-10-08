@@ -3,7 +3,8 @@ import RecorderKit
 
 /// What `AppModel` reaches beyond itself: where it keeps its settings and its database, how its requests get
 /// to the recorder, which network it takes itself to be on, what it does on that network and on the
-/// screen of its own accord, and what a search for a recorder looks round, asks through and pauses by.
+/// screen of its own accord, and what a search for a recorder and a television looks round, asks through and
+/// pauses by.
 ///
 /// The app has one of these, `app`, and passes no other. It is here for the unit tests (`BDBridgeTests`),
 /// which make models of their own: settings in a suite they throw away, a database in a folder of their own,
@@ -48,14 +49,16 @@ struct Surroundings {
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
     /// Where the television's registration is kept: the Keychain in the app, memory in a test.
     var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
-    /// The interfaces a search for a recorder looks round (`AppModel.scanForRecorders`): the Wi-Fi's in the
-    /// app. None unless a test puts its phone on one, and a search then says there is no Wi-Fi and asks nobody.
+    /// The interfaces a search for a recorder and a television looks round (`AppModel.scanForDevices`): the
+    /// Wi-Fi's in the app. None unless a test puts its phone on one, and a search then says there is no Wi-Fi
+    /// and asks nobody. Never read in the demo, whose search asks the demo's own devices.
     var lanInterfaces: () -> [LocalNetwork.Interface] = { [] }
-    /// What one search sends its requests through, to every address of the subnet: made anew for each search,
-    /// as the app's session is. Nobody answers unless a test says otherwise.
+    /// What one search sends its requests through, to every address of the subnet, both kinds: made anew for
+    /// each look, as the app's session is, a session that keeps no cookies and follows no redirect, as every
+    /// session that asks a television does. Nobody answers unless a test says otherwise. Never made in the demo.
     var scanTransport: () -> any HTTPTransport = { NoRecorderAnywhere() }
     /// How a search lets time go by between one single request and the next, after a look through the subnet
-    /// that was turned away (`AppModel.scanForRecorders`): for as long as the search says, a second, in the
+    /// that was turned away (`AppModel.scanForDevices`): for as long as the search says, a second, in the
     /// app. Not at all, unless a test holds the search there.
     var scanPause: @Sendable (Duration) async -> Void = { _ in }
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
@@ -72,7 +75,7 @@ struct Surroundings {
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
                      tvCredentials: KeychainTVCredentials(),
                      lanInterfaces: LocalNetwork.lanInterfaces,
-                     scanTransport: { URLSessionTransport() },
+                     scanTransport: { URLSessionTransport.withoutCookies() },
                      scanPause: { try? await Task.sleep(for: $0) },
                      scanLog: { ScanLog.note($0) })
     }

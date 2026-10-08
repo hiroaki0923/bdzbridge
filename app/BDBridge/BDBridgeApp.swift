@@ -428,15 +428,15 @@ extension PendingQueue.Outcome {
 /// the recorder again is offered below 再接続 and not instead of it.
 struct NoRecorderView: View {
     let icon: String
+    /// Whether the tutorial is up. It hangs on the screen around this view (`welcomesHere`), not on this view:
+    /// choosing a recorder there connects, which turns this view to its busy state, and a television
+    /// registered there can fill the reservations tab, which then shows its list in place of this view. A
+    /// sheet hung on this view or on one of its states closed with it, in the middle of what the tutorial was
+    /// doing.
+    @Binding var welcoming: Bool
     @Environment(AppModel.self) private var model
-    @State private var welcoming = false
 
-    /// The tutorial hangs on the whole view rather than on one of its states. Choosing a recorder there
-    /// connects, which turns this view to its busy state, and a sheet hung on the state it was opened from
-    /// closed with it, in the middle of the connect and before the tutorial could say how it went.
-    var body: some View {
-        states.sheet(isPresented: $welcoming) { WelcomeView() }
-    }
+    var body: some View { states }
 
     @ViewBuilder
     private var states: some View {
@@ -492,6 +492,14 @@ struct NoRecorderView: View {
                 .disabled(model.jobRunning)
             }
         }
+    }
+}
+
+extension View {
+    /// The tutorial a screen's `NoRecorderView` opens, hung on the screen itself so that it stays up whatever
+    /// that screen shows meanwhile.
+    func welcomesHere(_ welcoming: Binding<Bool>) -> some View {
+        sheet(isPresented: welcoming) { WelcomeView() }
     }
 }
 
