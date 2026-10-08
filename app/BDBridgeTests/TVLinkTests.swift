@@ -55,6 +55,152 @@ final class TVLinkTests: XCTestCase {
         XCTAssertNil(model.tv)
     }
 
+    // MARK: - an address typed while the system keeps the app off the local network
+
+    /// An address typed for a television on a phone the system keeps off the local network -- behind its
+    /// question, or after a no -- says nothing, as an address where nobody is does. So the permission is looked
+    /// at there once, and when the look says the app is kept off, the sheet says so in place of the address not
+    /// answering, and waits. Once the permission comes the address is asked again, by itself, and what answers
+    /// is handed back: the sheet goes on to the registration with no second press, and the television hears
+    /// what a registration sends after that question and nothing else.
+    func testATypedAddressBehindTheQuestionWaitsForThePermissionAndGoesOnByItself() async throws {
+        let bench = try aBench()
+        bench.permissionLookSays = .blocked
+        let television = DemoTV(power: "active")
+        await television.goSilent()
+        let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                              saved: false)
+
+        let asking = Task { await model.findTV(at: Bench.tvHost) }
+        try await until("the sheet never said the app is kept off the local network", within: 2) {
+            model.tvAddressTurnedAway
+        }
+        XCTAssertTrue(bench.isWaitingForPermission, "said that nothing answered in place of waiting")
+        XCTAssertEqual(bench.permissionLooks, [Bench.tvHost])
+        XCTAssertEqual(bench.permissionWaits, [Bench.tvHost])
+        expectEqual(await television.calls, ["getPowerStatus cookie=no pin=no"])
+
+        await television.goSilent(false)
+        bench.permissionComes()
+        expectEqual(await asking.value, .on(model: DemoTV.model), "the address was not asked again")
+        XCTAssertFalse(model.tvAddressTurnedAway, "the notice stayed up once the permission came")
+        // What the sheet does next with a television that is on, as it always has.
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .pinNeeded)
+        expectEqual(await television.calls, [
+            "getPowerStatus cookie=no pin=no",
+            "getPowerStatus cookie=no pin=no", "getInterfaceInformation cookie=no pin=no",
+            "getSystemSupportedFunction cookie=no pin=no", "actRegister cookie=no pin=no",
+        ])
+        XCTAssertEqual(bench.permissionLooks.count, 1, "the permission was looked at again")
+        XCTAssertEqual(bench.permissionWaits.count, 1, "the permission was waited for again")
+    }
+
+    /// Closing the sheet while it waits for the permission -- キャンセル, or swiping it away -- ends the wait,
+    /// as the sheet closes it: its step cancelled and `stopFindingTV`. The notice goes, and when the permission
+    /// comes after that the address is not asked again and nothing is handed back that the sheet would go on
+    /// from: no registration is asked for, and no number put on a panel, with no sheet to type it into. The
+    /// bench's wait ends only when the permission comes, which stands for a real one the permission ended in
+    /// the moment the sheet closed.
+    func testClosingTheSheetDuringTheWaitEndsItWithNothingSentAfter() async throws {
+        let bench = try aBench()
+        bench.permissionLookSays = .blocked
+        let television = DemoTV(power: "active")
+        await television.goSilent()
+        let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                              saved: false)
+        let asking = Task { await model.findTV(at: Bench.tvHost) }
+        try await until("the sheet never said the app is kept off the local network", within: 2) {
+            model.tvAddressTurnedAway
+        }
+        let before = await television.calls
+
+        asking.cancel()
+        model.stopFindingTV()
+        XCTAssertFalse(model.tvAddressTurnedAway, "the notice stayed up after the sheet had gone")
+        await television.goSilent(false)
+        bench.permissionComes()
+
+        expectEqual(await asking.value, .nothing, "the wait went on after the sheet had gone")
+        expectEqual(await television.calls, before, "the television was asked something after the sheet went")
+        XCTAssertFalse(model.tvAddressTurnedAway)
+    }
+
+    /// A wait that ends with the permission still not given -- the Wi-Fi gone, or the wait given up on -- hands
+    /// back that nothing answered, takes the notice down, and asks the address nothing more: there is nothing
+    /// for the sheet to go on to, and a notice left up would promise that it goes on by itself.
+    func testAWaitThatEndsWithoutThePermissionAsksNothingMoreAndTakesTheNoticeDown() async throws {
+        for ending in [LocalNetwork.Access.unavailable, .blocked] {
+            let bench = try aBench()
+            bench.permissionLookSays = .blocked
+            let television = DemoTV(power: "active")
+            await television.goSilent()
+            let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                                  saved: false)
+            let asking = Task { await model.findTV(at: Bench.tvHost) }
+            try await until("the sheet never said the app is kept off the local network", within: 2) {
+                model.tvAddressTurnedAway
+            }
+            let before = await television.calls
+            await television.goSilent(false)
+
+            bench.permissionComes(ending)
+
+            expectEqual(await asking.value, .nothing, "\(ending)")
+            XCTAssertFalse(model.tvAddressTurnedAway, "\(ending): the notice stayed up with nothing waiting")
+            expectEqual(await television.calls, before, "\(ending): the address was asked again")
+        }
+    }
+
+    /// With the permission given an address typed for a television goes on as it always has: one that answers
+    /// is handed back with nothing asked of the permission, and one where nothing answers is said so at once,
+    /// after one look at the permission there that does not say the app is kept off -- allowed, or nothing to
+    /// say in the time it is given -- and no wait.
+    func testATypedAddressWithThePermissionGivenGoesOnAsBefore() async throws {
+        let bench = try aBench()
+        let television = DemoTV(power: "active")
+        let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                              saved: false)
+
+        expectEqual(await model.findTV(at: Bench.tvHost), .on(model: DemoTV.model))
+        XCTAssertEqual(bench.permissionLooks, [], "the permission was looked at with the television answering")
+
+        await television.goSilent()
+        for says in [LocalNetwork.Access.allowed, nil] {
+            bench.permissionLookSays = says
+            let saying = String(describing: says)
+            let found = try await within(2, "a silent address was waited on with the look saying \(saying)") {
+                await model.findTV(at: Bench.tvHost)
+            }
+            XCTAssertEqual(found, .nothing)
+        }
+        XCTAssertEqual(bench.permissionLooks, [Bench.tvHost, Bench.tvHost])
+        XCTAssertEqual(bench.permissionWaits, [], "waited for with the look not saying the permission is in the way")
+        XCTAssertFalse(model.tvAddressTurnedAway)
+    }
+
+    /// In the demo nothing is asked of the local network: an address typed there that says nothing is not
+    /// looked at for the permission, nor waited on.
+    func testATypedAddressInTheDemoAsksNothingOfThePermission() async throws {
+        let bench = try aBench()
+        bench.permissionLookSays = .blocked
+        let television = DemoTV()
+        await television.goSilent()
+        let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                              saved: false)
+        await model.start()
+        await model.enterDemo()
+        try await untilIdle(model)
+
+        let found = try await within(2, "a silent address was waited on in the demo") {
+            await model.findTV(at: Bench.tvHost)
+        }
+
+        XCTAssertEqual(found, .nothing)
+        XCTAssertEqual(bench.permissionLooks, [], "the permission was looked at in the demo")
+        XCTAssertEqual(bench.permissionWaits, [])
+        XCTAssertFalse(model.tvAddressTurnedAway)
+    }
+
     /// A cookie the television no longer takes need not mean the app is off its list: one that ran out leaves the
     /// client listed, and registering again then takes no PIN.
     func testAClientTheTelevisionStillListsRegistersAgainWithoutAPIN() async throws {

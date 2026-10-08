@@ -44,6 +44,17 @@ final class Bench {
     private var pausesHeld = false
     private var pausesToLetGo = 0
     private var pausing: [CheckedContinuation<Void, Never>] = []
+    /// What the one look at the local network permission says at an address given for a television
+    /// (`Surroundings.localNetworkAccess`): allowed, unless a test has the system keep the app off.
+    var permissionLookSays: LocalNetwork.Access? = .allowed
+    /// The addresses such looks of the models made here were aimed at, and those the waits for the permission
+    /// that followed were aimed at, in order.
+    private(set) var permissionLooks: [String] = []
+    private(set) var permissionWaits: [String] = []
+    /// The waits still under way. Each lasts until the test ends it (`permissionComes`), whether or not its task
+    /// was cancelled meanwhile: a real one ends when its task is, and one of these stands for a wait the
+    /// permission ended in that same moment.
+    private var waitingForPermission: [CheckedContinuation<LocalNetwork.Access, Never>] = []
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -165,6 +176,27 @@ final class Bench {
         pausing = []
     }
 
+    /// Whether a model made here is waiting for the local network permission at an address given for a
+    /// television.
+    var isWaitingForPermission: Bool { !waitingForPermission.isEmpty }
+
+    /// Ends every wait for the permission under way with `access`: the reader allowed the local network, unless
+    /// the test says the wait came to something else.
+    func permissionComes(_ access: LocalNetwork.Access = .allowed) {
+        for wait in waitingForPermission { wait.resume(returning: access) }
+        waitingForPermission = []
+    }
+
+    private func lookAtThePermission(at host: String) -> LocalNetwork.Access? {
+        permissionLooks.append(host)
+        return permissionLookSays
+    }
+
+    private func waitForThePermission(at host: String) async -> LocalNetwork.Access {
+        permissionWaits.append(host)
+        return await withCheckedContinuation { waitingForPermission.append($0) }
+    }
+
     /// The pause a search of a model made here makes before a single request. It does not end for the
     /// search being stopped: a test ends it, and looks at what the search did then.
     private func pause(for time: Duration) async {
@@ -204,6 +236,11 @@ final class Bench {
             slotSettling: slotSettling,
             tvTransport: tvTransport,
             tvCredentials: tvCredentials,
+            localNetworkAccess: { [weak self] host in
+                guard let self else { return .allowed }
+                return await self.lookAtThePermission(at: host)
+            },
+            waitForLocalNetwork: { [weak self] in await self?.waitForThePermission(at: $0) ?? .unavailable },
             lanInterfaces: { [weak self] in
                 self?.interfacesRead += 1
                 return (self?.wifi).map { [$0] } ?? []
@@ -233,8 +270,9 @@ final class Bench {
     }
 
     func throwAway() {
-        // A search still held at a pause would wait for good.
+        // A search still held at a pause would wait for good, and so would a wait for the permission.
         letEverySingleRequestGo()
+        permissionComes(.unavailable)
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
     }

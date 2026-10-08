@@ -128,10 +128,38 @@ extension AppModel {
 
     /// Asks the device at `host` what it is, without a registration and without changing anything
     /// (`ScalarClient.presence`).
+    ///
+    /// Nothing answering may be the system keeping the app off the local network -- behind its question, or
+    /// after a no -- which looks the same from here. So the permission is then looked at once, at that address,
+    /// as the links look after silence (`Surroundings.localNetworkAccess`). When the look says the app is kept
+    /// off, the sheet says so (`tvAddressTurnedAway`) in place of the address not answering, the permission is
+    /// waited for as the links wait, and once it comes the address is asked again and that answer is the one
+    /// handed back: the sheet goes on from it by itself, to the PIN on the panel of a television that is on.
+    /// Never in the demo.
+    ///
+    /// Closing the sheet ends the wait (`stopFindingTV`): what is handed back then is that nothing answered,
+    /// and the address is not asked again, so nothing goes on to the registration -- no number is put on a panel
+    /// -- after the sheet has gone, a permission given after it included.
     func findTV(at host: String) async -> TVFound {
+        tvFindRun += 1
+        let run = tvFindRun
         let client = ScalarClient(host: host, transport: surroundings.tvTransport(host),
                                   credentials: surroundings.tvCredentials)
-        return await client.presence()
+        let found = await client.presence()
+        guard found == .nothing, !demo, await surroundings.localNetworkAccess(host) == .blocked,
+              run == tvFindRun else { return found }
+        tvAddressTurnedAway = true
+        let access = await surroundings.waitForLocalNetwork(host)
+        guard run == tvFindRun else { return .nothing }
+        tvAddressTurnedAway = false
+        return access == .allowed ? await client.presence() : .nothing
+    }
+
+    /// The sheet that adds a television has closed: a wait for the permission at the address it was given ends
+    /// with nothing answering, and the sheet's notice goes.
+    func stopFindingTV() {
+        tvFindRun += 1
+        tvAddressTurnedAway = false
     }
 
     /// What became of a registration.

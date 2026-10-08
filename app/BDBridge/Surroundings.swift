@@ -28,6 +28,7 @@ struct Surroundings {
     /// recorder -- the magic packet, the probe that looks at the local network permission, the search of the
     /// subnet for a recorder the router has moved -- and whether it watches for the network changing. Off,
     /// the permission is taken as given. The tests run on somebody's network, where none of that may happen.
+    /// The look and the wait at an address given for a television are not under this (`localNetworkAccess`).
     var reachesTheLAN: Bool
     /// Whether the model asks the system about notifications. The dialog waits for a tap, and in a test
     /// there is nobody to give it.
@@ -49,6 +50,13 @@ struct Surroundings {
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
     /// Where the television's registration is kept: the Keychain in the app, memory in a test.
     var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
+    /// The one look at the local network permission an address given for a television has when nothing
+    /// answered there, and the wait for the permission when the look says the system keeps the app off
+    /// (`AppModel.findTV`): the links' own look and wait in the app (`LocalNetwork.access`,
+    /// `LocalNetwork.waitForAccess`), aimed at that address. Allowed at once unless a test says otherwise, so
+    /// that a test can say what each comes to, where the links' are kept off the network (`reachesTheLAN`).
+    var localNetworkAccess: @Sendable (_ host: String) async -> LocalNetwork.Access? = { _ in .allowed }
+    var waitForLocalNetwork: @Sendable (_ host: String) async -> LocalNetwork.Access = { _ in .allowed }
     /// The interfaces a search for a recorder and a television looks round (`AppModel.scanForDevices`): the
     /// Wi-Fi's in the app. None unless a test puts its phone on one, and a search then says there is no Wi-Fi
     /// and asks nobody. Never read in the demo, whose search asks the demo's own devices.
@@ -74,6 +82,8 @@ struct Surroundings {
                      asksAboutNotifications: true,
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
                      tvCredentials: KeychainTVCredentials(),
+                     localNetworkAccess: { await LocalNetwork.access(probing: $0) },
+                     waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0) {} },
                      lanInterfaces: LocalNetwork.lanInterfaces,
                      scanTransport: { URLSessionTransport.withoutCookies() },
                      scanPause: { try? await Task.sleep(for: $0) },

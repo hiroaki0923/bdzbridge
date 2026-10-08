@@ -503,12 +503,15 @@ extension View {
     }
 }
 
-/// What to say while local network privacy stands between the app and the recorder. The app cannot tell the
-/// system's question still on screen from one answered no, so the words say what is true of both -- access is
-/// not allowed, and the app carries on by itself once it is -- and point to the switch for the case where the
-/// answer was no, since the question is never asked again.
+/// What to say while local network privacy stands between the app and the recorder, or an address given for a
+/// television. The app cannot tell the system's question still on screen from one answered no, so the words say
+/// what is true of both -- access is not allowed, and the app carries on by itself once it is -- and point to the
+/// switch for the case where the answer was no, since the question is never asked again.
 struct LocalNetworkNotice: View {
     @Environment(AppModel.self) private var model
+    /// Set where the notice stands for a connect whatever a search does meanwhile: the sheet that adds a
+    /// television, over a search held up behind it. Elsewhere it is the search's while one is held up.
+    var aboutAConnect = false
 
     static let title = "ローカルネットワークへのアクセスが許可されていません"
 
@@ -521,7 +524,7 @@ struct LocalNetworkNotice: View {
         VStack(alignment: .leading, spacing: 4) {
             Label(Self.title, systemImage: "lock.shield")
                 .font(.subheadline.weight(.semibold))
-            Text(Self.detail(scanning: model.scanBlocked))
+            Text(Self.detail(scanning: !aboutAConnect && model.scanBlocked))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
