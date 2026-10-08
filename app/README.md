@@ -13,11 +13,12 @@
   a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
   kind of failure says and leaves behind. The one funnel the recorder's actions run through (`AppModel.run`)
   stands on it, and so does each device's read of its reservations, which is its driver's. The recorder's
-  driver sends what waits for it in the phone's queue as well (`RecorderDriver.reservations`,
-  `refreshReservations`, `sendWhatWaits`, `resend`), and `AppModelReservations` keeps what comes back; making,
-  changing and deleting a recorder's reservation are still the model's own steps. A television, once added in
-  the settings, has a link of its own beside the recorder's, with a `TVDriver` and a host of its own (`TVHost`,
-  `AppModelTV`), so that neither device's silence, trouble or work is the other's. What the television said --
+  driver sends what waits for it in the phone's queue, and deletes and changes its reservations, as well
+  (`RecorderDriver.reservations`, `refreshReservations`, `sendWhatWaits`, `resend`, `cancel`, `update`), and
+  `AppModelReservations` keeps what comes back; making a recorder's reservation, and the clash check before
+  it, are still the model's own steps. A television, once added in the settings, has a link of its own beside
+  the recorder's, with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's
+  silence, trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
   driver's steps, and `AppModelReservations` only puts the two devices' lists together for the screens and
   sends a change or a delete to the device that holds the row -- a change through the one entry a sheet
@@ -190,7 +191,9 @@ written out once, in `Bench` (`Said`): one of them is stored on the rows of the 
 being equal to it, so a letter changed there is a row no longer counted. A reservation made, kept or changed
 on the recorder is asked for through `Bench` as well, by what it does (`reserveOnTheRecorder`, `keptJustNow`,
 `changeOnTheRecorder`) and through the entries the screens use, so that when the recorder's operations move
-only those bodies change. The funnel's own body has moved already, onto the link (`DeviceLink.run`), with
+only those bodies change. The change has moved into the recorder's driver so: a row of another device, which no
+screen sends the recorder, is put to the driver's own door (`RecorderDriver.update`), and that is the one branch
+of them that changed. The funnel's own body has moved already, onto the link (`DeviceLink.run`), with
 these as they were: what its parts are is tried in RecorderKit (`LinkPartsTests`), and that the app still does
 the same with them is what the gates show. So has the sending of the queue: its loop asks the device to send a
 row (`QueueTarget`) and its sentences are beside its outcome, both tried in RecorderKit (`QueueTargetTests`,
@@ -1099,8 +1102,9 @@ and closing that closes the sheet, whose list may have been read again on the wa
 have arrived, and is not sent again -- and the television is given up on. While the change or a delete is out
 to the television its line is on the sheet, nothing on it can be pressed and the sheet cannot be closed. The
 model has one entry for a change on either device (`AppModel.change`): a television's row goes to its host
-and the recorder is asked nothing; the recorder's goes through `update`, unchanged, and is read into the same
-value with the very sentence the sheet said before. With the recorder alone the sheet reads as it always has.
+and the recorder is asked nothing; the recorder's goes to its driver (`RecorderDriver.update`), which hands back
+the same value with the very sentence the sheet said before. With the recorder alone the sheet reads as it
+always has.
 A change asks the television nothing first about what it would stop from recording and is never kept on the
 phone to go later, as the recorder's change does not and is not.
 
@@ -1207,13 +1211,13 @@ the sheet has another destination to offer, the line asks for it (`RecorderDisk.
 programme's sheet and the condition's go back to the internal disk, named, the programme's with the television
 beside it under 予約先 where it can take the programme. A reservation on the internal disk has nothing else to
 offer on its own sheet once the USB disk has gone, its picker going with the disk, so a move of it refused says
-where it stays (`RecorderDisk.stays`) rather than ask for a choice the sheet does not show; the model, which knows
-the reservation and what its sheet offers, says which. On the programme's sheet a disk picked and let go of while
-it is open stays shown under 録画先 as a value and is asked nothing: no clash check is asked for it, and its row
-shows none, and 録画予約する refuses it at once, as 予約する would, without the question before reserving, which
-would promise a registration the model is about to refuse; a question already up when the disk is let go of goes,
-as one does when the recorder is let go of. While the disk picked is offered, and in a home with no USB disk, the
-sheet asks and checks as it always has.
+where it stays (`RecorderDisk.stays`) rather than ask for a choice the sheet does not show; the recorder's driver
+says which, by the rule the sheet offers its disks from (`RecorderDisk.choices(keeping:on:with:)`). On the
+programme's sheet a disk picked and let go of while it is open stays shown under 録画先 as a value and is asked
+nothing: no clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as 予約する would,
+without the question before reserving, which would promise a registration the model is about to refuse; a question
+already up when the disk is let go of goes, as one does when the recorder is let go of. While the disk picked is
+offered, and in a home with no USB disk, the sheet asks and checks as it always has.
 
 A reservation or a move to the USB disk that the recorder turns down is said as the recorder not taking a
 reservation to that disk, naming it, and asks for another destination, with the recorder's code kept for
