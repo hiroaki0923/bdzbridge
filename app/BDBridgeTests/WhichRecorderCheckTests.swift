@@ -98,6 +98,52 @@ extension WhichRecorderTests {
         }
     }
 
+    /// A reservation asked for while the check is out, whose waking finds another recorder and cannot make the
+    /// cache over to it: another writer holds the cache for longer than the app waits. The app lets go of the
+    /// recorder it had, and the reservation is neither sent nor kept -- kept, it would wait as one made for the
+    /// recorder before, and go to whichever answers the next connect. The line says why the app is not
+    /// connected, and the strip that another recorder answered.
+    ///
+    /// The writer lets go once the line says so, while the reservation is still deciding: a reservation kept
+    /// from then on is saved, and found on the phone, rather than failing to be saved under a sentence of its
+    /// own. The line is still the one look that tells a reservation kept from one that was not.
+    ///
+    /// As it is today: the check answers the same for a recorder that turned the waking away and for one the
+    /// app let go of over its cache, and the reservation tells the two apart by whether the recorder it began
+    /// with is still the one in hand. A later change gives the check an answer of its own for this, and what
+    /// is looked at here stands.
+    func testAReservationAskedOfARecorderLetGoOfForItsCacheIsNeitherSentNorQueued() async throws {
+        let bench = try aBench()
+        // The lock is held on purpose: what is tested is giving up, not the wait.
+        bench.storeBusyTimeoutMilliseconds = 200
+        bench.keep(mac: Self.firstsMAC)
+        let recorder = NamedRecorder(1)
+        let model = try await connected(bench, at: [Bench.host: recorder])
+        let program = try await aProgramme(model)
+
+        let writer = Writer(to: bench.guidePath)
+        let freed = Task {
+            try await until("the cache was never said not to have been made over") {
+                model.problem == Said.cacheNotMadeOver
+            }
+            writer.letGo()
+        }
+        let reserved = try await asking(model, on: bench, of: recorder, heard: .afterAWaking) {
+            await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
+        }
+        try await freed.value
+
+        XCTAssertEqual(model.problem, Said.cacheNotMadeOver,
+                       "not what the cache left to say: the one look that tells a reservation kept here from none, "
+                           + "so it is not to be loosened")
+        XCTAssertFalse(reserved, "the sheet would close as though the programme were reserved")
+        XCTAssertNil(model.pending(for: program), "kept for a recorder the app had let go of")
+        expectTrue(try await store(bench).pendingReservations().isEmpty, "kept on the phone")
+        expectEqual(await recorder.asked("X_CreateRecordSchedule"), 0, "the reservation went to the newcomer")
+        XCTAssertTrue(model.anotherTookOver, "nothing on the strip says another recorder answered")
+        XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
+    }
+
     /// A change or a delete of a reservation asked for while the check is out, which then hears another
     /// recorder. The second holds a reservation under the same number, as it holds a recording under the
     /// first's: nothing is sent to it, and the answer is no.

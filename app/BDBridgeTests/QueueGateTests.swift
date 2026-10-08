@@ -127,6 +127,44 @@ final class QueueGateTests: XCTestCase {
                       "the reservation made is not in the list on screen")
     }
 
+    /// Silence at a create while a pull-down sends what waits: the recorder is lost and given up on, nothing
+    /// more is sent or read, and the reservation stays in the queue, on screen and on the phone, to go the next
+    /// time. Nothing is said of it, on the strip or on the line: the line left while the create was out --
+    /// after the pull's read, which cleared the one before -- is still there, though what was out may have
+    /// arrived.
+    ///
+    /// As it is today, and to be rewritten: a later change says on the line that the reservation may have
+    /// arrived.
+    func testSilenceAtACreateInAPullDownsSendingLeavesTheLineAsItWas() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let row = try waiting(for: program)
+        try await store.queue(row)
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.create)
+
+        let pulling = Task { await model.refreshReservations() }
+        try await until("what waits never got to the recorder") {
+            await recorder.heard(since: count).contains(Kind.create)
+        }
+        leaveALine(on: model)
+        await recorder.goQuiet(on: Kind.create)
+        await recorder.letGo()
+        await pulling.value
+
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create],
+                    "something was sent or read after the create met silence")
+        XCTAssertTrue(model.gaveUp, "silence at the create did not lose the recorder")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence at the create was said on the line")
+        XCTAssertEqual(reasons(model.pending), [row.id: ""], "the reservation no longer waits on screen")
+        expectEqual(reasons(try await store.pendingReservations()), [row.id: ""],
+                    "the reservation no longer waits on the phone")
+        XCTAssertNil(model.flushReport, "the strip says something of a sending that sent nothing")
+        XCTAssertNil(model.busy)
+    }
+
     // MARK: - keeping one, asking for one again, taking one away
 
     /// A reservation that could not be saved has been made nowhere: the answer is no, the reason is said, and
@@ -217,6 +255,40 @@ final class QueueGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
         XCTAssertTrue(model.gaveUp)
+    }
+
+    /// With the recorder there, asking for one waiting reservation to be sent again sends everything that waits
+    /// for it: the row asked for, its reason taken off, and the other, which had none, each once and in the
+    /// queue's order, and the list read once after them. Both leave the queue, on screen and on the phone, and
+    /// the strip says both.
+    ///
+    /// As it is today, and to be rewritten: a later change sends the row asked for alone, as a television's row
+    /// sent again is, and leaves the other for the next sending.
+    func testSendingOneAgainSendsEverythingThatWaitsForTheRecorder() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+        let asked = try waiting(for: programmes[0], problem: "前に断られた理由")
+        let other = try waiting(for: programmes[1])
+        try await store.queue(asked)
+        try await store.queue(other)
+        await model.loadPending()
+        XCTAssertEqual(reasons(model.pending), [asked.id: "前に断られた理由", other.id: ""])
+        // The order the queue sends them in, which is the order it reads them in.
+        let order = try await store.pendingReservations()
+        let first = try XCTUnwrap(order.first)
+
+        let count = await recorder.heard.count
+        await model.resend(asked)
+
+        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.create, Kind.list],
+                    "the row asked for alone was sent, or the list was read more than once")
+        XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
+        expectEqual(reasons(try await store.pendingReservations()), [:], "what was sent stayed in the queue")
+        XCTAssertNotNil(model.reservation(for: programmes[0]), "the row asked for is not marked as reserved")
+        XCTAssertNotNil(model.reservation(for: programmes[1]), "the other row is not marked as reserved")
+        XCTAssertEqual(model.flushReport, Said.sent(first.request.title, andOthers: 1))
+        XCTAssertNil(model.problem(for: .recorder))
     }
 
     // MARK: - what the strip says
