@@ -125,6 +125,32 @@ final class TVLinkTests: XCTestCase {
         XCTAssertFalse(model.tvAddressTurnedAway)
     }
 
+    /// A wait that ends with the permission still not given -- the Wi-Fi gone, or the wait given up on -- hands
+    /// back that nothing answered, takes the notice down, and asks the address nothing more: there is nothing
+    /// for the sheet to go on to, and a notice left up would promise that it goes on by itself.
+    func testAWaitThatEndsWithoutThePermissionAsksNothingMoreAndTakesTheNoticeDown() async throws {
+        for ending in [LocalNetwork.Access.unavailable, .blocked] {
+            let bench = try aBench()
+            bench.permissionLookSays = .blocked
+            let television = DemoTV(power: "active")
+            await television.goSilent()
+            let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                                  saved: false)
+            let asking = Task { await model.findTV(at: Bench.tvHost) }
+            try await until("the sheet never said the app is kept off the local network", within: 2) {
+                model.tvAddressTurnedAway
+            }
+            let before = await television.calls
+            await television.goSilent(false)
+
+            bench.permissionComes(ending)
+
+            expectEqual(await asking.value, .nothing, "\(ending)")
+            XCTAssertFalse(model.tvAddressTurnedAway, "\(ending): the notice stayed up with nothing waiting")
+            expectEqual(await television.calls, before, "\(ending): the address was asked again")
+        }
+    }
+
     /// With the permission given an address typed for a television goes on as it always has: one that answers
     /// is handed back with nothing asked of the permission, and one where nothing answers is said so at once,
     /// after one look at the permission there that does not say the app is kept off -- allowed, or nothing to
