@@ -59,6 +59,46 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
         }
     }
 
+    /// A read of the list asked for once the recorder has been let go of does not join one asked before it,
+    /// though the link holds the same client: here another recorder describes itself on that client, as a
+    /// waking's attach can hear one, while a read is out, its request held at the recorder. The read asked
+    /// before comes back with nothing, the recorder it was for being gone; the one asked after reads for the
+    /// newcomer, a request of its own, and comes back with its list.
+    func testAReadAskedAfterTheRecorderWasLetGoOfDoesNotJoinOneAskedBefore() async throws {
+        let world = LinkWorld()
+        let recorder = try ScriptedRecorder(at: Stub.host, udn: DeviceLinkTests.udn, world: world)
+        await recorder.keep(try RecorderReservations([], guide: Data()))
+        let door = HeldList(recorder)
+        world.devices[Stub.host] = door
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+
+        await door.holdTheNext()
+        let before = Task { await driver.reservations() }
+        await door.whenHeld()
+        let generation = link.generation
+        let newcomer = try XCTUnwrap(Discovery.parseDescription(try Vectors.descriptionXML(udn: LinkPartsTests.another),
+                                                                host: Stub.host, location: "", via: "test"))
+        link.session.described(newcomer)
+        XCTAssertNotEqual(link.generation, generation, "another describing itself was meant to let go of the first")
+        await recorder.become(LinkPartsTests.another)
+        world.events = []
+        let after = Task { await driver.reservations() }
+        // Long enough for the read asked after to have been asked for.
+        try await Task.sleep(for: .milliseconds(300))
+        await door.letGo()
+
+        let first = await before.value, second = await after.value
+        XCTAssertNil(first, "the read asked for the recorder let go of came back with a list")
+        XCTAssertEqual(second, [], "the read asked for the newcomer did not come back with its list")
+        XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") }.count, 2,
+                       "the read asked after did not go as a request of its own: \(world.events)")
+    }
+
     /// A change, and a reservation, that go to the USB disk while the slot has not answered it since the recorder
     /// last answered, with the slot's read held. Meanwhile the recorder falls silent where it was and a connect
     /// finds it at another address, where it says it is the same recorder: nothing was let go of, and the link
@@ -213,4 +253,42 @@ actor SlotRecorder: HTTPTransport {
         "<?xml version=\"1.0\"?><xsrs xmlns=\"urn:schemas-xsrs-org:metadata-1-0/x_srs/\"><name></name><mount>0</mount>"
         + "<remain>0</remain><total>0</total><registeredTime></registeredTime><recordableRemain>0</recordableRemain>"
         + "</xsrs>")
+}
+
+/// A recorder whose next read of its list is held until the test lets it go, and which answers everything else,
+/// and that read once let go, as the recorder behind it does.
+private actor HeldList: HTTPTransport {
+    private let recorder: ScriptedRecorder
+    private var holds = false
+    private var held: CheckedContinuation<Void, Never>?
+    private var watching: CheckedContinuation<Void, Never>?
+
+    init(_ recorder: ScriptedRecorder) {
+        self.recorder = recorder
+    }
+
+    func holdTheNext() { holds = true }
+
+    /// Returns once a read is being held.
+    func whenHeld() async {
+        guard held == nil else { return }
+        await withCheckedContinuation { watching = $0 }
+    }
+
+    func letGo() {
+        held?.resume()
+        held = nil
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if holds, request.headers["SOAPACTION"]?.contains("X_GetRecordScheduleList") == true {
+            holds = false
+            await withCheckedContinuation { ask in
+                held = ask
+                watching?.resume()
+                watching = nil
+            }
+        }
+        return try await recorder.send(request)
+    }
 }

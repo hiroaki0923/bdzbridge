@@ -29,6 +29,12 @@ public final class RecorderDriver: LinkDriver {
     private let wakingInterval: Duration
     /// How long a client waits before sending again what the recorder answered 503 (`RecorderClient`).
     private let busyRetryDelay: ClosedRange<Double>
+    /// The read of the reservations that is out, with the count of recorders let go of it was asked under
+    /// (`DeviceLink.generation`) and the client the link held then, which whoever asks under the same count, the
+    /// link holding the same client, meanwhile waits for; and how many reads have been begun, which tells the
+    /// one out from one begun after it.
+    private var reading: (generation: Int, client: ObjectIdentifier, number: Int, list: Task<[Reservation]?, Never>)?
+    private var readsBegun = 0
 
     /// The reason written on the rows held for another recorder, the waking's limit and interval, and the pause
     /// before a 503 is sent again, are given only by the tests, which have no seconds to wait.
@@ -552,12 +558,38 @@ public final class RecorderDriver: LinkDriver {
     /// address was chosen -- is not handed back, and the line is left as it is; its silence is neither said nor
     /// taken for the recorder in play (`DeviceLink.run`). A read that is a step of something else goes by the
     /// count that operation noted as it began.
+    ///
+    /// One read at a time, as a television's: the list is asked for when a screen appears, when it is pulled
+    /// down, when the recorder has just been connected to and by the steps of an operation, and these come
+    /// together. Whoever asks while a read is out, under the same count of recorders let go of and with the
+    /// link holding the client it went out on, gets its answer, and no second request is sent. A read begun
+    /// before a let-go is never joined by one asked after it, which reads for the recorder in play; nor is one
+    /// out on a client a connect has since put another in place of -- the recorder found at another address,
+    /// or connected to again -- by one that reads on the connect's. One still out when a write has gone
+    /// through was sent after that write -- the client sends one request at a time -- so its answer shows it.
+    /// The line is the one the read that went out was asked under.
     public func reservations() async -> [Reservation]? {
         await reservations(since: link?.generation)
     }
 
     private func reservations(since began: Int?, underALine: Bool = true) async -> [Reservation]? {
-        guard let link, link.client is RecorderClient, !link.session.unreachable else { return nil }
+        guard let link, let client = link.client as? RecorderClient, !link.session.unreachable else { return nil }
+        let generation = began ?? link.generation, asking = ObjectIdentifier(client)
+        if let reading, reading.generation == generation, reading.client == asking {
+            return await reading.list.value
+        }
+        readsBegun += 1
+        let number = readsBegun
+        let read = Task { () -> [Reservation]? in
+            defer { if self.reading?.number == number { self.reading = nil } }
+            return await self.readNow(link, since: generation, underALine: underALine)
+        }
+        reading = (generation, asking, number, read)
+        return await read.value
+    }
+
+    /// The read itself, as one operation through the link.
+    private func readNow(_ link: DeviceLink, since began: Int, underALine: Bool) async -> [Reservation]? {
         let line = underALine ? Self.readingLine : nil
         let read = await link.run(line: line, evenIfRecent: link.checksAgain, since: began) { client in
             if let heard = link.heardInstead { throw heard }

@@ -762,6 +762,31 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertNil(model.reservation(for: program), "the list on screen is the one read for the recorder let go of")
     }
 
+    /// Reads of the list asked for together go as one request, as a television's do: a read asked for while
+    /// one is out, for the same recorder, gets that one's answer, and the recorder is asked for its list once.
+    /// Both come back with the list, which is the one on screen. (A read asked for once another recorder has
+    /// answered does not join one out for the recorder let go of: the gate above.)
+    func testReadsOfTheListAskedForTogetherGoAsOneRequest() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.list)
+        let first = Task { await model.loadReservations(since: model.timesForgotten) }
+        try await until("the list was never asked for") {
+            await recorder.asked(Kind.list, since: before) == 1
+        }
+        let second = Task { await model.loadReservations(since: model.timesForgotten) }
+        // Long enough for the second read to be asked for while the first is out.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.letGo()
+        let (one, two) = (await first.value, await second.value)
+
+        expectEqual(await recorder.asked(Kind.list, since: before), 1, "the second read went as a request of its own")
+        let list = try XCTUnwrap(one, "the first read came back with no list")
+        XCTAssertEqual(two, list, "the second read did not come back with the list")
+        XCTAssertEqual(model.reservations, list)
+    }
+
     /// The same for a reservation: made on the recorder in play, whose list is read again once the create has
     /// been answered, and another recorder answers a connect while that read is out. The newcomer's arrival
     /// empties the lists in that turn and its connect reads its own. The list the reservation read comes back
