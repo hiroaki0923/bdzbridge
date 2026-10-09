@@ -63,6 +63,52 @@ final class RecorderDriverTests: XCTestCase {
         XCTAssertEqual(world.problem, Self.left)
     }
 
+    /// With nothing to send, the recorder is asked nothing and no line goes up, as for a television: rows with a
+    /// reason on them wait for the reader -- one held for another recorder, one turned down before -- and a
+    /// sending finds nothing to send and runs no round. One whose programme is over, beside them, is dropped,
+    /// still with no line and nothing asked of the recorder, and the round says so; the rows with a reason are
+    /// held as they were. The recorder is there and connected, a moment ago, so that a sending with something to
+    /// send would have asked it.
+    func testWithNothingToSendTheRecorderIsAskedNothingAndNoLineGoesUp() async throws {
+        // At whole seconds, as the cache keeps a start, so that the rows read back are the ones queued.
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let tomorrow = now.addingTimeInterval(24 * 3600)
+        let held = pending("サンプル劇場", eventID: 0x3121, start: tomorrow,
+                           problem: RecorderDriver.heldForAnotherRecorder)
+        let refused = pending("サンプル紀行", eventID: 0x3122, start: tomorrow.addingTimeInterval(3600),
+                              problem: "前に断られた理由")
+        let over = pending("サンプル天気", eventID: 0x3123, start: now.addingTimeInterval(-7200))
+        // The round that ran, by what it dropped and what it held, nil for none.
+        let cases: [(String, queued: [PendingReservation], came: (expired: [String], held: [String])?)] = [
+            ("rows with a reason alone", [held, refused], nil),
+            ("a row that is over beside them", [over, held, refused], ([over.id], [held.id, refused.id])),
+        ]
+        for (name, queued, came) in cases {
+            let (world, driver, link) = try await connected()
+            let store = try temporaryStore()
+            for row in queued { try await store.queue(row) }
+            world.cache = store
+            let begun = world.begun.count
+
+            let sent = await driver.sendWhatWaits()
+
+            XCTAssertEqual(sent.round == nil, came == nil, "a round ran, or none did: \(name)")
+            if let round = sent.round, let came {
+                XCTAssertEqual(round.slot, .recorder, name)
+                XCTAssertNil(round.stopped, name)
+                XCTAssertEqual(round.expired.map(\.id), came.expired, name)
+                XCTAssertEqual(round.held.map(\.id), came.held, name)
+                XCTAssertEqual(round.sent + round.refused + round.deferred + round.alreadyThere, [], name)
+            }
+            XCTAssertNil(sent.list, name)
+            XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up: \(name)")
+            XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") }, [], "the recorder was asked: \(name)")
+            expectEqual(try await store.pendingReservations(), [held, refused], name)
+            XCTAssertEqual(world.problem, Self.left, name)
+            XCTAssertTrue(link.session.connected, name)
+        }
+    }
+
     /// What the recorder's driver gives its host to say when nothing could be asked because the app is not
     /// connected: that it is not, and to press 再接続; and, while the local network permission is what stands in
     /// the way, the title the screens give that. In the letters the screens have shown.

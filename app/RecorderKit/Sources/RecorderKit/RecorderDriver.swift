@@ -657,12 +657,19 @@ public final class RecorderDriver: LinkDriver {
     /// that heard something in place of the recorder saying which it is (`DeviceLink.mayBeSent`): whatever
     /// answers a connect some other way -- a 503, or as something that is no recorder -- must not be handed
     /// what was waiting for the last recorder, nor must whatever a check hears busy or faulted. Nothing is
-    /// said here of a sending not made: the pull-down's read after it says what the check heard. And only
-    /// when a row waits for the recorder. What waits for the television is its own driver's to send
+    /// said here of a sending not made: the pull-down's read after it says what the check heard.
+    ///
+    /// The queue is looked at before the recorder is, as a television's: only with something in it to send --
+    /// a row of the recorder's with no reason on it whose programme is not over
+    /// (`PendingQueue.hasSomethingToSend`) -- is the recorder made sure of and a line put up. Rows with a reason
+    /// on them wait for the reader, those held for another recorder among them, and would otherwise put the line
+    /// up at every connect for as long as they waited. Rows whose programmes are over are still dropped, with no line and
+    /// no check, which asks the recorder nothing. What waits for the television is its own driver's to send
     /// (`TVDriver.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
-    /// sends nothing, and that flush would wait its turn behind a television's sending that is out. Otherwise
-    /// nothing is asked and nothing said. The host is told the queue may have changed as it is looked at and
-    /// after the round (`LinkHost.queueWritten`), so that the screens read it again.
+    /// sends nothing, and that flush would wait its turn behind a television's sending that is out. With
+    /// nothing to send or to drop, nothing is asked and nothing said, and no round runs: the host says what is
+    /// held for another recorder all the same. The host is told the queue may have changed as it is looked at
+    /// and after the round (`LinkHost.queueWritten`), so that the screens read it again.
     ///
     /// The list is read after a round that made something only where nothing else reads it: after the attach
     /// of a waking that a check began, outside any connect (`SessionState.waking`), so that the row that left
@@ -694,16 +701,19 @@ public final class RecorderDriver: LinkDriver {
         }
         let began = link.generation
         await link.owner?.queueWritten()
-        let rows = (try? await store.pendingReservations()) ?? []
+        let now = Date()
+        let rows = ((try? await store.pendingReservations()) ?? []).filter { $0.target == RecorderClient.slot }
+        let toGo = PendingQueue.hasSomethingToSend(rows, for: RecorderClient.slot, now: now)
         // Asked again once the queue has been read: the recorder may have been let go of meanwhile, or a check
         // have heard something in its place.
-        guard rows.contains(where: { $0.target == RecorderClient.slot }), !link.session.unreachable,
+        guard toGo || rows.contains(where: { $0.request.end < now }), !link.session.unreachable,
               !link.letGo(since: began), canBeAsked(on: link) else {
             return (nil, nil)
         }
-        return await link.underALine(forARowSentAgain ? nil : Self.sendingLine)
+        // Rows only to drop, whose programmes are over, ask the recorder nothing: no line and no check for them.
+        return await link.underALine(forARowSentAgain || !toGo ? nil : Self.sendingLine)
             { _ -> (round: PendingQueue.Outcome?, list: [Reservation]?) in
-            if !forARowSentAgain {
+            if !forARowSentAgain, toGo {
                 guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return (nil, nil) }
             }
             // The client is the one the link holds now, once the check has answered.

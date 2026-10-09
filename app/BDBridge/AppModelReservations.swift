@@ -422,18 +422,23 @@ extension AppModel {
     private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
         + "右にスワイプすると、もう一度送れます。"
 
-    /// What a sending of what waits for the recorder came to, on the strip: only when a round ran
-    /// (`RecorderDriver.sendWhatWaits`), and nothing when none did -- no row for the recorder, or the recorder
-    /// not there to send to. Said on screen, since a notification does not show while the app is in front
-    /// (nothing here answers `willPresent`). A round with nothing to say -- everything waiting had been refused
-    /// before -- leaves the last line where it was. What is held for another recorder is said each time, for as
-    /// long as any is, and first (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver
-    /// has had read again after its round (`queueWritten`). What became of the queue says which device it went
-    /// to once a television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    /// What a sending of what waits for the recorder came to, on the strip, when a round ran
+    /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
+    /// front (nothing here answers `willPresent`). A round with nothing to say leaves the last line where it was.
+    /// What is held for another recorder is said each time a sending is asked, for as long as any is, and first
+    /// (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver has had read again as it
+    /// looked at the queue and after its round (`queueWritten`): also when no round ran -- with nothing else
+    /// waiting, the driver asks the recorder nothing, and no row for the recorder, or the recorder not there to
+    /// send to, runs none either. With nothing held and no round, nothing is said. What became of the queue says
+    /// which device it went to once a television is saved beside the recorder, and not before
+    /// (`PendingQueue.Outcome.said`).
     func tellTheStrip(_ round: PendingQueue.Outcome?) {
-        guard let round else { return }
-        let lines = [RecorderDriver.heldBack(in: pending), round.said(withATelevisionSaved: tv != nil)]
-            .compactMap { $0 }
+        let held = RecorderDriver.heldBack(in: pending)
+        guard let round else {
+            if let held { flushReport = held }
+            return
+        }
+        let lines = [held, round.said(withATelevisionSaved: tv != nil)].compactMap { $0 }
         if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
     }
 
