@@ -697,20 +697,23 @@ public final class RecorderDriver: LinkDriver {
     /// A round that waits for the queue's turn sends on its client when its turn comes, whatever became of the
     /// recorder meanwhile (`PendingQueue.flush`): as it is today. What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
-        await sendWhatWaits(forARowSentAgain: false)
+        await sendWhatWaits(sendingAgain: nil)
     }
 
-    /// The sending. `forARowSentAgain`: under the line of `resend`, which has made the check already, and with
-    /// the list read after every round that made something, for `resend` to hand back.
-    private func sendWhatWaits(forARowSentAgain: Bool) async -> (round: PendingQueue.Outcome?,
-                                                                   list: [Reservation]?) {
+    /// The sending. `row`: the id of the one row `resend` sends again, and nil for what waits. For that row the
+    /// round is the row's alone (`PendingQueue.flush`'s `only`), under the line of `resend`, which has made the
+    /// check already, and with the list read after a round that made it, for `resend` to hand back.
+    private func sendWhatWaits(sendingAgain row: String?) async -> (round: PendingQueue.Outcome?,
+                                                                     list: [Reservation]?) {
         guard let link, link.client is RecorderClient, let store = link.owner?.cache, canBeAsked(on: link) else {
             return (nil, nil)
         }
+        let forARowSentAgain = row != nil
         let began = link.generation
         await link.owner?.queueWritten()
         let now = Date()
-        let rows = ((try? await store.pendingReservations()) ?? []).filter { $0.target == RecorderClient.slot }
+        let rows = ((try? await store.pendingReservations()) ?? [])
+            .filter { $0.target == RecorderClient.slot && (row == nil || $0.id == row) }
         let toGo = PendingQueue.hasSomethingToSend(rows, for: RecorderClient.slot, now: now)
         // Asked again once the queue has been read: the recorder may have been let go of meanwhile, or a check
         // have heard something in its place.
@@ -729,7 +732,7 @@ public final class RecorderDriver: LinkDriver {
                   let client = link.client as? RecorderClient else {
                 return (nil, nil)
             }
-            let round = await PendingQueue.flush(client: client, store: store)
+            let round = await PendingQueue.flush(client: client, store: store, only: row)
             if !link.letGo(since: began) { self.say(stopped: round.stopped, on: link) }
             await link.owner?.queueWritten()
             let readsAfter = forARowSentAgain || (link.session.waking && !link.session.connecting)
@@ -774,11 +777,13 @@ public final class RecorderDriver: LinkDriver {
     /// connect asks it again once the line is down, and its attach sends what waits if it describes itself. A
     /// check that heard something in place of the recorder saying which it is sends nothing either, and what
     /// it heard is said here, at the door (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears
-    /// the recorder. Otherwise what waits is sent now.
+    /// the recorder. Otherwise the row is sent now, and no other, as a television's row sent again is: the
+    /// round is for that row alone (`PendingQueue.flush`'s `only`), and what else waits goes with the next
+    /// sending of what waits. But for a check that wakes the recorder: the waking's attach sends what waits, as
+    /// any attach does, and the row with it, its reason being off by then.
     ///
-    /// Everything that waits for the recorder is sent, not this row alone, and nothing is handed back of the
-    /// row itself, the strip saying what was sent: as it is today; a later change sends the one row and says
-    /// what it came to, as the television's driver does.
+    /// Nothing is handed back of the row itself, the strip saying what was sent: as it is today; a later change
+    /// says what it came to, as the television's driver does.
     public func resend(_ waiting: PendingReservation) async
         -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?) {
         guard waiting.target == RecorderClient.slot, let link, let store = link.owner?.cache else {
@@ -796,7 +801,7 @@ public final class RecorderDriver: LinkDriver {
                 self.sayWhyNotSent(on: link)
                 return (nil, nil)
             }
-            return await self.sendWhatWaits(forARowSentAgain: true)
+            return await self.sendWhatWaits(sendingAgain: waiting.id)
         }
         guard let sent else {
             await link.connect()

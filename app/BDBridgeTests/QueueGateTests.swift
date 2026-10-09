@@ -445,14 +445,11 @@ final class QueueGateTests: XCTestCase {
         XCTAssertTrue(model.gaveUp)
     }
 
-    /// With the recorder there, asking for one waiting reservation to be sent again sends everything that waits
-    /// for it: the row asked for, its reason taken off, and the other, which had none, each once and in the
-    /// queue's order, and the list read once after them. Both leave the queue, on screen and on the phone, and
-    /// the strip says both.
-    ///
-    /// As it is today, and to be rewritten: a later change sends the row asked for alone, as a television's row
-    /// sent again is, and leaves the other for the next sending.
-    func testSendingOneAgainSendsEverythingThatWaitsForTheRecorder() async throws {
+    /// With the recorder there, asking for one waiting reservation to be sent again sends that row alone, its
+    /// reason taken off, as a television's row sent again is, and the list is read once after it. It leaves the
+    /// queue, on screen and on the phone, and the strip says it. The other row, which had no reason, still
+    /// waits, for the next sending of what waits.
+    func testSendingOneAgainSendsThatRowAlone() async throws {
         let (bench, recorder, model) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
         let programmes = try await programmesNotReserved(model, 2)
@@ -462,20 +459,18 @@ final class QueueGateTests: XCTestCase {
         try await store.queue(other)
         await model.loadPending()
         XCTAssertEqual(reasons(model.pending), [asked.id: "前に断られた理由", other.id: ""])
-        // The order the queue sends them in, which is the order it reads them in.
-        let order = try await store.pendingReservations()
-        let first = try XCTUnwrap(order.first)
 
         let count = await recorder.heard.count
         await model.resend(asked)
 
-        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.create, Kind.list],
-                    "the row asked for alone was sent, or the list was read more than once")
-        XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
-        expectEqual(reasons(try await store.pendingReservations()), [:], "what was sent stayed in the queue")
+        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.list],
+                    "the other row was sent too, or the list was read more than once")
+        XCTAssertEqual(reasons(model.pending), [other.id: ""], "the row sent is still shown, or the other is not")
+        expectEqual(reasons(try await store.pendingReservations()), [other.id: ""],
+                    "the row sent stayed in the queue, or the other left it")
         XCTAssertNotNil(model.reservation(for: programmes[0]), "the row asked for is not marked as reserved")
-        XCTAssertNotNil(model.reservation(for: programmes[1]), "the other row is not marked as reserved")
-        XCTAssertEqual(model.flushReport, Said.sent(first.request.title, andOthers: 1))
+        XCTAssertNil(model.reservation(for: programmes[1]), "the other row was made")
+        XCTAssertEqual(model.flushReport, Said.sent(asked.request.title))
         XCTAssertNil(model.problem(for: .recorder))
     }
 
