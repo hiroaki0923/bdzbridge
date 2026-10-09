@@ -108,10 +108,8 @@ extension WhichRecorderTests {
     /// from then on is saved, and found on the phone, rather than failing to be saved under a sentence of its
     /// own. The line is still the one look that tells a reservation kept from one that was not.
     ///
-    /// As it is today: the check answers the same for a recorder that turned the waking away and for one the
-    /// app let go of over its cache, and the reservation tells the two apart by whether the recorder it began
-    /// with is still the one in hand. A later change gives the check an answer of its own for this, and what
-    /// is looked at here stands.
+    /// The check answers that the recorder was let go of while it was made sure of, which is not what it answers
+    /// for a recorder that turned the waking away, and the reservation is not kept on that answer.
     func testAReservationAskedOfARecorderLetGoOfForItsCacheIsNeitherSentNorQueued() async throws {
         let bench = try aBench()
         // The lock is held on purpose: what is tested is giving up, not the wait.

@@ -164,10 +164,13 @@ public enum NotUp: Sendable, Equatable {
     /// Another device answered where the one in play was, on the probe or after a waking. The host has been
     /// told (`anotherAnsweredTheCheck`).
     case anotherAnswered
+    /// The device was let go of while it was made sure of, and not because the check heard another: the
+    /// waking's attach was broken off by the host, which let go of the device -- over a cache that could not
+    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`). As for
+    /// `anotherAnswered`, what was asked for is not for the device in play now; the host has said why.
+    case letGo
     /// Silent to the probe, woken, and the attach that followed was turned away: busy, a fault, not a
-    /// recorder. It is there and not given up on, and the attach has said why. An attach its host broke off
-    /// -- over a cache that could not be made over, the device let go of -- ends here as well, the host
-    /// having said why: the two are not told apart.
+    /// recorder. It is there and not given up on, and the attach has said why.
     case turnedAway
     /// Nothing answered, the waking included. The link is lost (`lost`), and the line is the waking's own
     /// sentence, or the driver's `noAnswerLine` where there was nothing to wake the device with.
@@ -266,6 +269,16 @@ public final class DeviceLink {
     /// True while there is no point asking the device anything: nothing has been set up, or the last ask got
     /// silence.
     public var offline: Bool { client == nil || session.unreachable }
+
+    /// Which device the link is about, as a count: how often the device was let go of
+    /// (`SessionState.timesLetGo`). Noted as something the reader asked for begins, and asked again
+    /// (`letGo(since:)`) before it goes on to what is for that device alone.
+    public var generation: Int { session.timesLetGo }
+
+    /// Whether the device was let go of since `generation` was noted. Not whether the client is the same one:
+    /// every connect makes a client anew for the same device, and what is out on the last one is still that
+    /// device's answer.
+    public func letGo(since generation: Int) -> Bool { self.generation != generation }
 
     /// Whether the phone is on a network the last attempt was not made on.
     public var networkChanged: Bool { session.networkChanged(now: environment.networkSignature()) }
@@ -449,6 +462,7 @@ public final class DeviceLink {
         let network = environment.networkSignature()
         // Who is being made sure of: what the reader asked for must not go to another that answers in its place.
         let known = session.device
+        let began = generation
         var stranger = false
         var answeredTheProbe = true
         // The packet first and the probe after, as connecting does. Not looked for at another address from here.
@@ -478,8 +492,11 @@ public final class DeviceLink {
         case .refused:
             // On the probe: something answered, so what is wrong is for the request itself to say, or for the
             // driver, which may send nothing on the strength of it (`TVDriver.check`). After the waking: it
-            // answered only to refuse, which the attach has said already.
-            return answeredTheProbe ? nil : .turnedAway
+            // answered only to refuse, which the attach has said already -- or its attach was broken off by the
+            // host, which let go of the device and has said why. The count tells the two apart: nothing an
+            // attach turned away moves it.
+            guard !answeredTheProbe else { return nil }
+            return letGo(since: began) ? .letGo : .turnedAway
         case .blocked:
             waitForPermission()
             return .waitingForPermission

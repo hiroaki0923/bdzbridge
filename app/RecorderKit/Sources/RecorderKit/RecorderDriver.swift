@@ -17,9 +17,9 @@ public final class RecorderDriver: LinkDriver {
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
     /// again, a delete, a change and a reservation, and the slot's settling and what it came to. The clash check
-    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
-    /// the check before a reservation. The recorder's other operations are still the app's, and will be asked of
-    /// this the same way.
+    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app; the check
+    /// before a reservation is read for its reason (`check`). The recorder's other operations are still the
+    /// app's, and will be asked of this the same way.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
@@ -906,11 +906,16 @@ public final class RecorderDriver: LinkDriver {
     /// Known to be away -- no recorder's client in hand, or the recorder silent at the last ask -- it is kept on
     /// the phone at once (`keep`), with no check and no line, rather than spend a timeout finding out again.
     /// Otherwise, under a line of its own: the recorder is made sure of, and woken if it is asleep
-    /// (`DeviceLink.ensureUp`). When it cannot be, nothing has been sent, and it is kept -- unless the link no
-    /// longer asks through the client in hand at the door, the recorder having been let go of meanwhile, when it
-    /// is not done. The slot is waited for when the reservation names a USB disk the slot has not answered since
-    /// the recorder last answered (`withholds`): a disk not had is refused as one no longer offered is; silence
-    /// is kept by the same rule, as when the recorder could not be made sure of; a wait given up on ends it.
+    /// (`DeviceLink.check`). When it cannot be, nothing has been sent, and it is kept -- unless the check heard
+    /// another recorder (`NotUp.anotherAnswered`), or the recorder was let go of since the reservation began: by
+    /// the check's own waking (`NotUp.letGo`), or by anything else while the check was out, another address
+    /// chosen among them, whatever the check then answers (`DeviceLink.letGo(since:)`). Then it is not done:
+    /// kept, it would wait as one made for the recorder before, and go to whichever answers the next connect.
+    /// The slot is waited for when the reservation names a USB disk the slot has not answered since the recorder
+    /// last answered (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as
+    /// when the recorder could not be made sure of, unless the recorder was let go of since the reservation began
+    /// (`DeviceLink.letGo(since:)`) -- not for a connect to the same recorder, whose client is new and which lets
+    /// go of nothing; a wait given up on ends it.
     ///
     /// The create is sent once, on the client in hand at the door. Only silence before anything was sent is
     /// kept -- a recorder that answers and refuses has said something the reader needs to see -- and not
@@ -923,8 +928,8 @@ public final class RecorderDriver: LinkDriver {
     /// A reservation not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError`
     /// when it is empty, as a change does. One that said nothing -- a mode the tables do not know, a slot given
     /// up on -- has read nothing first, so that is the line an earlier operation left; one whose recorder was let
-    /// go of while it was made sure of says what the check put there. As it is today; a later change gives the
-    /// reason in the result and leaves the line alone.
+    /// go of while it was made sure of says what the check, or the host it told, put there. As it is today; a
+    /// later change gives the reason in the result and leaves the line alone.
     public func reserve(_ program: GuideProgramRow, quality: String, repeating: String,
                         disk: String) async -> (reserved: Reserved, list: [Reservation]?) {
         clearTheDiskNotHad()
@@ -941,15 +946,16 @@ public final class RecorderDriver: LinkDriver {
         guard let client = link.client as? RecorderClient, !link.offline else {
             return (await keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
         }
+        let began = link.generation
         return await link.underALine(Self.reservingLine) { _ -> (reserved: Reserved, list: [Reservation]?) in
-            // As it is today, and for both comparisons below: the check answers the same for a recorder that
-            // turned the waking away and for one the host let go of over a cache it could not make over, so
-            // whether the recorder was let go of meanwhile is told by whether the link still asks through the
-            // client in hand at the door. Kept for one let go of, the reservation would wait as one made for the
-            // recorder before, and go to whichever answers the next connect. A later change has the check say
-            // that it let go, and these comparisons go.
-            guard await link.ensureUp() else {
-                guard client === link.client else { return (notDone(), nil) }
+            switch await link.check() {
+            case .up:
+                break
+            case .notUp(.anotherAnswered), .notUp(.letGo):
+                return (notDone(), nil)
+            case .notUp:
+                // Nothing was sent; kept only for the recorder it was asked of.
+                guard !link.letGo(since: began) else { return (notDone(), nil) }
                 return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
             }
             switch await self.withholds(disk) {
@@ -960,7 +966,7 @@ public final class RecorderDriver: LinkDriver {
                 return (notDone(), nil)
             case .silence?:
                 // Nothing was sent, as when the recorder could not be made sure of.
-                guard client === link.client else { return (notDone(), nil) }
+                guard !link.letGo(since: began) else { return (notDone(), nil) }
                 return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
             case .givenUp?:
                 return (notDone(), nil)

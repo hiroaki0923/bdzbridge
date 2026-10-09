@@ -343,6 +343,60 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
     }
 
+    /// The same silence, with a connect made while the slot's read is out, keeps the reservation only while the
+    /// recorder it was asked of is still the one in play. Another recorder taken up by that connect, it is not
+    /// done and not kept: kept, it would wait as one made for the first, and go to the newcomer at its next
+    /// connect. The same recorder answering the connect lets go of nothing, though the connect makes a client
+    /// of its own: the reservation is kept as if the connect had not come. Nothing is created either way. What
+    /// the silence does to the recorder in play then is not looked at here.
+    func testASilentSlotKeepsAReservationOnlyForTheRecorderItWasAskedOf() async throws {
+        for anotherAnswers in [true, false] {
+            let (bench, recorder, model) = try await connected(times: 1)
+            addTeardownBlock { await recorder.letGo() }
+            // The demo's answer from here on, which is none; the read again is half a minute away.
+            await reconnect(model)
+            let program = try await programmesNotReserved(model, 1)[0]
+            let before = await recorder.asked
+            await recorder.holdTheNext("X_GetMediaInfo")
+
+            let reserving = Task {
+                await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+            }
+            try await until("the slot was not waited for") {
+                await recorder.asked("X_GetMediaInfo", since: before) == 1
+            }
+            if anotherAnswers { await recorder.become(2) }
+            let made = bench.clientsMade
+            await model.connect()
+            let who = anotherAnswers ? "another recorder answering" : "the same recorder answering"
+            // What this stands on, rather than what it holds: the connect made a client of its own and was
+            // answered by the recorder meant.
+            XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own, \(who)")
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(anotherAnswers ? 2 : 1),
+                           "the connect was meant to be answered so, \(who)")
+            await recorder.goQuiet(on: "X_GetMediaInfo")
+            await recorder.letGo()
+            let came = await reserving.value
+
+            let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()
+            if anotherAnswers {
+                guard case .notDone = came else {
+                    return XCTFail("a reservation for a recorder let go of was kept or made: \(came)")
+                }
+                XCTAssertNil(model.pending(for: program), "kept for a recorder the app had let go of")
+                XCTAssertTrue(onDisk.isEmpty, "kept on the phone for a recorder the app had let go of")
+            } else {
+                guard case .waiting = came else {
+                    return XCTFail("a reservation met by silence beside a connect to its recorder was not kept: "
+                                       + "\(came)")
+                }
+                XCTAssertEqual(model.pending(for: program, on: .recorder)?.request.destination, "USBHDD")
+                XCTAssertEqual(onDisk.map(\.request.eventID), [program.eventID])
+            }
+            expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0, who)
+        }
+    }
+
     /// The slot answering the disk as not mounted while it is waited for -- registered, and taking no recordings --
     /// is no disk to send to: the reservation is refused as for a disk no longer offered, nothing sent, and the disk
     /// is taken as it answered.

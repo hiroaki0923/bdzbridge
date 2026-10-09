@@ -493,6 +493,72 @@ final class ReservationGateTests: XCTestCase {
                      "the list on screen is the one read after the reservation for the recorder let go of")
     }
 
+    /// A reservation asked for while the check before it is out, and the recorder let go of before the check
+    /// answers: another address has been chosen, and the connect to it is under way. The check then meets
+    /// silence where it asked. Nothing was sent, and the reservation is not kept either -- kept, it would wait as
+    /// one made for the recorder let go of, and go to whichever answers that connect -- and nothing is created at
+    /// either address.
+    ///
+    /// No MAC is kept, so that the silence ends the check at once: a waking given up on ends it the same way,
+    /// half a minute later.
+    func testAReservationWhoseRecorderIsLetGoOfWhileItIsMadeSureOfIsNotKept() async throws {
+        try await reservingAcrossALetGo { await $0.goQuiet(on: Kind.description) }
+    }
+
+    /// Asks for a reservation while the check before it is out on the recorder at `Bench.host`, lets go of that
+    /// recorder and connects to `Bench.otherHost`, as a choice of another address does (`adopt`), and then has the
+    /// first recorder answer the check as `answer` sets it to, while a second recorder at the other address holds
+    /// the connect's first ask. The reservation is not done, nothing is kept, on screen or on the phone, and once
+    /// the connect is over nothing has been created on either recorder.
+    ///
+    /// The recorder is let go of by hand: the screens hold the choice back while the check is out
+    /// (`canChangeRecorder`), and what is pinned is what the reservation does however the recorder was let go of.
+    private func reservingAcrossALetGo(_ answer: @escaping (NamedRecorder) async -> Void,
+                                       file: StaticString = #filePath, line: UInt = #line) async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let (first, second) = (NamedRecorder(1), NamedRecorder(2))
+        let model = bench.model(recorders: [Bench.host: first, Bench.otherHost: second])
+        addTeardownBlock {
+            await first.letGo()
+            await second.letGo()
+        }
+        await model.start()
+        try await untilConnected(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+
+        let asked = await first.asked(Kind.description)
+        await first.hold(only: Kind.description)
+        let checking = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { await first.asked(Kind.description) > asked }
+        let reserving = Task { await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none") }
+        try await until("the reservation was never begun") { model.busy != nil }
+        model.forgetTheRecorder()
+        model.host = Bench.otherHost
+        await second.hold(only: Kind.description)
+        let connecting = Task { await model.connect() }
+        try await until("the other address was never asked") { await second.asked(Kind.description) == 1 }
+        await answer(first)
+        await first.letGo()
+        _ = await checking.value
+        // Bounded: a reservation sent on reads its list on the connect's client, behind the ask held there.
+        let reserved = try await within(10, "the reservation never ended") { await reserving.value }
+        await second.letGo()
+        await connecting.value
+
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2),
+                       "the connect to the other address was meant to go through", file: file, line: line)
+        XCTAssertFalse(reserved, "the sheet would close as though the programme were reserved",
+                       file: file, line: line)
+        XCTAssertNil(keptJustNow(model), "kept for the recorder let go of", file: file, line: line)
+        XCTAssertNil(model.pending(for: program), "shown as waiting", file: file, line: line)
+        expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty, "kept on the phone",
+                   file: file, line: line)
+        expectEqual(await first.asked(Kind.create), 0, "created on the recorder let go of", file: file, line: line)
+        expectEqual(await second.asked(Kind.create), 0, "created on the recorder at the other address",
+                    file: file, line: line)
+    }
+
     /// As it is today, and to be rewritten whole: only silence stops a write after the read before it. A
     /// read the recorder turned down -- with a fault, or busy through both tries after the first -- leaves the
     /// app not offline, so the reservation is looked for in the list in hand, and the write goes out. Afterwards
