@@ -35,23 +35,37 @@ extension AppModel {
     /// `timesForgotten` as `forgotten` when it began: only while the count is still that. A list read for a
     /// recorder let go of meanwhile -- another answered or was chosen while the read was out -- is not put on
     /// the screens of the one after it, whose own connect reads its list (`reached`). The television's lists go
-    /// with their host by the same rule (`TVHost`). Nil, nothing read, leaves the list as it was.
+    /// with their host by the same rule (`TVHost`). Nil, nothing read, leaves the list as it was, and its time.
+    /// A list kept was read now, and its time is put down with it (`reservationsRead`).
     func keepReservations(_ list: [Reservation]?, since forgotten: Int) {
         guard let list, timesForgotten == forgotten else { return }
         reservations = list
+        reservationsRead = Date()
     }
 
-    /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when
+    /// Since when the recorder's list on screen is old, for the screens to say so, as a television's
+    /// (`TVHost.staleSince`): the time it was read, while it has rows and nothing can be asked of the recorder
+    /// now (`RecorderDriver.canBeAsked`) -- not connected, given up on after silence, or connected from an
+    /// attach before a reconnect it answered without saying which it is. Nil while it can be asked, since the
+    /// list is then read as a screen appears; and nil with no rows, when nothing old is shown. Nil too while a
+    /// connect to a recorder that answered last time is under way: the list is read as that connect gets there,
+    /// and it is old only once the connect has failed.
+    var reservationsStaleSince: Date? {
+        guard !reservations.isEmpty, recorderDriver?.canBeAsked != true else { return nil }
+        if session.connecting, session.connected { return nil }
+        return reservationsRead
+    }
+
+    /// What pulling the reservations down asks for: what waits sent and then the list read, or a connect when
     /// the app is not connected, which does both once the recorder has answered -- the driver's to decide, once
-    /// (`RecorderDriver.refreshReservations`), after `start()` whichever it does. The list it hands back is kept
-    /// by the count noted here (`keepReservations`), and what the sending came to goes on the strip
-    /// (`tellTheStrip`).
+    /// (`RecorderDriver.refreshReservations`), after `start()` whichever it does. The driver asks for the
+    /// sending through this model, as an attach does (`sendWhatWaits`), which puts what it came to on the
+    /// strip. The list it hands back is kept by the count noted here (`keepReservations`).
     func refreshReservations() async {
         let forgotten = timesForgotten
         await start()
-        guard let pulled = await recorderDriver?.refreshReservations() else { return }
-        keepReservations(pulled.list, since: forgotten)
-        tellTheStrip(pulled.round)
+        guard let list = await recorderDriver?.refreshReservations() else { return }
+        keepReservations(list, since: forgotten)
     }
 
     enum ReservationSort: String, CaseIterable {
@@ -148,14 +162,14 @@ extension AppModel {
     /// the recorder has none, which is all the guide's mark needs to know. Time-only reservations carry no
     /// programme id and so cannot be matched to one.
     func reservation(for program: GuideProgramRow) -> Reservation? {
-        guard let key = Self.key(program) else { return nil }
+        guard let key = ByProgram.key(program) else { return nil }
         return reservationsByProgram[key] ?? tvHost?.reservationsByProgram[key]
     }
 
     /// Every reservation that follows this programme, one for each device that holds one, the recorder's
     /// first: for whatever has to say on which device a programme is set to record.
     func reservations(for program: GuideProgramRow) -> [Reservation] {
-        guard let key = Self.key(program) else { return [] }
+        guard let key = ByProgram.key(program) else { return [] }
         return [reservationsByProgram[key], tvHost?.reservationsByProgram[key]].compactMap { $0 }
     }
 
@@ -173,7 +187,7 @@ extension AppModel {
     /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,
     /// so it always carries the programme id.
     func pending(for program: GuideProgramRow) -> PendingReservation? {
-        guard let key = Self.key(program) else { return nil }
+        guard let key = ByProgram.key(program) else { return nil }
         return pendingByProgram[key]
     }
 
@@ -181,8 +195,8 @@ extension AppModel {
     /// devices, a row for each: `pending(for:)` stays the first of them, which is all the guide's mark
     /// needs.
     func pending(for program: GuideProgramRow, on device: DeviceSlot) -> PendingReservation? {
-        guard let key = Self.key(program) else { return nil }
-        return Self.byProgram(pending.filter { $0.target == device })[key]
+        guard let key = ByProgram.key(program) else { return nil }
+        return ByProgram.of(pending.filter { $0.target == device })[key]
     }
 
     /// Where a reservation can be made: the recorder alone until a television is saved -- in the demo, until
@@ -205,28 +219,6 @@ extension AppModel {
             !holding.contains(device) && pending(for: program, on: device) == nil
                 && (device != .tv || TVDriver.whyNot(program) == nil)
         }
-    }
-
-    private static func key(_ program: GuideProgramRow) -> String? {
-        Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
-    }
-
-    private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
-        "\(broadcastingType)-\(serviceID)-\(eventID)"
-    }
-
-    static func byProgram(_ reservations: [Reservation]) -> [String: Reservation] {
-        Dictionary(reservations.compactMap { reservation in
-            reservation.eventID.map { (key(reservation.broadcastingType, reservation.serviceID, $0), reservation) }
-        }, uniquingKeysWith: { first, _ in first })
-    }
-
-    static func byProgram(_ pending: [PendingReservation]) -> [String: PendingReservation] {
-        Dictionary(pending.compactMap { waiting in
-            waiting.request.eventID.map {
-                (key(waiting.request.broadcastingType, waiting.request.serviceID, $0), waiting)
-            }
-        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The disk a reservation's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that only a
@@ -260,16 +252,19 @@ extension AppModel {
     /// `quality` is not read. With no television in play, as in the demo before its television is added,
     /// nothing is kept and nothing sent.
     ///
-    /// The recorder's is its driver's (`RecorderDriver.reserve`): made, kept on the phone when the recorder
-    /// cannot be asked, or not done with the recorder's line, the driver's result saying which. The list it
-    /// hands back after a reservation made is kept by the count noted here (`keepReservations`): a reservation
-    /// for a recorder let go of meanwhile leaves the list of the one after it alone. A television has no disk to
-    /// choose, and `disk` is not read for one.
+    /// The recorder's is its driver's (`RecorderDriver.reserve`): made; kept on the phone, waiting -- with no
+    /// reason when the recorder cannot be asked or passed it over, with the recorder's reason when it turned it
+    /// down, or held after silence at its create; or not done with its reason, the driver's result saying which;
+    /// with no driver, that the app is not connected. The list it hands back after a reservation made is kept by
+    /// the count noted here (`keepReservations`): a reservation for a recorder let go of meanwhile leaves the list
+    /// of the one after it alone. A television has no disk to choose, and `disk` is not read for one.
     ///
     /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
     /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
     /// the result is said, and once the reservation's line is down. The dialog waits on the reader, who may
-    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it.
+    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it. As
+    /// there, not for one held with a reason, which waits for the reader, nor in the demo, whose recorder is
+    /// nobody's to be told of.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
                  repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
         if device == .tv {
@@ -279,9 +274,9 @@ extension AppModel {
         let forgotten = timesForgotten
         await start()
         guard let came = await recorderDriver?.reserve(program, quality: quality, repeating: repeating, disk: disk)
-        else { return .notDone(problem ?? RecorderDriver.returnedAnError) }
+        else { return .notDone(RecorderDriver.notConnected) }
         keepReservations(came.list, since: forgotten)
-        if case .waiting = came.reserved { await askForNotifications() }
+        if case .waiting(let row, _) = came.reserved, row.problem == nil, !isDemo { await askForNotifications() }
         return came.reserved
     }
 
@@ -299,64 +294,50 @@ extension AppModel {
     }
 
     /// 削除する as the reservations tab's question about a waiting row asks for it: the row is taken off the
-    /// phone, unsent (`removePending`). For a television's row nothing is done while the television works.
-    /// Its swipe is held back by the same, but the question was up for as long as the reader took, and a
-    /// sending begun meanwhile has the row in hand and would go on to make it, after the reader was told
-    /// that it is not sent. Taking the television away does nothing then either (`takeTheTelevisionAway`).
-    /// Never for the recorder's work, and a recorder's row is deleted whatever is under way, as it always
-    /// has been.
+    /// phone, unsent. Nothing is done while the device the row waits for works. Its swipe is held back by the
+    /// same, but the question was up for as long as the reader took, and a sending begun meanwhile has the row
+    /// in hand and would go on to make it, after the reader was told that it is not sent. Taking the television
+    /// away does nothing then either (`takeTheTelevisionAway`). Neither device's work holds back the other's
+    /// rows.
     ///
     /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
-    /// run -- sends through the same queue with a client of its own, so a television's row is deleted in the
-    /// queue's turn (`PendingQueue.betweenFlushes`): before a sending, which then does not see it, or after
-    /// one. The wait is the length of a round, a recorder's included. That the action shares the queue is
-    /// inferred, not seen: it is an intent in the app's own target, and Apple's article "Creating your first
-    /// app intent" says only "You can also place your app intent types in an app extension, and run them in a
-    /// separate process from the rest of your app."
+    /// run -- sends through the same queue with a client of its own, so a row is deleted by its device's driver
+    /// in the queue's turn (`TVDriver.deleteWaiting`, `RecorderDriver.deleteWaiting`), which says whether a
+    /// sending whose turn came first made it. That the action shares the queue is inferred, not seen: it is an
+    /// intent in the app's own target, and Apple's article "Creating your first app intent" says only "You can
+    /// also place your app intent types in an app extension, and run them in a separate process from the rest
+    /// of your app."
     ///
-    /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it
-    /// would be a reservation on the television that the reader believes gone. What to say in place of that
-    /// is handed back, as the strip says a row sent (`TVDriver.madeBeforeItsDelete`). It was made when the
-    /// television's list, read in the turn and before anything is deleted, holds its programme -- though the
-    /// row still waited, as one does whose create the television took and whose answer was lost: that row
-    /// leaves the queue as a row made does. And it was made when the sending took it out of the queue though
-    /// its programme is not over, whatever the list read gave, since a list that cannot be read now says
-    /// nothing: while the television is in play, nothing else takes such a row out but a round that made it
-    /// or found it there, and a delete of the app's own. So a row has one delete at a time: a second one,
-    /// asked for while the first waits its turn -- the row is still listed then, and the reader can confirm
-    /// again -- would find the row gone and say it was made, and it comes back with nil at once instead. The
-    /// list read is kept for the screens either way, and the warning of reservations not yet at the
+    /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
+    /// list of the television in play, read by its host, which keeps it for the screens
+    /// (`TVHost.readReservations`), and whether one is in play. The recorder's driver hands back the list it
+    /// read in the turn, kept here by the count noted as the delete began (`keepReservations`). A row made is
+    /// not deleted, and what to say in place of that is handed back, as the strip says a row sent
+    /// (`TVDriver.madeBeforeItsDelete`, `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip
+    /// does: `deviceSaid`). So a row has one delete at a time: a second one, asked for while the first waits its
+    /// turn -- the row is still listed then, and the reader can confirm again -- would find the row gone and say
+    /// it was made, and it comes back with nil at once instead. The warning of reservations not yet at the
     /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
     ///
-    /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
-    /// unsent, with nothing said, when the app's own link cannot read the list -- as it often cannot, a
-    /// television that was silent to the action being silent to the app as well -- and the television keeps
-    /// the reservation.
-    ///
-    /// Nil when the row was deleted, when nothing was done while the television works or while the row has
-    /// a delete under way already, and when the row has gone and nothing says it was made.
+    /// Nil when the row was deleted, when nothing was done while its device works or while the row has a
+    /// delete under way already, and when the row has gone and nothing says it was made.
     @discardableResult
     func deleteWaiting(_ waiting: PendingReservation) async -> String? {
-        guard !(waiting.target == .tv && isBusy(for: .tv)) else { return nil }
-        guard waiting.target == .tv else {
-            await removePending(waiting)
-            return nil
-        }
+        guard !isBusy(for: waiting.target) else { return nil }
         guard deletingWaiting.insert(waiting.id).inserted else { return nil }
         defer { deletingWaiting.remove(waiting.id) }
-        let made = await PendingQueue.betweenFlushes { @MainActor in
-            // A queue that cannot be read is no sign that a sending took the row: the delete is tried.
-            let stillWaits = (try? await self.store?.pendingReservations())
-                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
-            let listed = await self.tvHost?.readReservations() ?? []
-            let onTheTelevision = waiting.request.eventID.map {
-                AppModel.byProgram(listed)[AppModel.key(waiting.request.broadcastingType, waiting.request.serviceID,
-                                                        $0)] != nil
-            } ?? false
-            let made = onTheTelevision || (!stillWaits && waiting.request.end >= Date() && self.tvHost != nil)
-            if stillWaits { await self.removePending(waiting) }
-            return made
-        } ?? false
+        guard waiting.target == .tv else {
+            let forgotten = timesForgotten
+            let deleted = await recorderDriver?.deleteWaiting(waiting)
+            keepReservations(deleted?.list, since: forgotten)
+            await loadPending()
+            return deleted?.made == true
+                ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
+        }
+        let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
+                                                listing: { await self.tvHost?.readReservations() },
+                                                inPlay: { self.tvHost != nil },
+                                                queueWritten: { await self.loadPending() }) ?? false
         await loadPending()
         await forgetTheWarningOnceSent()
         return made ? TVDriver.madeBeforeItsDelete(waiting, naming: DeviceSlot.tv.label) : nil
@@ -390,34 +371,31 @@ extension AppModel {
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
-    /// connected, and otherwise with the rest the next time the recorder answers: the driver's steps
-    /// (`RecorderDriver.resend`). The list read after a sending is kept by the count noted here
-    /// (`keepReservations`), and what the round came to goes on the strip (`tellTheStrip`).
+    /// connected; to a recorder given up on, by the attach of a connect asked for here; and otherwise with the
+    /// rest the next time the recorder answers: the driver's steps (`RecorderDriver.resend`). The list read
+    /// after a sending is kept by the count noted here (`keepReservations`), and what the round came to goes on
+    /// the strip (`tellTheStrip`). What the row came to is handed back, as the driver says it, nil where there
+    /// is nothing to say of the row.
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
     /// not made sure of on its account, and it takes no turn in the recorder's sending. With no television in
     /// play nothing is done, and the row keeps its reason.
-    func resend(_ waiting: PendingReservation) async {
-        if waiting.target == .tv {
-            await tvHost?.resend(waiting)
-            return
-        }
+    @discardableResult
+    func resend(_ waiting: PendingReservation) async -> Reserved? {
+        if waiting.target == .tv { return await tvHost?.resend(waiting) }
         let forgotten = timesForgotten
         await start()
-        guard let sent = await recorderDriver?.resend(waiting) else { return }
+        guard let sent = await recorderDriver?.resend(waiting) else { return nil }
         keepReservations(sent.list, since: forgotten)
         tellTheStrip(sent.round)
+        return sent.came
     }
 
     /// 「もう一度送る」 as a screen asks for it: the row is sent again (`resend`), and what it came to is
-    /// handed back for that screen to say what the strip does not. A television's row is answered by its
-    /// host. A recorder's is sent as it has always been, and says what it sent on the strip and nowhere
-    /// else: nothing comes back for it.
+    /// handed back for that screen to say what the strip does not, whichever device the row waits for.
     func sendAgain(_ waiting: PendingReservation) async -> Reserved? {
-        if waiting.target == .tv { return await tvHost?.resend(waiting) }
         await resend(waiting)
-        return nil
     }
 
     /// The word for the device a waiting row is for, where a row has to say it: with a television saved, or
@@ -449,19 +427,33 @@ extension AppModel {
     private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
         + "右にスワイプすると、もう一度送れます。"
 
-    /// What a sending of what waits for the recorder came to, on the strip: only when a round ran
-    /// (`RecorderDriver.sendWhatWaits`), and nothing when none did -- no row for the recorder, or the recorder
-    /// not there to send to. Said on screen, since a notification does not show while the app is in front
-    /// (nothing here answers `willPresent`). A round with nothing to say -- everything waiting had been refused
-    /// before -- leaves the last line where it was. What is held for another recorder is said each time, for as
-    /// long as any is, and first (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver
-    /// has had read again after its round (`queueWritten`). What became of the queue says which device it went
-    /// to once a television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    /// What a sending of what waits for the recorder came to, on the strip, when a round ran
+    /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
+    /// front (nothing here answers `willPresent`). Added to what the strip holds unread, by the strip's rule
+    /// (`adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
+    /// closes the strip are both said, and a sentence it holds already is not said twice. A round with nothing
+    /// to say leaves the strip as it was. What became of the queue says which device it went to once a
+    /// television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    ///
+    /// What is held for another recorder is said first, each time a sending is asked, for as long as any is
+    /// (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver has had read again as it
+    /// looked at the queue and after its round (`queueWritten`): also when no round ran -- with nothing else
+    /// waiting, the driver asks the recorder nothing, and no row for the recorder, or the recorder not there to
+    /// send to, runs none either. The count said before is replaced by it (`heldBackSaid`), the rest kept. With
+    /// nothing held and nothing to add, the strip stays as it was.
     func tellTheStrip(_ round: PendingQueue.Outcome?) {
-        guard let round else { return }
-        let lines = [RecorderDriver.heldBack(in: pending), round.said(withATelevisionSaved: tv != nil)]
-            .compactMap { $0 }
-        if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
+        let held = RecorderDriver.heldBack(in: pending)
+        // What the strip holds unread, without the count it began with, which this sending's replaces.
+        var unread = flushReport
+        if let said = heldBackSaid, let report = flushReport, report.hasPrefix(said) {
+            let rest = report.dropFirst(said.count).drop { $0 == "。" }
+            unread = rest.isEmpty ? nil : String(rest)
+        }
+        let added = round?.said(withATelevisionSaved: tv != nil).flatMap { AppModel.adding($0, toUnread: unread) }
+        let lines = [held, added ?? unread].compactMap { $0 }
+        guard !lines.isEmpty else { return }
+        flushReport = lines.joined(separator: "。")
+        heldBackSaid = held
     }
 
     /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both
@@ -475,11 +467,10 @@ extension AppModel {
     ///
     /// The recorder's is its driver's (`RecorderDriver.update`): the list read again first and the reservation
     /// found in it, the slot waited for when the change names the USB disk, and the change sent once. The list
-    /// on screen is handed over for the driver to look in when its read fails, and the list it hands back is
-    /// kept by the count noted here (`keepReservations`): a change for a recorder let go of meanwhile leaves the
-    /// list of the one after it alone. What it came to is the driver's result: done, with nothing to add; or not
-    /// done, with the recorder's line -- what the sheet said before, in the same words. A row the driver turns
-    /// away as no recorder's, which no screen holds, is not done with the line as it stands.
+    /// it hands back is kept by the count noted here (`keepReservations`): a change for a recorder let go of
+    /// meanwhile leaves the list of the one after it alone. What it came to is the driver's result: done, with
+    /// nothing to add; or not done, with its reason. With no driver, or a row the driver turns away as no
+    /// recorder's, which no screen holds, it is not done, the app not being connected.
     func change(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Altered {
         if reservation.device == .tv {
@@ -487,32 +478,34 @@ extension AppModel {
         }
         let forgotten = timesForgotten
         await start()
-        let came = await recorderDriver?.update(reservation, quality: quality, repeating: repeating, disk: disk,
-                                                inHand: { self.reservations })
+        let came = await recorderDriver?.update(reservation, quality: quality, repeating: repeating, disk: disk)
         keepReservations(came?.list, since: forgotten)
-        return came?.altered ?? .notDone(problem ?? RecorderDriver.returnedAnError)
+        return came?.altered ?? .notDone(RecorderDriver.notConnected)
     }
 
-    /// Deletes one reservation, as the device that holds it holds it now. Whether it was deleted.
+    /// Deletes one reservation, as the device that holds it holds it now. What it came to, in the one value both
+    /// devices answer with (`Altered`), for the screen that asked to say.
     ///
-    /// A television's reservation is its host's to delete, handed over first as for a change (`change`).
+    /// A television's reservation is its host's to delete, handed over first as for a change (`change`). With no
+    /// television in play nothing is sent, and the answer is that the app is not connected to it.
     ///
     /// The recorder's is its driver's (`RecorderDriver.cancel`): the list read again first and the reservation
-    /// found in it, the delete sent once, and the row taken out of the list read after it. The list on screen is
-    /// handed over for the driver to look in when its read fails. The list it hands back is kept by the count
-    /// noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not touch the list of the
-    /// one after it, which may hold another row under the same number. A recorder that refuses says why, on its
-    /// line, which is what the row's screen reads.
+    /// found in it, the delete sent once, and the row taken out of the list read after it. The list it hands back
+    /// is kept by the count noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not
+    /// touch the list of the one after it, which may hold another row under the same number. What it came to is
+    /// the driver's result, the reason with it; with no driver, that the app is not connected.
     @discardableResult
-    func cancel(_ reservation: Reservation) async -> Bool {
-        if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }
+    func cancel(_ reservation: Reservation) async -> Altered {
+        if reservation.device == .tv {
+            return await tvHost?.cancel(reservation) ?? .notDone(TVDriver.notConnected)
+        }
         let forgotten = timesForgotten
         await start()
-        guard let came = await recorderDriver?.cancel(reservation, inHand: { self.reservations }) else {
-            return false
+        guard let came = await recorderDriver?.cancel(reservation) else {
+            return .notDone(RecorderDriver.notConnected)
         }
         keepReservations(came.list, since: forgotten)
-        return came.deleted
+        return came.deleted ?? .notDone(RecorderDriver.notConnected)
     }
 
     /// What to call the channel a reservation is on: the guide's name for it, and for a television's row on a

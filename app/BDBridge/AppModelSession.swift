@@ -45,11 +45,6 @@ extension AppModel {
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
 
-    /// Said when something the reader asked for was not done because another recorder answered where the
-    /// one it was meant for had been. Not only what is sent: a read comes through the same check.
-    static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
-        + "一覧を読み直しますので、確かめてからもう一度お試しください。"
-
     /// What the strip says while `anotherTookOver` is set and the app is connected. Nobody need have asked
     /// for anything -- a change of network asks the recorder whether it is still there -- so it says what to
     /// do if something was being done, not that something was not.
@@ -73,12 +68,6 @@ extension AppModel {
     /// callers once the recorder is back: a write that met silence may have arrived all the same.
     func lostTheRecorder() {
         recorder.lost()
-    }
-
-    /// Why something the reader asked for was not sent at all: the app is not connected.
-    var notConnected: String {
-        connectBlocked ? LocalNetworkNotice.title
-            : "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
     }
 
     /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
@@ -289,8 +278,9 @@ extension AppModel {
     }
 
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
-    /// attach: the list it read after a sending is kept by the count noted here (`keepReservations`), and what
-    /// the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
+    /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
+    /// waking's attach that no connect reads after, is kept by the count noted here (`keepReservations`), and
+    /// what the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
     func sendWhatWaits() async {
         let forgotten = timesForgotten
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }
@@ -328,7 +318,7 @@ extension AppModel {
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
         cancelBulk()
-        problem = Self.anotherAnswered
+        problem = RecorderDriver.anotherAnswered
         anotherTookOver = true
         let running = jobTask
         Task {
@@ -339,7 +329,7 @@ extension AppModel {
     }
 
     func sayNotConnected() {
-        problem = notConnected
+        problem = recorderDriver?.whyNotConnected ?? RecorderDriver.notConnected
     }
 
     /// Waits for the reader to allow the local network, then tells the link. The screens say so from

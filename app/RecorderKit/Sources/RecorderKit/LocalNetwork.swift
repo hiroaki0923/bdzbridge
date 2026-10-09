@@ -6,6 +6,11 @@ import Foundation
 /// SSDP would be the polite way to ask, but sending multicast from an iOS app needs an entitlement Apple
 /// grants by request, so this looks through the subnet the device is already on instead.
 public enum LocalNetwork {
+    /// What the screens say while local network privacy stands between the app and a device: the title of the
+    /// notice that says so, and what the recorder's driver says when it is why nothing was sent
+    /// (`RecorderDriver.whyNotConnected`).
+    public static let accessNotAllowed = "ローカルネットワークへのアクセスが許可されていません"
+
     public struct Interface: Sendable, Equatable {
         public var name: String
         public var address: String

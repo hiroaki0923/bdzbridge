@@ -48,7 +48,10 @@ public enum PendingQueue {
     /// rather than sent, and nothing is asked of the device for it; one on air is still sent, because the
     /// device records what is left of it. That is what a recorder does: what a television does with a
     /// reservation of a programme on air has not been seen, and it is sent one all the same. A device that
-    /// goes away mid-flush leaves the rest queued.
+    /// goes away mid-flush leaves the rest queued. The row whose create it went away at may have been made: on
+    /// a device that holds such a row for the reader it has the reason that device gives written on it
+    /// (`QueueTarget.heldAfterSilence`), unless a reason was written on it while the create was out, and waits
+    /// as a refused row does; on any other it is left as it was.
     ///
     /// The device is read for the round (`QueueTarget.openRound`, with the cache to hand) at the first row that
     /// is to go, and only then: a queue with nothing to send asks it nothing. A round that cannot be opened ends
@@ -57,8 +60,9 @@ public enum PendingQueue {
     ///
     /// One the device refused with a reason of its own keeps that reason and is not sent again, since the
     /// answer would be the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`)
-    /// or cancel it. A failure that says nothing about the reservation -- a 503, an answer with no code --
-    /// leaves it as it was.
+    /// or cancel it. The reason is written over the one the row was sent with alone -- none, or the one
+    /// consented to: one written while the create was out stands, as it does for silence. A failure that says
+    /// nothing about the reservation -- a 503, an answer with no code -- leaves it as it was.
     ///
     /// `consenting`: the rows the reader has said to make though they stop another reservation from
     /// recording, each by its id with the reason the reader consented to, letter for letter. A consent is
@@ -102,6 +106,11 @@ public enum PendingQueue {
     /// For a change to what waits that a sending must not meet half way -- the screens deleting what a run
     /// with no screen may have in hand. One turn for every device, as the flushes have. Nil never comes from
     /// a `work` that does not throw.
+    ///
+    /// Nothing in `work` may go through a link's check before an operation (`DeviceLink.check`): a recorder's
+    /// check can wake it, and the attach after the waking sends what waits, which waits for this turn -- the
+    /// work would never end, and no flush would run again until the app is started anew. What `work` asks of a
+    /// device it asks of the client in hand, as `RecorderDriver.deleteWaiting` reads the recorder's list.
     public static func betweenFlushes<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T? {
         try? await oneAtATime.run(work)
     }
@@ -162,13 +171,18 @@ public enum PendingQueue {
                 try? await store.removePending(pending.id)
                 outcome.alreadyThere.append(pending)
             case .refused(let reason):
-                try? await store.setPendingProblem(pending.id, reason)
+                try? await store.setPendingProblem(pending.id, reason, ifItIs: pending.problem)
                 var refused = pending
                 refused.problem = reason
                 outcome.refused.append(refused)
             case .passedOver:
                 outcome.deferred.append(pending)
             case .stopped(let stop, let passedOver):
+                // Only on a row with no reason yet: one another recorder's arrival held while the create was
+                // out stays held for the recorder before, and counted so.
+                if stop == .silent(afterSending: true), let held = Target.heldAfterSilence {
+                    try? await store.setPendingProblemIfNone(pending.id, held)
+                }
                 if passedOver { outcome.deferred.append(pending) }
                 outcome.stopped = stop
                 break sending

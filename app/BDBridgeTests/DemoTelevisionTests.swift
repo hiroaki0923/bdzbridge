@@ -75,7 +75,7 @@ final class DemoTelevisionTests: XCTestCase {
         expectEqual(await model.change(made, quality: "DR", repeating: "daily"), .done(saying: nil))
         let changed = try XCTUnwrap(model.reservations(for: wanted[0]).first { $0.device == .tv })
         XCTAssertEqual(changed.repeatName, "daily")
-        expectTrue(await model.cancel(changed), "the reservation was not deleted")
+        expectTrue(await deleteAReservation(model, changed), "the reservation was not deleted")
         XCTAssertEqual(model.reservations(for: wanted[0]), [], "the demo's television still holds it")
 
         let store = try XCTUnwrap(model.store)

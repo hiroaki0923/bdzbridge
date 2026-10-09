@@ -155,10 +155,7 @@ struct ReservationsScreen: View {
                 case .confirm(let reservation):
                     Button("削除する", role: .destructive) {
                         Task {
-                            if await !model.cancel(reservation) {
-                                failure = model.problem(for: reservation.device)
-                                    ?? "\(reservation.device.label)がエラーを返しました"
-                            }
+                            if case .notDone(let why) = await model.cancel(reservation) { failure = why }
                         }
                     }
                     Button("キャンセル", role: .cancel) {}
@@ -224,6 +221,16 @@ struct ReservationsScreen: View {
 
     private var list: some View {
         List {
+            if let since = model.reservationsStaleSince,
+               model.shownReservations.contains(where: { $0.device == .recorder }) {
+                // The recorder's, by the television's rule just below: a recorder that cannot be asked leaves its
+                // last list up, and what is on screen says how old that is, above its rows only.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text("レコーダーの予約は\(Self.ago(min(since, context.date.addingTimeInterval(-60))))に読んだものです")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+            }
             if let since = model.tvHost?.staleSince, model.shownReservations.contains(where: { $0.device == .tv }) {
                 // A television that cannot be asked leaves its last list up, and what is on screen says how
                 // old that is -- above its rows only, so not while the kind shown leaves them out. The words
@@ -239,10 +246,10 @@ struct ReservationsScreen: View {
             if !model.pending.isEmpty {
                 Section {
                     ForEach(model.pending) { waiting in
-                        // A television's row is held back while the television works, as its reservations
-                        // below are: a sending that is out may have this row in hand. Never by the
-                        // recorder's work, and a recorder's row is held back by nothing, as it never was.
-                        let heldBack = waiting.target == .tv && model.isBusy(for: .tv)
+                        // Held back while the device it waits for works, as that device's reservations below
+                        // are: a sending that is out may have this row in hand. Never by the other device's
+                        // work.
+                        let heldBack = model.isBusy(for: waiting.target)
                         PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting),
                                        disk: model.diskShown(waiting))
                             // 削除, as on the reservations below it, and asked first like every other delete.
@@ -251,8 +258,8 @@ struct ReservationsScreen: View {
                             }
                             // A refused one is not sent again by itself, since the answer would be the same;
                             // the reader is the one who knows when whatever it names has changed. What it
-                            // came to is said here where the row does not say it; a recorder's row says
-                            // what it sent on the strip, as it has, and hands nothing back to say.
+                            // came to is said here where the row does not say it, whichever device it waits
+                            // for; what the sending sent is said on the strip as well.
                             // Nothing to say is not kept: it would take down what another row's sending
                             // put up meanwhile -- a recorder's can be out for as long as a waking takes,
                             // and a television's row sent after it is answered first -- before it was read.
@@ -289,13 +296,14 @@ struct ReservationsScreen: View {
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
-                            // A television's row stays listed until its delete has read the list again,
-                            // and a second delete sent meanwhile would be answered as if the first had failed.
+                            // A row stays listed until its delete has read the list again, the recorder's
+                            // as a television's, and a second delete sent meanwhile would be answered as if the
+                            // first had failed: held while the row's own device works.
                             Button("削除") {
                                 removing = Picked(listKey: reservation.listKey, device: reservation.device)
                             }
                             .tint(.red)
-                            .disabled(reservation.device == .tv && model.isBusy(for: .tv))
+                            .disabled(model.isBusy(for: reservation.device))
                         }
                     }
                 }

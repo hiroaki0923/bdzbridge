@@ -10,13 +10,15 @@ import SwiftUI
 /// A television's is shown, changed and deleted. What can be changed is its repeat, until its programme
 /// begins, to what its driver offers (`TVDriver.repeats(changing:)`): the sheet has no rule of its own, and
 /// offers nothing the change's door would turn away. A recorder's is offered the modes and the repeats its
-/// driver lists (`RecorderDriver.recordsIn`, `repeats(startingAt:)`), and what the sheet says of one in words
-/// of the recorder's is its driver's too. What the change came to is said in the sheet's one alert,
-/// under the device's name when something is to be added to a change made. While a request of the sheet's own
-/// to the television is out, the change or the delete, its line is on the sheet, nothing on it can be
-/// pressed and the sheet cannot be closed: what the request came to is said here, and a sheet that had gone
-/// would say it nowhere. The recorder's rows are not held so. Whatever is held back, said in red or reported
-/// as a failure is the row's own device's, and the other device's work and trouble are left out of it.
+/// driver lists (`RecorderDriver.recordsIn`, `repeats(startingAt:)`) while its driver would change it at all
+/// (`RecorderDriver.whyNot(changing:)`), and what the sheet says of one in words of the recorder's is its
+/// driver's too. What the change came to is said in the sheet's one alert, under the device's name when
+/// something is to be added to a change made. While a request of the sheet's own is out, the change or the
+/// delete, its device's line for it is on the sheet, nothing on it can be pressed and the sheet cannot be
+/// closed, for either device's row: what the request came to is said here, and a sheet that had gone would say
+/// it nowhere. A recorder's can be out for as long as a waking and the wait for its disk take. Whatever is held
+/// back, said in red or reported as a failure is the row's own device's, and the other device's work and
+/// trouble are left out of it.
 struct ReservationSheet: View {
     let reservation: Reservation
     @Environment(AppModel.self) private var model
@@ -36,11 +38,15 @@ struct ReservationSheet: View {
     @State private var saved = false
     /// A change made, and what its device added to it, said before the sheet closes.
     @State private var said: String?
-    /// The line of a request of this sheet's own to the television, while it is out. Never set for the
-    /// recorder.
+    /// A change of the recorder's not sent because the disk it goes to cannot be had: its report leaves the
+    /// sheet open, the sentence asking for another disk on this sheet's picker, which offers what is left.
+    @State private var anotherDiskWanted = false
+    /// The line of a request of this sheet's own to the device that holds the row, while it is out.
     @State private var asking: String?
 
-    private var past: Bool { reservation.end <= Date() }
+    /// A recorder's row the change's door would turn away -- being recorded, or over -- by its driver's rule
+    /// (`RecorderDriver.whyNot(changing:)`): it is shown as values, and no change is offered.
+    private var settled: Bool { RecorderDriver.whyNot(changing: reservation) != nil }
     private var onTelevision: Bool { reservation.device == .tv }
 
     /// What a recorder's row can be given, as its driver offers them: the weekly one only on the programme's own
@@ -56,14 +62,14 @@ struct ReservationSheet: View {
     private var changed: Bool {
         onTelevision
             ? !televisionsRepeats.isEmpty && repeating != (reservation.repeatName ?? "none")
-            : quality != (reservation.qualityName ?? "") || repeating != (reservation.repeatName ?? "none")
-                || movedTo != nil
+            : !settled && (quality != (reservation.qualityName ?? "")
+                || repeating != (reservation.repeatName ?? "none") || movedTo != nil)
     }
 
     /// The disks it can be moved between, while it can still be changed: none for a television's row, and none
     /// in a home with no USB disk, where no picker is drawn.
     private var diskChoices: [RecorderDisk] {
-        past || reservation.recording ? [] : model.diskChoices(for: reservation)
+        settled ? [] : model.diskChoices(for: reservation)
     }
 
     var body: some View {
@@ -152,11 +158,14 @@ struct ReservationSheet: View {
                                         set: { if !$0 { alertClosed() } })) {
                 if failure == nil, said == nil {
                     Button("削除する", role: .destructive) {
-                        if onTelevision { asking = TVDriver.deletingLine }
+                        asking = onTelevision ? TVDriver.deletingLine : RecorderDriver.deletingLine
                         Task {
-                            done = await model.cancel(reservation)
+                            let deleted = await model.cancel(reservation)
                             asking = nil
-                            if !done { failure = whatWentWrong }
+                            switch deleted {
+                            case .done: done = true
+                            case .notDone(let why): failure = why
+                            }
                         }
                     }
                     Button("キャンセル", role: .cancel) {}
@@ -185,33 +194,43 @@ struct ReservationSheet: View {
         failure != nil ? "エラー" : said != nil ? "\(reservation.device.label)の予約" : "この予約を削除しますか？"
     }
 
-    /// The alert has been closed, whichever it was. For a television's row the report of a failed change or
-    /// delete takes the sheet with it: the list was read again on the way, and the row this sheet holds may
-    /// no longer be the television's, so trying again starts from the list. What a change made added takes
-    /// the sheet with it as well, as a change made with nothing to add does at once. Looked at here and not
-    /// in the button, before the report is cleared: closing the alert is what clears it.
+    /// The alert has been closed, whichever it was. The report of a failed change or delete takes the sheet
+    /// with it, for either device's row: the list was read again on the way, and the row this sheet holds may
+    /// no longer be the device's as it holds it, so trying again starts from the list -- but for a change of
+    /// the recorder's not sent because the disk it goes to cannot be had, whose sentence asks for another disk
+    /// on this sheet (`anotherDiskWanted`). What a change made added takes the sheet with it as well, as a
+    /// change made with nothing to add does at once. Looked at here and not in the button, before the report
+    /// is cleared: closing the alert is what clears it.
     private func alertClosed() {
-        if failure != nil, onTelevision { done = true }
+        if failure != nil, !anotherDiskWanted { done = true }
         if said != nil { done = true }
         confirming = false
         failure = nil
         said = nil
+        anotherDiskWanted = false
     }
 
     /// 変更を〈機器〉に送る: the change goes to the device that holds the row, with what the pickers hold as it
     /// is pressed, and what it came to is said. Made with nothing to add closes the sheet; made with something
-    /// to add says it, and closing that closes the sheet; not made says why. A request to the television holds
-    /// the sheet open until it is answered (`asking`).
+    /// to add says it, and closing that closes the sheet; not made says why, and closing that closes the sheet
+    /// too, unless the disk the change goes to cannot be had (`alertClosed`). The request holds the sheet open
+    /// until it is answered (`asking`).
     private func sendTheChange() {
         let moved = movedTo
-        if onTelevision { asking = TVDriver.changingLine }
+        asking = onTelevision ? TVDriver.changingLine : RecorderDriver.changingLine
         Task {
             let altered = await model.change(reservation, quality: quality, repeating: repeating, disk: moved)
             asking = nil
             switch altered {
             case .done(nil): saved = true
             case .done(let more?): said = more
-            case .notDone(let why): failure = why
+            case .notDone(let why):
+                failure = why
+                // By why the change was not sent, not by whether the reservation's own disk is offered now: a
+                // disk moved to that is not offered, or the slot answering no disk for the disk it went to.
+                let notOffered = moved.map { !RecorderDisk.offers($0, with: model.usbDisk) } ?? false
+                anotherDiskWanted = !onTelevision
+                    && (notOffered || model.diskNotHad == (moved ?? reservation.destination))
             }
             // A move to a disk that cannot be had -- no longer offered, or not answered by the slot while it was
             // waited for -- is forgotten: the reservation stays where the recorder holds it, and the picker offers
@@ -220,17 +239,11 @@ struct ReservationSheet: View {
         }
     }
 
-    /// What a delete that failed is reported as: the line of the row's device, which is where its delete
-    /// says what went wrong.
-    private var whatWentWrong: String {
-        model.problem(for: reservation.device) ?? "\(reservation.device.label)がエラーを返しました"
-    }
-
     /// What the recorder holds of it beyond the times, and the choices that can still be changed: the mode, the
     /// repeat, and the disk where there is one to move it to.
     @ViewBuilder
     private var recordersValues: some View {
-        if past || reservation.recording {
+        if settled {
             LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
                            ?? reservation.qualityName ?? "-")
             LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")

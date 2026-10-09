@@ -291,6 +291,46 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(session.described(description(udn: Self.anotherUDN)), .same, "it is the one known now")
     }
 
+    /// How often the device was let go of moves only when the device in play stops being the one it was:
+    /// another describes itself where it was, or names itself, or the caller lets go of it. The first to
+    /// describe itself takes nobody's place, and the same device again -- at any address, as a description or
+    /// an identity -- its silence, an attach it turned away and something that answered and was not taken up
+    /// leave the count where it was: what was asked of the device before any of them is still about it.
+    func testTheCountOfDevicesLetGoOfMovesOnlyWhenTheDeviceIsNoLongerTheOneItWas() {
+        let session = SessionState()
+        session.described(description())
+        XCTAssertEqual(session.timesLetGo, 0, "the first device to describe itself took another's place")
+
+        session.described(description())
+        session.described(description(host: "192.0.2.11"))
+        session.wentSilent(on: "home")
+        session.attachFailed(.silent)
+        session.lost()
+        session.described(description())
+        session.attachFailed(.busy)
+        session.attachFailed(.refused(reason: "402"))
+        session.strangerAnswered()
+        XCTAssertEqual(session.timesLetGo, 0, "moved while the device stayed the one it was")
+
+        session.described(description(udn: Self.anotherUDN))
+        XCTAssertEqual(session.timesLetGo, 1, "another describing itself did not move it")
+        session.described(description(udn: Self.anotherUDN))
+        XCTAssertEqual(session.timesLetGo, 1, "the newcomer answering again moved it")
+
+        session.forgotTheDevice()
+        XCTAssertEqual(session.timesLetGo, 2, "letting go of the device did not move it")
+        session.described(description())
+        XCTAssertEqual(session.timesLetGo, 2, "the first after a let-go took another's place")
+
+        let named = SessionState(device: "f8:4e:17:00:00:02")
+        named.identified(as: "F8:4E:17:00:00:02")
+        named.identified(as: "")
+        named.strangerAnswered()
+        XCTAssertEqual(named.timesLetGo, 0, "moved while the device stayed the one it was")
+        named.identified(as: "f8:4e:17:00:00:03")
+        XCTAssertEqual(named.timesLetGo, 1, "another naming itself did not move it")
+    }
+
     /// The disk in a recorder's USB slot is that recorder's, as its free space is: it stands through the same
     /// recorder answering again and through silence, and goes with another device's answer, whichever way that
     /// device says who it is, and with the device forgotten. So does waiting for the slot to answer it.

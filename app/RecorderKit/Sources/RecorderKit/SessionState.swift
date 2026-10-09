@@ -77,6 +77,14 @@ public final class SessionState {
     /// through silence, until another device describes itself (`described`) or the caller lets go of it
     /// (`forgotTheDevice`). Nil before any has, and for a device that gives no UDN.
     public private(set) var device: String?
+    /// Bumped each time the device this is all about stops being the one it was: the caller lets go of it
+    /// (`forgotTheDevice`), or another describes itself, or names itself, in its place (`described`,
+    /// `identified`, answering `.another`). Not when the same device answers again, at whatever address, nor
+    /// when it goes silent, an attach fails, or something answers that is not taken up (`strangerAnswered`).
+    /// What was asked of the device before this moved is not about the one in play: compared for equality
+    /// with a count noted earlier (`DeviceLink.letGo(since:)`), never counted, since one newcomer can move it
+    /// twice.
+    public private(set) var timesLetGo = 0
 
     /// `mac` is what was saved, as it was saved. `device` is which device was saved, for one that has nothing
     /// else to be known by from one launch to the next -- a television, by its MAC; a recorder is known by its
@@ -133,6 +141,7 @@ public final class SessionState {
     public func described(_ description: RecorderDescription) -> Recognition {
         let who = recognises(description)
         if who == .another {
+            timesLetGo += 1
             firmware = ""
             storage = nil
             usbDisk = nil
@@ -165,6 +174,7 @@ public final class SessionState {
     public func identified(as identity: String) -> Recognition {
         let who = recognises(identity: identity)
         if who == .another {
+            timesLetGo += 1
             firmware = ""
             storage = nil
             usbDisk = nil
@@ -281,8 +291,10 @@ public final class SessionState {
     /// Another device is in play, or may be: the reader has pointed the app at another address, or the demo
     /// was entered or left. What the last one said of itself is forgotten -- that it wanted powering on among
     /// it -- and so is having given up on it, and which device it was: the next to describe itself is the
-    /// first. The MAC and where the app last tried are the caller's to change.
+    /// first. The MAC and where the app last tried are the caller's to change. The device has been let go of
+    /// (`timesLetGo`).
     public func forgotTheDevice() {
+        timesLetGo += 1
         device = nil
         info = nil
         named = false

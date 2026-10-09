@@ -164,10 +164,15 @@ public enum NotUp: Sendable, Equatable {
     /// Another device answered where the one in play was, on the probe or after a waking. The host has been
     /// told (`anotherAnsweredTheCheck`).
     case anotherAnswered
+    /// The device was let go of while it was made sure of, and not because the check heard another: the
+    /// waking's attach was broken off by the host, which let go of the device -- over a cache that could not
+    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`) -- or something else let
+    /// go of it while the check met silence: another address chosen, another device described itself on a
+    /// connect. As for `anotherAnswered`, what was asked for is not for the device in play now; the host has
+    /// said why, or whatever let go of it has, and the silence is neither taken for the device in play nor said.
+    case letGo
     /// Silent to the probe, woken, and the attach that followed was turned away: busy, a fault, not a
-    /// recorder. It is there and not given up on, and the attach has said why. An attach its host broke off
-    /// -- over a cache that could not be made over, the device let go of -- ends here as well, the host
-    /// having said why: the two are not told apart.
+    /// recorder. It is there and not given up on, and the attach has said why.
     case turnedAway
     /// Nothing answered, the waking included. The link is lost (`lost`), and the line is the waking's own
     /// sentence, or the driver's `noAnswerLine` where there was nothing to wake the device with.
@@ -202,6 +207,37 @@ public final class DeviceLink {
     public let session: SessionState
     /// The client of the attempt under way or the last one. Nil when the device has been let go of.
     public var client: (any LinkClient)?
+    /// The client whose attach went through: the one that has heard which device answers it, and so the one that
+    /// may be asked what needs that. Every attempt makes a client of its own (`reach`), which is `client` from
+    /// before its first ask and has yet to hear who answers; it becomes this when its driver says so, part way
+    /// through an attach -- once the device has said which it is and what goes with that has been read, before
+    /// what waits is sent, so that what is asked from inside the attach passes. An attempt that fails before then
+    /// never becomes it, and leaves the last one here; one that fails after, sending what waits or reading on,
+    /// stays it, and what the session says of the device stands beside it. Weak: this is not what keeps a client
+    /// alive. Nil once the device has been let go of (`forgetTheDevice`).
+    @ObservationIgnored public internal(set) weak var attachedClient: (any LinkClient)?
+
+    /// Whether the client in hand is the one whose attach went through (`attachedClient`).
+    public var clientIsAttached: Bool { client != nil && client === attachedClient }
+
+    /// What the check before an operation heard in place of the device saying which it is: a refusal, a fault, an
+    /// answer that does not read -- from the device, or from whatever has taken its address. Nil until then, and
+    /// again once a check or an attach hears the device say which it is; the driver's check and its attach write
+    /// it (`TVDriver.check`, `RecorderDriver.check`). While it is set nothing is sent that is for the device
+    /// known alone (`mayBeSent`), and an operation makes its check whatever the time since the address last
+    /// answered (`checksAgain`): an answer that does not say which device gave it says nothing of the device
+    /// asked next. Not observed.
+    @ObservationIgnored public internal(set) var heardInstead: (any DeviceError)?
+
+    /// Whether the check before an operation is made however lately the address answered: the last check heard
+    /// something in place of the device saying which it is (`heardInstead`).
+    public var checksAgain: Bool { heardInstead != nil }
+
+    /// Whether what is for the device known alone may be sent, read after the check before an operation has
+    /// answered: the client in hand is the one whose attach went through (`clientIsAttached`), the session is
+    /// connected, and the last check heard the device say which it is (`heardInstead`). A driver adds what is
+    /// its own to it (`TVDriver`: no registration wanted).
+    public var mayBeSent: Bool { clientIsAttached && session.connected && heardInstead == nil }
     /// The check before an operation that is out, so that everything asked for while it runs waits for its
     /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
     /// from it when the device is up.
@@ -236,6 +272,16 @@ public final class DeviceLink {
     /// True while there is no point asking the device anything: nothing has been set up, or the last ask got
     /// silence.
     public var offline: Bool { client == nil || session.unreachable }
+
+    /// Which device the link is about, as a count: how often the device was let go of
+    /// (`SessionState.timesLetGo`). Noted as something the reader asked for begins, and asked again
+    /// (`letGo(since:)`) before it goes on to what is for that device alone.
+    public var generation: Int { session.timesLetGo }
+
+    /// Whether the device was let go of since `generation` was noted. Not whether the client is the same one:
+    /// every connect makes a client anew for the same device, and what is out on the last one is still that
+    /// device's answer.
+    public func letGo(since generation: Int) -> Bool { self.generation != generation }
 
     /// Whether the phone is on a network the last attempt was not made on.
     public var networkChanged: Bool { session.networkChanged(now: environment.networkSignature()) }
@@ -328,11 +374,12 @@ public final class DeviceLink {
         if session.link.sawAnotherNetwork { networkReported() }
     }
 
-    /// Lets go of the device as far as memory goes: what it said of itself, which it was, and the client. A wait
-    /// for the permission at it ends too.
+    /// Lets go of the device as far as memory goes: what it said of itself, which it was, and the client, the one
+    /// whose attach went through among them. A wait for the permission at it ends too.
     public func forgetTheDevice() {
         session.forgotTheDevice()
         client = nil
+        attachedClient = nil
         endTheReadLeftForLater()
         owner?.stopWaitingForPermission()
     }
@@ -410,6 +457,13 @@ public final class DeviceLink {
     }
 
     /// The check itself. Nil when the device is up.
+    ///
+    /// Silence met once the device has been let go of since the check began -- another address chosen, another
+    /// device described itself on a connect -- is not the device in play's: the session, which is the newcomer's
+    /// by then, is neither marked silent nor lost, nothing is said, and the answer is `NotUp.letGo`. Nor is
+    /// anything more done about it: the permission is not asked about and the device is not woken, which with
+    /// a MAC kept would send packets for the device let go of, ask the address it was at, and say over the
+    /// newcomer's line that it did not answer. A device of either kind, the check being the link's.
     private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> NotUp? {
         if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
             return nil
@@ -418,6 +472,7 @@ public final class DeviceLink {
         let network = environment.networkSignature()
         // Who is being made sure of: what the reader asked for must not go to another that answers in its place.
         let known = session.device
+        let began = generation
         var stranger = false
         var answeredTheProbe = true
         // The packet first and the probe after, as connecting does. Not looked for at another address from here.
@@ -427,14 +482,18 @@ public final class DeviceLink {
                 let answer = await self.driver.check(self, client: client)
                 if answer.stranger { stranger = true }
                 if answer.failure == .silent {
-                    // Silence, which is what waking is for.
+                    // Silence, which is what waking is for -- unless the device was let go of while the probe
+                    // was out: the silence is the one let go of's, and the session is another's by now.
                     answeredTheProbe = false
-                    self.session.wentSilent(on: network)
+                    if !self.letGo(since: began) { self.session.wentSilent(on: network) }
                 }
                 return answer.failure
             },
-            blocked: { await self.environment.lanIsBlocked(self.host) },
-            wake: { await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached }))
+            blocked: { self.letGo(since: began) ? false : await self.environment.lanIsBlocked(self.host) },
+            wake: {
+                guard !self.letGo(since: began) else { return .silent }
+                return await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached
+            }))
         switch outcome {
         case .answered:
             // Another device answers where the one in play was -- on the probe, or after a waking, whose attach
@@ -446,13 +505,18 @@ public final class DeviceLink {
             return nil
         case .refused:
             // On the probe: something answered, so what is wrong is for the request itself to say, or for the
-            // driver, which may send nothing on the strength of it (`TVDriver.check`). After the waking: it
-            // answered only to refuse, which the attach has said already.
-            return answeredTheProbe ? nil : .turnedAway
+            // driver, which may send nothing on the strength of it (`TVDriver.check`, `RecorderDriver.check`).
+            // After the waking: it answered only to refuse, which the attach has said already -- or its attach was
+            // broken off by the host, which let go of the device and has said why. The count tells the two apart:
+            // nothing an attach turned away moves it.
+            guard !answeredTheProbe else { return nil }
+            return letGo(since: began) ? .letGo : .turnedAway
         case .blocked:
             waitForPermission()
             return .waitingForPermission
         case .silent:
+            // Not the device in play's silence: nothing is lost or said for it.
+            guard !letGo(since: began) else { return .letGo }
             lost()
             // Waking says why it gave up; without a way to wake it there was no waking to say it.
             if !driver.canWake(self) { owner?.problem = driver.noAnswerLine }

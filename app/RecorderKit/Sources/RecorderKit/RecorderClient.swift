@@ -103,10 +103,19 @@ public actor RecorderClient {
     // MARK: - reservations
 
     public func reservations(count: Int = 200) async throws -> [Reservation] {
-        let result = try await resultText(Upnp.xsrsControlURL, Upnp.xsrsService, "X_GetRecordScheduleList",
+        try await reservationList(count: count).reservations
+    }
+
+    /// The list as `reservations` reads it, one request, with how many items the recorder returned -- counted
+    /// before any is read, so that one that does not read as a reservation is counted all the same -- and how
+    /// many it says it holds (`TotalMatches`), nil where it says none.
+    func reservationList(count: Int = 200) async throws
+        -> (reservations: [Reservation], returned: Int, total: Int?) {
+        let answer = try await resultText(Upnp.xsrsControlURL, Upnp.xsrsService, "X_GetRecordScheduleList",
                                           [("SearchCriteria", ""), ("StartingIndex", "0"), ("RequestedCount", "\(count)"),
-                                           ("SortCriteria", "-scheduledStartDateTime"), ("Filter", "*")]).result
-        return try XsrsParse.items(inResult: result).compactMap(XsrsParse.reservation)
+                                           ("SortCriteria", "-scheduledStartDateTime"), ("Filter", "*")])
+        let items = try XsrsParse.items(inResult: answer.result)
+        return (items.compactMap(XsrsParse.reservation), items.count, answer.totalMatches.flatMap { Int($0) })
     }
 
     /// Reservations that would clash with this one; the payload is the same as for creating it.

@@ -669,6 +669,31 @@ public actor GuideStore {
                    [SqlValue(problem), .text(id)])
     }
 
+    /// Writes `problem` on the row only while it has none: a reason written meanwhile -- another recorder's
+    /// arrival, holding every row for the one before -- stands.
+    public func setPendingProblemIfNone(_ id: String, _ problem: String) throws {
+        try db.run("UPDATE pending_reservations SET problem = ? WHERE id = ? AND problem IS NULL",
+                   [.text(problem), .text(id)])
+    }
+
+    /// Writes `problem` on the row only while its reason is still `current`, letter for letter, nil for none: a
+    /// reason written meanwhile -- another recorder's arrival, holding every row for the one before -- stands.
+    public func setPendingProblem(_ id: String, _ problem: String, ifItIs current: String?) throws {
+        if let current {
+            try db.run("UPDATE pending_reservations SET problem = ? WHERE id = ? AND problem = ?",
+                       [.text(problem), .text(id), .text(current)])
+        } else {
+            try setPendingProblemIfNone(id, problem)
+        }
+    }
+
+    /// Takes the reason off the row only while it is still `problem`, letter for letter: a reason written
+    /// meanwhile -- another recorder's arrival, holding every row for the one before -- stands.
+    public func clearPendingProblem(_ id: String, ifItIs problem: String) throws {
+        try db.run("UPDATE pending_reservations SET problem = NULL WHERE id = ? AND problem = ?",
+                   [.text(id), .text(problem)])
+    }
+
     // MARK: - what a recording is about
 
     /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.

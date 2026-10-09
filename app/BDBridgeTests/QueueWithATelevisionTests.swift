@@ -166,11 +166,11 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// and not on the other, and the strip says both in one line: what became of the recorder's and then
     /// what became of the television's, each naming its device, joined with a full stop.
     ///
-    /// Neither device's sending writes over what the other's said. The recorder's next one changes its own
-    /// half alone. A sending to the television that has nothing to say changes neither: here its disk is
-    /// away, so nothing is made, nothing is put on the television's line, and the reservation waits as it
-    /// was, to go by itself once the disk is back. Closing the line takes both halves; and with both said
-    /// again, so does leaving the app.
+    /// Neither device's sending writes over what the other's said. The recorder's next one adds to its own
+    /// half alone, while the strip is unread. A sending to the television that has nothing to say changes
+    /// neither: here its disk is away, so nothing is made, nothing is put on the television's line, and the
+    /// reservation waits as it was, to go by itself once the disk is back. Closing the line takes both
+    /// halves; and with both said again, so does leaving the app.
     func testTheStripSaysWhatBecameOfEachDevicesAndOneCloseTakesBoth() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder, waiting: [
@@ -190,7 +190,8 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         try await store.queue(waiting("昼の番組", startingIn: 121, programme: 4322))
         await model.refreshReservations()
-        let both = Said.sent("昼の番組", naming: recorders) + "。" + onTheTelevision
+        let both = Said.sent("朝の番組", naming: recorders) + "。" + Said.sent("昼の番組", naming: recorders) + "。"
+            + onTheTelevision
         XCTAssertEqual(model.queueReport, both, "the recorder's sending took what the television's said")
 
         await television.unmount()
@@ -413,8 +414,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// recorder alone that is the recorder's reservation as it has always been, and what it came to is read
     /// into the value both devices answer with. Taken: made, sent once and read back, and the recorder is
     /// no longer where a new reservation of the programme can go. Not sent, its mode being one nobody
-    /// knows, with nothing on the recorder's line: not done, in the words the sheet had for that. Turned
-    /// down -- 831, a channel the recorder cannot receive: not done, in the recorder's words, and not kept.
+    /// knows: not done, saying that it cannot be sent to the recorder. Turned
+    /// down -- 831, a channel the recorder cannot receive: kept, waiting with the recorder's words as its reason.
     /// With the recorder known to be away: kept, with the row as the phone has it and the sentence the
     /// sheet has always said of one, the recorder asked nothing, and nothing left set for a screen to say
     /// a second time.
@@ -429,13 +430,15 @@ final class QueueWithATelevisionTests: XCTestCase {
         var heard = await recorder.heard.count
 
         expectEqual(await reserve(taken), .made(saying: nil))
-        expectEqual(await recorder.heard(since: heard), [Self.create, Self.list])
+        expectEqual(await recorder.heard(since: heard), [Self.list, Self.create, Self.list])
         XCTAssertEqual(model.destinations(for: taken), [], "the recorder is offered a programme it holds")
 
-        expectEqual(await reserve(other, in: "知らない画質"), .notDone("レコーダーがエラーを返しました"))
+        expectEqual(await reserve(other, in: "知らない画質"), .notDone(Said.notInTheTables))
         await recorder.answer(Self.create, with: .fault(831))
-        expectEqual(await reserve(other), .notDone(Said.fault(831, Self.create)))
-        XCTAssertTrue(model.pending.isEmpty, "a reservation the recorder turned down was kept")
+        let refused = await reserve(other)
+        let waiting = try XCTUnwrap(model.pending(for: other, on: .recorder), "a reservation turned down was not kept")
+        XCTAssertEqual(refused, .waiting(waiting, saying: Said.fault(831, Self.create)))
+        XCTAssertEqual(waiting.problem, Said.fault(831, Self.create))
 
         await recorder.goQuiet(on: Self.list)
         await model.loadReservations()
@@ -718,8 +721,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// 「もう一度送る」 as a screen asks for it hands back what the row came to, for that screen to say, and
     /// goes on telling the strip what any sending tells. A television's row that is turned down again is
     /// answered with the row and its reason, which the row says for itself, so nothing is left to say
-    /// beside it; one that is made, as made; and a recorder's row hands nothing back, and says what it
-    /// sent on the strip as it always has.
+    /// beside it; one that is made, as made; and a recorder's row made is answered as made too, and says
+    /// what it sent on the strip as it always has.
     ///
     /// What the television's sendings say is added to what the strip has unread, and no sentence is said
     /// twice. The row turned down again adds nothing to the sentence that sent the reader to it, the row
@@ -765,7 +768,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await store.queue(theirs)
         let asked = await recorder.asked
 
-        expectNil(await model.sendAgain(theirs), "a recorder's row handed a screen something to say")
+        expectEqual(await model.sendAgain(theirs), .made(saying: nil), "a recorder's row made was not said so")
 
         expectEqual(await recorder.asked(Self.create, since: asked), 1, "the recorder's row did not go to it once")
         XCTAssertEqual(model.flushReport, Said.sent("朝の番組", naming: "レコーダー"))
@@ -836,8 +839,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// the same, and this is for work begun while the question was up: a sending would go on to make the
     /// row after the reader was told that it is not sent. The row stays, on the phone and on screen.
     ///
-    /// A recorder's row is held back by nothing, as it never was: it is deleted under the television's
-    /// work, and under the recorder's own. Nor does the recorder's work hold a television's row back.
+    /// A recorder's row is held back by the recorder's work in the same way, and not by the television's:
+    /// it is deleted under the television's work. Nor does the recorder's work hold a television's row back.
     func testAWaitingRowIsNotDeletedWhileTheTelevisionItWaitsForWorks() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder)
@@ -875,9 +878,9 @@ final class QueueWithATelevisionTests: XCTestCase {
         await model.deleteWaiting(its)
         await recorder.letGo()
         await listing.value
-        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4402],
-                    "the recorder's work held a row back, its own or the television's")
-        XCTAssertEqual(model.pending.map(\.request.eventID), [4402])
+        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4322, 4402],
+                    "the recorder's work held back the television's row, or not its own")
+        XCTAssertEqual(model.pending.map(\.request.eventID), [4322, 4402])
     }
 
     // MARK: - taking the television away
@@ -1434,10 +1437,12 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await home.store.pendingReservations(), [])
     }
 
-    /// A recorder's waiting row is deleted at once, as it always has been, whatever the television's sending
-    /// with no screen is doing: here the action's, held at the television's create. The recorder's row has a
-    /// reason on it, so that no sending of the recorder's takes it meanwhile.
-    func testARecordersWaitingRowIsDeletedAtOnceWhileATelevisionsCreateIsHeld() async throws {
+    /// A recorder's waiting row is deleted in the queue's turn, as a television's is, whichever device the
+    /// sending under way with no screen is for: here the television's action, held at the television's
+    /// create, which the delete waits for. That round does not take the recorder's row, so the row is deleted
+    /// once it is over, and nothing is said in place of that. The recorder's row has a reason on it, so that
+    /// no sending of the recorder's takes it meanwhile.
+    func testARecordersWaitingRowWaitsForATelevisionsSendingWithNoScreen() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, door) = (home.model, home.door)
         try await untilConnected(model)
@@ -1456,16 +1461,167 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let returned = Returned()
         let deleting = Task {
-            await model.deleteWaiting(morning)
+            let instead = await model.deleteWaiting(morning)
             returned.yes = true
+            return instead
         }
-        try await until("the recorder's row waited for the television's sending", within: 2) { returned.yes }
-        let stillHeld = await door.isHolding
-        XCTAssertTrue(stillHeld, "the television's create was let go before the delete came back")
-        expectEqual(try await home.store.pendingReservations().map(\.request.eventID), [4401])
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(returned.yes, "the recorder's row did not wait for the television's sending")
+        expectEqual(try await home.store.pendingReservations().map(\.request.eventID), [4401, 4321])
         await door.letGo()
-        await deleting.value
+        let instead = await deleting.value
         _ = await action.value
+        XCTAssertNil(instead, "a row no sending took was said to be made")
+        expectEqual(try await home.store.pendingReservations(), [])
+    }
+
+    /// A reservation on the recorder is kept on the phone and then waits for the queue's turn, which a sending
+    /// with no screen can hold for as long as its round takes: here the television's action, held at the
+    /// television's create. Another recorder answers a connect meanwhile. Once the turn comes the reservation is
+    /// not done, saying that another recorder answered, and nothing is left waiting for whichever recorder
+    /// answers next: the row is taken out, and nothing is created, then or at the pull-down after.
+    func testAReservationWaitingForTheQueuesTurnWhenAnotherRecorderAnswersKeepsNothing() async throws {
+        let recorder = NamedRecorder(1)
+        addTeardownBlock { await recorder.letGo() }
+        let home = try await launch(with: recorder)
+        let (model, door) = (home.model, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        try await home.store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        let theirs = try GuideStore(path: try model.guidePath())
+        let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
+        await door.hold(only: Self.tvCreate)
+        let action = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        }
+        try await until("the action never reached the create") { await door.isHolding }
+        let asked = await recorder.asked
+
+        let reserving = Task { await model.reserve(program, on: .recorder, quality: "DR", repeating: "none") }
+        try await until("the reservation was never kept") {
+            (try? await home.store.pendingReservations())?.contains { $0.target == .recorder } == true
+        }
+        // Long enough for the reservation's round to be waiting for the queue's turn.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await door.letGo()
+        let came = await reserving.value
+        _ = await action.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(came, .notDone(Said.anotherAnswered))
+        expectEqual(try await home.store.pendingReservations().filter { $0.target == .recorder }, [],
+                    "the reservation waits for the recorder that answered next")
+        XCTAssertNil(model.pending(for: program, on: .recorder), "the reservation is shown as waiting")
+        await model.refreshReservations()
+        try await untilIdle(model)
+        expectEqual(await recorder.asked(Self.create, since: asked), 0, "the reservation went to a recorder")
+    }
+
+    /// The same reservation, its row taken while it waits for the queue's turn by a sending with no screen that
+    /// queued behind the television's action, for another row that waits for the recorder: once the action is
+    /// let go, that sending's round reads the reservation's row with the other, and holds the turn with the
+    /// other's create held while another recorder answers a connect; then it makes both. The reservation's own
+    /// round does not see the row, and the list that would say what became of it is not read across the
+    /// arrival: it is answered that it could not be confirmed, as without one, and not that nothing was done
+    /// because another recorder answered -- the sending may have made it on the recorder let go of. Nothing
+    /// waits for the recorder, and nothing more is created.
+    func testAReservationTakenByAnotherSendingAcrossAnotherRecordersArrivalIsNotSaidUndone() async throws {
+        let recorder = NamedRecorder(1)
+        addTeardownBlock { await recorder.letGo() }
+        let home = try await launch(with: recorder)
+        let (model, door) = (home.model, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        try await home.store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
+        // Ahead of the reservation, so that its create is the one held.
+        let other = waiting("朝の番組", startingIn: 30, programme: 4321)
+        XCTAssertLessThan(other.request.start, program.start, "the round would send the reservation first")
+        try await home.store.queue(other)
+        let theirs = try GuideStore(path: try model.guidePath())
+        let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
+        await door.hold(only: Self.tvCreate)
+        let action = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: TVTold(),
+                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+        }
+        try await until("the action never reached the create") { await door.isHolding }
+        let asked = await recorder.asked
+        let sending = Task { await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: theirs, mac: nil) }
+        // Long enough for that sending to be waiting for the queue's turn.
+        try await Task.sleep(for: .milliseconds(300))
+
+        let reserving = Task { await model.reserve(program, on: .recorder, quality: "DR", repeating: "none") }
+        try await until("the reservation was never kept") {
+            (try? await home.store.pendingReservations())?.filter { $0.target == .recorder }.count == 2
+        }
+        // Long enough for the reservation's round to be waiting for the queue's turn, behind that sending.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.holdTheNext(Self.create)
+        await door.letGo()
+        try await until("the sending never got to the recorder") {
+            await recorder.asked(Self.create, since: asked) == 1
+        }
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await recorder.letGo()
+        let came = await reserving.value
+        _ = await action.value
+        _ = await sending.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(came, .notDone(Said.couldNotBeConfirmed))
+        expectEqual(await recorder.asked(Self.create, since: asked), 2, "the reservation was sent again")
+        expectEqual(try await home.store.pendingReservations().filter { $0.target == .recorder }, [],
+                    "a row made still waits for the recorder")
+        XCTAssertNil(model.pending(for: program, on: .recorder), "the reservation is shown as waiting")
+    }
+
+    /// 削除する on a recorder's row waits for a sending under way with no screen, which the guard on the
+    /// recorder's own work does not see, as a television's row's does: here the action's, held at the
+    /// recorder's create while the model's link is idle. The delete has not come back a moment after the create
+    /// was held. Let go, the sending makes the row it had in hand, and the delete comes back after it, saying
+    /// the row was made, in the strip's sentence for a row sent, naming the recorder now that a television is
+    /// saved: not as deleted.
+    func testADeleteOfARecordersRowWaitsForASendingWithNoScreenAndSaysItWasMade() async throws {
+        let recorder = NamedRecorder(1)
+        addTeardownBlock { await recorder.letGo() }
+        let home = try await launch(with: recorder)
+        let model = home.model
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let row = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await home.store.queue(row)
+        await model.loadPending()
+        let theirs = try GuideStore(path: try model.guidePath())
+        let asked = await recorder.asked
+        await recorder.hold(only: Self.create)
+        let action = Task { await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: theirs, mac: nil) }
+        try await until("the action never reached the create") { await recorder.asked(Self.create, since: asked) == 1 }
+
+        let returned = Returned()
+        let deleting = Task {
+            let instead = await model.deleteWaiting(row)
+            returned.yes = true
+            return instead
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(returned.yes, "the delete did not wait for the sending under way")
+        await recorder.letGo()
+        let instead = await deleting.value
+
+        XCTAssertEqual(instead, Said.sent("朝の番組", naming: "レコーダー"), "a reservation made was said to be deleted")
+        guard case .sent(let made) = await action.value else { return XCTFail("the action ran no round") }
+        XCTAssertEqual(made.sent.map(\.id), [row.id])
+        expectEqual(await recorder.asked(Self.create, since: asked), 1)
+        expectEqual(try await home.store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty, "the row made is still shown as waiting")
     }
 
     /// A delete whose row a sending made before its turn says the row was made though the app's own link
@@ -1527,6 +1683,32 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [], "the row made was left waiting")
         XCTAssertEqual(model.tvHost?.reservations.compactMap(\.eventID), [4401], "the list read was not kept")
         expectEqual(await television.schedules.map(\.eventId), [4401])
+    }
+
+    /// A delete of a waiting row that asks for a weekly repeat, whose programme the television lists recorded
+    /// once, deletes the row as asked and says nothing: what the television holds is less than the row asks
+    /// for, as the television's own sending finds it, and is no sign that the row was made. The television
+    /// holds what it held.
+    func testADeleteOfAWaitingRepeatWhoseProgrammeTheTelevisionListsOnceSaysNothing() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        var row = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        var japan = Calendar(identifier: .gregorian)
+        japan.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let day = (japan.component(.weekday, from: row.request.start) + 5) % 7 + 1
+        row.request.repeatCode = "w\(day)"
+        try await store.queue(row)
+        let once = DemoTV.Schedule(id: "recording.31", title: "サンプル劇場", start: row.request.start, eventId: 4401)
+        await television.put([once])
+
+        let instead = await model.deleteWaiting(row)
+
+        XCTAssertNil(instead, "a weekly reservation the television holds once was said to be made")
+        expectEqual(try await store.pendingReservations(), [], "the row was not deleted")
+        expectEqual(await television.schedules, [once])
+        XCTAssertEqual(model.tvHost?.reservations.map(\.repeatCode), ["1"], "the list read was not kept")
     }
 
     /// A delete that waited its turn behind 外す, itself waiting behind the action's sending, finds its row

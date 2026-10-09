@@ -130,6 +130,7 @@ extension AppModel {
     /// stopped by the check that hears the other recorder (`anotherAnsweredTheCheck`).
     func forgetWhatTheRecorderSaid() {
         reservations = []
+        reservationsRead = nil
         titles = []
         titlesLoaded = false
         recorderRules = []

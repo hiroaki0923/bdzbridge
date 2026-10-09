@@ -191,47 +191,17 @@ public struct TVScheduleRow: Sendable, Equatable {
     /// Whether the row records its programme once: a repeat of `1`, or none said.
     var recordsOnce: Bool { (repeatType ?? "1") == "1" }
 
-    /// The days of the week a repeat takes in, Monday as 1 and Sunday as 7 as the weekly codes count them:
-    /// all seven for `d`, Monday to Friday for `w15`, Monday to Saturday for `w16` -- a television's own
-    /// list words the three so -- and its own day for a weekly code. Nil for what goes by no day of the
-    /// week: once, every programme of a name, and a code that is none of these.
-    static func weekdays(ofRepeat code: String) -> Set<Int>? {
-        switch code {
-        case "d": return Set(1...7)
-        case "w15": return Set(1...5)
-        case "w16": return Set(1...6)
-        default: return (1...7).first { code == "w\($0)" }.map { [$0] }
-        }
-    }
-
     /// Whether this row, the recording the television holds for `request` (`holding`), is less than the
-    /// request asks for, where the request asks for a repeat:
-    ///
-    /// - the programme recorded once is less than any repeat;
-    /// - a repeat held is less than the one asked for when its days are some of that one's and not all of
-    ///   them (`weekdays(ofRepeat:)`): any weekly code, Monday to Friday and Monday to Saturday where every
-    ///   day is asked for; Monday to Friday and a weekly code up to Saturday's where Monday to Saturday is;
-    ///   a weekly code up to Friday's where Monday to Friday is.
-    ///
+    /// request asks for, where the request asks for a repeat: by the rule on the two repeat codes
+    /// (`Codes.repeating(_:fallsShortOf:)`), the row's with none said being once, as its list writes it.
     /// Taken for the request's own, such a row would leave the other days unreserved -- every later
     /// programme, for one recorded once -- with nothing said.
-    ///
-    /// Nothing else falls short. A request for once that a repeat holds loses nothing. Nor does a repeat
-    /// lose anything to the same repeat held, or to one that takes in each of its days and more. A repeat
-    /// by the programme's name is compared with nothing but once, on either side: it goes by a name and
-    /// not by days, and what it takes in beside the others is not known. And two repeats with no day in
-    /// common are not told apart: one of them is of other days than the programme's own, which a
-    /// television refused for a weekly code and was not asked for otherwise.
     ///
     /// What the request asks is its own code, whether or not a television is sent that repeat for the
     /// programme (`TVReservationBody.repeatType`): a repeat that is not sent is a repeat asked for all the
     /// same.
     func fallsShort(of request: ReservationRequest) -> Bool {
-        guard request.repeatCode != "1" else { return false }
-        guard !recordsOnce, let held = repeatType else { return true }
-        guard let asked = Self.weekdays(ofRepeat: request.repeatCode),
-              let days = Self.weekdays(ofRepeat: held) else { return false }
-        return days.isStrictSubset(of: asked)
+        Codes.repeating(repeatType ?? "1", fallsShortOf: request.repeatCode)
     }
 }
 

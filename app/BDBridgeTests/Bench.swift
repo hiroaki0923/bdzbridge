@@ -450,16 +450,16 @@ actor NotARecorder: HTTPTransport {
 /// `become` has it answer as another recorder from then on: the address the first one had, handed to a second;
 /// `stopSayingWhich` has it go on as itself with no UDN in its description.
 /// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind, or with `holdTheNext`
-/// only the next of one kind -- for a test that looks at the app in between, and `goQuiet` has it say nothing to
-/// a few requests, as a recorder that has left the network does: the next ones, or the ones after it has
-/// answered so many, or the next of one kind. A request held and then let go is one of them. `busyAtTheDoor`
-/// has it busy with somebody else whenever it is asked who it is -- a 503 to its description, as a BDZ answers
-/// a request that arrives while it is serving another -- and answering everything else: there, and not saying
-/// which it is, until `comeFree()`.
+/// only the next of one kind -- for a test that looks at the app in between; `letGo(only:)` lets those of one
+/// kind go and keeps the rest. `goQuiet` has it say nothing to a few requests, as a recorder that has left the
+/// network does: the next ones, or the ones after it has answered so many, or the next of one kind. A request
+/// held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is asked who
+/// it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving another -- and
+/// answering everything else: there, and not saying which it is, until `comeFree()`.
 ///
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
 /// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
-/// busy, and `beAMomentBehind` has the list after its next delete be the one from before it. `heard` is
+/// busy, and `beAMomentBehind` has the list after its next delete or change be the one from before it. `heard` is
 /// everything it was asked, in the order it arrived, and `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
@@ -473,14 +473,15 @@ actor NamedRecorder: HTTPTransport {
     private var holding = false
     private var holdingOnly: String?
     private var holdingNext: String?
-    private var held: [CheckedContinuation<Void, Never>] = []
+    /// The requests held, each with its kind, in the order they arrived.
+    private var held: [(what: String, request: CheckedContinuation<Void, Never>)] = []
     private var busy = false
     private(set) var asked: [String: Int] = [:]
     /// Everything it was asked, in the order it arrived, by SOAP action or by the file's name.
     private(set) var heard: [String] = []
     /// What it was told to answer, by kind (`answer`).
     private var told: [String: (answer: Answer, times: Int, after: Int)] = [:]
-    /// Whether the list after its next delete of a reservation is to be an old one (`beAMomentBehind`), the
+    /// Whether the list after its next delete or change of a reservation is to be an old one (`beAMomentBehind`), the
     /// last list it gave, and the old one it is about to give.
     private var behind = false
     private var lastList: HTTPResponse?
@@ -528,8 +529,17 @@ actor NamedRecorder: HTTPTransport {
         holding = false
         holdingOnly = nil
         holdingNext = nil
-        for request in held { request.resume() }
+        for (_, request) in held { request.resume() }
         held = []
+    }
+
+    /// Lets the requests of one kind that are held go, and holds no more of that kind. The requests of other
+    /// kinds that are held stay held, and a hold of the next of another kind stays set.
+    func letGo(only what: String) {
+        if holdingOnly == what { (holding, holdingOnly) = (false, nil) }
+        if holdingNext == what { holdingNext = nil }
+        for (kind, request) in held where kind == what { request.resume() }
+        held.removeAll { $0.what == what }
     }
 
     func goQuiet(for requests: Int, after answering: Int = 0) {
@@ -563,7 +573,8 @@ actor NamedRecorder: HTTPTransport {
         answer(what, with: .status(503), times: 3, after: skipping)
     }
 
-    /// A moment behind itself, once: the list it gives after the next reservation it deletes still has it.
+    /// A moment behind itself, once: the list it gives after the next reservation it deletes or changes still has
+    /// it, as it was.
     /// The old list is the last one it gave, so it has to have given one: armed before any read, it does
     /// nothing.
     func beAMomentBehind() {
@@ -598,9 +609,11 @@ actor NamedRecorder: HTTPTransport {
         }
         if holdingNext == what {
             holdingNext = nil
-            await withCheckedContinuation { held.append($0) }
+            await withCheckedContinuation { held.append((what, $0)) }
         }
-        if holding, holdingOnly == nil || holdingOnly == what { await withCheckedContinuation { held.append($0) } }
+        if holding, holdingOnly == nil || holdingOnly == what {
+            await withCheckedContinuation { held.append((what, $0)) }
+        }
         if quietOn == what {
             quietOn = nil
             throw RecorderError.transport("The request timed out.")
@@ -632,7 +645,7 @@ actor NamedRecorder: HTTPTransport {
         }
         let response = try await recorder.send(request)
         if what == list { lastList = response }
-        if what == "X_DeleteRecordSchedule", behind {
+        if what == "X_DeleteRecordSchedule" || what == "X_UpdateRecordSchedule", behind {
             behind = false
             staleList = lastList
         }
@@ -772,6 +785,51 @@ final class QueueOutOfReach {
 
     func putBack() {
         XCTAssertEqual(run("ALTER TABLE out_of_reach RENAME TO pending_reservations"), SQLITE_OK)
+    }
+
+    private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
+
+    deinit { sqlite3_close(connection) }
+}
+
+/// Another connection that has put the queue's table behind a view of the same name, until it puts it back: a
+/// row the app writes to the queue meanwhile goes into the table, and every read of the queue that comes upon a
+/// row fails at once. (A read of an empty queue works nothing out, and goes through.) A write that went through
+/// and a read of it that did not, which neither a writer's lock nor the table out of reach gives: each stops the
+/// write as well.
+final class QueueUnreadable {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        let columns = columnsOfTheQueue()
+        XCTAssertFalse(columns.isEmpty, "the queue's table was not found")
+        let named = columns.joined(separator: ", ")
+        let new = columns.map { "NEW.\($0)" }.joined(separator: ", ")
+        XCTAssertEqual(run("ALTER TABLE pending_reservations RENAME TO behind_a_view"), SQLITE_OK)
+        // A whole number too large to be one, worked out for each row a read of the view comes upon: an error.
+        XCTAssertEqual(run("CREATE VIEW pending_reservations AS "
+                               + "SELECT *, abs(-9223372036854775807 - 1) AS overflow FROM behind_a_view"), SQLITE_OK)
+        XCTAssertEqual(run("CREATE TRIGGER written_through INSTEAD OF INSERT ON pending_reservations BEGIN "
+                               + "INSERT OR REPLACE INTO behind_a_view (\(named)) VALUES (\(new)); END"), SQLITE_OK)
+    }
+
+    /// The view goes, its trigger with it, and the table is the queue again.
+    func putBack() {
+        XCTAssertEqual(run("DROP VIEW pending_reservations"), SQLITE_OK)
+        XCTAssertEqual(run("ALTER TABLE behind_a_view RENAME TO pending_reservations"), SQLITE_OK)
+    }
+
+    private func columnsOfTheQueue() -> [String] {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(connection, "PRAGMA table_info(pending_reservations)", -1, &statement, nil)
+            == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var names: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW, let name = sqlite3_column_text(statement, 1) {
+            names.append(String(cString: name))
+        }
+        return names
     }
 
     private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
@@ -938,8 +996,6 @@ enum Said {
     static let notConnected = "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
     static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。再接続してから一覧で確かめてください。"
-    static let reservationMayHaveArrived = "予約の登録中にレコーダーの応答がなくなりました。"
-        + "届いている場合もあるため、送信待ちにはしていません。再接続してから予約一覧で確かめてください。"
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
@@ -947,6 +1003,9 @@ enum Said {
     /// Written on the rows of the phone's queue, and counted by being equal to this.
     static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
         + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+    /// Written on a row of the phone's queue whose create met silence, which holds it for the reader.
+    static let heldAfterSilence = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "自動では送り直しません。予約一覧で確かめ、届いていなければ「もう一度送る」を選んでください。"
     static func heldBack(_ count: Int) -> String {
         "別のレコーダーに切り替わったため、送信待ちの予約 \(count) 件は送らずに残しています。予約タブから送り直せます"
     }
@@ -955,9 +1014,22 @@ enum Said {
     /// Said of a reservation kept on the phone because the recorder was not there.
     static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
-    static let gone = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+    static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
+    static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+    static let foundThere = "レコーダーにはこの番組の予約がすでにありました。"
+    static let notKnownThere = "レコーダーの予約が多いため、この予約が届いているか一覧で確かめられませんでした。送っていません。"
+        + "レコーダー本体の予約一覧で確かめ、届いていなければ、この送信待ちの予約を削除してから番組表で予約し直してください。"
+    static let notKnownThereUnread = "レコーダーの予約一覧を読めなかったため、この予約が届いているか確かめられませんでした。"
+        + "送っていません。少し待ってから、もう一度送ってください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
+    static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
+    static let changeRecording = "録画中の予約は変更できません。"
+    static let changeEnded = "放送が終わった予約は変更できません。"
+    static let changeNotReflected = "変更がレコーダーの予約一覧に反映されていません。一覧を更新しました。"
+    static let goneAfterAChange = "レコーダーは変更を受け付けたと答えましたが、この予約が一覧に見つかりません。"
+        + "レコーダー本体の予約一覧で確かめてください。"
 
     // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
     // about the first by its title, and how many more went that way. Here, and not in the tests that look at
@@ -967,6 +1039,10 @@ enum Said {
     static func sent(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "送信待ちだった\(naming(title, others))を\($0)に登録しました" }
             ?? "送信待ちだった\(naming(title, others))を登録しました"
+    }
+    static func alreadyThere(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "\(naming(title, others))は\($0)にすでに予約がありました" }
+            ?? "\(naming(title, others))はすでに予約されていました"
     }
     static func expired(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "\($0)宛の\(naming(title, others))は放送が終わっていたため、送らずに削除しました" }
@@ -1047,6 +1123,9 @@ func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality
     if case .waiting(let row, _) = came { kept = row }
     keptRows.removeAll { $0.model == nil || $0.model === model }
     keptRows.append(KeptRow(model: model, row: kept))
+    var why: String?
+    if case .notDone(let said) = came { why = said }
+    note(why, of: model)
     switch came {
     case .made, .waiting: return true
     case .wouldStop, .notDone: return false
@@ -1065,12 +1144,41 @@ func keptJustNow(_ model: AppModel) -> PendingReservation? {
 func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String, repeating: String,
                          disk: String? = nil) async -> Bool {
     guard row.device == .recorder else {
-        let turnedAway = await model.recorderDriver?.update(row, quality: quality, repeating: repeating, disk: disk,
-                                                            inHand: { [] })
+        let turnedAway = await model.recorderDriver?.update(row, quality: quality, repeating: repeating, disk: disk)
+        // Noted too, so that what is read after it is this call's reason, and not the one before it.
+        var why: String?
+        if case .notDone(let said)? = turnedAway?.altered { why = said }
+        note(why, of: model)
         if case .done? = turnedAway?.altered { return true }
         return false
     }
-    if case .done = await model.change(row, quality: quality, repeating: repeating, disk: disk) { return true }
+    let altered = await model.change(row, quality: quality, repeating: repeating, disk: disk)
+    var why: String?
+    if case .notDone(let said) = altered { why = said }
+    note(why, of: model)
+    if case .done = altered { return true }
+    return false
+}
+
+/// Why the last reservation or change on the recorder asked through the two above was not done, as its result
+/// said it; nil when it was made, kept or done.
+@MainActor
+func whyNotJustNow(_ model: AppModel) -> String? {
+    reasons.first { $0.model === model }?.why
+}
+
+/// A delete of a reservation as a screen asks for it, whichever device holds the row: whether it went through.
+@MainActor
+func deleteAReservation(_ model: AppModel, _ row: Reservation) async -> Bool {
+    if case .done = await model.cancel(row) { return true }
+    return false
+}
+
+/// A delete of a television's reservation asked of its host itself, as no screen asks it: whether it went
+/// through.
+@MainActor
+func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
+    if case .done? = await host.cancel(row) { return true }
     return false
 }
 
@@ -1083,6 +1191,19 @@ private struct KeptRow {
 }
 
 @MainActor private var keptRows: [KeptRow] = []
+
+/// Why the last reservation or change of each model was not done (`whyNotJustNow`), held as `KeptRow` is.
+private struct Reason {
+    weak var model: AppModel?
+    var why: String?
+}
+
+@MainActor private var reasons: [Reason] = []
+
+@MainActor private func note(_ why: String?, of model: AppModel) {
+    reasons.removeAll { $0.model == nil || $0.model === model }
+    reasons.append(Reason(model: model, why: why))
+}
 
 /// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take
 /// their arguments as autoclosures, which cannot await, so each such check took a line to read the value and

@@ -158,8 +158,12 @@ final class AppModel: LinkHost {
     var reservations: [Reservation] = [] {
         // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled -- taken
         // out of a list the load had not built -- went on being marked 予約 in the guide.
-        didSet { reservationsByProgram = Self.byProgram(reservations) }
+        didSet { reservationsByProgram = ByProgram.of(reservations) }
     }
+    /// When the recorder's list was last read and kept (`keepReservations`), or nil when none has been since the
+    /// lists were last emptied: a recorder that cannot be asked leaves the last list standing, and this says how
+    /// old it is (`reservationsStaleSince`), as a television's host keeps it for its own.
+    var reservationsRead: Date?
     var titles: [RecordedTitle] = []
     /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
     var titlesLoaded = false
@@ -417,20 +421,24 @@ final class AppModel: LinkHost {
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
     var pending: [PendingReservation] = [] {
-        didSet { pendingByProgram = Self.byProgram(pending) }
+        didSet { pendingByProgram = ByProgram.of(pending) }
     }
 
     /// The same by the programme each is for, so that the guide, the search results and the programme's
     /// sheet can say it is waiting.
     var pendingByProgram: [String: PendingReservation] = [:]
 
-    /// The ids of the television's waiting rows a delete is under way for, so that a row has one delete at a
-    /// time (`deleteWaiting`).
+    /// The ids of the waiting rows a delete is under way for, either device's, so that a row has one delete at
+    /// a time (`deleteWaiting`).
     var deletingWaiting: Set<String> = []
 
-    /// What the last sending of the queue came to, and how many reservations are held for another recorder,
-    /// for the strip to say until the reader closes it or leaves the app. See `tellTheStrip`.
+    /// How many reservations are held for another recorder, and what the sendings of the queue came to since
+    /// the reader last closed the strip, for the strip to say until the reader closes it or leaves the app. See
+    /// `tellTheStrip`.
     var flushReport: String?
+    /// The count of reservations held for another recorder as `flushReport` begins with it, for the next
+    /// sending to put its own count in place of (`tellTheStrip`).
+    @ObservationIgnored var heldBackSaid: String?
 
     /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect
     /// made over the last one's lists (`anotherDeviceDescribedItself`), or at the check before an operation

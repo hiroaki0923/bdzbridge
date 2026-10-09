@@ -182,7 +182,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let made = await reserving.value
 
         XCTAssertFalse(made, "a reservation was made to a disk the slot did not answer")
-        XCTAssertEqual(model.problem, Self.diskNotHad)
+        XCTAssertEqual(whyNotJustNow(model), Self.diskNotHad)
         expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0)
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 6)
         XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk known was let go of")
@@ -194,7 +194,7 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// The slot answering the disk on its second read -- a disk that comes up seconds after the wake -- the
-    /// reservation is created right after that read, and the disk is taken as it answered, the read left for later
+    /// reservation's round goes right after that read, and the disk is taken as it answered, the read left for later
     /// ended.
     func testAReservationToAKeptDiskIsCreatedOnceTheSlotAnswersIt() async throws {
         let (_, recorder, model) = try await connected(times: 1)
@@ -210,7 +210,8 @@ final class USBDiskChoiceTests: XCTestCase {
                    model.problem ?? "no reason given")
 
         expectEqual(await recorder.heard(since: before),
-                    ["X_GetMediaInfo", "X_GetMediaInfo", "X_CreateRecordSchedule", "X_GetRecordScheduleList"])
+                    ["X_GetMediaInfo", "X_GetMediaInfo", "X_GetRecordScheduleList", "X_CreateRecordSchedule",
+                     "X_GetRecordScheduleList"])
         XCTAssertEqual(model.reservation(for: program)?.destination, "USBHDD")
         XCTAssertEqual(model.usbDisk?.freeMB, 100_000, "the disk was not taken as it answered")
         XCTAssertNil(model.recorder.readLeftForLater, "the read left for later was not ended")
@@ -237,12 +238,12 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk the slot did not answer was sent")
-        XCTAssertEqual(model.problem, "録画用ディスクはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "録画用ディスクはいま使えません。録画先はHDDのままです。")
         XCTAssertTrue(model.diskCannotBeHad("USBHDD"))
         leaveALine(on: model)
         expectFalse(await changeOnTheRecorder(model, onTheSlot, quality: "ER", repeating: "none"),
                     "a change of a reservation on a disk the slot did not answer was sent")
-        XCTAssertEqual(model.problem, Self.diskNotHad)
+        XCTAssertEqual(whyNotJustNow(model), Self.diskNotHad)
 
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: before), 0)
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 12)
@@ -343,6 +344,206 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
     }
 
+    /// The same silence while a pull-down sends a row that waits for the slot: nothing was sent, which the line
+    /// says as it says a read's silence, over what was left there, and the recorder is lost. The row waits as
+    /// it was, with no reason, to go the next time.
+    func testASendingWhoseSlotFallsSilentSaysTheRecorderDidNotAnswer() async throws {
+        let (bench, recorder, model) = try await connected(times: 1)
+        // The demo's answer from here on, which is none; the read again is half a minute away.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none",
+                                                       destination: "USBHDD"))
+        try await GuideStore(path: bench.guidePath).queue(PendingReservation(request: request,
+                                                                             serviceName: program.serviceName))
+        await recorder.goQuiet(on: "X_GetMediaInfo")
+        leaveALine(on: model)
+        let before = await recorder.asked
+
+        await model.refreshReservations()
+
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the slot's silence was not said")
+        XCTAssertTrue(model.gaveUp, "the recorder was not lost")
+        expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0)
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
+        let row = try XCTUnwrap(model.pending(for: program, on: .recorder), "the row no longer waits")
+        XCTAssertNil(row.problem, "the row was held, and would not go by itself")
+    }
+
+    /// The same silence, with a connect made while the slot's read is out, keeps the reservation only while the
+    /// recorder it was asked of is still the one in play. Another recorder taken up by that connect, it is not
+    /// done and not kept: kept, it would wait as one made for the first, and go to the newcomer at its next
+    /// connect. The same recorder answering the connect lets go of nothing, though the connect makes a client
+    /// of its own: the reservation is kept as if the connect had not come. Nothing is created either way. The
+    /// silence of a slot read for the recorder let go of is not the newcomer's, which is not given up on.
+    func testASilentSlotKeepsAReservationOnlyForTheRecorderItWasAskedOf() async throws {
+        for anotherAnswers in [true, false] {
+            let (bench, recorder, model) = try await connected(times: 1)
+            addTeardownBlock { await recorder.letGo() }
+            // The demo's answer from here on, which is none; the read again is half a minute away.
+            await reconnect(model)
+            let program = try await programmesNotReserved(model, 1)[0]
+            let before = await recorder.asked
+            await recorder.holdTheNext("X_GetMediaInfo")
+
+            let reserving = Task {
+                await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+            }
+            try await until("the slot was not waited for") {
+                await recorder.asked("X_GetMediaInfo", since: before) == 1
+            }
+            if anotherAnswers { await recorder.become(2) }
+            let made = bench.clientsMade
+            await model.connect()
+            let who = anotherAnswers ? "another recorder answering" : "the same recorder answering"
+            // What this stands on, rather than what it holds: the connect made a client of its own and was
+            // answered by the recorder meant.
+            XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own, \(who)")
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(anotherAnswers ? 2 : 1),
+                           "the connect was meant to be answered so, \(who)")
+            await recorder.goQuiet(on: "X_GetMediaInfo")
+            await recorder.letGo()
+            let came = await reserving.value
+
+            let onDisk = try await GuideStore(path: bench.guidePath).pendingReservations()
+            if anotherAnswers {
+                guard case .notDone = came else {
+                    return XCTFail("a reservation for a recorder let go of was kept or made: \(came)")
+                }
+                XCTAssertNil(model.pending(for: program), "kept for a recorder the app had let go of")
+                XCTAssertTrue(onDisk.isEmpty, "kept on the phone for a recorder the app had let go of")
+                XCTAssertFalse(model.gaveUp, "the slot's silence for the recorder let go of gave the newcomer up")
+            } else {
+                guard case .waiting = came else {
+                    return XCTFail("a reservation met by silence beside a connect to its recorder was not kept: "
+                                       + "\(came)")
+                }
+                XCTAssertEqual(model.pending(for: program, on: .recorder)?.request.destination, "USBHDD")
+                XCTAssertEqual(onDisk.map(\.request.eventID), [program.eventID])
+            }
+            expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0, who)
+        }
+    }
+
+    /// A reservation to the USB disk, and a change that moves one there, whose slot is waited for when another
+    /// recorder answers a connect beside it, and the slot then answers the disk: each was asked of the recorder
+    /// let go of, and nothing is sent to either. Each is not done and says that another recorder answered, and
+    /// nothing is kept. The newcomer's slot answers a disk too, so that the disk is offered by the time the
+    /// slot's read comes back.
+    func testWhatWaitsForTheSlotWhenAnotherRecorderAnswersIsNotSent() async throws {
+        for changes in [false, true] {
+            let what = changes ? "the change" : "the reservation"
+            let (bench, recorder, model) = try await connected(times: 1)
+            addTeardownBlock { await recorder.letGo() }
+            let programs = try await programmesNotReserved(model, 2)
+            if changes {
+                expectTrue(await reserveOnTheRecorder(model, programs[1], quality: "DR", repeating: "none"),
+                           model.problem ?? "no reason given")
+            }
+            // The demo's answer from here on, which is none; the read again is half a minute away.
+            await reconnect(model)
+            let row = changes ? try XCTUnwrap(model.reservation(for: programs[1])) : nil
+            let before = await recorder.asked
+            await recorder.holdTheNext("X_GetMediaInfo")
+            let asking = Task { () -> String? in
+                if let row {
+                    let came = await model.change(row, quality: "DR", repeating: "none", disk: "USBHDD")
+                    return came == .notDone(Said.anotherAnswered) ? nil : "\(came)"
+                }
+                let came = await model.reserve(programs[0], on: .recorder, quality: "DR", repeating: "none",
+                                               disk: "USBHDD")
+                return came == .notDone(Said.anotherAnswered) ? nil : "\(came)"
+            }
+            try await until("\(what): the slot was not waited for") {
+                await recorder.asked("X_GetMediaInfo", since: before) == 1
+            }
+
+            await recorder.become(2)
+            // The newcomer's attach reads the slot, and then the read held comes back: both answer the disk.
+            await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 2)
+            await model.connect()
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+            XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the newcomer's disk was meant to be offered")
+            await recorder.letGo()
+
+            let otherwise = await asking.value
+            XCTAssertNil(otherwise, "\(what) asked of the recorder let go of came to something else")
+            for kind in ["X_CreateRecordSchedule", "X_UpdateRecordSchedule"] {
+                expectEqual(await recorder.asked(kind, since: before), 0, "\(what) was sent: \(kind)")
+            }
+            XCTAssertNil(model.pending(for: programs[0]), "kept for a recorder the app had let go of")
+            expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty,
+                       "kept on the phone for a recorder the app had let go of")
+        }
+    }
+
+    /// A reservation to the USB disk, and a change that moves one there, whose slot is waited for while another
+    /// operation's check hears the recorder busy with somebody else: nothing has heard it say which it is since,
+    /// so neither is sent once the slot answers the disk. The reservation is kept on the phone, as after its own
+    /// check heard that; the change is not done; and each says what the check heard.
+    ///
+    /// The check goes in between two reads of the slot, as it does while the slot answers none: the slot's reads
+    /// here are half a second apart, so that the check is over before the second, which answers the disk.
+    func testWhatWaitsForTheSlotWhileACheckHearsTheRecorderBusyIsNotSent() async throws {
+        for changes in [false, true] {
+            let what = changes ? "the change" : "the reservation"
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            bench.slotSettling = SlotSettling(every: .milliseconds(500), for: .seconds(2))
+            let recorder = NamedRecorder(1)
+            await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1)
+            let model = bench.model(recorders: [Bench.host: recorder])
+            await model.start()
+            try await untilConnected(model)
+            let programs = try await programmesNotReserved(model, 2)
+            if changes {
+                expectTrue(await reserveOnTheRecorder(model, programs[1], quality: "DR", repeating: "none"),
+                           model.problem ?? "no reason given")
+            }
+            // The demo's answer from here on, which is none; the read again is half a minute away.
+            await reconnect(model)
+            let row = changes ? try XCTUnwrap(model.reservation(for: programs[1])) : nil
+            let before = await recorder.asked
+            // None to the first read of the slot, the disk to the second.
+            await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1, after: 1)
+            let reserving = row == nil ? Task {
+                await model.reserve(programs[0], on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+            } : nil
+            let changing = row.map { row in
+                Task { await model.change(row, quality: "DR", repeating: "none", disk: "USBHDD") }
+            }
+            try await until("\(what): the slot was not waited for") {
+                await recorder.asked("X_GetMediaInfo", since: before) == 1
+            }
+
+            await recorder.busyAtTheDoor()
+            expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+            expectEqual(await recorder.asked("description.xml", since: before), 3, "the check did not ask who answers")
+            expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1,
+                        "\(what): the slot was read again before the check was over")
+            let busy = Said.busy("description.xml")
+            if let reserving {
+                let came = await reserving.value
+                guard case .waiting(let kept, _) = came else {
+                    return XCTFail("a reservation whose slot came back after a check heard the recorder busy was "
+                                       + "not kept: \(came)")
+                }
+                XCTAssertEqual(kept.request.destination, "USBHDD")
+                XCTAssertEqual(model.pending(for: programs[0], on: .recorder)?.id, kept.id)
+            }
+            if let changing {
+                expectEqual(await changing.value, .notDone(busy))
+            }
+            expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 2,
+                        "\(what): the slot did not answer the disk")
+            XCTAssertEqual(model.problem, busy, "\(what) did not say what the check heard")
+            for kind in ["X_CreateRecordSchedule", "X_UpdateRecordSchedule"] {
+                expectEqual(await recorder.asked(kind, since: before), 0,
+                            "\(what) was sent after a check that heard the recorder busy: \(kind)")
+            }
+        }
+    }
+
     /// The slot answering the disk as not mounted while it is waited for -- registered, and taking no recordings --
     /// is no disk to send to: the reservation is refused as for a disk no longer offered, nothing sent, and the disk
     /// is taken as it answered.
@@ -393,12 +594,13 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// Nothing is waited for, and no read of the slot added, where nothing names a disk kept through an answer of
-    /// none: in a home with no USB disk the clash check, a reservation, a change and a condition each send what
-    /// they always sent, and so do the same to a USB disk the slot has answered since the recorder woke.
+    /// none: in a home with no USB disk the clash check, a change and a condition each send what they always
+    /// sent, and a reservation that and the list its round opens with; and so do the same to a USB disk the slot
+    /// has answered since the recorder woke.
     func testNoReadOfTheSlotIsAddedWithNoUSBDiskOrWithTheDiskAnswered() async throws {
         let (_, home, noUSB) = try await connectedHome()
         let (_, recorder, answered) = try await connected()
-        let sent = ["X_GetConflictList", "X_CreateRecordSchedule", "X_GetRecordScheduleList",
+        let sent = ["X_GetConflictList", "X_GetRecordScheduleList", "X_CreateRecordSchedule", "X_GetRecordScheduleList",
                     "X_GetRecordScheduleList", "X_UpdateRecordSchedule", "X_GetRecordScheduleList",
                     "X_CreatePrefRecSetting", "X_GetPrefRecSettingList"]
         for (what, model, transport, disk) in [("no USB disk", noUSB, home, "HDD"),
@@ -431,13 +633,13 @@ final class USBDiskChoiceTests: XCTestCase {
 
         expectFalse(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none", disk: "USBHDD"),
                     "a reservation to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, Self.slotGone)
+        XCTAssertEqual(whyNotJustNow(model), Self.slotGone)
         expectEqual(await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD"),
                     .notDone(Self.slotGone))
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, "USBHDDはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
         expectFalse(await model.addRecorderRule(Self.condition(to: "USBHDD")),
                     "a condition to a disk no longer offered was made")
         XCTAssertEqual(model.problem, Self.slotGone)
@@ -447,6 +649,52 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
         XCTAssertNil(model.reservation(for: program))
         XCTAssertTrue(model.pending.isEmpty, "a reservation to a disk no longer offered was kept to be sent")
+    }
+
+    /// What a reservation and a change of the recorder's turn away at their doors, with nothing sent, is said in
+    /// their results, and the line of what went wrong is left as an earlier operation left it: a disk no longer
+    /// offered, for a reservation and for a move, each by what the sheet has left to offer; a mode the tables do
+    /// not know, for a reservation, which asks the recorder nothing, and for a change, whose read before it went
+    /// through and cleared the line, the sentence not put there; and a change while the recorder is known to be
+    /// away, that the app is not connected.
+    func testWhatADoorTurnsAwayIsSaidInTheResultAndTheLineIsLeft() async throws {
+        let (_, recorder, model) = try await connectedWithTheDiskGone()
+        let program = try await programmesNotReserved(model, 1)[0]
+        let onTheInternalDisk = try XCTUnwrap(model.reservations.first {
+            !$0.recording && $0.end > Date() && $0.destination == RecorderDisk.internalID
+        })
+        let before = await recorder.asked
+        leaveALine(on: model)
+
+        expectEqual(await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    .notDone(Self.slotGone))
+        XCTAssertEqual(model.problem, lineLeft, "a reservation to a disk no longer offered wrote the line")
+        expectEqual(await model.change(onTheInternalDisk, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    .notDone("USBHDDはいま使えません。録画先はHDDのままです。"))
+        XCTAssertEqual(model.problem, lineLeft, "a move to a disk no longer offered wrote the line")
+        expectEqual(await model.reserve(program, on: .recorder, quality: "知らない画質", repeating: "none"),
+                    .notDone(Said.notInTheTables))
+        XCTAssertEqual(model.problem, lineLeft, "a reservation in a mode nobody knows wrote the line")
+        expectEqual(await recorder.asked, before, "a reservation or a move turned away at its door asked the recorder")
+
+        let count = await recorder.heard.count
+        expectEqual(await model.change(onTheInternalDisk, quality: "知らない画質", repeating: "none"),
+                    .notDone(Said.notInTheTables))
+        expectEqual(await recorder.heard(since: count), ["X_GetRecordScheduleList"])
+        XCTAssertNil(model.problem, "a change in a mode nobody knows wrote the line")
+
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        XCTAssertTrue(model.offline)
+        leaveALine(on: model)
+        let heard = await recorder.asked
+        expectEqual(await model.change(onTheInternalDisk, quality: "ER", repeating: "none"),
+                    .notDone(Said.notConnected))
+        XCTAssertEqual(model.problem, lineLeft, "a change while the recorder is away wrote the line")
+        expectEqual(await recorder.asked, heard, "a recorder known to be away was asked")
+        expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0)
+        expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: before), 0)
+        XCTAssertTrue(model.pending.isEmpty, "a reservation turned away at its door was kept to be sent")
     }
 
     /// What a picker shows of the disk the reader picked: that disk while it is offered, and the internal disk
@@ -486,10 +734,10 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, "USBHDDはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
         expectFalse(await changeOnTheRecorder(model, onTheSlot, quality: "DR", repeating: "none", disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, Self.slotGone, "a reservation with the internal disk left to it")
+        XCTAssertEqual(whyNotJustNow(model), Self.slotGone, "a reservation with the internal disk left to it")
 
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: before), 0)
         XCTAssertEqual(model.reservation(for: programs[0])?.destination, "HDD")
@@ -547,6 +795,23 @@ final class USBDiskChoiceTests: XCTestCase {
         expectTrue(await changeOnTheRecorder(model, onTheSlot, quality: "SR", repeating: "none", disk: "HDD"),
                    model.problem ?? "no reason given")
         XCTAssertEqual(model.reservation(for: program)?.destination, "HDD")
+    }
+
+    /// A move the recorder answers as made that the list read after it does not show -- a recorder a moment behind
+    /// itself, its list still with the reservation on the disk it had -- is said not to show there, as a change of
+    /// mode is, and the list on screen is the one read.
+    func testAMoveTheListAfterItDoesNotShowIsSaidSo() async throws {
+        let (_, recorder, model) = try await connected()
+        let program = try await programmesNotReserved(model, 1)[0]
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
+        let made = try XCTUnwrap(model.reservation(for: program))
+
+        await recorder.beAMomentBehind()
+        expectEqual(await model.change(made, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    .notDone(Said.changeNotReflected))
+        XCTAssertEqual(model.reservation(for: program)?.destination, "HDD",
+                       "the list on screen is not the one read after the move")
     }
 
     /// A television's row is offered no disk and named after none, with a USB disk known: not as listed, carrying
@@ -615,8 +880,9 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// The recorder turning down a reservation to the USB disk, or a move to it, is said as the disk and what to
-    /// do, and nothing is left looking made or kept to be sent; the internal disk's refusals are said as they
-    /// always were.
+    /// do, and nothing is left looking made or kept to be sent. A reservation to the internal disk turned down is
+    /// kept, waiting with the recorder's words as its reason, as any refusal of a reservation is; a change's is
+    /// said as it always was.
     func testARefusalOfTheUSBDiskSaysWhichDiskAndWhatToDo() async throws {
         let (_, recorder, model) = try await connected()
         let programs = try await programmesNotReserved(model, 2)
@@ -628,8 +894,8 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertNil(model.reservation(for: programs[0]), "a reservation turned down was shown as made")
         XCTAssertTrue(model.pending.isEmpty, "a reservation turned down was kept to be sent")
         await recorder.answer("X_CreateRecordSchedule", with: .fault(402))
-        expectFalse(await reserveOnTheRecorder(model, programs[0], quality: "DR", repeating: "none"))
-        XCTAssertEqual(model.problem, "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)")
+        expectTrue(await reserveOnTheRecorder(model, programs[0], quality: "DR", repeating: "none"))
+        XCTAssertEqual(keptJustNow(model)?.problem, "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)")
 
         expectTrue(await reserveOnTheRecorder(model, programs[1], quality: "DR", repeating: "none"),
                    model.problem ?? "no reason given")
@@ -677,15 +943,13 @@ final class USBDiskChoiceTests: XCTestCase {
     ///   after the list read before it, and so is the clash check, which reads nothing before;
     /// - the recorder falling silent while the slot is read: nothing is sent, and the recorder is lost under
     ///   the read's sentence, which is what the change and the clash check say;
-    /// - whoever asked giving up while the slot is read: nothing is sent, the reservation is not kept, and
-    ///   nothing is said -- the line left while the read was out is the line afterwards, and what the change and
-    ///   the reservation say;
+    /// - whoever asked giving up while the slot is read: nothing is sent, the reservation is not kept, and the
+    ///   change and the reservation say that the disk was not made sure of, in their results alone -- the line
+    ///   left while the read was out is the line afterwards;
     /// - the slot answering the disk as not mounted: the change is not sent, the disk is taken as it answered,
-    ///   and the change is said as for a disk that cannot be had.
+    ///   and the change is said as for a disk that cannot be had, in its result, the line left clear by its read.
     ///
-    /// As it is today. A change waits for the slot only once its list has been read, which is to stay. What a
-    /// change or a reservation that gave up says is whatever the line holds, which a later change replaces with a
-    /// reason of its own.
+    /// As it is today. A change waits for the slot only once its list has been read, which is to stay.
     func testWhatTheSlotCameToDecidesAChangeAndAClashCheckToo() async throws {
         let (bench, recorder, model) = try await connected(times: 1)
         addTeardownBlock { await recorder.letGo() }
@@ -741,7 +1005,7 @@ final class USBDiskChoiceTests: XCTestCase {
 
         // The change, given up while the slot is read. Its own read cleared the line before it.
         let changed = try await givenUp { await change() }
-        XCTAssertEqual(changed.came, .notDone(lineLeft), "a change given up said something")
+        XCTAssertEqual(changed.came, .notDone(Said.slotWaitGivenUp), "a change given up did not say so")
         XCTAssertEqual(changed.heard, [list, slot], "a change given up was sent")
         XCTAssertEqual(model.problem, lineLeft, "a change given up wrote on the line")
         XCTAssertFalse(model.gaveUp)
@@ -772,7 +1036,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let reserved = try await givenUp {
             await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
         }
-        XCTAssertEqual(reserved.came, .notDone(lineLeft), "a reservation given up was kept, or said something")
+        XCTAssertEqual(reserved.came, .notDone(Said.slotWaitGivenUp), "a reservation given up was kept, or not said")
         XCTAssertEqual(reserved.heard, [slot], "a reservation given up was sent")
         XCTAssertEqual(model.problem, lineLeft, "a reservation given up wrote on the line")
         XCTAssertTrue(model.pending.isEmpty, "a reservation given up was kept to be sent")
@@ -785,7 +1049,7 @@ final class USBDiskChoiceTests: XCTestCase {
         await recorder.answer(slot, with: .result(USBDiskTests.slot(mount: "0")), times: 1)
         expectEqual(await change(), .notDone(Self.diskNotHad))
         expectEqual(await recorder.heard(since: count), [list, slot], "a change to a disk not mounted was sent")
-        XCTAssertEqual(model.problem, Self.diskNotHad)
+        XCTAssertNil(model.problem, "the read before the change did not clear the line, or it says the result")
         XCTAssertEqual(model.usbDisk?.mounted, false, "the disk was not taken as it answered")
         XCTAssertTrue(model.diskCannotBeHad("USBHDD"))
         XCTAssertEqual(model.reservation(for: programs[0])?.qualityName, "ER")

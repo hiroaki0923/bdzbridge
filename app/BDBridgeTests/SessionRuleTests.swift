@@ -338,10 +338,11 @@ final class SessionRuleTests: XCTestCase {
 
     // MARK: - writes
 
-    /// A reservation that went out and met silence may have been made all the same. It is not sent again and
-    /// not queued, which would make it a second time once the recorder is back, and the reader is told to
-    /// look.
-    func testAReservationThatMetSilenceAfterItWasSentIsNotQueued() async throws {
+    /// A reservation whose round meets silence at the list it opens with has had nothing of it sent: it is kept
+    /// on the phone with no reason, to go by itself once the recorder is back, and said so. Nothing more is
+    /// asked, and the recorder is lost, as for a read's silence. Silence at the create itself is the reservation
+    /// gate's to look at.
+    func testAReservationWhoseRoundMeetsSilenceBeforeItsCreateIsKept() async throws {
         let bench = try aBench()
         let recorder = RecorderAtHome()
         let model = try await started(bench, recorder: recorder)
@@ -350,14 +351,14 @@ final class SessionRuleTests: XCTestCase {
 
         await recorder.setReachable(false)
         let asked = await recorder.asked
-        let made = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
+        let came = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
 
-        XCTAssertFalse(made)
-        expectEqual(await recorder.asked, asked + 1, "the reservation was sent more than once, or not at all")
-        XCTAssertNil(model.pending(for: program), "a reservation that may have arrived was queued")
-        expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty)
+        let row = try XCTUnwrap(model.pending(for: program), "a reservation nothing of which was sent was not kept")
+        XCTAssertEqual(came, .waiting(row, saying: Said.keptForTheRecorder))
+        expectEqual(await recorder.asked, asked + 1, "more was asked than the list the round opens with")
+        expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.problem), [nil])
         XCTAssertTrue(model.gaveUp)
-        XCTAssertTrue(model.problem?.contains("送信待ちにはしていません") ?? false, model.problem ?? "no reason given")
+        XCTAssertEqual(model.problem, Said.noAnswer)
     }
 
     /// While the recorder is being made sure of, whatever else is asked waits for that answer rather than
@@ -769,6 +770,50 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertEqual(made, 1, "the recorder was not asked again, or what waits was not sent once it answered")
         XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
+    }
+
+    /// A reconnect the recorder answers busy with somebody else, as it is asked which it is, leaves the app
+    /// connected from the attach before -- it answered, so nothing is given up and no 再接続 is offered -- beside
+    /// a client that has not heard which recorder answers it, and nothing is written to the recorder on that
+    /// client. Pulling the reservations down, and asking for a waiting one to be sent again, connect then, as
+    /// they do when the app is not connected; the recorder free by then, the connect's attach sends what waits.
+    func testPullingDownOrSendingAgainAfterAReconnectAnsweredBusyConnects() async throws {
+        for pulling in [true, false] {
+            let what = pulling ? "pulling the list down" : "sending one again"
+            let bench = try aBench()
+            let recorder = NamedRecorder(1)
+            let model = try await started(bench, recorder: recorder)
+            XCTAssertTrue(model.connected)
+            let program = try await programmesNotReserved(model, 1)[0]
+            let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
+            let waiting = PendingReservation(request: request, serviceName: program.serviceName,
+                                             problem: pulling ? nil : "refused")
+            try await GuideStore(path: bench.guidePath).queue(waiting)
+            await model.loadPending()
+
+            await recorder.busyAtTheDoor()
+            await model.connect()
+            XCTAssertTrue(model.connected, "the attach before was meant to stand, \(what)")
+            XCTAssertFalse(model.offline)
+            XCTAssertFalse(model.gaveUp)
+            await recorder.comeFree()
+            let made = bench.clientsMade
+            let before = await recorder.asked
+
+            if pulling {
+                await model.refreshReservations()
+            } else {
+                await model.resend(waiting)
+            }
+
+            XCTAssertEqual(bench.clientsMade, made + 1, "\(what) did not connect")
+            expectEqual(await recorder.asked("description.xml", since: before), 1, what)
+            expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 1,
+                        "what waits was not made once, by the connect's sending, \(what)")
+            XCTAssertNil(model.pending(for: program), "the reservation still waits, \(what)")
+            XCTAssertNotNil(model.reservation(for: program), "the recorder's list was not read, \(what)")
+            XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+        }
     }
 
     // MARK: - when it asks again

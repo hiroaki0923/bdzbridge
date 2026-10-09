@@ -18,6 +18,9 @@ public enum OperationFailure: Error, Sendable, Equatable {
     case silentAfterSending(sentence: String)
     /// Silence on a read: nothing is in doubt but whether the device is there. The sentence is the error's own.
     case silentOnARead(sentence: String)
+    /// What came back went through, but the device was let go of while it was out (`DeviceLink.letGo(since:)`):
+    /// it is not about the device in play, and was neither kept nor said.
+    case letGoMeanwhile
 
     /// What `error` is, thrown by the work. `sending` is the sentence to say if what was sent
     /// changes the device and met silence -- an operation gives its own, since what the reader is to check
@@ -52,17 +55,24 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///   another: what it came to is handed back for the screen the reader asked on, and is nil where there is
 ///   nothing to say of the row -- one that is another device's, which its driver refuses as it refuses a
 ///   delete of another's reservation, and one that no longer waits. Changing a television's reservation is
-///   a third (`Altered`), nil for a row of another device in the same way. Reserving on the recorder hands
-///   back the same `Reserved`, and changing one of its reservations the same `Altered`, nil for another
-///   device's row too; but both still say their door on the recorder's line, which their result then gives:
-///   as it is today; a later change says it in the result alone.
-/// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
-///   until it too hands back a result with a sentence: a delete.
+///   a third (`Altered`), nil for a row of another device in the same way, and deleting one, on either
+///   device, a fourth (`Altered` too). Reserving on the recorder hands back the same `Reserved`, and
+///   changing one of its reservations the same `Altered`, nil for another device's row too.
 /// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
 ///   the list.
 ///
 /// What was sent and failed is written on the line by the link, whichever operation it was
-/// (`DeviceLink.say`), and what the check before an operation writes there is the check's.
+/// (`DeviceLink.say`), and what the check before an operation writes there is the check's; an operation
+/// with a result says either again in it. A row a delete or a change finds gone or changed in the list just
+/// read, or that the device answers it does not hold, is said in its result alone: the read that found it has
+/// cleared the line.
+///
+/// Again means as the line holds it once the operation is over, and not as the operation wrote it: the
+/// result is read off the line. So a read before a delete or a change that met silence the link does not
+/// say -- the device known to be away already, its silence said once (`LinkDriver.takesSilenceOnARead`) --
+/// leaves the line as it was, and the result repeats whatever is there, which can be what another operation
+/// left: that something it sent may have arrived, among them. Both devices go by that, the television's
+/// change and delete as the recorder's.
 public enum Reserved: Sendable, Equatable {
     /// The device holds it: made now, or found there already. `saying` is what there is to add, in the
     /// device's own sentence -- that it was there already; what making it did beyond itself (another
@@ -81,13 +91,14 @@ public enum Reserved: Sendable, Equatable {
     case notDone(String)
 }
 
-/// What asking a device to change a reservation it holds came to, for a screen to say: a result with its
-/// sentence, as `Reserved` is, and under the same rule for what its door turns away. A change is made or it is
-/// not, and nothing of it is kept on the phone to go later, so there are two cases and no third.
+/// What asking a device to change a reservation it holds, or to delete one, came to, for a screen to say: a
+/// result with its sentence, as `Reserved` is, and under the same rule for what its door turns away. A change
+/// or a delete is made or it is not, and nothing of it is kept on the phone to go later, so there are two
+/// cases and no third.
 public enum Altered: Sendable, Equatable {
-    /// The device holds the reservation as it was asked to. `saying` is what there is to add, in the device's
-    /// own sentence -- reservations the change left marked as losing to others, the changed one itself
-    /// among them -- and nil for nothing.
+    /// The device holds the reservation as it was asked to, or no longer holds it. `saying` is what there is
+    /// to add, in the device's own sentence -- reservations a change left marked as losing to others, the
+    /// changed one itself among them -- and nil for nothing, as for every delete.
     case done(saying: String?)
     /// Not done, or not known to have been, and why.
     case notDone(String)
@@ -155,17 +166,27 @@ extension DeviceLink {
     /// Apart from telling what a failure is (`OperationFailure.init`), so that an operation handed an outcome
     /// rather than an error can say it here all the same. Hands back what it was given, for a caller that
     /// tells, says and answers in one expression.
-    public func say(_ failure: OperationFailure) -> OperationFailure {
+    ///
+    /// `since` is the count an operation noted as it began (`generation`). When the device was let go of since
+    /// then, silence is not the device's in play: silence on something sent is still said, since it may have
+    /// arrived whatever became of the device, but loses nobody, and silence on a read is neither said nor taken.
+    /// A refusal of something sent is said as ever: it is the answer to what the reader asked for. A read's
+    /// (`ofARead`) is not, any more than what a read that went through brought back: it is about the device let
+    /// go of, and the line is the newcomer's. A client made anew for the same device meanwhile moves nothing.
+    public func say(_ failure: OperationFailure, since generation: Int? = nil,
+                    ofARead: Bool = false) -> OperationFailure {
+        let letGo = generation.map { letGo(since: $0) } ?? false
         switch failure {
-        case .notSent:
+        case .notSent, .letGoMeanwhile:
             break
         case .refused(_, let sentence):
+            guard !(letGo && ofARead) else { break }
             owner?.problem = sentence
         case .silentAfterSending(let sentence):
-            lost()
+            if !letGo { lost() }
             owner?.problem = sentence
         case .silentOnARead(let sentence):
-            guard driver.takesSilenceOnARead(self) else { break }
+            guard !letGo, driver.takesSilenceOnARead(self) else { break }
             lost()
             owner?.problem = sentence
         }
@@ -181,7 +202,13 @@ extension DeviceLink {
     /// failure of the request before. A failure is said (`say`). `sending` is the sentence for silence met by
     /// what changes the device, nil for a read. `work` is handed the client that was in hand as the check was
     /// asked (`check`), which `evenIfRecent` is handed to.
-    public func run<T>(line: String? = nil, sending: String? = nil, evenIfRecent: Bool = false,
+    ///
+    /// `since` is the count the operation noted as it began (`generation`), nil for one that does not ask. When
+    /// the device was let go of since then, what `work` returned is not handed back and the line is not cleared
+    /// (`OperationFailure.letGoMeanwhile`), and a failure is said by that count (`say(_:since:ofARead:)`), a read
+    /// being one with no `sending`. A client made anew for the same device meanwhile lets go of nothing, and the
+    /// value is handed back.
+    public func run<T>(line: String? = nil, sending: String? = nil, evenIfRecent: Bool = false, since: Int? = nil,
                        _ work: @MainActor (_ client: any LinkClient) async throws -> T)
         async -> Result<T, OperationFailure> {
         // Read once, as the line's is: what went wrong is cleared on the host the operation began under.
@@ -193,10 +220,12 @@ extension DeviceLink {
             case .up(let client):
                 do {
                     let value = try await work(client)
+                    if let since, self.letGo(since: since) { return .failure(.letGoMeanwhile) }
                     owner?.problem = nil
                     return .success(value)
                 } catch {
-                    return .failure(self.say(OperationFailure(error, sending: sending)))
+                    return .failure(self.say(OperationFailure(error, sending: sending), since: since,
+                                             ofARead: sending == nil))
                 }
             }
         }

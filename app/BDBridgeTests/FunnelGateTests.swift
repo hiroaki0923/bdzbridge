@@ -360,8 +360,9 @@ final class FunnelGateTests: XCTestCase {
             await model.loadTitles()
         }
 
-        // A waiting reservation asked to be sent again. Its reason comes off the row in the turn in which the
-        // asking gets to the check, and the row is taken away before the reconnect, which would send it.
+        // A waiting reservation asked to be sent again. Its line goes up as the asking gets to the check, its
+        // reason comes off once the check has answered, and the row is taken away before the reconnect, which
+        // would send it.
         let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
         try await GuideStore(path: bench.guidePath)
             .queue(PendingReservation(request: request, serviceName: program.serviceName, problem: "前に断られた理由"))
@@ -370,7 +371,7 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         let count = await recorder.heard.count
         let again = try await duringACheck(by: model, of: recorder, endingIn: .silence, "sending it again",
-                                           waitingFor: { model.pending(for: program)?.problem == nil }) {
+                                           waitingFor: { model.busy == "送信待ちの予約を登録中" }) {
             await model.resend(waiting)
         }
         XCTAssertFalse(again.there)

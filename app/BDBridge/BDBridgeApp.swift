@@ -513,7 +513,7 @@ struct LocalNetworkNotice: View {
     /// television, over a search held up behind it. Elsewhere it is the search's while one is held up.
     var aboutAConnect = false
 
-    static let title = "ローカルネットワークへのアクセスが許可されていません"
+    static let title = LocalNetwork.accessNotAllowed
 
     static func detail(scanning: Bool) -> String {
         (scanning ? "許可されると、そのまま検索が始まります。" : "許可されると、そのまま接続します。")

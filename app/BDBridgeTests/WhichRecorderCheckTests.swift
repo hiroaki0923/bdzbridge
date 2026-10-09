@@ -108,10 +108,11 @@ extension WhichRecorderTests {
     /// from then on is saved, and found on the phone, rather than failing to be saved under a sentence of its
     /// own. The line is still the one look that tells a reservation kept from one that was not.
     ///
-    /// As it is today: the check answers the same for a recorder that turned the waking away and for one the
-    /// app let go of over its cache, and the reservation tells the two apart by whether the recorder it began
-    /// with is still the one in hand. A later change gives the check an answer of its own for this, and what
-    /// is looked at here stands.
+    /// The check answers that the recorder was let go of while it was made sure of, which is not what it answers
+    /// for a recorder that turned the waking away, and the reservation is not kept on that answer.
+    /// Its result says what the line says, as after any check that failed: why the recorder was let go of, and
+    /// not that another recorder answered, which promises a read of the lists that a cache not made over never
+    /// makes.
     func testAReservationAskedOfARecorderLetGoOfForItsCacheIsNeitherSentNorQueued() async throws {
         let bench = try aBench()
         // The lock is held on purpose: what is tested is giving up, not the wait.
@@ -137,6 +138,8 @@ extension WhichRecorderTests {
                        "not what the cache left to say: the one look that tells a reservation kept here from none, "
                            + "so it is not to be loosened")
         XCTAssertFalse(reserved, "the sheet would close as though the programme were reserved")
+        XCTAssertEqual(whyNotJustNow(model), Said.cacheNotMadeOver,
+                       "the sheet's alert says another reason than the line why the reservation was not done")
         XCTAssertNil(model.pending(for: program), "kept for a recorder the app had let go of")
         expectTrue(try await store(bench).pendingReservations().isEmpty, "kept on the phone")
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 0, "the reservation went to the newcomer")

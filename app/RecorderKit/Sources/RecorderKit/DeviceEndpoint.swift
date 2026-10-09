@@ -63,7 +63,8 @@ public enum RowSent: Sendable, Equatable {
 /// them. The recorder's way of sending comes to the first alone.
 public enum SendingStop: Sendable, Equatable {
     /// Nothing answered. `afterSending` when it was the request that makes the reservation that met it: that
-    /// row may have been made all the same, and is not sent again in this round. A device that reads its
+    /// row may have been made all the same, and is not sent again in this round, nor by itself afterwards on a
+    /// device that holds such a row for the reader (`QueueTarget.heldAfterSilence`). A device that reads its
     /// list after a create says the same of silence at that read, when the create was answered as taken:
     /// by that answer the row was made, and it has not been seen.
     case silent(afterSending: Bool)
@@ -74,6 +75,11 @@ public enum SendingStop: Sendable, Equatable {
     /// Rows one after another were answered with nothing that says anything about them: what is wrong is not
     /// theirs.
     case saysNothing
+    /// On the recorder: the one row the reader sent again that the list the round opened on could not say was
+    /// not there already, with nothing sent (`RecorderClient.send`). `listRead` when that list was read and was
+    /// not the whole of what the recorder holds; false when it could not be read. A television's round never
+    /// stops so.
+    case notKnownThere(listRead: Bool)
 }
 
 /// What a round stands on once the device has been read for it.
@@ -100,6 +106,11 @@ public protocol QueueTarget: DeviceEndpoint {
     /// client, and nowhere else: the queue takes its rows by it, so a client cannot be handed the rows that
     /// wait for another device.
     static var slot: DeviceSlot { get }
+    /// The reason written on a row whose create met silence (`SendingStop.silent(afterSending: true)`), which
+    /// holds it for the reader as a refusal does: it may have been made, and the device's way is not to send it
+    /// again by itself. Nil for a device whose row goes again by itself, the round leaving it as it was, as a
+    /// television's does: its next round looks for it on the television first.
+    static var heldAfterSilence: String? { get }
     /// Reads what the device has to be read for before any of `waiting` is sent. Asked once in a round, and
     /// only when the round has a row to send; `waiting` is every row of the round whose programme is not over:
     /// all that wait for the device, or the one row the reader asked to have sent.
@@ -116,6 +127,9 @@ public protocol QueueTarget: DeviceEndpoint {
 }
 
 public extension QueueTarget {
+    /// None: a row whose create met silence is left as it was.
+    static var heldAfterSilence: String? { nil }
+
     func openRound(for waiting: [PendingReservation], keeping store: GuideStore) async -> RoundOpened<Round> {
         await openRound(for: waiting)
     }
@@ -151,7 +165,8 @@ extension QueueTarget {
 /// A device that makes a reservation in one request and reads nothing first. Making one says nothing back worth
 /// keeping: what the device made is read from its list afterwards. Sent a waiting row, it is sent that request
 /// (below), so a device with `create` alone is one the queue can send to. The recorder sends the same request
-/// (`sentByCreating`) in a round of its own, which waits for its USB slot (`RecorderClient`'s round).
+/// (`sentByCreating`) in a round of its own, which reads its list first and waits for its USB slot
+/// (`RecorderClient`'s round).
 public protocol ReservationTarget: QueueTarget where Round == NoRound {
     func create(_ request: ReservationRequest) async throws
 }
@@ -183,10 +198,18 @@ extension RecorderClient: DeviceEndpoint {
 
 extension RecorderClient: GuideSource {}
 
-/// What the recorder's round carries from one row to the next: whether a USB disk is kept with the cache, and what
-/// the slot came to once a row that names it was reached.
+/// What the recorder's round carries from one row to the next: whether a USB disk is kept with the cache, whether
+/// the list read as the round opened was the whole of it, and what the slot came to once a row that names it was
+/// reached.
 public struct RecorderRound: Sendable {
     let knowsADisk: Bool
+    /// Whether the list read as the round opened is all the recorder holds: read, and fewer items returned than
+    /// the one request asks for, with no more said to be there. False for a list that could not be read. Only
+    /// then is a row not in it known not to be on the recorder.
+    let listIsWhole: Bool
+    /// Whether that list was read at all: what a row that goes only on a whole list is told when it was not
+    /// (`SendingStop.notKnownThere`).
+    let listRead: Bool
     /// Nil until the slot is settled in the round, which it is once at most.
     var slot: SlotSettled?
 }
@@ -195,18 +218,58 @@ extension RecorderClient: QueueTarget {
     /// What waits for the recorder is what a recorder's client is sent.
     public static let slot = DeviceSlot.recorder
 
-    /// With nothing the phone keeps to hand, no USB disk is known, and every row is sent as it waits.
+    /// The recorder's row whose create met silence waits for the reader to look at the recorder's list
+    /// (`RecorderDriver.heldAfterSilence`), and goes again only when they send it, and only on a list that is
+    /// known not to hold it (`send`).
+    public static var heldAfterSilence: String? { RecorderDriver.heldAfterSilence }
+
+    /// The recorder's list, looked at for the rows (below), with nothing the phone keeps to hand: no USB disk is
+    /// known.
     public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<RecorderRound> {
-        .open(RecorderRound(knowsADisk: false), alreadyThere: [])
+        await opened(for: waiting, knowsADisk: false)
     }
 
-    /// Nothing is asked of the recorder, and nothing is looked for there. What is read is the USB disk kept with
-    /// the cache (`GuideStore.knownUSBDisk`), by the screens and by the runs with no screen alike, for the rows
-    /// that name the slot (`send`). A cache that cannot be read knows none.
+    /// The recorder's list, read once, and the rows it holds already: each that a reservation in it answers for
+    /// (`ByProgram.lists`), the rows with a reason on them as well, leave the queue unsent, as a television's do.
+    /// So not a row whose listed reservation falls short of it, nor one only the recorder's own reservation holds:
+    /// those are sent as they wait. Nor a row held for another recorder (`RecorderDriver.heldForAnotherRecorder`),
+    /// which is left out of the look: it is not this recorder's until the reader sends it again, and taken out as
+    /// there it would be gone with nothing said to the reader who held it back.
+    ///
+    /// One read lists at most 200 reservations, those that start last first, so a row not in a list of 200 is not
+    /// known not to be there: the list is whole only with fewer items returned, counted before any is read, and
+    /// no more said to be there (`RecorderRound.listIsWhole`). A row that goes only on a list that says it is not
+    /// there -- one held after silence at its create, which the reader sends again (`send`) -- goes only on a
+    /// whole one.
+    ///
+    /// Silence at the read stops the round there, as silence anywhere in it does, with nothing sent. A list that
+    /// cannot be had otherwise -- the recorder busy, a fault, an answer that does not read -- opens the round with
+    /// nothing found and the list not whole: every other row goes as it would with no look.
+    ///
+    /// The USB disk kept with the cache (`GuideStore.knownUSBDisk`) is read as well, by the screens and by the runs
+    /// with no screen alike, for the rows that name the slot (`send`). A cache that cannot be read knows none.
     public func openRound(for waiting: [PendingReservation],
                           keeping store: GuideStore) async -> RoundOpened<RecorderRound> {
         let known = (try? await store.knownUSBDisk()) != nil
-        return .open(RecorderRound(knowsADisk: known), alreadyThere: [])
+        return await opened(for: waiting, knowsADisk: known)
+    }
+
+    private func opened(for waiting: [PendingReservation], knowsADisk: Bool) async -> RoundOpened<RecorderRound> {
+        let asked = 200
+        let read: (reservations: [Reservation], returned: Int, total: Int?)
+        do {
+            read = try await reservationList(count: asked)
+        } catch let error as any DeviceError where error.failure == .silent {
+            return .stopped(.silent(afterSending: false))
+        } catch {
+            return .open(RecorderRound(knowsADisk: knowsADisk, listIsWhole: false, listRead: false), alreadyThere: [])
+        }
+        let whole = read.returned < asked && (read.total.map { $0 <= read.returned } ?? true)
+        let there = waiting.filter { row in
+            row.problem != RecorderDriver.heldForAnotherRecorder && ByProgram.lists(row, in: read.reservations)
+        }
+        return .open(RecorderRound(knowsADisk: knowsADisk, listIsWhole: whole, listRead: true),
+                     alreadyThere: Set(there.map(\.id)))
     }
 
     /// The create (`sentByCreating`), as for a device with a create alone, but for the USB slot. Nothing that names
@@ -222,9 +285,18 @@ extension RecorderClient: QueueTarget {
     /// passes the row over. A row on the internal disk is sent as ever, the settling the most it waits. With no disk
     /// known the slot is not read, and the recorder's answer decides. The slot is read here whatever the screens
     /// know of it, the runs with no screen knowing nothing: one read more, where the disk answers at once.
-    /// `consented` is not read, as for any device with a create alone.
+    ///
+    /// `consented`: the reader has sent again a row held after silence at its create, whose reason they handed in
+    /// (`RecorderDriver.resend`): it may be on the recorder already, and goes only where the list the round opened
+    /// on was whole and did not hold it -- had it, the row would have left the queue as there. Otherwise nothing is
+    /// sent, and the round stops there, saying whether that list was read (`SendingStop.notKnownThere`), so that the
+    /// row keeps its reason and nothing is said of it on the strip: why it could not be known is the screen's to
+    /// say. A consent comes only with the one row the reader asked for, so the round has no other.
     public func send(_ waiting: PendingReservation, consented: Bool,
                      in round: RecorderRound) async -> (sent: RowSent, round: RecorderRound) {
+        if consented, !round.listIsWhole {
+            return (.stopped(.notKnownThere(listRead: round.listRead), passedOver: false), round)
+        }
         var round = round
         if waiting.request.destination == RecorderDisk.usbID, round.knowsADisk {
             if round.slot == nil { round.slot = await RecorderDriver.settle(self, by: slotSettling) }
