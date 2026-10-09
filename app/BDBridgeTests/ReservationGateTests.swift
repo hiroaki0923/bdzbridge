@@ -1109,6 +1109,65 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertNotNil(model.reservation(for: programs[0]))
     }
 
+    // MARK: - how old the list is
+
+    /// Since when the recorder's list on screen is old, for the screens to say so, as a television's: not while
+    /// the recorder can be asked, since the list is then read as a screen appears; not while a connect to a
+    /// recorder that answered last time is under way; and from when it was read once nothing can be asked of the
+    /// recorder -- given up on after silence, or connected from the attach before a reconnect it answered busy,
+    /// without saying which it is. A delete turned down unread leaves the list and its time; a pull-down that
+    /// connects and reads it again makes it new.
+    func testTheRecordersListSaysHowOldItIsWhileTheRecorderCannotBeAsked() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        XCTAssertFalse(model.reservations.isEmpty, "the demo was meant to list reservations")
+        let read = try XCTUnwrap(model.reservationsRead, "the list the connect read has no time")
+        XCTAssertNil(model.reservationsStaleSince, "the list of a recorder that can be asked is said to be old")
+
+        // A connect again, to the recorder that answered last time: the list is not old while it is out.
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.description)
+        let connecting = Task { await model.connect() }
+        try await until("the connect was never out") {
+            await recorder.heard(since: count).contains(Kind.description)
+        }
+        XCTAssertNil(model.reservationsStaleSince, "a connect to a recorder that answered last time made its list old")
+        await recorder.letGo()
+        await connecting.value
+        XCTAssertNil(model.reservationsStaleSince)
+        let reread = try XCTUnwrap(model.reservationsRead)
+        XCTAssertGreaterThan(reread, read, "the list the connect read again has the old time")
+
+        // Given up on after silence. A delete is turned down with nothing read, and the list stands with its time.
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model), "a recorder that said nothing was taken for one to ask")
+        XCTAssertTrue(model.gaveUp)
+        let listed = model.reservations
+        XCTAssertEqual(model.reservationsStaleSince, reread, "the list a recorder given up on left is not old")
+        let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        expectFalse(await model.cancel(row))
+        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected)
+        XCTAssertEqual(model.reservations, listed, "a delete turned down unread took the list")
+        XCTAssertEqual(model.reservationsRead, reread, "a delete turned down unread counts as a read")
+        XCTAssertEqual(model.reservationsStaleSince, reread)
+
+        // Pulled down: connected to, and read again.
+        await model.refreshReservations()
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertNil(model.reservationsStaleSince)
+        let back = try XCTUnwrap(model.reservationsRead)
+        XCTAssertGreaterThan(back, reread, "the list read after the recorder came back has the old time")
+
+        // A reconnect it answers busy as it is asked which it is: connected from the attach before, and nothing
+        // can be asked of it.
+        await recorder.busyAtTheDoor()
+        await model.connect()
+        XCTAssertTrue(model.connected, "the recorder was meant to stay connected from the attach before")
+        XCTAssertFalse(model.offline, "the recorder was meant to have answered, if only as busy")
+        XCTAssertEqual(model.reservationsStaleSince, back,
+                       "the list of a recorder whose reconnect was answered busy is not said to be old")
+    }
+
     // MARK: - what would clash, and a reservation made
 
     /// The question of what a reservation would clash with, asked as a programme's sheet opens. It hands back

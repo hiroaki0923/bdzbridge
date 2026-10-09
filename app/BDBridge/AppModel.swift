@@ -160,6 +160,10 @@ final class AppModel: LinkHost {
         // out of a list the load had not built -- went on being marked 予約 in the guide.
         didSet { reservationsByProgram = Self.byProgram(reservations) }
     }
+    /// When the recorder's list was last read and kept (`keepReservations`), or nil when none has been since the
+    /// lists were last emptied: a recorder that cannot be asked leaves the last list standing, and this says how
+    /// old it is (`reservationsStaleSince`), as a television's host keeps it for its own.
+    var reservationsRead: Date?
     var titles: [RecordedTitle] = []
     /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
     var titlesLoaded = false

@@ -506,7 +506,12 @@ public final class RecorderDriver: LinkDriver {
     /// own that has not yet heard which recorder answers it; a reconnect answered busy leaves the session
     /// connected from the attach before, beside a client that never heard it; and a check whose waking the
     /// recorder turned away leaves the attached client in hand with the session not connected. In each the
-    /// recorder has not said which it is, and nothing is written to it. Reads go as they always have.
+    /// recorder has not said which it is, and nothing is written to it. Reads go as they always have. Never with
+    /// the link gone. A check before an operation that heard something else than the recorder saying which it is
+    /// leaves this as it was, as a television's: what is asked next makes the check again, and writes only once
+    /// a check has heard it (`DeviceLink.mayBeSent`).
+    public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
+
     private func canBeAsked(on link: DeviceLink) -> Bool {
         link.clientIsAttached && link.session.connected
     }

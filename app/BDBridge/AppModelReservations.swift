@@ -35,10 +35,25 @@ extension AppModel {
     /// `timesForgotten` as `forgotten` when it began: only while the count is still that. A list read for a
     /// recorder let go of meanwhile -- another answered or was chosen while the read was out -- is not put on
     /// the screens of the one after it, whose own connect reads its list (`reached`). The television's lists go
-    /// with their host by the same rule (`TVHost`). Nil, nothing read, leaves the list as it was.
+    /// with their host by the same rule (`TVHost`). Nil, nothing read, leaves the list as it was, and its time.
+    /// A list kept was read now, and its time is put down with it (`reservationsRead`).
     func keepReservations(_ list: [Reservation]?, since forgotten: Int) {
         guard let list, timesForgotten == forgotten else { return }
         reservations = list
+        reservationsRead = Date()
+    }
+
+    /// Since when the recorder's list on screen is old, for the screens to say so, as a television's
+    /// (`TVHost.staleSince`): the time it was read, while it has rows and nothing can be asked of the recorder
+    /// now (`RecorderDriver.canBeAsked`) -- not connected, given up on after silence, or connected from an
+    /// attach before a reconnect it answered without saying which it is. Nil while it can be asked, since the
+    /// list is then read as a screen appears; and nil with no rows, when nothing old is shown. Nil too while a
+    /// connect to a recorder that answered last time is under way: the list is read as that connect gets there,
+    /// and it is old only once the connect has failed.
+    var reservationsStaleSince: Date? {
+        guard !reservations.isEmpty, recorderDriver?.canBeAsked != true else { return nil }
+        if session.connecting, session.connected { return nil }
+        return reservationsRead
     }
 
     /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when

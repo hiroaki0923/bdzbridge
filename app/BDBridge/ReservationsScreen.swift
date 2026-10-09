@@ -224,6 +224,16 @@ struct ReservationsScreen: View {
 
     private var list: some View {
         List {
+            if let since = model.reservationsStaleSince,
+               model.shownReservations.contains(where: { $0.device == .recorder }) {
+                // The recorder's, by the television's rule just below: a recorder that cannot be asked leaves its
+                // last list up, and what is on screen says how old that is, above its rows only.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text("レコーダーの予約は\(Self.ago(min(since, context.date.addingTimeInterval(-60))))に読んだものです")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+            }
             if let since = model.tvHost?.staleSince, model.shownReservations.contains(where: { $0.device == .tv }) {
                 // A television that cannot be asked leaves its last list up, and what is on screen says how
                 // old that is -- above its rows only, so not while the kind shown leaves them out. The words
