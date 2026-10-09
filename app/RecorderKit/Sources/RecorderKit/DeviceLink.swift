@@ -214,6 +214,24 @@ public final class DeviceLink {
 
     /// Whether the client in hand is the one whose attach went through (`attachedClient`).
     public var clientIsAttached: Bool { client != nil && client === attachedClient }
+
+    /// What the check before an operation heard in place of the device saying which it is: a refusal, a fault, an
+    /// answer that does not read -- from the device, or from whatever has taken its address. Nil until then, and
+    /// again once a check or an attach hears the device say which it is; the driver's check and its attach write
+    /// it (`TVDriver.check`). While it is set nothing is sent that is for the device known alone (`mayBeSent`),
+    /// and an operation makes its check whatever the time since the address last answered (`checksAgain`): an
+    /// answer that does not say which device gave it says nothing of the device asked next. Not observed.
+    @ObservationIgnored public internal(set) var heardInstead: (any DeviceError)?
+
+    /// Whether the check before an operation is made however lately the address answered: the last check heard
+    /// something in place of the device saying which it is (`heardInstead`).
+    public var checksAgain: Bool { heardInstead != nil }
+
+    /// Whether what is for the device known alone may be sent, read after the check before an operation has
+    /// answered: the client in hand is the one whose attach went through (`clientIsAttached`), the session is
+    /// connected, and the last check heard the device say which it is (`heardInstead`). A driver adds what is
+    /// its own to it (`TVDriver`: no registration wanted).
+    public var mayBeSent: Bool { clientIsAttached && session.connected && heardInstead == nil }
     /// The check before an operation that is out, so that everything asked for while it runs waits for its
     /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
     /// from it when the device is up.

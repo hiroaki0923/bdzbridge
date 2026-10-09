@@ -129,7 +129,7 @@ public final class TVDriver: LinkDriver {
             // It said it is the television saved: a look that found nothing is worth making again, and what
             // a check heard in its place is over.
             lookedInVain = []
-            heardInstead = nil
+            link.heardInstead = nil
             link.session.identified(as: identity)
             owner?.keepAddress(link.host)
             if !identity.isEmpty { owner?.keepMAC(identity) }
@@ -305,22 +305,16 @@ public final class TVDriver: LinkDriver {
         link.clientIsAttached && link.session.connected && !facts.needsPairing
     }
 
-    /// What the check before an operation heard in place of the television saying which it is: a refusal, a
-    /// fault, an answer that does not read -- from the television, or from whatever has taken its address.
-    /// Nil until then, and again once a check or an attach hears the television say which it is. While it is
-    /// set nothing that carries the cookie is sent (`mayBeSent`), and an operation makes its check whatever
-    /// the time since the address last answered: an answer that does not say which device gave it says
-    /// nothing of the device asked next.
-    private var heardInstead: (any DeviceError)?
-
     /// Whether what needs the registration may be sent, read after the check before an operation has
-    /// answered: the television can be asked (`canBeAsked`), and the check heard it say which it is.
+    /// answered: the link may be sent to -- its client is the one whose attach went through, the session is
+    /// connected, and the last check heard the television say which it is (`DeviceLink.mayBeSent`) -- and no
+    /// registration is wanted. While the check has heard something else in its place
+    /// (`DeviceLink.heardInstead`), which this driver's check writes there, nothing that carries the cookie is
+    /// sent, and an operation makes its check whatever the time since the address last answered
+    /// (`DeviceLink.checksAgain`).
     private func mayBeSent(on link: DeviceLink) -> Bool {
-        canBeAsked(on: link) && heardInstead == nil
+        link.mayBeSent && !facts.needsPairing
     }
-
-    /// Whether the check before an operation is made however lately the address answered.
-    private var checksAgain: Bool { heardInstead != nil }
 
     /// The lines on screen while the reservations are read and while one is deleted: they say which device,
     /// beside the recorder's own.
@@ -386,7 +380,7 @@ public final class TVDriver: LinkDriver {
     /// answers at once -- and a read that goes through clears the line of what went wrong, as any operation
     /// does. How it failed the link says; what that tells of the registration is kept here (`note`). A check
     /// that heard something else than the television saying which it is sends nothing: what it heard is
-    /// what the read failed as, and is said as the check said it (`heardInstead`).
+    /// what the read failed as, and is said as the check said it (`DeviceLink.heardInstead`).
     ///
     /// It is sent on the link's client, read once the check has answered, as it was before the read went
     /// through the link, and not on the one `run` hands over, which was in hand as the check was asked. No
@@ -394,8 +388,9 @@ public final class TVDriver: LinkDriver {
     /// for it and makes no client -- and the read is left as it was all the same. A reminder to watch is no
     /// reservation and is left out (`TVScheduleRow.reservation`).
     private func readNow(_ link: DeviceLink, underALine: Bool) async -> [Reservation]? {
-        let read = await link.run(line: underALine ? Self.readingLine : nil, evenIfRecent: checksAgain) { _ in
-            if let heard = self.heardInstead { throw heard }
+        let line = underALine ? Self.readingLine : nil
+        let read = await link.run(line: line, evenIfRecent: link.checksAgain) { _ in
+            if let heard = link.heardInstead { throw heard }
             // A connect begun since this read's check put a client of its own in the link, which has not yet
             // heard which television answers there: nothing goes to it with the cookie until it has.
             guard self.canBeAsked(on: link) else { return [Reservation]?.none }
@@ -462,7 +457,7 @@ public final class TVDriver: LinkDriver {
         }
         let line = owner?.beginActivity(Self.deletingLine)
         defer { if let line { owner?.endActivity(line) } }
-        guard await link.ensureUp(evenIfRecent: checksAgain), mayBeSent(on: link),
+        guard await link.ensureUp(evenIfRecent: link.checksAgain), mayBeSent(on: link),
               let client = link.client as? ScalarClient,
               let list = await read(link, underALine: false) else { return (false, nil) }
         let target = list.tvTarget(of: reservation)
@@ -585,7 +580,7 @@ public final class TVDriver: LinkDriver {
         // clears the line, and that the app is not connected stands for it.
         func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? Self.notConnected) }
         return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
-            guard await link.ensureUp(evenIfRecent: self.checksAgain), self.mayBeSent(on: link),
+            guard await link.ensureUp(evenIfRecent: link.checksAgain), self.mayBeSent(on: link),
                   let client = link.client as? ScalarClient,
                   let list = await self.read(link, underALine: false) else { return (whatTheLinkSaid(), nil) }
             let target = list.tvTarget(of: reservation)
@@ -662,7 +657,7 @@ public final class TVDriver: LinkDriver {
             return await flush(store, on: link)
         }
         return await link.underALine(Self.sendingLine) { _ -> PendingQueue.Outcome? in
-            guard case .up = await link.check(evenIfRecent: self.checksAgain) else { return nil }
+            guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return nil }
             return await self.flush(store, on: link)
         }
     }
@@ -869,7 +864,7 @@ public final class TVDriver: LinkDriver {
         guard canBeAsked(on: link) else { return (nil, nil) }
         return await link.underALine(line) { _ -> OneSent in
             let consenting = reason.map { [row.id: $0] } ?? [:]
-            guard case .up = await link.check(evenIfRecent: self.checksAgain),
+            guard case .up = await link.check(evenIfRecent: link.checksAgain),
                   let round = await self.flush(store, on: link, only: row.id, consenting: consenting) else {
                 return (nil, nil)
             }
@@ -1096,13 +1091,13 @@ public final class TVDriver: LinkDriver {
     /// asks again, and looks past it (`findElsewhere`).
     ///
     /// Anything else but silence -- a refusal, a fault, an answer that does not read -- says nothing of which
-    /// device gave it, and nothing that carries the cookie is sent on its strength (`heardInstead`). It is said
-    /// as the attach says it, and a refusal of the cookie (401, 403) is read as the registration wanted, as an
-    /// attach with no MAC saved reads it; the check never looks past it. It is not taken for another device,
-    /// and nothing is given up: the next operation
-    /// checks again, and sends once a check hears the television say which it is. The link takes it for an
-    /// answer, as it takes a recorder's, and lets the operation go on to this driver, which sends nothing.
-    /// Silence is the link's to read, as ever.
+    /// device gave it, and nothing that carries the cookie is sent on its strength: what it heard is kept on the
+    /// link (`DeviceLink.heardInstead`). It is said as the attach says it, and a refusal of the cookie (401, 403)
+    /// is read as the registration wanted, as an attach with no MAC saved reads it; the check never looks past
+    /// it. It is not taken for another device, and nothing is given up: the next operation checks again, and
+    /// sends once a check hears the television say which it is. The link takes it for an answer, as it takes a
+    /// recorder's, and lets the operation go on to this driver, which sends nothing. Silence is the link's to
+    /// read, as ever.
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
         guard let client = client as? ScalarClient else { return (.unexpected("not a television's client"), false) }
         do {
@@ -1110,12 +1105,12 @@ public final class TVDriver: LinkDriver {
                 link.session.strangerAnswered()
                 return (nil, true)
             }
-            heardInstead = nil
+            link.heardInstead = nil
             return (nil, false)
         } catch {
             let heard = (error as? any DeviceError) ?? ScalarError.unreadable(method: "getSystemSupportedFunction")
             guard heard.failure != .silent else { return (.silent, false) }
-            heardInstead = heard
+            link.heardInstead = heard
             if heard.failure == .needsPairing { facts.needsPairing = true }
             link.owner?.problem = heard.explanation
             return (heard.failure, false)
