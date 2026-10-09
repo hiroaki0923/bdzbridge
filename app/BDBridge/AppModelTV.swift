@@ -50,6 +50,31 @@ extension AppModel {
         tvHost?.report = nil
     }
 
+    /// The strip's rule for adding what a sending said to a report the reader has not closed (`unread`): its
+    /// sentences after what is there, and only those the report does not hold already -- a row passed over at
+    /// every sending would add its own at each connect and each pull-down. The report as it reads with them
+    /// added, or nil when nothing is to be added and the report stays as it was.
+    static func adding(_ said: String, toUnread unread: String?) -> String? {
+        let held = unread.map(sentences) ?? []
+        let new = sentences(said).filter { !held.contains($0) }
+        return new.isEmpty ? nil : ([unread].compactMap { $0 } + new).joined(separator: "。")
+    }
+
+    /// The sentences of what a sending said, which joins them with a full stop. Cut at each full stop that
+    /// is not inside a title's brackets: a programme's title can have one of its own.
+    private static func sentences(_ said: String) -> [String] {
+        var sentences = [""], depth = 0
+        for character in said {
+            if character == "「" { depth += 1 } else if character == "」" { depth = max(depth - 1, 0) }
+            if character == "。", depth == 0 {
+                sentences.append("")
+            } else {
+                sentences[sentences.count - 1].append(character)
+            }
+        }
+        return sentences.filter { !$0.isEmpty }
+    }
+
     /// Whether the television's disk is away and a reservation is waiting for it to come back: what the
     /// strip and the reservations tab say the disk for (`TVDriver.diskNotFound`). The disk is as the driver
     /// last knew it, from an attach or from a sending since. Only a row with no reason on it waits for the

@@ -254,12 +254,11 @@ final class TVHost: LinkHost {
     /// Keeps what a sending to the television came to, for a sending of what waits and for a row sent again
     /// alike. The queue on screen is read again, always: with no round too, since a row sent again may have
     /// had its reason taken off before the television could be asked. What the round has to say goes on the
-    /// strip, naming the television, after what is there unread: the next sending is not to take what this
-    /// one said, which can end with what making a reservation did to another. A sentence the unread report
-    /// holds already is not said a second time: a row passed over at every sending would add its own at
-    /// each connect and each pull-down. A round with nothing to say, and no round, leave the report where
-    /// it was, as the recorder's sending does. Reached from inside a connect, so nothing here may await
-    /// `AppModel.start()`.
+    /// strip, naming the television, added to what is there unread by the strip's rule
+    /// (`AppModel.adding(_:toUnread:)`): the next sending is not to take what this one said, which can end
+    /// with what making a reservation did to another. A round with nothing to say, and no round, leave the
+    /// report where it was, as the recorder's sending does. Reached from inside a connect, so nothing here may
+    /// await `AppModel.start()`.
     ///
     /// A warning the runs with no screen left of reservations not yet at the television goes here once none
     /// of them waits to go any more (`AppModel.forgetTheWarningOnceSent`), whichever sending took them.
@@ -267,24 +266,7 @@ final class TVHost: LinkHost {
         await model?.loadPending()
         await model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
-        let unread = report.map(Self.sentences) ?? []
-        let new = Self.sentences(said).filter { !unread.contains($0) }
-        if !new.isEmpty { report = ([report].compactMap { $0 } + new).joined(separator: "。") }
-    }
-
-    /// The sentences of what a sending said, which joins them with a full stop. Cut at each full stop that
-    /// is not inside a title's brackets: a programme's title can have one of its own.
-    private static func sentences(_ said: String) -> [String] {
-        var sentences = [""], depth = 0
-        for character in said {
-            if character == "「" { depth += 1 } else if character == "」" { depth = max(depth - 1, 0) }
-            if character == "。", depth == 0 {
-                sentences.append("")
-            } else {
-                sentences[sentences.count - 1].append(character)
-            }
-        }
-        return sentences.filter { !$0.isEmpty }
+        if let added = AppModel.adding(said, toUnread: report) { report = added }
     }
 
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect
