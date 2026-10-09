@@ -668,9 +668,10 @@ public final class RecorderDriver: LinkDriver {
     /// The line on screen while a reservation is deleted.
     public static let deletingLine = "予約を削除中"
 
-    /// Said when a reservation to delete or to change is not in the list just read: the recorder no longer holds
-    /// it, and the list on screen is the one just read.
-    public static let alreadyDeleted = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+    /// Said when a reservation to delete or to change is not in the list just read, and the list on screen is the
+    /// one just read. Not that it was deleted, as a television's says (`TVDriver.notInList`): all that is seen is
+    /// that the list lists it nowhere, and the list is one request of at most 200 rows.
+    public static let notInList = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
 
     /// Said when the recorder answers a delete or a change that it holds no such reservation (804 or 820) though
     /// the list just read had one: that list was itself out of date, and it has been read again. And when the
@@ -704,9 +705,9 @@ public final class RecorderDriver: LinkDriver {
     /// The delete goes only from a list read now, as a television's does: a read that did not go through ends it
     /// there, nothing sent, under whatever the read's failure left on the line -- silence, a refusal, busy with
     /// somebody else, a check inside the read that said no or heard something in place of the recorder saying
-    /// which it is. A reservation not in the list just read has gone, and the line says so; one whose id now
-    /// stands on another programme is not written to, and the line says the recorder has updated it and asks for
-    /// another try from the list just read (`renumbered`).
+    /// which it is. A reservation not in the list just read is not sent for, and the line says it was found
+    /// nowhere in that list (`notInList`); one whose id now stands on another programme is not written to, and
+    /// the line says the recorder has updated it and asks for another try from the list just read (`renumbered`).
     ///
     /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
     /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
@@ -748,7 +749,7 @@ public final class RecorderDriver: LinkDriver {
         case .found(let row):
             target = row
         case .gone:
-            owner?.problem = Self.alreadyDeleted
+            owner?.problem = Self.notInList
             return (false, read)
         case .changed:
             owner?.problem = Self.renumbered
@@ -809,10 +810,10 @@ public final class RecorderDriver: LinkDriver {
     /// under way, or the recorder has not said which it is. The read makes sure of the recorder too, and wakes it
     /// if it has gone to sleep. The change goes only from a list read now, as the delete does: a read that did
     /// not go through ends it there, nothing sent, under whatever its failure left on the line. A reservation
-    /// not in the list just read has gone, and the line says so; one whose id now stands on another programme
-    /// is not written to, as for a delete (`renumbered`). The request is built from the row just found,
-    /// on the client the link holds after the read, asked again whether it may be written to, as the delete's
-    /// is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
+    /// not in the list just read is not sent for, and the line says so (`notInList`); one whose id now stands on
+    /// another programme is not written to, as for a delete (`renumbered`). The request is built from the row
+    /// just found, on the client the link holds after the read, asked again whether it may be written to, as the
+    /// delete's is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
     ///
     /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
     /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
@@ -865,7 +866,7 @@ public final class RecorderDriver: LinkDriver {
         case .found(let row):
             target = row
         case .gone:
-            owner?.problem = Self.alreadyDeleted
+            owner?.problem = Self.notInList
             return (notDone(), read)
         case .changed:
             owner?.problem = Self.renumbered

@@ -1012,7 +1012,7 @@ enum Said {
     /// Said of a reservation kept on the phone because the recorder was not there.
     static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
-    static let gone = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
+    static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
 

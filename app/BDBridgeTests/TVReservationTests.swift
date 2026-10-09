@@ -198,7 +198,7 @@ final class TVReservationTests: XCTestCase {
         let changed = try XCTUnwrap(model.reservations.first { $0.id == recorders.id })
         expectTrue(await model.cancel(changed), model.problem ?? "no reason given")
         expectEqual(await model.change(changed, quality: "DR", repeating: "none"),
-                    .notDone("この予約はすでにレコーダーから削除されていました。一覧を更新しました。"))
+                    .notDone("この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"))
         let another = try aRecordersReservation(model)
         expectEqual(await model.change(another, quality: "知らない画質", repeating: "none"),
                     .notDone("レコーダーがエラーを返しました"))
