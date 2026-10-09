@@ -71,18 +71,19 @@ struct ProgramSheet: View {
     /// The device a reservation asked for here is for, from 録画予約する until what it came to has been said
     /// and closed: see `device`.
     @State private var turn: DeviceSlot?
-    /// The line of a request of this sheet's own to the television, while it is out. Nothing on the sheet
-    /// can be pressed under it and the sheet cannot be closed: what the request came to is said here, in
-    /// the alert, and a sheet that had gone would say it nowhere. Never set for the recorder.
+    /// The line of a request of this sheet's own, while it is out: a reservation on either device, a waiting
+    /// row sent again, the yes to making one all the same, and a delete of either device's reservation, each
+    /// under its device's line for it. Nothing on the sheet can be pressed under it and the sheet cannot be
+    /// closed: what the request came to is said here, in the alert, and a sheet that had gone would say it
+    /// nowhere. A recorder's can be out for as long as a waking and the wait for its disk take.
     @State private var asking: String?
-    /// How many requests of this sheet's own are out and not under `asking`: a reservation on the recorder
-    /// or one of its rows sent again, and a delete of a reservation or of a waiting row. A request to the
-    /// television does not begin while there is one. As it ends, such a request closes the sheet, or puts
-    /// up its own answer and takes `asking` down, and one begun first would do that under the television's:
-    /// the sheet gone while the television's answer is still out, or left open to be pressed and closed
-    /// while its round runs. Read by the television's three buttons -- 録画予約する, もう一度送る and the way to
-    /// change its reservation, whose sheet would send a request of its own -- and by nothing else, and with
-    /// the recorder alone none is drawn.
+    /// How many requests of this sheet's own are out and not under `asking`: a delete of a waiting row. A
+    /// request to the television does not begin while there is one. As it ends, such a request closes the
+    /// sheet, or puts up its own answer and takes `asking` down, and one begun first would do that under the
+    /// television's: the sheet gone while the television's answer is still out, or left open to be pressed and
+    /// closed while its round runs. Read by the television's three buttons -- 録画予約する, もう一度送る and the
+    /// way to change its reservation, whose sheet would send a request of its own -- and by nothing else, and
+    /// with the recorder alone none is drawn.
     @State private var others = 0
 
     /// The recorder's reservation of this programme, and the television's, held apart.
@@ -276,10 +277,11 @@ struct ProgramSheet: View {
                     Button("予約する") { reserve(on: device, disk: named) }
                 case .cancel(let reservation):
                     Button("削除する", role: .destructive) {
-                        others += 1
+                        // Held under its device's line, as this sheet's other requests to either device are.
+                        asking = reservation.device == .tv ? TVDriver.deletingLine : RecorderDriver.deletingLine
                         Task {
                             let deleted = await model.cancel(reservation)
-                            others -= 1
+                            asking = nil
                             switch deleted {
                             case .done: done = true
                             case .notDone(let why): ask = .failed(why)
@@ -385,7 +387,7 @@ struct ProgramSheet: View {
     private func reserve(on device: DeviceSlot, disk named: String?) {
         let (quality, repeating) = (quality, repeating)
         let sent = named ?? RecorderDisk.internalID
-        request(under: device == .tv ? TVDriver.reservingLine : nil, fresh: true) {
+        request(under: device == .tv ? TVDriver.reservingLine : RecorderDriver.reservingLine, fresh: true) {
             let came = await model.reserve(program, on: device, quality: quality, repeating: repeating, disk: sent)
             if model.diskCannotBeHad(sent) { chosenDisk = RecorderDisk.internalID }
             return came
@@ -394,16 +396,13 @@ struct ProgramSheet: View {
 
     /// What this sheet asks for a reservation: one on a device, a waiting row sent again, or the yes to
     /// making one all the same. What it came to is said (`say`), and with nothing put up and the sheet
-    /// staying, 録画予約 is read afresh. `line` is for a request to the television, and is up for as long
-    /// as that is out (`asking`). With no line it is the recorder's, and counted while it is out (`others`).
-    private func request(under line: String? = nil, fresh: Bool,
-                         _ work: @escaping @MainActor () async -> Reserved?) {
+    /// staying, 録画予約 is read afresh. `line` is the device's line for the request, and is up for as long
+    /// as that is out (`asking`).
+    private func request(under line: String, fresh: Bool, _ work: @escaping @MainActor () async -> Reserved?) {
         asking = line
-        if line == nil { others += 1 }
         Task {
             let came = await work()
             asking = nil
-            if line == nil { others -= 1 }
             say(came, fresh: fresh)
             if ask == nil, !done { turn = nil }
         }
@@ -514,7 +513,7 @@ struct ProgramSheet: View {
                 // it names has changed, which only the reader can know.
                 Text(problem).foregroundStyle(.red).font(.callout)
                 Button("もう一度送る") {
-                    request(under: device == .tv ? TVDriver.sendingLine : nil, fresh: false) {
+                    request(under: device == .tv ? TVDriver.sendingLine : RecorderDriver.sendingLine, fresh: false) {
                         await model.sendAgain(waiting)
                     }
                 }

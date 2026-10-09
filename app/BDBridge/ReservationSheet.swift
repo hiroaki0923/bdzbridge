@@ -13,11 +13,12 @@ import SwiftUI
 /// driver lists (`RecorderDriver.recordsIn`, `repeats(startingAt:)`) while its driver would change it at all
 /// (`RecorderDriver.whyNot(changing:)`), and what the sheet says of one in words of the recorder's is its
 /// driver's too. What the change came to is said in the sheet's one alert, under the device's name when
-/// something is to be added to a change made. While a request of the sheet's own
-/// to the television is out, the change or the delete, its line is on the sheet, nothing on it can be
-/// pressed and the sheet cannot be closed: what the request came to is said here, and a sheet that had gone
-/// would say it nowhere. The recorder's rows are not held so. Whatever is held back, said in red or reported
-/// as a failure is the row's own device's, and the other device's work and trouble are left out of it.
+/// something is to be added to a change made. While a request of the sheet's own is out, the change or the
+/// delete, its device's line for it is on the sheet, nothing on it can be pressed and the sheet cannot be
+/// closed, for either device's row: what the request came to is said here, and a sheet that had gone would say
+/// it nowhere. A recorder's can be out for as long as a waking and the wait for its disk take. Whatever is held
+/// back, said in red or reported as a failure is the row's own device's, and the other device's work and
+/// trouble are left out of it.
 struct ReservationSheet: View {
     let reservation: Reservation
     @Environment(AppModel.self) private var model
@@ -40,8 +41,7 @@ struct ReservationSheet: View {
     /// A change of the recorder's not sent because the disk it goes to cannot be had: its report leaves the
     /// sheet open, the sentence asking for another disk on this sheet's picker, which offers what is left.
     @State private var anotherDiskWanted = false
-    /// The line of a request of this sheet's own to the television, while it is out. Never set for the
-    /// recorder.
+    /// The line of a request of this sheet's own to the device that holds the row, while it is out.
     @State private var asking: String?
 
     /// A recorder's row the change's door would turn away -- being recorded, or over -- by its driver's rule
@@ -158,7 +158,7 @@ struct ReservationSheet: View {
                                         set: { if !$0 { alertClosed() } })) {
                 if failure == nil, said == nil {
                     Button("削除する", role: .destructive) {
-                        if onTelevision { asking = TVDriver.deletingLine }
+                        asking = onTelevision ? TVDriver.deletingLine : RecorderDriver.deletingLine
                         Task {
                             let deleted = await model.cancel(reservation)
                             asking = nil
@@ -213,11 +213,11 @@ struct ReservationSheet: View {
     /// 変更を〈機器〉に送る: the change goes to the device that holds the row, with what the pickers hold as it
     /// is pressed, and what it came to is said. Made with nothing to add closes the sheet; made with something
     /// to add says it, and closing that closes the sheet; not made says why, and closing that closes the sheet
-    /// too, unless the disk the change goes to cannot be had (`alertClosed`). A request to the television holds
-    /// the sheet open until it is answered (`asking`).
+    /// too, unless the disk the change goes to cannot be had (`alertClosed`). The request holds the sheet open
+    /// until it is answered (`asking`).
     private func sendTheChange() {
         let moved = movedTo
-        if onTelevision { asking = TVDriver.changingLine }
+        asking = onTelevision ? TVDriver.changingLine : RecorderDriver.changingLine
         Task {
             let altered = await model.change(reservation, quality: quality, repeating: repeating, disk: moved)
             asking = nil
