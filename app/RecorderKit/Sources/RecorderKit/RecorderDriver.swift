@@ -476,6 +476,17 @@ public final class RecorderDriver: LinkDriver {
 
     // MARK: - the reservations
 
+    /// Whether what the reader asks of the recorder may be written to it, as a television's driver asks the
+    /// same (`TVDriver.canBeAsked`): the client in hand is the one whose attach went through
+    /// (`DeviceLink.clientIsAttached`), and the session is connected. A connect under way has a client of its
+    /// own that has not yet heard which recorder answers it; a reconnect answered busy leaves the session
+    /// connected from the attach before, beside a client that never heard it; and a check whose waking the
+    /// recorder turned away leaves the attached client in hand with the session not connected. In each the
+    /// recorder has not said which it is, and nothing is written to it. Reads go as they always have.
+    private func canBeAsked(on link: DeviceLink) -> Bool {
+        link.clientIsAttached && link.session.connected
+    }
+
     /// The line on screen while the reservations are read.
     public static let readingLine = "予約一覧を取得中"
 
@@ -497,12 +508,13 @@ public final class RecorderDriver: LinkDriver {
         return nil
     }
 
-    /// What pulling the list down asks for: the list read again and what waits sent, or a connect when the
-    /// recorder is not connected, which does both once it has answered (`attach`, `LinkHost.reached`), and nil
-    /// -- what a connect that got nowhere has to say is on its line. Not connected, rather than offline: a
-    /// recorder that answered the last connect without saying which it is, busy with somebody else as it was
-    /// asked, is not offline, and the queue does not go to one (`sendWhatWaits`). Otherwise the newest list
-    /// read, nil when none was, and what the sending came to, nil when none ran.
+    /// What pulling the list down asks for: the list read again and what waits sent, or a connect when nothing
+    /// can be written to the recorder (`canBeAsked`), which does both once it has answered (`attach`,
+    /// `LinkHost.reached`), and nil -- what a connect that got nowhere has to say is on its line. That is so
+    /// of a recorder the app is not connected to, and of one whose last connect it answered busy with somebody
+    /// else, as it was asked which it is: neither is offline, the queue does not go to them (`sendWhatWaits`),
+    /// and for the second no 再接続 is offered, the app being connected from the attach before. Otherwise the
+    /// newest list read, nil when none was, and what the sending came to, nil when none ran.
     ///
     /// The list is read before what waits is sent, and again after a sending that made something; the read
     /// after is the one handed back when there is one, since the one before would put the older list over it.
@@ -510,7 +522,7 @@ public final class RecorderDriver: LinkDriver {
     /// later change sends first and reads once, as the television's pull-down does.
     public func refreshReservations() async -> (list: [Reservation]?, round: PendingQueue.Outcome?)? {
         guard let link else { return nil }
-        guard link.session.connected else {
+        guard canBeAsked(on: link) else {
             await link.connect()
             return nil
         }
@@ -546,9 +558,10 @@ public final class RecorderDriver: LinkDriver {
     /// the host whenever the recorder has just answered, which means from inside a connect, and here when the
     /// list is pulled down or a row sent again: nothing here waits for the app's start.
     ///
-    /// Only to a recorder that has described itself: whatever answers a connect some other way -- a 503, or as
-    /// something that is no recorder -- must not be handed what was waiting for the last recorder. And only
-    /// when a row waits for the recorder. What waits for the television is its own driver's to send
+    /// Only to a recorder that has described itself, on the client whose attach heard it (`canBeAsked`):
+    /// whatever answers a connect some other way -- a 503, or as something that is no recorder -- must not be
+    /// handed what was waiting for the last recorder. Inside an attach the client is that one by the time this
+    /// is asked. And only when a row waits for the recorder. What waits for the television is its own driver's to send
     /// (`TVDriver.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
     /// sends nothing, and that flush would wait its turn behind a television's sending that is out. Otherwise
     /// nothing is asked and nothing said. The host is told the queue may have changed as it is looked at and
@@ -560,7 +573,7 @@ public final class RecorderDriver: LinkDriver {
     /// have arrived. What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
         guard let link, let client = link.client as? RecorderClient, let store = link.owner?.cache,
-              link.session.connected else { return (nil, nil) }
+              canBeAsked(on: link) else { return (nil, nil) }
         await link.owner?.queueWritten()
         let rows = (try? await store.pendingReservations()) ?? []
         guard rows.contains(where: { $0.target == RecorderClient.slot }), !link.session.unreachable else {
@@ -587,9 +600,9 @@ public final class RecorderDriver: LinkDriver {
     /// The row's reason is taken off, so that it goes with the rest from now on, and the host is told, so that
     /// the screens show it without one before the recorder is made sure of. Then nothing more while the recorder
     /// is known to be away, or the check before an operation says no: the row goes the next time the recorder
-    /// answers. There, and not connected -- a recorder that answered the last connect without saying which it
-    /// is -- a connect asks it again, and its attach sends what waits if it describes itself. Connected, what
-    /// waits is sent now.
+    /// answers. There, and nothing can be written to it (`canBeAsked`) -- not connected, or connected from an
+    /// attach before a reconnect it answered without saying which it is -- a connect asks it again, and its
+    /// attach sends what waits if it describes itself. Otherwise what waits is sent now.
     ///
     /// Everything that waits for the recorder is sent, not this row alone, and nothing is handed back of the
     /// row itself, the strip saying what was sent: as it is today; a later change sends the one row and says
@@ -602,7 +615,7 @@ public final class RecorderDriver: LinkDriver {
         try? await store.setPendingProblem(waiting.id, nil)
         await link.owner?.queueWritten()
         guard !link.offline, await link.ensureUp() else { return (nil, nil, nil) }
-        guard link.session.connected else {
+        guard canBeAsked(on: link) else {
             await link.connect()
             return (nil, nil, nil)
         }
@@ -641,9 +654,10 @@ public final class RecorderDriver: LinkDriver {
     /// A reservation that is not the recorder's is refused before anything else: nothing is read, sent or said
     /// for it. It is another device's to delete. With the link gone any reservation is refused the same way, and
     /// with no recorder's client in hand nothing is said either. Known to be away, nothing is sent -- the list
-    /// has to be read first, and nothing can be read -- and the host says that the app is not connected. A read
-    /// that meets silence ends it there, under the read's sentence. A reservation not in the list has gone, and
-    /// the line says so.
+    /// has to be read first, and nothing can be read -- and the host says that the app is not connected; so it
+    /// does, with nothing read, when nothing can be written to the recorder (`canBeAsked`): a connect is under
+    /// way, or the recorder has not said which it is. A read that meets silence ends it there, under the read's
+    /// sentence. A reservation not in the list has gone, and the line says so.
     ///
     /// The list it is looked for in is the one the read handed back, or when the read failed some other way,
     /// the list the caller holds as it stands after the read (`inHand`), which a pull-down may have replaced
@@ -652,7 +666,10 @@ public final class RecorderDriver: LinkDriver {
     ///
     /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
     /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
-    /// an address the recorder has left. The line comes down before anything is read after it. Silence there may
+    /// an address the recorder has left. That client is asked again whether it may be written to: one whose
+    /// connect is still under way, or a check inside the read whose waking the recorder turned away, sends
+    /// nothing, and the host says that the app is not connected. The line comes down before anything is read
+    /// after it. Silence there may
     /// be a delete that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
     /// arrived. 804 or 820 -- the list just read was itself out of date, which is what happens when reading it
     /// failed -- has the list read again first, since a read that goes through clears the line, and then says
@@ -666,7 +683,7 @@ public final class RecorderDriver: LinkDriver {
         -> (deleted: Bool, list: [Reservation]?) {
         guard reservation.device == .recorder, let link, link.client is RecorderClient else { return (false, nil) }
         let owner = link.owner
-        guard !link.offline else {
+        guard !link.offline, canBeAsked(on: link) else {
             owner?.sayNotConnected()
             return (false, nil)
         }
@@ -678,6 +695,10 @@ public final class RecorderDriver: LinkDriver {
             return (false, read)
         }
         guard let client = link.client as? RecorderClient else { return (false, read) }
+        guard canBeAsked(on: link) else {
+            owner?.sayNotConnected()
+            return (false, read)
+        }
         let failure = await link.underALine(Self.deletingLine) { _ -> (any Error)? in
             do {
                 try await client.deleteReservation(id: target.id)
@@ -723,13 +744,15 @@ public final class RecorderDriver: LinkDriver {
     /// and is refused the same way when the slot does not answer it (`withholds`).
     ///
     /// With the link gone, or no recorder's client in hand, nothing is said. Known to be away, nothing is sent --
-    /// the list has to be read first, and nothing can be read -- and the host says that the app is not connected.
-    /// The read makes sure of the recorder too, and wakes it if it has gone to sleep; one that meets silence ends
-    /// it there, under the read's sentence. The row is looked for in the list the read handed back, or when the
-    /// read failed some other way, in the list the caller holds as it stands after the read (`inHand`): as it is
-    /// today; a later change sends nothing after a read that failed, and takes `inHand` away. A reservation not in
-    /// the list has gone, and the line says so. The request is built from the row just found, on the client the
-    /// link holds after the read, as the delete's is; a mode or a repeat the tables do not know sends nothing.
+    /// the list has to be read first, and nothing can be read -- and the host says that the app is not connected;
+    /// so it does, with nothing read, when nothing can be written to the recorder (`canBeAsked`): a connect is
+    /// under way, or the recorder has not said which it is. The read makes sure of the recorder too, and wakes it
+    /// if it has gone to sleep; one that meets silence ends it there, under the read's sentence. The row is looked
+    /// for in the list the read handed back, or when the read failed some other way, in the list the caller holds
+    /// as it stands after the read (`inHand`): as it is today; a later change sends nothing after a read that
+    /// failed, and takes `inHand` away. A reservation not in the list has gone, and the line says so. The request
+    /// is built from the row just found, on the client the link holds after the read, asked again whether it may
+    /// be written to, as the delete's is; a mode or a repeat the tables do not know sends nothing.
     ///
     /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
     /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
@@ -754,7 +777,7 @@ public final class RecorderDriver: LinkDriver {
             return (notDone(), nil)
         }
         // Sending would only wait out a timeout, from a list that could not be read again first.
-        guard !link.offline else {
+        guard !link.offline, canBeAsked(on: link) else {
             owner?.sayNotConnected()
             return (notDone(), nil)
         }
@@ -765,8 +788,12 @@ public final class RecorderDriver: LinkDriver {
             owner?.problem = Self.alreadyDeleted
             return (notDone(), read)
         }
-        guard let client = link.client as? RecorderClient,
-              let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
+        guard let client = link.client as? RecorderClient else { return (notDone(), read) }
+        guard canBeAsked(on: link) else {
+            owner?.sayNotConnected()
+            return (notDone(), read)
+        }
+        guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
                                                destination: disk)
         else { return (notDone(), read) }
         if let withheld = await withholds(request.destination) {
@@ -904,7 +931,9 @@ public final class RecorderDriver: LinkDriver {
     /// the tables do not know keeps and sends nothing. With the link gone nothing is said.
     ///
     /// Known to be away -- no recorder's client in hand, or the recorder silent at the last ask -- it is kept on
-    /// the phone at once (`keep`), with no check and no line, rather than spend a timeout finding out again.
+    /// the phone at once (`keep`), with no check and no line, rather than spend a timeout finding out again. So
+    /// it is when nothing can be written to the recorder (`canBeAsked`): a connect under way, whose own sending
+    /// takes the row once the recorder has said which it is, or a recorder that has not said which it is.
     /// Otherwise, under a line of its own: the recorder is made sure of, and woken if it is asleep
     /// (`DeviceLink.check`). When it cannot be, nothing has been sent, and it is kept -- unless the check heard
     /// another recorder (`NotUp.anotherAnswered`), or the recorder was let go of since the reservation began: by
@@ -943,7 +972,7 @@ public final class RecorderDriver: LinkDriver {
         guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
                                                destination: disk)
         else { return (notDone(), nil) }
-        guard let client = link.client as? RecorderClient, !link.offline else {
+        guard let client = link.client as? RecorderClient, !link.offline, canBeAsked(on: link) else {
             return (await keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
         }
         let began = link.generation

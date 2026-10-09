@@ -771,6 +771,50 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
     }
 
+    /// A reconnect the recorder answers busy with somebody else, as it is asked which it is, leaves the app
+    /// connected from the attach before -- it answered, so nothing is given up and no 再接続 is offered -- beside
+    /// a client that has not heard which recorder answers it, and nothing is written to the recorder on that
+    /// client. Pulling the reservations down, and asking for a waiting one to be sent again, connect then, as
+    /// they do when the app is not connected; the recorder free by then, the connect's attach sends what waits.
+    func testPullingDownOrSendingAgainAfterAReconnectAnsweredBusyConnects() async throws {
+        for pulling in [true, false] {
+            let what = pulling ? "pulling the list down" : "sending one again"
+            let bench = try aBench()
+            let recorder = NamedRecorder(1)
+            let model = try await started(bench, recorder: recorder)
+            XCTAssertTrue(model.connected)
+            let program = try await programmesNotReserved(model, 1)[0]
+            let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
+            let waiting = PendingReservation(request: request, serviceName: program.serviceName,
+                                             problem: pulling ? nil : "refused")
+            try await GuideStore(path: bench.guidePath).queue(waiting)
+            await model.loadPending()
+
+            await recorder.busyAtTheDoor()
+            await model.connect()
+            XCTAssertTrue(model.connected, "the attach before was meant to stand, \(what)")
+            XCTAssertFalse(model.offline)
+            XCTAssertFalse(model.gaveUp)
+            await recorder.comeFree()
+            let made = bench.clientsMade
+            let before = await recorder.asked
+
+            if pulling {
+                await model.refreshReservations()
+            } else {
+                await model.resend(waiting)
+            }
+
+            XCTAssertEqual(bench.clientsMade, made + 1, "\(what) did not connect")
+            expectEqual(await recorder.asked("description.xml", since: before), 1, what)
+            expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 1,
+                        "what waits was not made once, by the connect's sending, \(what)")
+            XCTAssertNil(model.pending(for: program), "the reservation still waits, \(what)")
+            XCTAssertNotNil(model.reservation(for: program), "the recorder's list was not read, \(what)")
+            XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+        }
+    }
+
     // MARK: - when it asks again
 
     /// Given up stays given up until the network changes or the reader asks. 再接続 and pulling down are the

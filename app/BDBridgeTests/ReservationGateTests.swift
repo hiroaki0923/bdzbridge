@@ -583,13 +583,12 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(model.reservations.first { $0.id == rows[1].id }?.qualityCode, Codes.quality["ER"])
     }
 
-    /// As it is today, and to be rewritten: the reservations' operations ask whether the app is offline,
-    /// not whether it is connected. A recorder that answered the connect busy with somebody else, and so never
-    /// said which it is, is not offline: its list is read, and a reservation is made, changed and deleted on
-    /// it, each sent once and none queued, with the app not connected throughout. (What waits in the queue does
-    /// not go to such a recorder: `SessionRuleTests`.) Afterwards the reservation goes to the queue, and the
-    /// change and the delete say that the app is not connected.
-    func testARecorderThatHasNotSaidWhichItIsIsStillReadFromAndWrittenTo() async throws {
+    /// A recorder that answered the connect busy with somebody else, and so never said which it is, is not
+    /// offline: its list is read, as any that answered. Nothing is written to it: a reservation is kept on the
+    /// phone, to go once it has said which it is, and a change and a delete of a reservation it lists say that
+    /// the app is not connected, with nothing sent. (What waits in the queue does not go to such a recorder
+    /// either: `SessionRuleTests`.)
+    func testARecorderThatHasNotSaidWhichItIsIsReadFromAndNotWrittenTo() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = NamedRecorder(1)
@@ -609,17 +608,17 @@ final class ReservationGateTests: XCTestCase {
         let program = try await programmesNotReserved(model, 1)[0]
         expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
                    model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertNil(keptJustNow(model), "the reservation went to the queue")
-        XCTAssertNil(model.pending(for: program))
-        let made = try XCTUnwrap(model.reservation(for: program), "the programme is not marked as reserved")
-        expectTrue(await changeOnTheRecorder(model, made, quality: "ER", repeating: "none"),
-                   model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertEqual(model.reservation(for: program)?.qualityCode, Codes.quality["ER"])
-        expectTrue(await model.cancel(made), model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertNil(model.reservation(for: program))
+        XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID, "the reservation was not kept")
+        XCTAssertNotNil(model.pending(for: program), "the reservation kept is not shown as waiting")
+        let listed = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        expectFalse(await changeOnTheRecorder(model, listed, quality: "ER", repeating: "none"),
+                    model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the change said something else")
+        expectFalse(await model.cancel(listed), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the delete said something else")
 
         for kind in [Kind.create, Kind.change, Kind.delete] {
-            expectEqual(await recorder.asked(kind, since: before), 1, kind)
+            expectEqual(await recorder.asked(kind, since: before), 0, kind)
         }
         expectEqual(await recorder.asked(Kind.description, since: before), 0, "it was asked again who it is")
         XCTAssertFalse(model.connected)
@@ -633,13 +632,66 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
     }
 
-    /// As it is today, and the delete's half to be rewritten: the one answer of the check before an
-    /// operation that leaves the recorder neither connected nor offline. It says nothing to the check, is woken,
-    /// and is then busy with somebody else as the waking's attach asks who it is: there, without having said
-    /// which it is, and the check's answer is no. A reservation asked for meanwhile is queued unsent, and what
-    /// the attach said stays on the line over it. A delete asked for meanwhile is sent all the same: the
-    /// read before it was not made, the app is not offline, and the reservation is found in the list in hand.
-    func testACheckThatWokeTheRecorderOnlyToBeTurnedAwayQueuesAReservationAndStillSendsADelete() async throws {
+    /// A connect under way has a client of its own, which has not yet heard which recorder answers it, while the
+    /// app is still connected from the attach before. Nothing the reader asks for meanwhile is written on that
+    /// client: a reservation is kept on the phone -- and the connect's own sending makes it, once the recorder
+    /// has said which it is -- and a change and a delete say that the app is not connected, with nothing read
+    /// or sent for them. The list is read as ever, on that client, once it has its turn. The connect's question
+    /// of who answers is held, to keep it under way.
+    func testNothingIsWrittenOnAConnectsClientBeforeTheRecorderHasSaidWhichItIs() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let program = try await programmesNotReserved(model, 1)[0]
+        let rows = try ReservationWrite.rows(of: model, atLeast: 2)
+        let before = await recorder.asked
+        let made = bench.clientsMade
+        await recorder.hold(only: Kind.description)
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Kind.description, since: before) == 1
+        }
+        // What this stands on, rather than what it holds: a client more, its connect under way, the app still
+        // connected from the attach before.
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        XCTAssertTrue(isConnecting(model))
+        XCTAssertTrue(model.connected)
+
+        let forgotten = model.timesForgotten
+        let reading = Task { await model.loadReservations(since: forgotten) }
+        let reserved = try await within(5, "the reservation waited for the connect") {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
+        }
+        let changed = try await within(5, "the change waited for the connect") {
+            await model.change(rows[0], quality: "ER", repeating: "none")
+        }
+        let deleted = try await within(5, "the delete waited for the connect") { await model.cancel(rows[1]) }
+        await recorder.letGo()
+        await connecting.value
+        let read = await reading.value
+
+        guard case .waiting(let row, _) = reserved else {
+            return XCTFail("a reservation asked for during a connect was not kept: \(reserved)")
+        }
+        XCTAssertEqual(row.request.eventID, program.eventID)
+        XCTAssertEqual(changed, .notDone(Said.notConnected))
+        XCTAssertFalse(deleted, "a delete asked for during a connect went through")
+        XCTAssertNotNil(read, "the list was not read on the connect's client")
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        expectEqual(await recorder.asked(Kind.change, since: before), 0, "the change was sent")
+        expectEqual(await recorder.asked(Kind.delete, since: before), 0, "the delete was sent")
+        expectEqual(await recorder.asked(Kind.create, since: before), 1,
+                    "the reservation kept was not made once, by the connect's sending")
+        XCTAssertNil(model.pending(for: program), "the reservation kept still waits after the connect")
+        XCTAssertNotNil(model.reservation(for: program))
+    }
+
+    /// The one answer of the check before an operation that leaves the recorder neither connected nor offline.
+    /// It says nothing to the check, is woken, and is then busy with somebody else as the waking's attach asks
+    /// who it is: there, without having said which it is, and the check's answer is no. A reservation asked for
+    /// meanwhile is queued unsent, and what the attach said stays on the line over it. A delete asked for
+    /// meanwhile is not sent either: its read was not made, and the reservation is found in the list in hand,
+    /// but nothing is written to a recorder that has not said which it is since its waking.
+    func testACheckThatWokeTheRecorderOnlyToBeTurnedAwayQueuesAReservationAndSendsNoDelete() async throws {
         do {
             let (bench, recorder, model) = try await connectedHome(wakeable: true)
             let program = try await programmesNotReserved(model, 1)[0]
@@ -661,9 +713,9 @@ final class ReservationGateTests: XCTestCase {
             let (deleted, heard) = try await duringACheckTurnedAwayAfterAWaking(by: model, of: recorder) {
                 await model.cancel(row)
             }
-            XCTAssertTrue(deleted, model.problem(for: .recorder) ?? "no reason given")
-            XCTAssertEqual(heard, [Kind.delete, Kind.list], "the delete was not the first thing sent after the check")
-            XCTAssertFalse(model.reservations.contains { $0.id == row.id })
+            XCTAssertFalse(deleted, "a delete was sent to a recorder that had not said which it is")
+            XCTAssertEqual(heard, [], "something was sent after a check that said no")
+            XCTAssertTrue(model.reservations.contains { $0.id == row.id }, "the reservation left the list")
         }
     }
 
