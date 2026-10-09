@@ -12,7 +12,8 @@ final class DriverCheckRehearsalTests: XCTestCase {
     /// for the very programme the check reserved: on its channel at its start, under a new id, listed ahead of
     /// the check's own. The check changes and deletes its own and nothing else -- the recorder's row is neither
     /// changed nor deleted, the household's is as it was -- and the recorder ends with as many reservations as it
-    /// began with. It lists each write a read late, so that the check's reads after each step are gone through.
+    /// began with. It lists each write a read late, so that the check's reads after each step are gone through:
+    /// the driver says the change is not in the list it hands back, and the check finds it at the read after.
     func testTheCheckNeverWritesToARowTheRecorderMadeForItself() async throws {
         let recorder = try RecorderReservations(Self.household(), guide: Self.guide(), aReadBehind: true,
                                                 itsOwnAfterTheCreate: [Self.itsOwnAtSix()])
@@ -21,6 +22,9 @@ final class DriverCheckRehearsalTests: XCTestCase {
         let (failure, lines) = try await rehearse(on: recorder)
         if let failure { XCTFail("the check failed: \(failure)") }
         XCTAssertFalse(lines.contains { $0.hasPrefix("may be left") }, "\(lines)")
+        XCTAssertTrue(lines.contains("the driver said of the list handed back: \(RecorderDriver.changeNotReflected)"),
+                      "\(lines)")
+        XCTAssertTrue(lines.contains { $0.hasPrefix("the change shown at read 1,") }, "\(lines)")
 
         let made = await recorder.made
         let six = try Self.date("2026-09-14T06:00:00+09:00")

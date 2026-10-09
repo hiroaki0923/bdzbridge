@@ -1276,6 +1276,15 @@ public final class RecorderDriver: LinkDriver {
     /// waited (`Withheld.givenUp`): nothing was sent.
     public static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
+    /// Said when the recorder answered a change as taken and the list read after it lists the reservation in
+    /// the mode or on the disk it had, as a television's says of its repeat (`TVDriver.changeNotReflected`).
+    public static let changeNotReflected = "変更がレコーダーの予約一覧に反映されていません。一覧を更新しました。"
+    /// Said when the recorder answered a change as taken and the list read after it no longer has the reservation
+    /// as it was: it is to be looked at on the recorder itself, since it may be gone, as a television's says
+    /// (`TVDriver.goneAfterAChange`).
+    public static let goneAfterAChange = "レコーダーは変更を受け付けたと答えましたが、この予約が一覧に見つかりません。"
+        + "レコーダー本体の予約一覧で確かめてください。"
+
     /// Said of a reservation the recorder says it is recording: it is not changed while it records.
     public nonisolated static let changeRecording = "録画中の予約は変更できません。"
     /// Said of a reservation whose end has passed: there is nothing left of it to change.
@@ -1337,6 +1346,15 @@ public final class RecorderDriver: LinkDriver {
     /// the result. After a change that went through the line is cleared and the list read again; when that read
     /// does not go through, the list handed back is the one read before, with the row given the mode, the repeat
     /// and the disk sent, as a television's change hands back what it sent: the change was answered as made.
+    ///
+    /// The list read after it says whether it shows the change, as a television's does (`TVDriver.update`): the
+    /// reservation is found in it again as before the write (`current`), and one gone, or whose id now stands on
+    /// another programme, is not done, the list handed back and the reader sent to look at the recorder itself
+    /// (`goneAfterAChange`). One listed in a mode or on a disk other than those sent is not done either, the list
+    /// handed back as read (`changeNotReflected`). The repeat is not compared: the mode and the disk have been
+    /// seen in the very next read after a change, and a change of the repeat never has been, so that a list a
+    /// moment behind with it would be said not to show a change that was made. A television, which changes
+    /// nothing but its repeat, compares that.
     ///
     /// The change is for the recorder in play as it was asked for. Let go of before it is sent -- while the read
     /// was out, or the slot waited for -- and nothing is sent or written, and the change is not done, saying that
@@ -1424,6 +1442,10 @@ public final class RecorderDriver: LinkDriver {
             }
             if !link.letGo(since: began) { owner?.problem = nil }
             if let after = await self.reservations(since: began, underALine: false) {
+                guard let listed = after.current(target) else { return (.notDone(Self.goneAfterAChange), after) }
+                guard listed.qualityCode == request.qualityCode, listed.destination == request.destination else {
+                    return (.notDone(Self.changeNotReflected), after)
+                }
                 return (.done(saying: nil), after)
             }
             var sent = target

@@ -797,6 +797,23 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertEqual(model.reservation(for: program)?.destination, "HDD")
     }
 
+    /// A move the recorder answers as made that the list read after it does not show -- a recorder a moment behind
+    /// itself, its list still with the reservation on the disk it had -- is said not to show there, as a change of
+    /// mode is, and the list on screen is the one read.
+    func testAMoveTheListAfterItDoesNotShowIsSaidSo() async throws {
+        let (_, recorder, model) = try await connected()
+        let program = try await programmesNotReserved(model, 1)[0]
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   model.problem ?? "no reason given")
+        let made = try XCTUnwrap(model.reservation(for: program))
+
+        await recorder.beAMomentBehind()
+        expectEqual(await model.change(made, quality: "DR", repeating: "none", disk: "USBHDD"),
+                    .notDone(Said.changeNotReflected))
+        XCTAssertEqual(model.reservation(for: program)?.destination, "HDD",
+                       "the list on screen is not the one read after the move")
+    }
+
     /// A television's row is offered no disk and named after none, with a USB disk known: not as listed, carrying
     /// no disk, nor with the slot's id.
     func testATelevisionsRowIsNeverNamed() async throws {

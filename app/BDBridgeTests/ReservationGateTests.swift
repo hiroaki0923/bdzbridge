@@ -153,6 +153,47 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(shown.destination, row.destination)
     }
 
+    /// A change the recorder answers as made is looked for in the list read after it, as a television's is. A
+    /// recorder a moment behind itself, whose list after the change still has the reservation in the mode it had,
+    /// has the change said not to show there, and the list on screen is the one read. A change of the repeat
+    /// alone, the list after it a moment behind in the same way, is done: the repeat is not compared. A list after
+    /// a change that no longer has the reservation has the reader sent to look at the recorder itself. Nothing is
+    /// sent but the change and the reads either side of it.
+    func testAChangeTheListAfterItDoesNotShowIsSaidSo() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        let rows = try ReservationWrite.rows(of: model, atLeast: 2)
+        let row = rows[0]
+        let mode = try XCTUnwrap(row.qualityName), repeating = try XCTUnwrap(row.repeatName)
+        let otherMode = mode == "ER" ? "SR" : "ER", otherRepeat = repeating == "daily" ? "none" : "daily"
+
+        var count = await recorder.heard.count
+        await recorder.beAMomentBehind()
+        expectEqual(await model.change(row, quality: otherMode, repeating: repeating),
+                    .notDone(Said.changeNotReflected))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
+        XCTAssertEqual(model.reservations.first { $0.id == row.id }?.qualityCode, row.qualityCode,
+                       "the list on screen is not the one read after the change")
+
+        // The change went through all the same: the next list has it.
+        await model.loadReservations()
+        let changed = try XCTUnwrap(model.reservations.first { $0.id == row.id })
+        XCTAssertEqual(changed.qualityName, otherMode)
+        count = await recorder.heard.count
+        await recorder.beAMomentBehind()
+        expectEqual(await model.change(changed, quality: otherMode, repeating: otherRepeat), .done(saying: nil))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
+
+        // The read before the change is let through first.
+        count = await recorder.heard.count
+        await recorder.answer(Kind.list, with: .result(""), after: 1)
+        expectEqual(await model.change(rows[1], quality: rows[1].qualityName == "ER" ? "SR" : "ER",
+                                       repeating: try XCTUnwrap(rows[1].repeatName)),
+                    .notDone(Said.goneAfterAChange))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
+        XCTAssertTrue(model.reservations.isEmpty, "the list on screen is not the one read after the change")
+        XCTAssertNil(model.problem(for: .recorder))
+    }
+
     /// What keeps a delete or a change from being sent, and what is said of each. A reservation that is not in
     /// the list just read has gone -- deleted on the recorder's own screen -- and the list on screen is the new
     /// one. A read before it that meets silence ends it there, under the read's sentence. Known to be away after

@@ -1055,10 +1055,14 @@ enum DriverCheck {
             say("it carries the programme id: \(current.eventID == program.eventID)")
 
             // 5. Changed, and the list read until it shows the change: the one handed back, then a read every second
-            // for ten. Each must still list it.
+            // for ten. Each must still list it. A change the recorder answered as taken that the list handed back
+            // does not show, or no longer lists, is said so by the driver, and is looked for here all the same.
             let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil, now: now)
             switch change.altered {
             case .done?: break
+            case .notDone(let why)? where why == RecorderDriver.changeNotReflected
+                || why == RecorderDriver.goneAfterAChange:
+                say("the driver said of the list handed back: \(said(why))")
             case .notDone(let why)?: throw Failed(description: "not changed: \(said(why))")
             case nil: throw Failed(description: "not changed: taken for another device's")
             }

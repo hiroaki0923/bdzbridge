@@ -459,7 +459,7 @@ actor NotARecorder: HTTPTransport {
 ///
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
 /// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
-/// busy, and `beAMomentBehind` has the list after its next delete be the one from before it. `heard` is
+/// busy, and `beAMomentBehind` has the list after its next delete or change be the one from before it. `heard` is
 /// everything it was asked, in the order it arrived, and `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
@@ -481,7 +481,7 @@ actor NamedRecorder: HTTPTransport {
     private(set) var heard: [String] = []
     /// What it was told to answer, by kind (`answer`).
     private var told: [String: (answer: Answer, times: Int, after: Int)] = [:]
-    /// Whether the list after its next delete of a reservation is to be an old one (`beAMomentBehind`), the
+    /// Whether the list after its next delete or change of a reservation is to be an old one (`beAMomentBehind`), the
     /// last list it gave, and the old one it is about to give.
     private var behind = false
     private var lastList: HTTPResponse?
@@ -573,7 +573,8 @@ actor NamedRecorder: HTTPTransport {
         answer(what, with: .status(503), times: 3, after: skipping)
     }
 
-    /// A moment behind itself, once: the list it gives after the next reservation it deletes still has it.
+    /// A moment behind itself, once: the list it gives after the next reservation it deletes or changes still has
+    /// it, as it was.
     /// The old list is the last one it gave, so it has to have given one: armed before any read, it does
     /// nothing.
     func beAMomentBehind() {
@@ -644,7 +645,7 @@ actor NamedRecorder: HTTPTransport {
         }
         let response = try await recorder.send(request)
         if what == list { lastList = response }
-        if what == "X_DeleteRecordSchedule", behind {
+        if what == "X_DeleteRecordSchedule" || what == "X_UpdateRecordSchedule", behind {
             behind = false
             staleList = lastList
         }
@@ -1026,6 +1027,9 @@ enum Said {
     static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
     static let changeRecording = "録画中の予約は変更できません。"
     static let changeEnded = "放送が終わった予約は変更できません。"
+    static let changeNotReflected = "変更がレコーダーの予約一覧に反映されていません。一覧を更新しました。"
+    static let goneAfterAChange = "レコーダーは変更を受け付けたと答えましたが、この予約が一覧に見つかりません。"
+        + "レコーダー本体の予約一覧で確かめてください。"
 
     // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
     // about the first by its title, and how many more went that way. Here, and not in the tests that look at
