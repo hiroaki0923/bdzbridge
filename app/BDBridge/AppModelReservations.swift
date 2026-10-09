@@ -276,10 +276,10 @@ extension AppModel {
     /// nothing is kept and nothing sent.
     ///
     /// The recorder's is its driver's (`RecorderDriver.reserve`): made, kept on the phone when the recorder
-    /// cannot be asked, or not done with the recorder's line, the driver's result saying which. The list it
-    /// hands back after a reservation made is kept by the count noted here (`keepReservations`): a reservation
-    /// for a recorder let go of meanwhile leaves the list of the one after it alone. A television has no disk to
-    /// choose, and `disk` is not read for one.
+    /// cannot be asked, or not done with its reason, the driver's result saying which; with no driver, that the
+    /// app is not connected. The list it hands back after a reservation made is kept by the count noted here
+    /// (`keepReservations`): a reservation for a recorder let go of meanwhile leaves the list of the one after
+    /// it alone. A television has no disk to choose, and `disk` is not read for one.
     ///
     /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
     /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
@@ -294,7 +294,7 @@ extension AppModel {
         let forgotten = timesForgotten
         await start()
         guard let came = await recorderDriver?.reserve(program, quality: quality, repeating: repeating, disk: disk)
-        else { return .notDone(problem ?? RecorderDriver.returnedAnError) }
+        else { return .notDone(RecorderDriver.notConnected) }
         keepReservations(came.list, since: forgotten)
         if case .waiting = came.reserved { await askForNotifications() }
         return came.reserved
@@ -492,8 +492,8 @@ extension AppModel {
     /// found in it, the slot waited for when the change names the USB disk, and the change sent once. The list
     /// it hands back is kept by the count noted here (`keepReservations`): a change for a recorder let go of
     /// meanwhile leaves the list of the one after it alone. What it came to is the driver's result: done, with
-    /// nothing to add; or not done, with the recorder's line -- what the sheet said before, in the same words. A
-    /// row the driver turns away as no recorder's, which no screen holds, is not done with the line as it stands.
+    /// nothing to add; or not done, with its reason. With no driver, or a row the driver turns away as no
+    /// recorder's, which no screen holds, it is not done, the app not being connected.
     func change(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Altered {
         if reservation.device == .tv {
@@ -503,7 +503,7 @@ extension AppModel {
         await start()
         let came = await recorderDriver?.update(reservation, quality: quality, repeating: repeating, disk: disk)
         keepReservations(came?.list, since: forgotten)
-        return came?.altered ?? .notDone(problem ?? RecorderDriver.returnedAnError)
+        return came?.altered ?? .notDone(RecorderDriver.notConnected)
     }
 
     /// Deletes one reservation, as the device that holds it holds it now. What it came to, in the one value both

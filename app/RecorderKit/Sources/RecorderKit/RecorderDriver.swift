@@ -72,6 +72,18 @@ public final class RecorderDriver: LinkDriver {
     /// is to lose it and be said like any other.
     public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { !link.session.unreachable }
 
+    /// What a reservation, a change or a delete says when the recorder it was asked of was let go of on the way
+    /// (`DeviceLink.letGo(since:)`). With no recorder in hand since -- the host let go of it over a cache it
+    /// could not make over to the recorder that answered, or the check heard another that is still to be
+    /// connected to -- whatever let go of it has said why on the line, and the result repeats it, as it repeats
+    /// what a check that failed wrote there; that another recorder answered only where the line holds nothing.
+    /// With another taken up in its place -- one that described itself on a connect, or the recorder at an
+    /// address the reader chose -- the line is the newcomer's, and the result says that another recorder
+    /// answered (`anotherAnswered`).
+    private func whyLetGo(on link: DeviceLink) -> String {
+        link.client == nil ? link.owner?.problem ?? Self.anotherAnswered : Self.anotherAnswered
+    }
+
     /// Whether the line says that something sent met silence and may have arrived (`mayHaveArrived`,
     /// `reservationMayHaveArrived`): all the reader has to go by until the recorder answers, which what an attach
     /// or a waking meets on the way does not write over.
@@ -772,11 +784,11 @@ public final class RecorderDriver: LinkDriver {
     ///
     /// The delete is for the recorder in play as it was asked for. Let go of before it is sent -- another has
     /// described itself while the read was out, or another address was chosen -- and nothing is sent or
-    /// written, and the delete is not done, saying that another recorder answered (`anotherAnswered`): a row of
-    /// the same number on the newcomer is not this one. Let go of while the delete is out, its silence is said
-    /// as ever, since it may have arrived, but loses nobody: the recorder now in play has not been asked anything
-    /// (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone, which is the newcomer's. The reads go by
-    /// the same count.
+    /// written, and the delete is not done, saying that another recorder answered, or what let go of it said
+    /// when no recorder is in hand since (`whyLetGo`): a row of the same number on the newcomer is not this one.
+    /// Let go of while the delete is out, its silence is said as ever, since it may have arrived, but loses
+    /// nobody: the recorder now in play has not been asked anything (`DeviceLink.say(_:since:ofARead:)`); taken, it
+    /// leaves the line alone, which is the newcomer's. The reads go by the same count.
     public func cancel(_ reservation: Reservation) async -> (deleted: Altered?, list: [Reservation]?) {
         guard reservation.device == .recorder else { return (nil, nil) }
         guard let link else { return (.notDone(Self.notConnected), nil) }
@@ -790,7 +802,7 @@ public final class RecorderDriver: LinkDriver {
         let began = link.generation
         return await link.underALine(Self.deletingLine) { _ -> (deleted: Altered?, list: [Reservation]?) in
             let read = await self.reservations(since: began, underALine: false)
-            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
             guard let read else { return (whatTheLinkSaid(), nil) }
             let target: Reservation
             switch read.target(of: reservation) {
@@ -824,15 +836,20 @@ public final class RecorderDriver: LinkDriver {
     /// The line on screen while a change is out.
     public static let changingLine = "予約を変更中"
 
-    /// What a change or a reservation not done says when the line of what went wrong is empty.
-    public static let returnedAnError = "レコーダーがエラーを返しました"
+    /// Said when a mode or a repeat the tables do not know is asked of the recorder: nothing could be built to
+    /// send. No screen offers one; a reservation or a change that met one would otherwise have nothing to say.
+    public static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
+
+    /// Said when the wait for the slot before something that names the USB disk was given up on by whoever
+    /// waited (`Withheld.givenUp`): nothing was sent.
+    public static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
     /// Changes the quality, the repeat or the disk of one of the recorder's reservations, found again in a list
     /// read afresh, as for a delete (`cancel`). The request keeps everything else, including the programme id, so
-    /// a reservation that follows its programme goes on following it. What it came to, and the freshest list read
-    /// on the way for the caller to keep, nil when none was read. The result is nil for a row that is not the
-    /// recorder's: it is another device's to change, and nothing is read, sent or said for it, nor the disk not
-    /// had forgotten.
+    /// a reservation that follows its programme goes on following it. What it came to, with its sentence, and the
+    /// freshest list read on the way for the caller to keep, nil when none was read. The result is nil for a row
+    /// that is not the recorder's: it is another device's to change, and nothing is read, sent or said for it,
+    /// nor the disk not had forgotten.
     ///
     /// `disk` is where the reader moved the reservation, nil where they did not: the disk the recorder holds it on
     /// as the change goes out is then kept, whatever the sheet was opened on. A disk moved to and no longer offered
@@ -841,114 +858,109 @@ public final class RecorderDriver: LinkDriver {
     /// has not answered the disk since the recorder last answered waits for the slot once the list has been read,
     /// and is refused the same way when the slot does not answer it (`withholds`).
     ///
-    /// With the link gone, or no recorder's client in hand, nothing is said. Known to be away, nothing is sent --
-    /// the list has to be read first, and nothing can be read -- and the host says that the app is not connected;
-    /// so it does, with nothing read, when nothing can be written to the recorder (`canBeAsked`): a connect is
-    /// under way, or the recorder has not said which it is. The read makes sure of the recorder too, and wakes it
-    /// if it has gone to sleep. The change goes only from a list read now, as the delete does: a read that did
-    /// not go through ends it there, nothing sent, under whatever its failure left on the line. A reservation
-    /// not in the list just read is not sent for, and the line says so (`notInList`); one whose id now stands on
-    /// another programme is not written to, as for a delete (`renumbered`). The request is built from the row
-    /// just found, on the client the link holds after the read, asked again whether it may be written to, as the
-    /// delete's is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
+    /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
+    /// earlier operation or the read on the way left there (`Reserved`): the link gone; no recorder's client in
+    /// hand; the recorder known to be away -- the list has to be read first, and nothing can be read -- or nothing
+    /// that can be written to it (`canBeAsked`), a connect being under way, or the recorder not having said which
+    /// it is, each that the app is not connected (`whyNotConnected`); a disk refused; a mode or a repeat the tables
+    /// do not know (`notInTheTables`); a wait for the slot given up on (`slotWaitGivenUp`). The read makes sure of
+    /// the recorder too, and wakes it if it has gone to sleep. The change goes only from a list read now, as the
+    /// delete does: a read that did not go through ends it there, nothing sent, under whatever its failure left on
+    /// the line, which the result says again; so does silence while the slot is waited for. A reservation not in
+    /// the list just read is not sent for, and the result says so (`notInList`); one whose id now stands on
+    /// another programme is not written to, as for a delete (`renumbered`): the read has cleared the line in
+    /// both. The request is built from the row just found, on the client the link holds after the read, asked
+    /// again whether it may be written to, as the delete's is (`DeviceLink.mayBeSent`): what a check heard in
+    /// place of the recorder saying which it is goes on the line as well, being the recorder's answer.
     ///
     /// The change's line goes up before the read and stays up until the last read after it, the slot's line above
     /// it while the slot is waited for; the reads on the way have none of their own, as a television's change has
     /// it. The change is sent once. Silence there may be a change that arrived: nothing is sent after it, the
-    /// recorder is lost, and the line says it may have arrived (`DeviceLink.say`). 804 or 820 has the list read
-    /// again first, since a read that goes through clears the line, and then says so; a read that does not go
-    /// through leaves what it failed with, as for a delete. Any other answer of the recorder's is said by the disk
-    /// the change named (`RecorderDisk.turnedDown`), and an error that is no device's as Swift describes it. After
-    /// a change that went through the line is cleared and the list read again; when that read does not go
-    /// through, the list handed back is the one read before, with the row given the mode, the repeat and the disk
-    /// sent, as a television's change hands back what it sent: the change was answered as made.
-    ///
-    /// A change not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError` when it
-    /// is empty: for one that said nothing -- a mode the tables do not know, a slot given up on -- that is the line
-    /// its own read left, empty after a read that went through. As it is today; a later change gives the reason in
-    /// the result and leaves the line alone.
+    /// recorder is lost, and the line and the result say it may have arrived (`DeviceLink.say`). 804 or 820 has
+    /// the list read again first, and then the result says so; a read that does not go through leaves what it
+    /// failed with, as for a delete. Any other answer of the recorder's is said by the disk the change named
+    /// (`RecorderDisk.turnedDown`), and an error that is no device's as Swift describes it, on the line and in
+    /// the result. After a change that went through the line is cleared and the list read again; when that read
+    /// does not go through, the list handed back is the one read before, with the row given the mode, the repeat
+    /// and the disk sent, as a television's change hands back what it sent: the change was answered as made.
     ///
     /// The change is for the recorder in play as it was asked for. Let go of before it is sent -- while the read
     /// was out, or the slot waited for -- and nothing is sent or written, and the change is not done, saying that
-    /// another recorder answered (`anotherAnswered`): a row of the same number on the newcomer is not this one.
+    /// another recorder answered, or what let go of it said when no recorder is in hand since (`whyLetGo`): a
+    /// row of the same number on the newcomer is not this one.
     /// After the slot, the client is asked again whether it may be written to (`DeviceLink.mayBeSent`), since a
     /// check by another operation may have heard something in place of the recorder meanwhile, and nothing is
-    /// sent then either, what it heard said as at the door; and the change goes on the client the link holds
-    /// then, which a connect to the same recorder made while the slot was waited for -- one found at another
-    /// address among them -- has made anew. Let go of while the change is out, its silence is said, but loses
-    /// nobody (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone, which is the newcomer's. The
-    /// reads go by the same count.
+    /// sent then either, said as at the door; and the change goes on the client the link holds then, which a
+    /// connect to the same recorder made while the slot was waited for -- one found at another address among
+    /// them -- has made anew. Let go of while the change is out, its silence is said, but loses nobody
+    /// (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone, which is the newcomer's. The reads go by
+    /// the same count.
     public func update(_ reservation: Reservation, quality: String, repeating: String,
                        disk: String?) async -> (altered: Altered?, list: [Reservation]?) {
         guard reservation.device == .recorder else { return (nil, nil) }
         clearTheDiskNotHad()
-        let owner = link?.owner
-        func notDone() -> Altered { .notDone(owner?.problem ?? Self.returnedAnError) }
-        guard let link, link.client is RecorderClient else { return (notDone(), nil) }
+        guard let link else { return (.notDone(Self.notConnected), nil) }
+        guard link.client is RecorderClient else { return (.notDone(whyNotConnected), nil) }
         if let disk, !RecorderDisk.offers(disk, with: link.session.usbDisk) {
-            refuse(reservation, goingTo: disk, on: link)
-            return (notDone(), nil)
+            return (.notDone(refuse(reservation, goingTo: disk, on: link)), nil)
         }
         // Sending would only wait out a timeout, from a list that could not be read again first.
-        guard !link.offline, canBeAsked(on: link) else {
-            owner?.sayNotConnected()
-            return (notDone(), nil)
-        }
+        guard !link.offline, canBeAsked(on: link) else { return (.notDone(whyNotConnected), nil) }
+        let owner = link.owner
+        // What a read, or the slot's silence, left on the line, said again, as for a delete.
+        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? whyNotConnected) }
         let began = link.generation
         return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
             let read = await self.reservations(since: began, underALine: false)
-            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
-            // The read has said why.
-            guard let read else { return (notDone(), nil) }
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
+            guard let read else { return (whatTheLinkSaid(), nil) }
             let target: Reservation
             switch read.target(of: reservation) {
             case .found(let row):
                 target = row
             case .gone:
-                owner?.problem = Self.notInList
-                return (notDone(), read)
+                return (.notDone(Self.notInList), read)
             case .changed:
-                owner?.problem = Self.renumbered
-                return (notDone(), read)
+                return (.notDone(Self.renumbered), read)
             }
-            guard link.client is RecorderClient else { return (notDone(), read) }
-            guard link.mayBeSent else {
-                self.sayWhyNotSent(on: link)
-                return (notDone(), read)
-            }
+            guard link.client is RecorderClient else { return (.notDone(self.whyNotConnected), read) }
+            guard link.mayBeSent else { return (.notDone(self.whyNotSent(on: link)), read) }
             guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
                                                    destination: disk)
-            else { return (notDone(), read) }
+            else { return (.notDone(Self.notInTheTables), read) }
             let withheld = await self.withholds(request.destination)
-            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
-            if let withheld {
-                if withheld == .noDisk { self.refuse(reservation, goingTo: request.destination, on: link) }
-                return (notDone(), read)
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
+            switch withheld {
+            case nil:
+                break
+            case .noDisk?:
+                return (.notDone(self.refuse(reservation, goingTo: request.destination, on: link)), read)
+            case .silence?:
+                return (whatTheLinkSaid(), read)
+            case .givenUp?:
+                return (.notDone(Self.slotWaitGivenUp), read)
             }
-            guard link.mayBeSent else {
-                self.sayWhyNotSent(on: link)
-                return (notDone(), read)
-            }
+            guard link.mayBeSent else { return (.notDone(self.whyNotSent(on: link)), read) }
             // The client the link holds now: a connect to the same recorder made while the slot was waited for
             // has one of its own, and the one before may be at an address the recorder has left.
-            guard let client = link.client as? RecorderClient else { return (notDone(), read) }
+            guard let client = link.client as? RecorderClient else { return (.notDone(self.whyNotConnected), read) }
             do {
                 try await client.updateReservation(id: target.id, request)
             } catch let error as any DeviceError where error.failure == .silent {
                 _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived), since: began)
-                return (notDone(), read)
+                return (.notDone(Self.mayHaveArrived), read)
             } catch let error as any DeviceError where error.failure == .unknownItem {
                 let newer = await self.reservations(since: began, underALine: false)
-                if newer != nil { owner?.problem = Self.renumbered }
-                return (notDone(), newer ?? read)
+                return (newer == nil ? whatTheLinkSaid() : .notDone(Self.renumbered), newer ?? read)
             } catch let error as any DeviceError {
                 // A move turned down is said by the disk moved to; a change that leaves the disk, as it always was.
-                owner?.problem = RecorderDisk.turnedDown(error, sentTo: disk ?? RecorderDisk.internalID,
-                                                         usb: link.session.usbDisk)
-                return (notDone(), read)
+                let said = RecorderDisk.turnedDown(error, sentTo: disk ?? RecorderDisk.internalID,
+                                                   usb: link.session.usbDisk)
+                owner?.problem = said
+                return (.notDone(said), read)
             } catch {
                 owner?.problem = String(describing: error)
-                return (notDone(), read)
+                return (.notDone(String(describing: error)), read)
             }
             if !link.letGo(since: began) { owner?.problem = nil }
             if let after = await self.reservations(since: began, underALine: false) {
@@ -962,16 +974,16 @@ public final class RecorderDriver: LinkDriver {
         }
     }
 
-    /// Says why a change of `reservation` that goes to `disk` is not sent, the disk not to be had: by what its
-    /// sheet has left to offer, which is the rule the sheet offers from (`RecorderDisk.choices(keeping:on:with:)`).
+    /// Why a change of `reservation` that goes to `disk` is not sent, the disk not to be had: by what its sheet
+    /// has left to offer, which is the rule the sheet offers from (`RecorderDisk.choices(keeping:on:with:)`).
     /// Another disk than its own and that one, and the reader is asked to choose it; none, the picker gone or
     /// offering only those two, and the reader is told where it stays rather than asked for a choice the sheet
-    /// does not show.
-    private func refuse(_ reservation: Reservation, goingTo disk: String, on link: DeviceLink) {
+    /// does not show. For the result: nothing is written on the line.
+    private func refuse(_ reservation: Reservation, goingTo disk: String, on link: DeviceLink) -> String {
         let usb = link.session.usbDisk
         let another = RecorderDisk.choices(keeping: reservation.destination, on: reservation.device, with: usb)
             .contains { $0.destination != reservation.destination && $0.destination != disk }
-        link.owner?.problem = another ? RecorderDisk.chooseAnother(than: disk, usb: usb)
+        return another ? RecorderDisk.chooseAnother(than: disk, usb: usb)
             : RecorderDisk.stays(on: reservation.destination, notMovedTo: disk, usb: usb)
     }
 
@@ -1057,15 +1069,17 @@ public final class RecorderDriver: LinkDriver {
     public static let keepingTitle = "この番組を送信待ちにしますか？"
 
     /// Reserves `program` on the recorder, in `quality`, with `repeating`, on `disk`: after this the recorder
-    /// really will record it. What it came to, and the list read after a reservation made for the caller to
-    /// keep, nil when none was read -- as `update` hands its list back.
+    /// really will record it. What it came to, with its sentence, and the list read after a reservation made for
+    /// the caller to keep, nil when none was read -- as `update` hands its list back.
     ///
     /// `disk` is the one the reader picked, sent as picked or not at all. The disk the last request found not to
     /// be had is forgotten first, as for every request that can name a disk (`clearTheDiskNotHad`). One no
     /// longer offered by the time it is sent -- let go of since the sheet offered it -- is refused before
     /// anything is kept or sent, since sending the internal disk in its place would make a reservation the
-    /// reader did not agree to, and the line asks for another (`RecorderDisk.chooseAnother`). A mode or a repeat
-    /// the tables do not know keeps and sends nothing. With the link gone nothing is said.
+    /// reader did not agree to, and the result asks for another (`RecorderDisk.chooseAnother`). A mode or a
+    /// repeat the tables do not know keeps and sends nothing (`notInTheTables`). With the link gone, the app is
+    /// not connected. What a door turns away is said in the result and not on the line, which keeps what an
+    /// earlier operation left there (`Reserved`).
     ///
     /// Known to be away -- no recorder's client in hand, or the recorder silent at the last ask -- it is kept on
     /// the phone at once (`keep`), with no check and no line, rather than spend a timeout finding out again. So
@@ -1078,53 +1092,52 @@ public final class RecorderDriver: LinkDriver {
     /// chosen among them, whatever the check then answers (`DeviceLink.letGo(since:)`). Then it is not done:
     /// kept, it would wait as one made for the recorder before, and go to whichever answers the next connect.
     /// When it answers, but heard something in place of the recorder saying which it is (`DeviceLink.mayBeSent`)
-    /// -- busy with somebody else, a fault -- nothing is sent either: what it heard is said on the line, and the
-    /// reservation is kept, to go once the recorder has said which it is; by the same rule, not when the recorder
-    /// was let go of meanwhile, when it is not done and nothing is said. The check is made however lately the
-    /// recorder answered when the one before heard such a thing (`DeviceLink.checksAgain`). The slot is waited
-    /// for when the reservation names a USB disk the slot has not answered since the recorder last answered
-    /// (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as when the
-    /// recorder could not be made sure of; a wait given up on ends it.
+    /// -- busy with somebody else, a fault -- nothing is sent either: what it heard is said on the line, being
+    /// the recorder's answer, and the reservation is kept, to go once the recorder has said which it is; by the
+    /// same rule, not when the recorder was let go of meanwhile, when it is not done. The check is made however
+    /// lately the recorder answered when the one before heard such a thing (`DeviceLink.checksAgain`). The slot
+    /// is waited for when the reservation names a USB disk the slot has not answered since the recorder last
+    /// answered (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as when
+    /// the recorder could not be made sure of; a wait given up on ends it (`slotWaitGivenUp`).
     ///
     /// Whatever the slot came to, the recorder let go of since the reservation began (`DeviceLink.letGo(since:)`)
     /// -- not for a connect to the same recorder, whose client is new and which lets go of nothing -- the
-    /// reservation is not done, nothing is sent, kept or written, and it says that another recorder answered
-    /// (`anotherAnswered`): kept, it would wait as one made for the recorder before, and sent, it would go to
-    /// the newcomer. Then the client is asked again whether it may be written to (`DeviceLink.mayBeSent`), since
-    /// a check by another operation may have heard something in place of the recorder while the slot was waited
-    /// for: nothing is sent, and the reservation is kept as at the door after the check.
+    /// reservation is not done, nothing is sent, kept or written. Then the client is asked again whether it may
+    /// be written to (`DeviceLink.mayBeSent`), since a check by another operation may have heard something in
+    /// place of the recorder while the slot was waited for: nothing is sent, and the reservation is kept as at
+    /// the door after the check.
     ///
-    /// The create is sent once, on the client the link holds as it goes: the one in hand at the door, or the one a
-    /// connect to the same recorder made while the slot was waited for -- one found at another address among them. Only
-    /// silence before anything was sent is kept -- a recorder that answers and refuses has said something the reader
-    /// needs to see -- and not silence after it: what went out may have been made all the same, and the queue would
-    /// make it a second time. So the recorder is lost and the line says it may have arrived
-    /// (`reservationMayHaveArrived`), with nothing kept -- said all the same, but nobody lost, when the recorder was
-    /// let go of while the create was out (`DeviceLink.say(_:since:ofARead:)`). Any other answer of the recorder's is
-    /// said by the disk the reservation named (`RecorderDisk.turnedDown`), and an error that is no device's as Swift
-    /// describes it. Made: the line of what went wrong is cleared and the list read again, under the reservation's line
-    /// with none of its own, by the count noted as it began.
+    /// Every way the recorder can have been let go of on the way -- the check's no for another recorder or for
+    /// the recorder let go of, a let-go after a check that said no or that heard something else, and one while
+    /// the slot was waited for -- says the same in the result, by one rule (`whyLetGo`): that another recorder
+    /// answered, or, with no recorder in hand since, what let go of it said on the line, such as the host's
+    /// word that the cache could not be made over. Kept, the reservation would wait as one made for the
+    /// recorder before, and sent, it would go to the newcomer.
     ///
-    /// A reservation not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError`
-    /// when it is empty, as a change does. One that said nothing -- a mode the tables do not know, a slot given
-    /// up on -- has read nothing first, so that is the line an earlier operation left; one whose recorder was let
-    /// go of while it was made sure of says what the check, or the host it told, put there. As it is today; a
-    /// later change gives the reason in the result and leaves the line alone.
+    /// The create is sent once, on the client the link holds as it goes: the one in hand at the door, or the one
+    /// a connect to the same recorder made while the slot was waited for -- one found at another address among
+    /// them. Only silence before anything was sent is kept -- a recorder that answers and refuses has said
+    /// something the reader needs to see -- and not silence after it: what went out may have been made all the
+    /// same, and the queue would make it a second time. So the recorder is lost and the line and the result say
+    /// it may have arrived (`reservationMayHaveArrived`), with nothing kept -- said all the same, but nobody lost,
+    /// when the recorder was let go of while the create was out (`DeviceLink.say(_:since:ofARead:)`). Any other
+    /// answer of the recorder's is said by the disk the reservation named (`RecorderDisk.turnedDown`), and an
+    /// error that is no device's as Swift describes it, on the line and in the result. Made: the line of what went
+    /// wrong is cleared and the list read again, under the reservation's line with none of its own, by the count
+    /// noted as it began.
     public func reserve(_ program: GuideProgramRow, quality: String, repeating: String,
                         disk: String) async -> (reserved: Reserved, list: [Reservation]?) {
         clearTheDiskNotHad()
-        let owner = link?.owner
-        func notDone() -> Reserved { .notDone(owner?.problem ?? Self.returnedAnError) }
-        guard let link else { return (notDone(), nil) }
+        guard let link else { return (.notDone(Self.notConnected), nil) }
+        let owner = link.owner
         guard RecorderDisk.offers(disk, with: link.session.usbDisk) else {
-            owner?.problem = RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)
-            return (notDone(), nil)
+            return (.notDone(RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)), nil)
         }
         guard let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
                                                destination: disk)
-        else { return (notDone(), nil) }
+        else { return (.notDone(Self.notInTheTables), nil) }
         guard link.client is RecorderClient, !link.offline, canBeAsked(on: link) else {
-            return (await keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
+            return (await keep(request, serviceName: program.serviceName, on: link), nil)
         }
         let began = link.generation
         return await link.underALine(Self.reservingLine) { _ -> (reserved: Reserved, list: [Reservation]?) in
@@ -1132,49 +1145,49 @@ public final class RecorderDriver: LinkDriver {
             case .up:
                 break
             case .notUp(.anotherAnswered), .notUp(.letGo):
-                return (notDone(), nil)
+                return (.notDone(self.whyLetGo(on: link)), nil)
             case .notUp:
                 // Nothing was sent; kept only for the recorder it was asked of.
-                guard !link.letGo(since: began) else { return (notDone(), nil) }
-                return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
+                guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
+                return (await self.keep(request, serviceName: program.serviceName, on: link), nil)
             }
             // What a check heard in place of the recorder saying which it is: said here, as nothing goes.
             @MainActor func keptAfterTheCheck() async -> (reserved: Reserved, list: [Reservation]?) {
                 if let heard = link.heardInstead { owner?.problem = heard.explanation }
-                return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
+                return (await self.keep(request, serviceName: program.serviceName, on: link), nil)
             }
             guard link.mayBeSent else {
-                guard !link.letGo(since: began) else { return (notDone(), nil) }
+                guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
                 return await keptAfterTheCheck()
             }
             let withheld = await self.withholds(disk)
-            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
             switch withheld {
             case nil:
                 break
             case .noDisk?:
-                owner?.problem = RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)
-                return (notDone(), nil)
+                return (.notDone(RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)), nil)
             case .silence?:
                 // Nothing was sent, as when the recorder could not be made sure of.
-                return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
+                return (await self.keep(request, serviceName: program.serviceName, on: link), nil)
             case .givenUp?:
-                return (notDone(), nil)
+                return (.notDone(Self.slotWaitGivenUp), nil)
             }
             guard link.mayBeSent else { return await keptAfterTheCheck() }
             // The client the link holds now, as for a change.
-            guard let client = link.client as? RecorderClient else { return (notDone(), nil) }
+            guard let client = link.client as? RecorderClient else { return (.notDone(self.whyNotConnected), nil) }
             do {
                 try await client.create(request)
             } catch let error as any DeviceError where error.failure == .silent {
                 _ = link.say(.silentAfterSending(sentence: Self.reservationMayHaveArrived), since: began)
-                return (notDone(), nil)
+                return (.notDone(Self.reservationMayHaveArrived), nil)
             } catch let error as any DeviceError {
-                owner?.problem = RecorderDisk.turnedDown(error, sentTo: disk, usb: link.session.usbDisk)
-                return (notDone(), nil)
+                let said = RecorderDisk.turnedDown(error, sentTo: disk, usb: link.session.usbDisk)
+                owner?.problem = said
+                return (.notDone(said), nil)
             } catch {
                 owner?.problem = String(describing: error)
-                return (notDone(), nil)
+                return (.notDone(String(describing: error)), nil)
             }
             owner?.problem = nil
             return (.made(saying: nil), await self.reservations(since: began, underALine: false))
@@ -1182,8 +1195,9 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// Keeps a reservation the recorder never heard on the phone, to go the next time it answers, and says so
-    /// in the result rather than failing: the row as it waits, with `keptUnsent`. Nil when it could not be kept,
-    /// the line saying why: one that could not be saved has been made nowhere.
+    /// in the result rather than failing: the row as it waits, with `keptUnsent`. Not done when it could not be
+    /// kept, the result saying why and the line left as it was: one that could not be saved has been made
+    /// nowhere.
     ///
     /// The row is written at a whole second, as the cache keeps the moment, so that the row handed back is the
     /// row that waits. The write alone says whether it was kept, as for a television's: the queue is not read
@@ -1192,20 +1206,16 @@ public final class RecorderDriver: LinkDriver {
     /// said there still stands. The host is told that the queue has changed (`LinkHost.queueWritten`). The
     /// system's question about notifications is asked by whoever asked for the reservation, once its line is
     /// down, and not here, where the line can still be up.
-    private func keep(_ request: ReservationRequest, serviceName: String, on link: DeviceLink) async -> Reserved? {
+    private func keep(_ request: ReservationRequest, serviceName: String, on link: DeviceLink) async -> Reserved {
         let owner = link.owner
-        guard let store = owner?.cache else {
-            owner?.problem = PendingQueue.noCache
-            return nil
-        }
+        guard let store = owner?.cache else { return .notDone(PendingQueue.noCache) }
         let queuedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         let row = PendingReservation(request: request, serviceName: serviceName, queuedAt: queuedAt,
                                      target: RecorderClient.slot)
         do {
             try await store.queue(row)
         } catch {
-            owner?.problem = PendingQueue.couldNotBeKept(error)
-            return nil
+            return .notDone(PendingQueue.couldNotBeKept(error))
         }
         await owner?.queueWritten()
         return .waiting(row, saying: Self.keptUnsent)

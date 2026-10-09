@@ -57,17 +57,22 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///   delete of another's reservation, and one that no longer waits. Changing a television's reservation is
 ///   a third (`Altered`), nil for a row of another device in the same way, and deleting one, on either
 ///   device, a fourth (`Altered` too). Reserving on the recorder hands back the same `Reserved`, and
-///   changing one of its reservations the same `Altered`, nil for another device's row too; but both still
-///   say their door on the recorder's line, which their result then gives: as it is today; a later change
-///   says it in the result alone.
+///   changing one of its reservations the same `Altered`, nil for another device's row too.
 /// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
 ///   the list.
 ///
 /// What was sent and failed is written on the line by the link, whichever operation it was
 /// (`DeviceLink.say`), and what the check before an operation writes there is the check's; an operation
-/// with a result says either again in it. A row a delete finds gone or changed in the list just read, or
-/// that the device answers it does not hold, is said in its result alone, as a television's change says it:
-/// the read that found it has cleared the line.
+/// with a result says either again in it. A row a delete or a change finds gone or changed in the list just
+/// read, or that the device answers it does not hold, is said in its result alone: the read that found it has
+/// cleared the line.
+///
+/// Again means as the line holds it once the operation is over, and not as the operation wrote it: the
+/// result is read off the line. So a read before a delete or a change that met silence the link does not
+/// say -- the device known to be away already, its silence said once (`LinkDriver.takesSilenceOnARead`) --
+/// leaves the line as it was, and the result repeats whatever is there, which can be what another operation
+/// left: that something it sent may have arrived, among them. Both devices go by that, the television's
+/// change and delete as the recorder's.
 public enum Reserved: Sendable, Equatable {
     /// The device holds it: made now, or found there already. `saying` is what there is to add, in the
     /// device's own sentence -- that it was there already; what making it did beyond itself (another

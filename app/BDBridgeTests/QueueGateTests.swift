@@ -235,9 +235,8 @@ final class QueueGateTests: XCTestCase {
     /// writer for longer than the app waits, and when there is no cache at all -- in which case no connect was
     /// ever set going either. One that is kept asks the recorder nothing.
     ///
-    /// Keeping one leaves the failure line as it was, here what the one before it said of the save that failed;
-    /// a later change says that in the result of the reservation it was about instead. Both sentences stay as
-    /// they are.
+    /// Why it was not saved is said in its result, and not on the failure line, which keeps what the connect
+    /// that gave up left there; keeping one leaves that line as it was too. Both sentences stay as they are.
     func testAReservationThatCannotBeKeptOnThePhoneIsNotSaidToBeWaiting() async throws {
         let bench = try aBench()
         // The lock is held on purpose: what is tested is giving up, not the wait.
@@ -255,8 +254,10 @@ final class QueueGateTests: XCTestCase {
         }
 
         let writer = Writer(to: bench.guidePath)
+        let line = model.problem(for: .recorder)
         expectFalse(await reserve(with: model), "a reservation that could not be saved is said to have been kept")
-        let said = model.problem(for: .recorder) ?? "nothing"
+        let said = whyNotJustNow(model) ?? "nothing"
+        XCTAssertEqual(model.problem(for: .recorder), line, "a reservation that could not be saved wrote the line")
         XCTAssertTrue(said.hasPrefix("予約を端末に保存できませんでした: "), "what is said instead: \(said)")
         XCTAssertNil(keptJustNow(model), "a reservation that was not saved is said to be waiting")
         XCTAssertNil(model.pending(for: program))
@@ -264,7 +265,7 @@ final class QueueGateTests: XCTestCase {
 
         writer.letGo()
         expectTrue(await reserve(with: model), model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertEqual(model.problem(for: .recorder), said, "keeping a reservation wrote on the line")
+        XCTAssertEqual(model.problem(for: .recorder), line, "keeping a reservation wrote on the line")
         XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
         XCTAssertNotNil(model.pending(for: program), "the reservation kept is not shown as waiting")
         expectEqual(try await store.pendingReservations().map(\.request.eventID), [program.eventID])
@@ -275,8 +276,7 @@ final class QueueGateTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: other.guidePath, withIntermediateDirectories: true)
         let without = other.model(recorder: SilentRecorder())
         expectFalse(await reserve(with: without), "a reservation with nowhere to be saved is said to have been kept")
-        XCTAssertEqual(without.problem(for: .recorder),
-                       "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）")
+        XCTAssertEqual(whyNotJustNow(without), "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）")
         XCTAssertNil(keptJustNow(without))
         XCTAssertTrue(without.pending.isEmpty)
         XCTAssertEqual(other.clientsMade, 0, "a connect was set going with no cache to connect over")

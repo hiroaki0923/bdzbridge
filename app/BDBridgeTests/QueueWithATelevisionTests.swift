@@ -413,7 +413,7 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// recorder alone that is the recorder's reservation as it has always been, and what it came to is read
     /// into the value both devices answer with. Taken: made, sent once and read back, and the recorder is
     /// no longer where a new reservation of the programme can go. Not sent, its mode being one nobody
-    /// knows, with nothing on the recorder's line: not done, in the words the sheet had for that. Turned
+    /// knows: not done, saying that it cannot be sent to the recorder. Turned
     /// down -- 831, a channel the recorder cannot receive: not done, in the recorder's words, and not kept.
     /// With the recorder known to be away: kept, with the row as the phone has it and the sentence the
     /// sheet has always said of one, the recorder asked nothing, and nothing left set for a screen to say
@@ -432,7 +432,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(await recorder.heard(since: heard), [Self.create, Self.list])
         XCTAssertEqual(model.destinations(for: taken), [], "the recorder is offered a programme it holds")
 
-        expectEqual(await reserve(other, in: "知らない画質"), .notDone("レコーダーがエラーを返しました"))
+        expectEqual(await reserve(other, in: "知らない画質"), .notDone(Said.notInTheTables))
         await recorder.answer(Self.create, with: .fault(831))
         expectEqual(await reserve(other), .notDone(Said.fault(831, Self.create)))
         XCTAssertTrue(model.pending.isEmpty, "a reservation the recorder turned down was kept")

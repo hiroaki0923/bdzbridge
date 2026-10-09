@@ -1015,6 +1015,8 @@ enum Said {
     static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
+    static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
     // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
     // about the first by its title, and how many more went that way. Here, and not in the tests that look at
@@ -1104,6 +1106,9 @@ func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality
     if case .waiting(let row, _) = came { kept = row }
     keptRows.removeAll { $0.model == nil || $0.model === model }
     keptRows.append(KeptRow(model: model, row: kept))
+    var why: String?
+    if case .notDone(let said) = came { why = said }
+    note(why, of: model)
     switch came {
     case .made, .waiting: return true
     case .wouldStop, .notDone: return false
@@ -1123,11 +1128,26 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
                          disk: String? = nil) async -> Bool {
     guard row.device == .recorder else {
         let turnedAway = await model.recorderDriver?.update(row, quality: quality, repeating: repeating, disk: disk)
+        // Noted too, so that what is read after it is this call's reason, and not the one before it.
+        var why: String?
+        if case .notDone(let said)? = turnedAway?.altered { why = said }
+        note(why, of: model)
         if case .done? = turnedAway?.altered { return true }
         return false
     }
-    if case .done = await model.change(row, quality: quality, repeating: repeating, disk: disk) { return true }
+    let altered = await model.change(row, quality: quality, repeating: repeating, disk: disk)
+    var why: String?
+    if case .notDone(let said) = altered { why = said }
+    note(why, of: model)
+    if case .done = altered { return true }
     return false
+}
+
+/// Why the last reservation or change on the recorder asked through the two above was not done, as its result
+/// said it; nil when it was made, kept or done.
+@MainActor
+func whyNotJustNow(_ model: AppModel) -> String? {
+    reasons.first { $0.model === model }?.why
 }
 
 /// A delete of a reservation as a screen asks for it, whichever device holds the row: whether it went through.
@@ -1154,6 +1174,19 @@ private struct KeptRow {
 }
 
 @MainActor private var keptRows: [KeptRow] = []
+
+/// Why the last reservation or change of each model was not done (`whyNotJustNow`), held as `KeptRow` is.
+private struct Reason {
+    weak var model: AppModel?
+    var why: String?
+}
+
+@MainActor private var reasons: [Reason] = []
+
+@MainActor private func note(_ why: String?, of model: AppModel) {
+    reasons.removeAll { $0.model == nil || $0.model === model }
+    reasons.append(Reason(model: model, why: why))
+}
 
 /// `XCTAssertEqual` for a value that has to be awaited, and the three beside it for theirs. XCTest's own take
 /// their arguments as autoclosures, which cannot await, so each such check took a line to read the value and

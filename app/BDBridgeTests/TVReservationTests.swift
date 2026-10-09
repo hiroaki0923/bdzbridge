@@ -160,8 +160,8 @@ final class TVReservationTests: XCTestCase {
     /// The television's, turned down -- the row no longer on the television -- is not done, in the television's
     /// own sentence, and the list read on the way is kept; the recorder is asked nothing, and its line stays
     /// as it was. The recorder's is what its change came to, read into that value: done, with nothing to add;
-    /// not done, with what the recorder's line says; and not done with 「レコーダーがエラーを返しました」
-    /// where the line says nothing, which is what the sheet said before in either case. The recorder's change
+    /// not done, with its reason -- the row not found in the list just read, a mode that cannot be sent to the
+    /// recorder -- and the recorder's line cleared by the read before it. The recorder's change
     /// itself is the recorder's alone: handed a television's row, it sends neither device anything and writes
     /// on neither line, since looked for in the recorder's list the row could only be said to have been
     /// deleted.
@@ -201,7 +201,7 @@ final class TVReservationTests: XCTestCase {
                     .notDone("この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"))
         let another = try aRecordersReservation(model)
         expectEqual(await model.change(another, quality: "知らない画質", repeating: "none"),
-                    .notDone("レコーダーがエラーを返しました"))
+                    .notDone(Said.notInTheTables))
         XCTAssertNil(model.problem)
         XCTAssertEqual(host.problem, Self.left, "the recorder's work wrote on the television's line")
         expectEqual(await television.calls, calls, "the recorder's changes reached the television")

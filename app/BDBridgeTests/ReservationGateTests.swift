@@ -156,10 +156,8 @@ final class ReservationGateTests: XCTestCase {
     /// that, not even the list is asked for, and the app says it is not connected. A change to a mode the tables
     /// do not know reads the list, and then sends nothing and says nothing.
     ///
-    /// The delete says it in its result alone, and leaves the line as the read before it or an earlier
-    /// operation left it; with no recorder in hand it says that the app is not connected. As it is today, the
-    /// change says it on the line, which its result then gives, and with no recorder in hand it is not done
-    /// with what the line holds, where a later change says why in the result alone.
+    /// Each says it in its result alone, and leaves the line as the read before it or an earlier operation left
+    /// it; with no recorder in hand each says that the app is not connected.
     func testADeleteOrAChangeThatCannotBeSentSaysWhyAndSendsNothing() async throws {
         let (_, recorder, model) = try await connectedHome()
         let rows = try ReservationWrite.rows(of: model, atLeast: 3)
@@ -170,7 +168,7 @@ final class ReservationGateTests: XCTestCase {
             try await aClient(of: recorder).deleteReservation(id: gone.id)
             var count = await recorder.heard.count
             expectEqual(await write.result(model, gone), .notDone(Said.gone), write.name)
-            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? nil : Said.gone, write.name)
+            XCTAssertNil(model.problem(for: .recorder), write.name)
             expectEqual(await recorder.heard(since: count), [Kind.list],
                         "\(write.name) was sent for a reservation the recorder no longer lists")
             XCTAssertFalse(model.reservations.contains { $0.id == gone.id },
@@ -189,7 +187,7 @@ final class ReservationGateTests: XCTestCase {
             leaveALine(on: model)
             count = await recorder.heard.count
             expectEqual(await write.result(model, kept), .notDone(Said.notConnected), write.name)
-            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? lineLeft : Said.notConnected, write.name)
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, write.name)
             expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked")
             XCTAssertTrue(model.reservations.contains(kept), write.name)
             await reconnect(model)
@@ -205,8 +203,7 @@ final class ReservationGateTests: XCTestCase {
         leaveALine(on: model)
         count = await recorder.heard.count
         for write in ReservationWrite.allCases {
-            expectEqual(await write.result(model, kept), .notDone(write == .delete ? Said.notConnected : lineLeft),
-                        write.name)
+            expectEqual(await write.result(model, kept), .notDone(Said.notConnected), write.name)
             XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(write.name) said something, with no recorder")
         }
         expectEqual(await recorder.heard(since: count), [], "a recorder the app had let go of was asked")
@@ -266,10 +263,10 @@ final class ReservationGateTests: XCTestCase {
         odd.serviceID += 1
         odd.eventID = odd.eventID.map { $0 + 1 }
         count = await recorder.heard.count
-        expectFalse(await changeOnTheRecorder(model, odd, quality: "SR", repeating: "none"),
+        expectEqual(await model.change(odd, quality: "SR", repeating: "none"), .notDone(Said.renumbered),
                     "a change went to a number that now stands on another programme")
         expectEqual(await recorder.heard(since: count), [Kind.list])
-        XCTAssertEqual(model.problem(for: .recorder), Said.renumbered)
+        XCTAssertNil(model.problem(for: .recorder), "the change wrote its result on the line")
         held = there(model.reservations)
         XCTAssertEqual(held.map(\.id), [row.id])
         XCTAssertEqual(held.first?.qualityCode, Codes.quality["ER"], "the row of that number was changed")
@@ -296,7 +293,7 @@ final class ReservationGateTests: XCTestCase {
     /// list; and in the list read before a delete or a change, the recorder's own reservation of the same
     /// programme at the same start, under a number of its own. The recorder has not been seen to renumber what an
     /// app made, so the reader's has gone: nothing is sent to the recorder's own, and the result says the
-    /// reservation was not found in the list just read -- the delete there alone, the change on the line too.
+    /// reservation was not found in the list just read, and the line, which the read cleared, does not.
     func testAReservationDeletedOnTheRecorderIsNotTakenForTheRecordersOwnOfItsProgramme() async throws {
         let (_, recorder, model) = try await connectedHome()
         let mine = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -315,7 +312,7 @@ final class ReservationGateTests: XCTestCase {
             expectEqual(await write.result(model, mine), .notDone(Said.gone), write.name)
             expectEqual(await recorder.heard(since: count), [Kind.list],
                         "\(write.name) went to the recorder's own reservation of the programme")
-            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? nil : Said.gone, write.name)
+            XCTAssertNil(model.problem(for: .recorder), write.name)
             XCTAssertEqual(model.reservations.map(\.id), ["0x00000000000b11ff"],
                            "the list on screen is not the one just read")
         }
@@ -328,8 +325,7 @@ final class ReservationGateTests: XCTestCase {
     ///
     /// When the read after the 804 is itself turned down, the list has not been updated, and the read's own
     /// sentence is what is left on the line. Each is said in the result; the 804 settled by a read that went
-    /// through is said there alone by the delete, whose read has cleared the line, and on the line too by the
-    /// change, as it is today.
+    /// through is said there alone, that read having cleared the line.
     func testADeleteOrAChangeTheRecorderTurnsDownIsSaidAndNotSentAgain() async throws {
         let (_, recorder, model) = try await connectedHome()
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -349,8 +345,7 @@ final class ReservationGateTests: XCTestCase {
                 if readTurnedDown { await recorder.answer(Kind.list, with: .fault(402), after: 1) }
                 expectEqual(await write.result(model, row), .notDone(line), what)
 
-                XCTAssertEqual(model.problem(for: .recorder),
-                               write == .delete && code == 804 && !readTurnedDown ? nil : line, what)
+                XCTAssertEqual(model.problem(for: .recorder), code == 804 && !readTurnedDown ? nil : line, what)
                 expectEqual(await recorder.heard(since: count), heard, what)
                 XCTAssertTrue(model.connected, "a refusal was taken for the recorder going: \(what)")
                 XCTAssertFalse(model.gaveUp, what)
@@ -876,8 +871,9 @@ final class ReservationGateTests: XCTestCase {
 
     /// A recorder that answered the connect busy with somebody else, and so never said which it is, is not
     /// offline: its list is read, as any that answered. Nothing is written to it: a reservation is kept on the
-    /// phone, to go once it has said which it is, and a change and a delete of a reservation it lists say that
-    /// the app is not connected, with nothing sent. (What waits in the queue does not go to such a recorder
+    /// phone, to go once it has said which it is, and a change and a delete of a reservation it lists say in
+    /// their results that the app is not connected, with nothing sent and the line as the connect left it.
+    /// (What waits in the queue does not go to such a recorder
     /// either: `SessionRuleTests`.)
     func testARecorderThatHasNotSaidWhichItIsIsReadFromAndNotWrittenTo() async throws {
         let bench = try aBench()
@@ -902,11 +898,11 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID, "the reservation was not kept")
         XCTAssertNotNil(model.pending(for: program), "the reservation kept is not shown as waiting")
         let listed = try ReservationWrite.rows(of: model, atLeast: 1)[0]
-        expectFalse(await changeOnTheRecorder(model, listed, quality: "ER", repeating: "none"),
-                    model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the change said something else")
-        expectFalse(await deleteAReservation(model, listed), model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the delete said something else")
+        let line = model.problem(for: .recorder)
+        expectEqual(await model.change(listed, quality: "ER", repeating: "none"), .notDone(Said.notConnected),
+                    "the change said something else")
+        expectEqual(await model.cancel(listed), .notDone(Said.notConnected), "the delete said something else")
+        XCTAssertEqual(model.problem(for: .recorder), line, "the change or the delete wrote the line")
 
         for kind in [Kind.create, Kind.change, Kind.delete] {
             expectEqual(await recorder.asked(kind, since: before), 0, kind)
@@ -1343,17 +1339,13 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertNil(model.reservation(for: refused))
     }
 
-    /// What a reservation or a change of the recorder's says when it was not done and the recorder's own
-    /// operation said nothing of why -- a mode the tables do not know, here -- is whatever the recorder's line
-    /// holds as it ends. A reservation reads nothing before it gives up, so that is the line an earlier
-    /// operation left. A change reads the list first, so it is the line that read left: the read's own
-    /// sentence when the recorder turned it down -- the change goes no further than that read -- and when the
-    /// read went through, which cleared the line, the words the sheet has for a recorder that returned an
-    /// error.
-    ///
-    /// As it is today, and to be rewritten: a later change has each say a reason of its own, and leaves the
-    /// line to the device.
-    func testWhatTheRecordersResultSaysWhenItSaidNothingIsWhateverTheLineHolds() async throws {
+    /// A reservation or a change of the recorder's in a mode the tables do not know, which nothing can be built
+    /// to send for, says so in its result, and leaves the line to the device. A reservation reads nothing before
+    /// it gives up, so the line is the one an earlier operation left. A change reads the list first: when the
+    /// recorder turns that read down, the change goes no further, and its result is the read's own sentence,
+    /// which the read put on the line; when the read goes through, which clears the line, its result says that
+    /// the mode cannot be sent, and the line stays clear.
+    func testAReservationOrAChangeInAModeNobodyKnowsSaysSoInItsResult() async throws {
         let (_, recorder, model) = try await connectedHome()
         let program = try await programmesNotReserved(model, 1)[0]
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -1361,7 +1353,7 @@ final class ReservationGateTests: XCTestCase {
         leaveALine(on: model)
         var count = await recorder.heard.count
         expectEqual(await model.reserve(program, on: .recorder, quality: "知らない画質", repeating: "none"),
-                    .notDone(lineLeft), "a reservation that said nothing is not said by the line an earlier one left")
+                    .notDone(Said.notInTheTables))
         expectEqual(await recorder.heard(since: count), [], "a reservation in a mode nobody knows was sent")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
 
@@ -1374,9 +1366,7 @@ final class ReservationGateTests: XCTestCase {
 
         leaveALine(on: model)
         count = await recorder.heard.count
-        expectEqual(await model.change(row, quality: "知らない画質", repeating: "none"),
-                    .notDone("レコーダーがエラーを返しました"),
-                    "a change that said nothing, its read gone through, is not said in the sheet's own words")
+        expectEqual(await model.change(row, quality: "知らない画質", repeating: "none"), .notDone(Said.notInTheTables))
         expectEqual(await recorder.heard(since: count), [Kind.list], "a change in a mode nobody knows was sent")
         XCTAssertNil(model.problem(for: .recorder), "the read before the change did not clear the line")
     }
