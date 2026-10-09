@@ -6,7 +6,7 @@ import XCTest
 /// a world that puts down what it was asked (`LinkWorld`). The steps themselves are held by the app's tests, which
 /// ask them through the screens' entries; here, what needs no screen: the rule both drivers keep at their doors,
 /// that a row of another device is refused with nothing read, sent or said, as `TVDriverTests` holds it for the
-/// television's.
+/// television's; and the rule the change's door keeps of a reservation being recorded or over.
 @MainActor
 final class RecorderDriverTests: XCTestCase {
     /// A line an earlier failure left on the screen.
@@ -119,6 +119,52 @@ final class RecorderDriverTests: XCTestCase {
         XCTAssertEqual(world.problem, Self.left, "something was said for another device's reservation")
         XCTAssertEqual(link.session.diskNotHad, RecorderDisk.usbID,
                        "the disk not had was forgotten for another device's reservation")
+        XCTAssertTrue(link.session.connected)
+    }
+
+    /// Which of the recorder's reservations can be changed: not one the recorder says it is recording, whatever
+    /// the clock says, nor one whose end has passed -- at its end, too -- and any other, a second before its end
+    /// included. Each in the letters the screens show. And the change's door asks it of the row it is given: a
+    /// reservation being recorded, or over, is answered with its sentence, nothing is read, sent or told, no line
+    /// goes up and the line an earlier failure left stays, though the recorder is there and connected.
+    func testAChangeOfAReservationBeingRecordedOrOverIsTurnedAwayAtItsDoor() async throws {
+        let recording = "録画中の予約は変更できません。"
+        let over = "放送が終わった予約は変更できません。"
+        XCTAssertEqual(RecorderDriver.changeRecording, recording)
+        XCTAssertEqual(RecorderDriver.changeEnded, over)
+        var row = try Self.televisionsReservation()
+        row.device = .recorder
+        let start = row.start
+        let end = row.end
+        var beingRecorded = row
+        beingRecorded.recording = true
+
+        let cases: [(name: String, row: Reservation, now: Date, why: String?)] = [
+            ("a day ahead", row, start - 86_400, nil),
+            ("begun, and not recording by its flag", row, start + 60, nil),
+            ("a second before its end", row, end - 1, nil),
+            ("at its end", row, end, over),
+            ("a day after its end", row, end + 86_400, over),
+            ("recording, a day ahead by the clock", beingRecorded, start - 86_400, recording),
+            ("recording, and begun", beingRecorded, start + 60, recording),
+            ("recording, and over by the clock", beingRecorded, end + 60, recording),
+        ]
+        for (name, row, now, why) in cases {
+            XCTAssertEqual(RecorderDriver.whyNot(changing: row, now: now), why, name)
+        }
+
+        let (world, driver, link) = try await connected()
+        var ended = row
+        ended.start = Date() - 7_200
+        for (name, row, why) in [("being recorded", beingRecorded, recording), ("over", ended, over)] {
+            let begun = world.begun.count
+            let came = await driver.update(row, quality: "SR", repeating: "none", disk: nil)
+            XCTAssertEqual(came.altered, .notDone(why), name)
+            XCTAssertNil(came.list, "a list was read for a reservation \(name)")
+            XCTAssertEqual(world.events, [], "something was asked, sent or told for a reservation \(name)")
+            XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for a reservation \(name)")
+            XCTAssertEqual(world.problem, Self.left, "something was said on the line for a reservation \(name)")
+        }
         XCTAssertTrue(link.session.connected)
     }
 

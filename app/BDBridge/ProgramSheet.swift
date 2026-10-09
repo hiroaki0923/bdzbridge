@@ -148,8 +148,9 @@ struct ProgramSheet: View {
                         if let shown = model.diskShown(reservation) { LabeledContent("録画先", value: shown) }
                         if reservation.recording { Text("録画中です").foregroundStyle(.red) }
                         // Changing it happens on the reservation's own sheet rather than here, so there is
-                        // one place that does it and one set of pickers to keep right.
-                        if !reservation.recording {
+                        // one place that does it and one set of pickers to keep right. Not offered where that
+                        // sheet's change would be turned away: being recorded, or over.
+                        if RecorderDriver.whyNot(changing: reservation) == nil {
                             Button("予約を変更する") { editing = reservation }
                         }
                         Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }

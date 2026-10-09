@@ -59,9 +59,12 @@ final class TVReservationTests: XCTestCase {
     /// A line an earlier operation left, for a test that looks at whether it was written over.
     private static let left = "前の操作が残した文"
 
-    /// A recorder's own reservation, one that follows a programme of the guide and is not being recorded.
+    /// A recorder's own reservation, one that follows a programme of the guide and can still be changed: not
+    /// being recorded, and not over (`RecorderDriver.whyNot(changing:)`).
     private func aRecordersReservation(_ model: AppModel) throws -> Reservation {
-        try XCTUnwrap(model.reservations.first { $0.eventID != nil && !$0.createdByRecorder && !$0.recording })
+        try XCTUnwrap(model.reservations.first {
+            $0.eventID != nil && !$0.createdByRecorder && RecorderDriver.whyNot(changing: $0) == nil
+        })
     }
 
     /// The same, of a programme that has not begun: a television's reservation of it can still be changed.

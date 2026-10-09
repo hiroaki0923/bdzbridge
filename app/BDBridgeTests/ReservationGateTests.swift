@@ -32,7 +32,10 @@ final class ReservationGateTests: XCTestCase {
     /// after this one.
     func testADeleteOrAChangeThatGoesThroughIsReadBack() async throws {
         let (_, recorder, model) = try await connectedHome()
-        let rows = try ReservationWrite.rows(of: model, atLeast: 4)
+        // The change to one that can still be changed; the three deletes to any other the app put in.
+        let changed = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        let deleted = try ReservationWrite.rows(of: model, atLeast: 4, toDelete: true).filter { $0.id != changed.id }
+        let rows = [deleted[0], changed, deleted[1], deleted[2]]
 
         for (write, row) in zip(ReservationWrite.allCases, rows) {
             let found = await model.program(for: row)
@@ -207,6 +210,40 @@ final class ReservationGateTests: XCTestCase {
             XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(write.name) said something, with no recorder")
         }
         expectEqual(await recorder.heard(since: count), [], "a recorder the app had let go of was asked")
+    }
+
+    /// A change of a reservation the recorder is recording, or whose end has passed, is turned away at its door
+    /// with nothing asked, and its result says why; the line stays as an earlier operation left it. The demo's
+    /// one being recorded, as the list read it; one of the app's moved, on the phone, to have ended an hour ago.
+    /// And the rule is asked again of the row the read before the change finds: the one being recorded, held
+    /// on the phone as though it were not, reads the list, which says it is, and goes no further, its result
+    /// saying so and the read having cleared the line.
+    func testAChangeOfAReservationBeingRecordedOrOverIsTurnedAwayAndNothingIsAsked() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        let recording = try XCTUnwrap(model.reservations.first { $0.recording }, "the demo records nothing")
+        var over = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        over.start = Date() - TimeInterval(over.durationSec) - 3_600
+
+        let turnedAway = [("being recorded", recording, Said.changeRecording), ("over", over, Said.changeEnded)]
+        for (name, row, why) in turnedAway {
+            leaveALine(on: model)
+            let count = await recorder.heard.count
+            expectEqual(await model.change(row, quality: "ER", repeating: "none"), .notDone(why), name)
+            expectEqual(await recorder.heard(since: count), [], "a change of a reservation \(name) asked something")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a change of a reservation \(name) wrote the line")
+        }
+
+        var heldAsNotRecording = recording
+        heldAsNotRecording.recording = false
+        leaveALine(on: model)
+        let count = await recorder.heard.count
+        expectEqual(await model.change(heldAsNotRecording, quality: "ER", repeating: "none"),
+                    .notDone(Said.changeRecording))
+        expectEqual(await recorder.heard(since: count), [Kind.list],
+                    "a change of a reservation the list says is being recorded was sent")
+        XCTAssertNil(model.problem(for: .recorder), "the read before the change did not clear the line")
+        XCTAssertTrue(model.reservations.contains { $0.id == recording.id && $0.recording },
+                      "the list on screen is not the one just read")
     }
 
     /// The recorder renumbers the reservations its own automatic recording made, so a number read a while ago
@@ -1420,10 +1457,16 @@ enum ReservationWrite: String, CaseIterable {
     }
 
     /// The recorder's reservations either can be asked of with nothing else in the way: the ones an app put in,
-    /// which follow a programme and are not being recorded. Five in the demo; fewer than `count` ends the test.
+    /// which follow a programme and can still be changed -- not being recorded, and not over
+    /// (`RecorderDriver.whyNot(changing:)`). Five in the demo, of which today's evening ones are over from their
+    /// end until the demo's day turns at four; fewer than `count` ends the test. `toDelete`: for a delete alone,
+    /// which nothing turns away for being over, any of the five that is not being recorded.
     @MainActor
-    static func rows(of model: AppModel, atLeast count: Int) throws -> [Reservation] {
-        let rows = model.reservations.filter { $0.eventID != nil && !$0.createdByRecorder && !$0.recording }
+    static func rows(of model: AppModel, atLeast count: Int, toDelete: Bool = false) throws -> [Reservation] {
+        let rows = model.reservations.filter {
+            $0.eventID != nil && !$0.createdByRecorder
+                && (toDelete ? !$0.recording : RecorderDriver.whyNot(changing: $0) == nil)
+        }
         return try XCTUnwrap(rows.count >= count ? rows : nil,
                              "the demo was meant to hold \(count) reservations to write to, and holds \(rows.count)")
     }

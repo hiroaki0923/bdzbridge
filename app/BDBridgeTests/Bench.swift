@@ -1017,6 +1017,8 @@ enum Said {
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
     static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
+    static let changeRecording = "録画中の予約は変更できません。"
+    static let changeEnded = "放送が終わった予約は変更できません。"
 
     // What became of the queue (`PendingQueue.Outcome.summary`), a sentence for each way a reservation went:
     // about the first by its title, and how many more went that way. Here, and not in the tests that look at

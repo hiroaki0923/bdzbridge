@@ -844,6 +844,23 @@ public final class RecorderDriver: LinkDriver {
     /// waited (`Withheld.givenUp`): nothing was sent.
     public static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
+    /// Said of a reservation the recorder says it is recording: it is not changed while it records.
+    public nonisolated static let changeRecording = "録画中の予約は変更できません。"
+    /// Said of a reservation whose end has passed: there is nothing left of it to change.
+    public nonisolated static let changeEnded = "放送が終わった予約は変更できません。"
+
+    /// Why one of the recorder's reservations cannot be changed now, or nil when it can. One the recorder says
+    /// it is recording, by its own flag, which it lists from the moment a recording starts, and that is settled
+    /// without the clock, so it comes first. Then one whose end has passed. Not the television's rule, which
+    /// goes by the programme's start (`TVDriver.whyNot(changing:now:)`): the recorder says when it records, and a
+    /// television's status has never been read during a recording. For the door of `update`, which asks it of
+    /// the row held and again of the row just read, and for the sheets, which offer no change the door would
+    /// turn away.
+    public nonisolated static func whyNot(changing reservation: Reservation, now: Date = Date()) -> String? {
+        if reservation.recording { return changeRecording }
+        return reservation.end <= now ? changeEnded : nil
+    }
+
     /// Changes the quality, the repeat or the disk of one of the recorder's reservations, found again in a list
     /// read afresh, as for a delete (`cancel`). The request keeps everything else, including the programme id, so
     /// a reservation that follows its programme goes on following it. What it came to, with its sentence, and the
@@ -856,22 +873,27 @@ public final class RecorderDriver: LinkDriver {
     /// is refused before the list is read, as a new reservation's is, and said by what the sheet has left to offer
     /// (`refuse`). A change that goes to the USB disk -- moved there, or of a reservation on it -- while the slot
     /// has not answered the disk since the recorder last answered waits for the slot once the list has been read,
-    /// and is refused the same way when the slot does not answer it (`withholds`).
+    /// and is refused the same way when the slot does not answer it (`withholds`). `now` is when the change is
+    /// asked, for the door's rule: the screens ask it now, and a rehearsal of the device check on a guide of the
+    /// past passes the time it rehearses at.
     ///
     /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
-    /// earlier operation or the read on the way left there (`Reserved`): the link gone; no recorder's client in
-    /// hand; the recorder known to be away -- the list has to be read first, and nothing can be read -- or nothing
-    /// that can be written to it (`canBeAsked`), a connect being under way, or the recorder not having said which
-    /// it is, each that the app is not connected (`whyNotConnected`); a disk refused; a mode or a repeat the tables
-    /// do not know (`notInTheTables`); a wait for the slot given up on (`slotWaitGivenUp`). The read makes sure of
-    /// the recorder too, and wakes it if it has gone to sleep. The change goes only from a list read now, as the
+    /// earlier operation or the read on the way left there (`Reserved`): the link gone; a reservation being
+    /// recorded, or over (`whyNot(changing:)`); no recorder's client in hand; the recorder known to be away --
+    /// the list has to be read first, and nothing can be read -- or nothing that can be written to it
+    /// (`canBeAsked`), a connect being under way, or the recorder not having said which it is, each that the app
+    /// is not connected (`whyNotConnected`); a disk refused; a mode or a repeat the tables do not know
+    /// (`notInTheTables`); a wait for the slot given up on (`slotWaitGivenUp`). The read makes sure of the
+    /// recorder too, and wakes it if it has gone to sleep. The change goes only from a list read now, as the
     /// delete does: a read that did not go through ends it there, nothing sent, under whatever its failure left on
     /// the line, which the result says again; so does silence while the slot is waited for. A reservation not in
     /// the list just read is not sent for, and the result says so (`notInList`); one whose id now stands on
     /// another programme is not written to, as for a delete (`renumbered`): the read has cleared the line in
-    /// both. The request is built from the row just found, on the client the link holds after the read, asked
-    /// again whether it may be written to, as the delete's is (`DeviceLink.mayBeSent`): what a check heard in
-    /// place of the recorder saying which it is goes on the line as well, being the recorder's answer.
+    /// both. Nor is one the row just read shows recording or over: the door's rule is asked again of that row,
+    /// as long after `now` as the read took, and said in the result alone. The request is built from the row just found, on
+    /// the client the link holds after the read, asked again whether it may be written to, as the delete's is
+    /// (`DeviceLink.mayBeSent`): what a check heard in place of the recorder saying which it is goes on the line
+    /// as well, being the recorder's answer.
     ///
     /// The change's line goes up before the read and stays up until the last read after it, the slot's line above
     /// it while the slot is waited for; the reads on the way have none of their own, as a television's change has
@@ -896,10 +918,12 @@ public final class RecorderDriver: LinkDriver {
     /// (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone, which is the newcomer's. The reads go by
     /// the same count.
     public func update(_ reservation: Reservation, quality: String, repeating: String,
-                       disk: String?) async -> (altered: Altered?, list: [Reservation]?) {
+                       disk: String?, now: Date = Date()) async -> (altered: Altered?, list: [Reservation]?) {
         guard reservation.device == .recorder else { return (nil, nil) }
         clearTheDiskNotHad()
         guard let link else { return (.notDone(Self.notConnected), nil) }
+        if let why = Self.whyNot(changing: reservation, now: now) { return (.notDone(why), nil) }
+        let asked = Date()
         guard link.client is RecorderClient else { return (.notDone(whyNotConnected), nil) }
         if let disk, !RecorderDisk.offers(disk, with: link.session.usbDisk) {
             return (.notDone(refuse(reservation, goingTo: disk, on: link)), nil)
@@ -923,6 +947,10 @@ public final class RecorderDriver: LinkDriver {
             case .changed:
                 return (.notDone(Self.renumbered), read)
             }
+            // The door's rule again, of the row as the recorder lists it now and with the time the read took: a
+            // recording begun while the sheet was open, or a programme the recorder has moved to end earlier.
+            let later = now.addingTimeInterval(Date().timeIntervalSince(asked))
+            if let why = Self.whyNot(changing: target, now: later) { return (.notDone(why), read) }
             guard link.client is RecorderClient else { return (.notDone(self.whyNotConnected), read) }
             guard link.mayBeSent else { return (.notDone(self.whyNotSent(on: link)), read) }
             guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,

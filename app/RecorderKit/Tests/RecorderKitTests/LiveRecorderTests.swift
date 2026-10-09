@@ -1053,7 +1053,7 @@ enum DriverCheck {
 
             // 5. Changed, and the list read until it shows the change: the one handed back, then a read every second
             // for ten. Each must still list it.
-            let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil)
+            let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil, now: now)
             switch change.altered {
             case .done?: break
             case .notDone(let why)?: throw Failed(description: "not changed: \(said(why))")
