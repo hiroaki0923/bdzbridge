@@ -30,10 +30,20 @@ public enum ByProgram {
     }
 
     /// Whether `list`, read from a device, holds a reservation that answers for `waiting`: one of its
-    /// programme. A row with no programme id is answered by none.
+    /// programme that is all the row asks for, as a television's round takes a reservation it lists for a
+    /// row it need not send (`ScalarClient.openRound`). So not one whose repeat falls short of the row's
+    /// (`Codes.repeating(_:fallsShortOf:)`): the programme recorded once, or a repeat on fewer of the days,
+    /// where the row asks for a repeat -- taken for the row, the other days would go unreserved with nothing
+    /// said. And not a reservation the recorder made for itself (`Reservation.createdByRecorder`): the
+    /// recorder renumbers and decides those again whenever it works through the guide, and the row asks for
+    /// a reservation of the reader's own. A television has none such. A row with no programme id is answered
+    /// by none.
     public static func lists(_ waiting: PendingReservation, in list: [Reservation]) -> Bool {
-        waiting.request.eventID.map {
-            of(list)[key(waiting.request.broadcastingType, waiting.request.serviceID, $0)] != nil
-        } ?? false
+        guard let programme = waiting.request.eventID else { return false }
+        return list.contains { listed in
+            listed.eventID == programme && listed.broadcastingType == waiting.request.broadcastingType
+                && listed.serviceID == waiting.request.serviceID && !listed.createdByRecorder
+                && !Codes.repeating(listed.repeatCode, fallsShortOf: waiting.request.repeatCode)
+        }
     }
 }

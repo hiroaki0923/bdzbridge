@@ -122,6 +122,42 @@ public enum Codes {
     public static func repeatName(code: String) -> String? {
         repeatCodes.first { $0.value == code }?.key
     }
+
+    /// The days of the week a repeat takes in, Monday as 1 and Sunday as 7 as the weekly codes count them:
+    /// all seven for `d`, Monday to Friday for `w15`, Monday to Saturday for `w16` -- a television's own
+    /// list words the three so, as the recorder does -- and its own day for a weekly code. Nil for what goes
+    /// by no day of the week: once, every programme of a name, and a code that is none of these.
+    public static func weekdays(ofRepeat code: String) -> Set<Int>? {
+        switch code {
+        case "d": return Set(1...7)
+        case "w15": return Set(1...5)
+        case "w16": return Set(1...6)
+        default: return (1...7).first { code == "w\($0)" }.map { [$0] }
+        }
+    }
+
+    /// Whether a reservation held with the repeat `held` is less than one asked for with `asked`, where
+    /// `asked` is a repeat, by the codes both devices' rows carry (`Reservation.repeatCode`,
+    /// `ReservationRequest.repeatCode`, a television's own words read into them):
+    ///
+    /// - the programme recorded once (`1`) is less than any repeat;
+    /// - a repeat held is less than the one asked for when its days are some of that one's and not all of
+    ///   them (`weekdays(ofRepeat:)`): any weekly code, Monday to Friday and Monday to Saturday where every
+    ///   day is asked for; Monday to Friday and a weekly code up to Saturday's where Monday to Saturday is;
+    ///   a weekly code up to Friday's where Monday to Friday is.
+    ///
+    /// Nothing else falls short. A request for once that a repeat holds loses nothing. Nor does a repeat
+    /// lose anything to the same repeat held, or to one that takes in each of its days and more. A repeat
+    /// by the programme's name is compared with nothing but once, on either side: it goes by a name and
+    /// not by days, and what it takes in beside the others is not known. And two repeats with no day in
+    /// common are not told apart: one of them is of other days than the programme's own, which a
+    /// television refused for a weekly code and was not asked for otherwise.
+    public static func repeating(_ held: String, fallsShortOf asked: String) -> Bool {
+        guard asked != "1" else { return false }
+        guard held != "1" else { return true }
+        guard let wanted = weekdays(ofRepeat: asked), let days = weekdays(ofRepeat: held) else { return false }
+        return days.isStrictSubset(of: wanted)
+    }
 }
 
 /// Where the recorder listens and what its UPnP services are called.

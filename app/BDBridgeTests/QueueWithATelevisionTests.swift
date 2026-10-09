@@ -1529,6 +1529,32 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(await television.schedules.map(\.eventId), [4401])
     }
 
+    /// A delete of a waiting row that asks for a weekly repeat, whose programme the television lists recorded
+    /// once, deletes the row as asked and says nothing: what the television holds is less than the row asks
+    /// for, as the television's own sending finds it, and is no sign that the row was made. The television
+    /// holds what it held.
+    func testADeleteOfAWaitingRepeatWhoseProgrammeTheTelevisionListsOnceSaysNothing() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        var row = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
+        var japan = Calendar(identifier: .gregorian)
+        japan.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let day = (japan.component(.weekday, from: row.request.start) + 5) % 7 + 1
+        row.request.repeatCode = "w\(day)"
+        try await store.queue(row)
+        let once = DemoTV.Schedule(id: "recording.31", title: "サンプル劇場", start: row.request.start, eventId: 4401)
+        await television.put([once])
+
+        let instead = await model.deleteWaiting(row)
+
+        XCTAssertNil(instead, "a weekly reservation the television holds once was said to be made")
+        expectEqual(try await store.pendingReservations(), [], "the row was not deleted")
+        expectEqual(await television.schedules, [once])
+        XCTAssertEqual(model.tvHost?.reservations.map(\.repeatCode), ["1"], "the list read was not kept")
+    }
+
     /// A delete that waited its turn behind 外す, itself waiting behind the action's sending, finds its row
     /// gone with the television: it was deleted unsent, and is not said to be made. The row carries a reason,
     /// so that the sending leaves it to 外す.
