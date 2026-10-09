@@ -166,11 +166,11 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// and not on the other, and the strip says both in one line: what became of the recorder's and then
     /// what became of the television's, each naming its device, joined with a full stop.
     ///
-    /// Neither device's sending writes over what the other's said. The recorder's next one changes its own
-    /// half alone. A sending to the television that has nothing to say changes neither: here its disk is
-    /// away, so nothing is made, nothing is put on the television's line, and the reservation waits as it
-    /// was, to go by itself once the disk is back. Closing the line takes both halves; and with both said
-    /// again, so does leaving the app.
+    /// Neither device's sending writes over what the other's said. The recorder's next one adds to its own
+    /// half alone, while the strip is unread. A sending to the television that has nothing to say changes
+    /// neither: here its disk is away, so nothing is made, nothing is put on the television's line, and the
+    /// reservation waits as it was, to go by itself once the disk is back. Closing the line takes both
+    /// halves; and with both said again, so does leaving the app.
     func testTheStripSaysWhatBecameOfEachDevicesAndOneCloseTakesBoth() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder, waiting: [
@@ -190,7 +190,8 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         try await store.queue(waiting("昼の番組", startingIn: 121, programme: 4322))
         await model.refreshReservations()
-        let both = Said.sent("昼の番組", naming: recorders) + "。" + onTheTelevision
+        let both = Said.sent("朝の番組", naming: recorders) + "。" + Said.sent("昼の番組", naming: recorders) + "。"
+            + onTheTelevision
         XCTAssertEqual(model.queueReport, both, "the recorder's sending took what the television's said")
 
         await television.unmount()

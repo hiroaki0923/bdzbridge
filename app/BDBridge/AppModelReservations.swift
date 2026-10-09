@@ -424,22 +424,31 @@ extension AppModel {
 
     /// What a sending of what waits for the recorder came to, on the strip, when a round ran
     /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
-    /// front (nothing here answers `willPresent`). A round with nothing to say leaves the last line where it was.
-    /// What is held for another recorder is said each time a sending is asked, for as long as any is, and first
+    /// front (nothing here answers `willPresent`). Added to what the strip holds unread, by the strip's rule
+    /// (`adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
+    /// closes the strip are both said, and a sentence it holds already is not said twice. A round with nothing
+    /// to say leaves the strip as it was. What became of the queue says which device it went to once a
+    /// television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    ///
+    /// What is held for another recorder is said first, each time a sending is asked, for as long as any is
     /// (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver has had read again as it
     /// looked at the queue and after its round (`queueWritten`): also when no round ran -- with nothing else
     /// waiting, the driver asks the recorder nothing, and no row for the recorder, or the recorder not there to
-    /// send to, runs none either. With nothing held and no round, nothing is said. What became of the queue says
-    /// which device it went to once a television is saved beside the recorder, and not before
-    /// (`PendingQueue.Outcome.said`).
+    /// send to, runs none either. The count said before is replaced by it (`heldBackSaid`), the rest kept. With
+    /// nothing held and nothing to add, the strip stays as it was.
     func tellTheStrip(_ round: PendingQueue.Outcome?) {
         let held = RecorderDriver.heldBack(in: pending)
-        guard let round else {
-            if let held { flushReport = held }
-            return
+        // What the strip holds unread, without the count it began with, which this sending's replaces.
+        var unread = flushReport
+        if let said = heldBackSaid, let report = flushReport, report.hasPrefix(said) {
+            let rest = report.dropFirst(said.count).drop { $0 == "。" }
+            unread = rest.isEmpty ? nil : String(rest)
         }
-        let lines = [held, round.said(withATelevisionSaved: tv != nil)].compactMap { $0 }
-        if !lines.isEmpty { flushReport = lines.joined(separator: "。") }
+        let added = round?.said(withATelevisionSaved: tv != nil).flatMap { AppModel.adding($0, toUnread: unread) }
+        let lines = [held, added ?? unread].compactMap { $0 }
+        guard !lines.isEmpty else { return }
+        flushReport = lines.joined(separator: "。")
+        heldBackSaid = held
     }
 
     /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both

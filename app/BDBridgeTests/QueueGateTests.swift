@@ -86,7 +86,7 @@ final class QueueGateTests: XCTestCase {
         XCTAssertEqual(reasons(model.pending), [row.id: refusal], "the row on screen does not say why")
         expectEqual(reasons(try await store.pendingReservations()), [row.id: refusal],
                     "the reason was not kept, and the reservation would be sent again by itself")
-        XCTAssertEqual(model.flushReport, Said.refused(refused.title))
+        XCTAssertEqual(model.flushReport, Said.sent(taken.title) + "。" + Said.refused(refused.title))
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the queue's refusal went on the failure line")
         XCTAssertNil(model.busy)
         XCTAssertTrue(model.connected, "a refusal was taken for the recorder going")

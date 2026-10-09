@@ -432,9 +432,13 @@ final class AppModel: LinkHost {
     /// time (`deleteWaiting`).
     var deletingWaiting: Set<String> = []
 
-    /// What the last sending of the queue came to, and how many reservations are held for another recorder,
-    /// for the strip to say until the reader closes it or leaves the app. See `tellTheStrip`.
+    /// How many reservations are held for another recorder, and what the sendings of the queue came to since
+    /// the reader last closed the strip, for the strip to say until the reader closes it or leaves the app. See
+    /// `tellTheStrip`.
     var flushReport: String?
+    /// The count of reservations held for another recorder as `flushReport` begins with it, for the next
+    /// sending to put its own count in place of (`tellTheStrip`).
+    @ObservationIgnored var heldBackSaid: String?
 
     /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect
     /// made over the last one's lists (`anotherDeviceDescribedItself`), or at the check before an operation
