@@ -47,7 +47,7 @@ final class QueueGateTests: XCTestCase {
         try await store.queue(waiting(for: taken))
         count = await recorder.heard.count
         await model.refreshReservations()
-        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.list],
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.list],
                     "what waits is sent, and the list is read once after it")
         XCTAssertEqual(model.flushReport, Said.sent(taken.title))
         XCTAssertNotNil(model.reservation(for: taken), "the programme is not marked as reserved")
@@ -81,7 +81,7 @@ final class QueueGateTests: XCTestCase {
         await asking.value
 
         let refusal = Said.fault(831, Kind.create)
-        expectEqual(await recorder.heard(since: count), [Kind.create],
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create],
                     "it was sent again, or the list was read with nothing made")
         XCTAssertEqual(reasons(model.pending), [row.id: refusal], "the row on screen does not say why")
         expectEqual(reasons(try await store.pendingReservations()), [row.id: refusal],
@@ -150,7 +150,7 @@ final class QueueGateTests: XCTestCase {
         XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with what waits being sent")
         await recorder.letGo()
         await asking.value
-        expectEqual(await recorder.heard(since: count), [Kind.description, Kind.create, Kind.list],
+        expectEqual(await recorder.heard(since: count), [Kind.description, Kind.list, Kind.create, Kind.list],
                     model.problem(for: .recorder) ?? "no reason given")
         XCTAssertNil(model.pending(for: programmes[1]), "the row sent again was not sent")
         XCTAssertNil(model.busy)
@@ -174,9 +174,9 @@ final class QueueGateTests: XCTestCase {
 
         // Of everything a connect asks, what this is about: the reservation, the list, and the guide's files.
         let heard = await recorder.heard.filter { $0 == Kind.create || $0 == Kind.list || $0.hasPrefix(Kind.guide) }
-        XCTAssertEqual(Array(heard.prefix(2)), [Kind.create, Kind.list],
+        XCTAssertEqual(Array(heard.prefix(3)), [Kind.list, Kind.create, Kind.list],
                        "what waits is sent, and the reservations are read once, before the guide")
-        let afterwards = heard.dropFirst(2)
+        let afterwards = heard.dropFirst(3)
         XCTAssertFalse(afterwards.isEmpty, "the guide was meant to be behind, and so to be fetched")
         XCTAssertTrue(afterwards.allSatisfy { $0.hasPrefix(Kind.guide) },
                       "something was sent or read once the guide was being fetched: \(heard)")
@@ -210,7 +210,7 @@ final class QueueGateTests: XCTestCase {
         await recorder.letGo()
         await pulling.value
 
-        expectEqual(await recorder.heard(since: count), [Kind.create],
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create],
                     "something was sent or read after the create met silence")
         XCTAssertTrue(model.gaveUp, "silence at the create did not lose the recorder")
         XCTAssertEqual(model.problem(for: .recorder), Said.heldAfterSilence, "silence at the create was not said")
@@ -315,6 +315,246 @@ final class QueueGateTests: XCTestCase {
         XCTAssertNotNil(model.reservation(for: program), "the reservation made is not on screen")
         XCTAssertEqual(model.destinations(for: program), [], "a programme the recorder holds was offered it again")
         XCTAssertEqual(model.flushReport, Said.sent(program.title))
+    }
+
+    /// What waits is looked for on the recorder before it is sent: the round reads the list once, as it opens,
+    /// and a row a reservation there answers for leaves the queue unsent, and the strip says it was reserved
+    /// already. Not a row held for another recorder, which is left out of the look and stays held; nor one whose
+    /// listed reservation falls short of it -- recorded once, where the row asks for every day -- nor one whose
+    /// programme only the recorder's own reservation holds: those two are sent.
+    func testWhatWaitsIsLookedForOnTheRecorderBeforeItIsSent() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 3)
+        let there = try waiting(for: programmes[0])
+        let held = try waiting(for: programmes[1], problem: Said.heldForAnotherRecorder)
+        var daily = try waiting(for: programmes[2])
+        daily.request.repeatCode = "d"
+        // One of the demo's reservations of the recorder's own, still to start.
+        let itsOwn = try XCTUnwrap(model.reservations.first { $0.createdByRecorder && $0.start > Date() },
+                                   "the demo was meant to hold a reservation of the recorder's own still to come")
+        let theirs = PendingReservation(
+            request: ReservationRequest(title: itsOwn.title, start: itsOwn.start, durationSec: itsOwn.durationSec,
+                                        repeatCode: "1", broadcastingType: itsOwn.broadcastingType,
+                                        serviceID: itsOwn.serviceID, qualityCode: 100, eventID: itsOwn.eventID),
+            serviceName: "サンプル")
+        var once = daily.request
+        once.repeatCode = "1"
+        for request in [there.request, held.request, once] { try await aClient(of: recorder).create(request) }
+        for row in [there, held, daily, theirs] { try await store.queue(row) }
+        await model.loadPending()
+
+        let count = await recorder.heard.count
+        await model.refreshReservations()
+
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.create, Kind.list],
+                    "what the list holds was sent, or what it does not hold was not")
+        expectEqual(reasons(try await store.pendingReservations()), [held.id: Said.heldForAnotherRecorder],
+                    "a row the list holds is still waiting, or the row held for another recorder is not")
+        XCTAssertEqual(reasons(model.pending), [held.id: Said.heldForAnotherRecorder])
+        let sent = [daily, theirs].sorted { $0.request.start < $1.request.start }
+        XCTAssertEqual(model.flushReport, [Said.heldBack(1), Said.sent(sent[0].request.title, andOthers: 1),
+                                           Said.alreadyThere(there.request.title)].joined(separator: "。"))
+    }
+
+    /// A row held after silence at its create, sent again by the reader, may be on the recorder already: it goes
+    /// only on a list read whole that does not hold it. With 200 reservations returned, the most one read lists,
+    /// whether it is there is not known: nothing is sent, the row keeps its reason, on screen and on the phone,
+    /// nothing is said on the strip or the line, and the answer says that it could not be known and how to make
+    /// the reservation all the same. On a list that could not be read -- a fault -- the same, but the answer says
+    /// the list could not be read, and to send it again a little later. Sent again on a list of fewer, it is made;
+    /// and one that list holds leaves the queue as there, unsent, and is said to have been there.
+    func testARowHeldAfterSilenceSentAgainGoesOnlyOnAListReadWhole() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+        let row = try waiting(for: programmes[0], problem: Said.heldAfterSilence)
+        let found = try waiting(for: programmes[1], problem: Said.heldAfterSilence)
+        try await store.queue(row)
+        try await store.queue(found)
+        await model.loadPending()
+        leaveALine(on: model)
+
+        await recorder.answer(Kind.list, with: .result(Self.aList(of: 200)))
+        var count = await recorder.heard.count
+        let notKnown = await model.sendAgain(row)
+        guard case .waiting(let kept, let saying)? = notKnown else {
+            return XCTFail("a row not known to be off the recorder does not wait: \(String(describing: notKnown))")
+        }
+        XCTAssertEqual(kept.id, row.id)
+        XCTAssertEqual(kept.problem, Said.heldAfterSilence, "the row handed back has lost its reason")
+        XCTAssertEqual(saying, Said.notKnownThere)
+        expectEqual(await recorder.heard(since: count), [Kind.list], "something was sent on a list of 200")
+        let both = [row.id: Said.heldAfterSilence, found.id: Said.heldAfterSilence]
+        XCTAssertEqual(reasons(model.pending), both, "the row on screen lost its reason")
+        expectEqual(reasons(try await store.pendingReservations()), both, "the row on the phone lost its reason")
+        XCTAssertNil(model.flushReport, "the strip says something of a row not sent")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the line was written")
+
+        await recorder.answer(Kind.list, with: .fault(501))
+        count = await recorder.heard.count
+        expectEqual(await model.sendAgain(row), .waiting(kept, saying: Said.notKnownThereUnread),
+                    "a row on a list that could not be read is not said to be unsent for that")
+        expectEqual(await recorder.heard(since: count), [Kind.list], "something was sent on a list not read")
+        XCTAssertEqual(reasons(model.pending), both, "the row on screen lost its reason")
+        expectEqual(reasons(try await store.pendingReservations()), both, "the row on the phone lost its reason")
+        XCTAssertNil(model.flushReport, "the strip says something of a row not sent")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the line was written")
+
+        count = await recorder.heard.count
+        expectEqual(await model.sendAgain(row), .made(saying: nil), "a row the whole list does not hold was not made")
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.list])
+
+        try await aClient(of: recorder).create(found.request)
+        count = await recorder.heard.count
+        expectEqual(await model.sendAgain(found), .made(saying: Said.foundThere), "a row the list holds was not found")
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.list], "a row the list holds was sent")
+        expectEqual(try await store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty)
+        XCTAssertEqual(model.flushReport, Said.sent(row.request.title) + "。" + Said.alreadyThere(found.request.title))
+    }
+
+    /// The same row, sent again to a recorder given up on: it is connected to, as any row sent again to such a
+    /// recorder is, and the connect's attach sends no row with a reason. So the row goes from here once the
+    /// connect is through, with its reason handed in, in a round of its own that reads the list first: made,
+    /// and answered so. Nothing else waits, so the attach's sending asks the recorder nothing.
+    func testARowHeldAfterSilenceSentAgainToARecorderGivenUpOnGoesOnceTheConnectIsThrough() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let row = try waiting(for: program, problem: Said.heldAfterSilence)
+        try await store.queue(row)
+        await model.loadPending()
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model), "the recorder was meant to be given up on")
+        XCTAssertTrue(model.gaveUp)
+
+        let count = await recorder.heard.count
+        expectEqual(await model.sendAgain(row), .made(saying: nil), "the row was not sent once the connect was through")
+        let heard = await recorder.heard(since: count)
+        XCTAssertEqual(heard.first, Kind.description, "the recorder given up on was not connected to: \(heard)")
+        XCTAssertEqual(Array(heard.suffix(3)), [Kind.list, Kind.create, Kind.list],
+                       "the row did not go in a round of its own after the connect: \(heard)")
+        XCTAssertEqual(heard.filter { $0 == Kind.create }.count, 1, "the row was sent other than once: \(heard)")
+        XCTAssertNotNil(model.reservation(for: program), "the reservation made is not on screen")
+        XCTAssertTrue(model.pending.isEmpty, "the row made is still shown as waiting")
+    }
+
+    /// The same row, sent again to a recorder given up on that does not answer the connect: nothing was sent, and
+    /// the answer is that the app is not connected, as for such a row whose round could not run -- not the row's
+    /// own reason, which tells the reader to send it again. The row keeps that reason, on screen and on the phone.
+    func testARowHeldAfterSilenceSentAgainWhoseConnectFailsIsSaidNotSent() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let model = bench.model(recorder: SilentRecorder())
+        await model.start()
+        try await untilGivenUp(model)
+        let store = try GuideStore(path: bench.guidePath)
+        let row = try waiting(for: try await aProgramme(model), problem: Said.heldAfterSilence)
+        try await store.queue(row)
+        await model.loadPending()
+
+        let came = await model.sendAgain(row)
+        guard case .waiting(let kept, let saying)? = came else {
+            return XCTFail("a row whose connect failed does not wait: \(String(describing: came))")
+        }
+        XCTAssertEqual(kept.id, row.id)
+        XCTAssertEqual(kept.problem, Said.heldAfterSilence, "the row handed back has lost its reason")
+        XCTAssertEqual(saying, Said.notConnected, "a row whose connect failed is not said to be unsent for that")
+        XCTAssertEqual(reasons(model.pending), [row.id: Said.heldAfterSilence], "the row on screen lost its reason")
+        expectEqual(reasons(try await store.pendingReservations()), [row.id: Said.heldAfterSilence],
+                    "the row on the phone lost its reason")
+    }
+
+    /// The same row sent again, its create held while another recorder answers a connect beside it, and then
+    /// answered busy through every try: the newcomer's arrival has written on the row that it is held for the
+    /// recorder before, and that reason stands -- the reason the reader sent it with is not taken off over it --
+    /// on screen and on the phone. The answer is that another recorder answered, and nothing goes to the
+    /// newcomer, at the pull-down after.
+    func testARowHeldAfterSilenceSentAgainAcrossAnotherRecordersArrivalStaysHeldForTheOneBefore() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let row = try waiting(for: try await programmesNotReserved(model, 1)[0], problem: Said.heldAfterSilence)
+        try await store.queue(row)
+        await model.loadPending()
+        let before = await recorder.asked
+        await recorder.hold(only: Kind.create)
+        let asking = Task { await model.sendAgain(row) }
+        try await until("the row never got to the recorder") {
+            await recorder.asked(Kind.create, since: before) == 1
+        }
+
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await recorder.beBusy(with: Kind.create)
+        await recorder.letGo()
+        let came = await asking.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(came, .notDone(Said.anotherAnswered))
+        XCTAssertEqual(reasons(model.pending), [row.id: Said.heldForAnotherRecorder],
+                       "the row is not shown held for the recorder before")
+        expectEqual(reasons(try await store.pendingReservations()), [row.id: Said.heldForAnotherRecorder],
+                    "the row does not wait on the phone held for the recorder before")
+        let creates = await recorder.asked(Kind.create, since: before)
+        await model.refreshReservations()
+        try await untilIdle(model)
+        expectEqual(await recorder.asked(Kind.create, since: before), creates, "the row went to the newcomer")
+    }
+
+    /// A row sent again -- one refused before, one with no reason, one held after silence -- its create held while
+    /// another recorder answers a connect beside it, and then answered busy, or not at all. Whatever the row was,
+    /// the newcomer's arrival has written on it that it is held for the recorder before, and that reason stands,
+    /// on screen and on the phone; nothing goes to the newcomer at the pull-down after. Answered busy, nothing was
+    /// made: the answer is that another recorder answered, and the line is left as it was. Met by silence, it may
+    /// have been made on the recorder let go of: the answer and the line say so, as for a delete or a change whose
+    /// silence came beside such an arrival, and the newcomer is neither lost nor given up on.
+    func testARowSentAgainAcrossAnotherRecordersArrivalIsAnsweredForTheRecorderLetGoOf() async throws {
+        let refusal = "この局は録画できません"
+        let cases: [(name: String, reason: String?, silent: Bool)] = [
+            ("a row refused before, answered busy", refusal, false),
+            ("a row with no reason, answered busy", nil, false),
+            ("a row refused before, met by silence", refusal, true),
+            ("a row held after silence, met by silence", Said.heldAfterSilence, true),
+        ]
+        for (name, reason, silent) in cases {
+            let (bench, recorder, model) = try await connectedHome()
+            addTeardownBlock { await recorder.letGo() }
+            let store = try GuideStore(path: bench.guidePath)
+            let row = try waiting(for: try await programmesNotReserved(model, 1)[0], problem: reason)
+            try await store.queue(row)
+            await model.loadPending()
+            let before = await recorder.asked
+            await recorder.hold(only: Kind.create)
+            let asking = Task { await model.sendAgain(row) }
+            try await until("\(name): the row never got to the recorder") {
+                await recorder.asked(Kind.create, since: before) == 1
+            }
+
+            await recorder.become(2)
+            await model.connect()
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+            leaveALine(on: model)
+            if silent { await recorder.goQuiet(on: Kind.create) } else { await recorder.beBusy(with: Kind.create) }
+            await recorder.letGo()
+            let came = await asking.value
+            try await untilIdle(model)
+
+            XCTAssertEqual(came, .notDone(silent ? Said.mayHaveArrived : Said.anotherAnswered), name)
+            XCTAssertEqual(model.problem(for: .recorder), silent ? Said.mayHaveArrived : lineLeft, name)
+            XCTAssertFalse(model.gaveUp, "\(name): the newcomer was given up on")
+            XCTAssertEqual(reasons(model.pending), [row.id: Said.heldForAnotherRecorder],
+                           "\(name): the row is not shown held for the recorder before")
+            expectEqual(reasons(try await store.pendingReservations()), [row.id: Said.heldForAnotherRecorder],
+                        "\(name): the row does not wait on the phone held for the recorder before")
+            let creates = await recorder.asked(Kind.create, since: before)
+            await model.refreshReservations()
+            try await untilIdle(model)
+            expectEqual(await recorder.asked(Kind.create, since: before), creates,
+                        "\(name): the row went to the newcomer")
+        }
     }
 
     // MARK: - keeping one, asking for one again, taking one away
@@ -464,8 +704,8 @@ final class QueueGateTests: XCTestCase {
         let count = await recorder.heard.count
         await model.resend(asked)
 
-        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.list],
-                    "the other row was sent too, or the list was read more than once")
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.list],
+                    "the other row was sent too, or the list was read other than as the round opened and once after")
         XCTAssertEqual(reasons(model.pending), [other.id: ""], "the row sent is still shown, or the other is not")
         expectEqual(reasons(try await store.pendingReservations()), [other.id: ""],
                     "the row sent stayed in the queue, or the other left it")
@@ -516,15 +756,16 @@ final class QueueGateTests: XCTestCase {
             let pressed = try waiting(for: programmes[0], problem: "前に断られた理由")
             try await store.queue(pressed)
             try await store.queue(try waiting(for: programmes[1]))
-            if listed {
-                // What the other sending would have made of it, on the recorder's own screen.
-                try await aClient(of: recorder).create(pressed.request)
-            }
             let before = await recorder.asked
-            await recorder.hold(only: Kind.create)
+            await recorder.holdTheNext(Kind.create)
             let pulling = Task { await model.refreshReservations() }
             try await until("what waits never got to the recorder") {
                 await recorder.asked(Kind.create, since: before) == 1
+            }
+            if listed {
+                // What the other sending would have made of it, on the recorder's own screen: once that sending's
+                // round has read the list, which would otherwise find it there.
+                try await aClient(of: recorder).create(pressed.request)
             }
             let asking = Task { await model.sendAgain(pressed) }
             // Long enough for the row sent again to be waiting for the queue's turn.
@@ -535,8 +776,50 @@ final class QueueGateTests: XCTestCase {
             let came = await asking.value
 
             expectEqual(came, listed ? .made(saying: nil) : .notDone(Said.couldNotBeConfirmed), "listed: \(listed)")
-            expectEqual(await recorder.asked(Kind.create, since: before), 1, "the row taken was sent: \(listed)")
+            expectEqual(await recorder.asked(Kind.create, since: before), listed ? 2 : 1,
+                        "the row taken was sent: \(listed)")
         }
+    }
+
+    /// The same row sent again, taken while it waits for the queue's turn by a pull-down's sending that holds
+    /// the turn with an earlier row's create held, when another recorder answers a connect meanwhile; the
+    /// pull-down's round then makes both rows. The row sent again is in none of its own round's lists, and the
+    /// list that would say what became of it is not read across the arrival: it is answered that it could not
+    /// be confirmed, as without one, and not that nothing was done because another recorder answered -- the
+    /// pull-down may have made it on the recorder let go of. Nothing more is sent for it.
+    func testARowSentAgainThatAnotherSendingTookAcrossAnotherRecordersArrivalIsNotSaidUndone() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let rows = try await programmesNotReserved(model, 2).map { try waiting(for: $0) }
+            .sorted { $0.request.start < $1.request.start }
+        XCTAssertLessThan(rows[0].request.start, rows[1].request.start, "the round would send them in no set order")
+        let pressed = rows[1]
+        for row in rows { try await store.queue(row) }
+        await model.loadPending()
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.create)
+        let pulling = Task { await model.refreshReservations() }
+        try await until("what waits never got to the recorder") {
+            await recorder.asked(Kind.create, since: before) == 1
+        }
+        let asking = Task { await model.sendAgain(pressed) }
+        // Long enough for the row sent again to be waiting for the queue's turn.
+        try await Task.sleep(for: .milliseconds(300))
+
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await recorder.letGo()
+        await pulling.value
+        let came = await asking.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(came, .notDone(Said.couldNotBeConfirmed))
+        XCTAssertFalse(model.gaveUp, "the newcomer was given up on")
+        expectEqual(await recorder.asked(Kind.create, since: before), 2, "the row taken was sent again")
+        expectEqual(try await store.pendingReservations().map(\.id).filter { $0 == pressed.id }, [],
+                    "the row the pull-down made still waits")
     }
 
     /// A row sent again whose check wakes the recorder -- the check here one already out, its probe held and
@@ -800,7 +1083,7 @@ final class QueueGateTests: XCTestCase {
                 await $0.answer(Kind.create, with: .fault(831), after: 1)
             },
             Sending("one sent, then silence", [morning, noon], says: Said.sent("朝の番組") + "。" + Said.interrupted) {
-                await $0.goQuiet(for: 1, after: 1)
+                await $0.goQuiet(for: 1, after: 2)
             },
             Sending("silence at the first", [morning], says: nil) { await $0.goQuiet(for: 1) },
         ]
@@ -837,6 +1120,21 @@ final class QueueGateTests: XCTestCase {
                                          durationSec: 1800, repeatCode: "1", broadcastingType: 2, serviceID: 1024,
                                          qualityCode: 100, eventID: programme)
         return PendingReservation(request: request, serviceName: "サンプルテレビ")
+    }
+
+    /// A list of `count` reservations of the test's own, as the recorder returns one read of it: on the demo's
+    /// first channel, days from now, of programmes the guide does not have.
+    private static func aList(of count: Int) -> String {
+        let open = "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">"
+        let items = (0..<count).map { index in
+            let request = ReservationRequest(title: "一覧を埋める予約 \(index)",
+                                             start: Date().addingTimeInterval(Double(10 + index) * 86_400),
+                                             durationSec: 1800, repeatCode: "1", broadcastingType: 2, serviceID: 1024,
+                                             qualityCode: 100, eventID: 0xe000 + index)
+            return XsrsElements.update(id: String(format: "0x%016x", 0xe000 + index), request)
+                .replacingOccurrences(of: open, with: "").replacingOccurrences(of: "</xsrs>", with: "")
+        }
+        return open + items.joined() + "</xsrs>"
     }
 
     /// What is written on each of the rows waiting, by the row: its reason, and nothing where it has none. Which

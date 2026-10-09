@@ -1549,6 +1549,7 @@ actor TVSitting {
         case .needsPairing?: stop = "stopped: the registration is wanted again"
         case .cannotRecord?: stop = "stopped: no disk to record to"
         case .saysNothing?: stop = "stopped: answers that say nothing"
+        case .notKnownThere?: stop = "stopped: not known whether the row is there"
         }
         return "sent \(outcome.sent.count), found there already \(outcome.alreadyThere.count), held with a reason"
             + " \(outcome.refused.count)" + (reasons.isEmpty ? "" : " (\(reasons))")

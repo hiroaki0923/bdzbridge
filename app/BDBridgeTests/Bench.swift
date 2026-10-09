@@ -1017,6 +1017,11 @@ enum Said {
         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
     static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
     static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+    static let foundThere = "レコーダーにはこの番組の予約がすでにありました。"
+    static let notKnownThere = "レコーダーの予約が多いため、この予約が届いているか一覧で確かめられませんでした。送っていません。"
+        + "レコーダー本体の予約一覧で確かめ、届いていなければ、この送信待ちの予約を削除してから番組表で予約し直してください。"
+    static let notKnownThereUnread = "レコーダーの予約一覧を読めなかったため、この予約が届いているか確かめられませんでした。"
+        + "送っていません。少し待ってから、もう一度送ってください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
@@ -1032,6 +1037,10 @@ enum Said {
     static func sent(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "送信待ちだった\(naming(title, others))を\($0)に登録しました" }
             ?? "送信待ちだった\(naming(title, others))を登録しました"
+    }
+    static func alreadyThere(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
+        device.map { "\(naming(title, others))は\($0)にすでに予約がありました" }
+            ?? "\(naming(title, others))はすでに予約されていました"
     }
     static func expired(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "\($0)宛の\(naming(title, others))は放送が終わっていたため、送らずに削除しました" }

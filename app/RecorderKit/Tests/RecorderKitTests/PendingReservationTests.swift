@@ -98,7 +98,7 @@ final class PendingQueueTests: XCTestCase {
         let outcome = await PendingQueue.flush(client: client, store: store, now: now)
 
         XCTAssertEqual(outcome.sent.map(\.request.title), ["USBに録る番組", "本体に録る番組"])
-        let bodies = await transport.bodies
+        let bodies = await transport.bodies.filter { $0.contains("X_CreateRecordSchedule") }
         let sent = try bodies.map { try XCTUnwrap(XmlNode.parse($0).firstDescendantText("Elements")) }
         XCTAssertEqual(sent, [XsrsElements.create(usb.request), XsrsElements.create(own.request)])
         XCTAssertTrue(sent[0].contains("<recordDestinationID>USBHDD</recordDestinationID>"), sent[0])
@@ -205,7 +205,8 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(first.refused.map(\.request.title), ["USBに録る番組"])
         XCTAssertTrue(first.sent.isEmpty, "a row to the slot was sent on a disk the slot did not answer")
         XCTAssertTrue(first.deferred.isEmpty, "a row to a slot that did not answer was passed over unsaid")
-        expectEqual(await actions(quietTransport), Array(repeating: "X_GetMediaInfo", count: 6))
+        expectEqual(await actions(quietTransport),
+                    ["X_GetRecordScheduleList"] + Array(repeating: "X_GetMediaInfo", count: 6))
         let left = try await store.pendingReservations()
         XCTAssertEqual(left.map(\.id), [usb.id])
         XCTAssertEqual(left.map(\.problem), [Self.notAnswered])
@@ -222,7 +223,8 @@ final class PendingQueueTests: XCTestCase {
         let again = await PendingQueue.flush(client: answering, store: store, now: now)
 
         XCTAssertEqual(again.sent.map(\.request.title), ["USBに録る番組"])
-        expectEqual(await actions(answeringTransport), ["X_GetMediaInfo", "X_CreateRecordSchedule"])
+        expectEqual(await actions(answeringTransport),
+                    ["X_GetRecordScheduleList", "X_GetMediaInfo", "X_CreateRecordSchedule"])
         let body = await answeringTransport.bodies.last ?? ""
         let sent = try XCTUnwrap(XmlNode.parse(body).firstDescendantText("Elements"))
         XCTAssertEqual(sent, XsrsElements.create(usb.request))
@@ -244,7 +246,7 @@ final class PendingQueueTests: XCTestCase {
 
         XCTAssertEqual(outcome.refused.map(\.request.title), ["USBに録る番組"])
         XCTAssertTrue(outcome.sent.isEmpty, "a row was sent to a disk that takes no recordings")
-        expectEqual(await actions(transport), ["X_GetMediaInfo"])
+        expectEqual(await actions(transport), ["X_GetRecordScheduleList", "X_GetMediaInfo"])
         expectEqual(try await store.pendingReservations().map(\.problem), [Self.notAnswered])
     }
 
@@ -268,7 +270,7 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(outcome.sent.isEmpty, "the round went on past the silence")
         XCTAssertTrue(outcome.refused.isEmpty, "silence was written on the row")
         XCTAssertTrue(outcome.deferred.isEmpty)
-        expectEqual(await actions(transport), ["X_GetMediaInfo"])
+        expectEqual(await actions(transport), ["X_GetRecordScheduleList", "X_GetMediaInfo"])
         let left = try await store.pendingReservations()
         XCTAssertEqual(Set(left.map(\.id)), [usb.id, own.id])
         XCTAssertEqual(left.map(\.problem), [nil, nil])
@@ -287,7 +289,8 @@ final class PendingQueueTests: XCTestCase {
         let outcome = await PendingQueue.flush(client: client, store: store, now: now)
 
         XCTAssertEqual(outcome.sent.map(\.request.title), ["USBに録る番組"])
-        expectEqual(await actions(transport), ["X_CreateRecordSchedule"], "the slot was asked with no disk known")
+        expectEqual(await actions(transport), ["X_GetRecordScheduleList", "X_CreateRecordSchedule"],
+                    "the slot was asked with no disk known")
     }
 
     /// A row on the internal disk is not held back by the slot: in a round where the slot answers none throughout,
@@ -310,7 +313,8 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(outcome.sent.map(\.request.title), ["本体に録る番組"])
         XCTAssertEqual(outcome.refused.map(\.request.title), ["先にUSBに録る番組", "あとでUSBに録る番組"])
         XCTAssertEqual(outcome.refused.map(\.problem), [Self.notAnswered, Self.notAnswered])
-        expectEqual(await actions(transport), Array(repeating: "X_GetMediaInfo", count: 6) + ["X_CreateRecordSchedule"])
+        expectEqual(await actions(transport), ["X_GetRecordScheduleList"] + Array(repeating: "X_GetMediaInfo", count: 6)
+                        + ["X_CreateRecordSchedule"])
     }
 
     /// The recorder is sent what waits for the recorder. What waits for another device is not asked of it,
@@ -332,7 +336,7 @@ final class PendingQueueTests: XCTestCase {
 
         XCTAssertEqual(outcome.sent.map(\.request.title), ["レコーダーに送る番組"])
         XCTAssertTrue(outcome.expired.isEmpty, "the recorder's flush dropped what waits for another device")
-        let asked = await transport.requests.count
+        let asked = await transport.bodies.filter { $0.contains("X_CreateRecordSchedule") }.count
         XCTAssertEqual(asked, 1, "the recorder was asked for a reservation that waits for another device")
         let left = try await store.pendingReservations()
         XCTAssertEqual(left.map(\.id), [over.id, televisions.id])
@@ -415,11 +419,12 @@ final class PendingQueueTests: XCTestCase {
         }
         let noCode = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
             + "<s:Body><s:Fault><faultcode>s:Server</faultcode></s:Fault></s:Body></s:Envelope>"
-        // The client sends a 503 again twice before it gives up on it, so the first reservation takes three.
+        // The client sends a 503 again twice before it gives up on it, so the first reservation takes three, after
+        // the list read as the round opens.
         let transport = StubTransport { _, index in
             switch index {
-            case 0...2: return HTTPResponse(statusCode: 503)
-            case 3: return HTTPResponse(statusCode: 500, body: Data(noCode.utf8))
+            case 1...3: return HTTPResponse(statusCode: 503)
+            case 4: return HTTPResponse(statusCode: 500, body: Data(noCode.utf8))
             default: return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
             }
         }
@@ -461,7 +466,7 @@ final class PendingQueueTests: XCTestCase {
         async let other = PendingQueue.flush(client: second, store: overnight, now: now)
         let outcomes = await [one, other]
 
-        let sent = await transport.requests.count
+        let sent = await transport.bodies.filter { $0.contains("X_CreateRecordSchedule") }.count
         XCTAssertEqual(sent, 1, "sent once, not by each")
         XCTAssertEqual(outcomes.map(\.sent.count).sorted(), [0, 1])
         expectTrue(try await overnight.pendingReservations().isEmpty)
@@ -474,8 +479,9 @@ final class PendingQueueTests: XCTestCase {
         for (i, title) in ["一番目", "二番目"].enumerated() {
             try await store.queue(pending(title, eventID: i + 1, start: now.addingTimeInterval(3600)))
         }
+        // The list read as the round opens, and the first create.
         let transport = StubTransport { _, index in
-            if index == 0 {
+            if index <= 1 {
                 return Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
             }
             throw RecorderError.transport("the recorder went away")
@@ -490,6 +496,60 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(left.first?.problem, RecorderDriver.heldAfterSilence,
                        "the row whose create met silence is not held for the reader with the recorder's sentence")
         XCTAssertTrue(outcome.refused.isEmpty, "not refused: the recorder said nothing of it")
+    }
+
+    /// A row held after silence at its create that the reader sends again -- its reason handed in as their
+    /// consent, as the recorder's driver hands it -- goes only where the list the round opens on is the whole of
+    /// what the recorder holds: fewer items returned than the 200 one read asks for, counted as they came and not
+    /// as they read, and no more said to be there (`TotalMatches`). On 200 returned, one of which does not read as
+    /// a reservation, or on fewer with more said to be there, nothing is sent: the round stops saying that the row
+    /// is not known not to be there on a list that was read, and the row keeps its reason. On a list that could
+    /// not be read -- a fault -- the same, the stop saying the list was not read. On 199 returned, it is sent.
+    func testARowHeldAfterSilenceSentAgainGoesOnlyOnAWholeList() async throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let open = "<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\">"
+        func list(_ readable: Int, unreadable: Int = 0) -> String {
+            let items = (0..<readable).map { index in
+                XsrsElements.update(id: "0x\(String(0x9000 + index, radix: 16))",
+                                    pending("ほかの予約", eventID: 0x9000 + index,
+                                            start: now.addingTimeInterval(Double(index + 2) * 3600)).request)
+                    .replacingOccurrences(of: open, with: "").replacingOccurrences(of: "</xsrs>", with: "")
+            }
+            let unread = Array(repeating: "<item id=\"0xbad\"><title>読めない予約</title></item>", count: unreadable)
+            return open + (items + unread).joined() + "</xsrs>"
+        }
+        let cases: [(name: String, list: HTTPResponse, stop: SendingStop?)] = [
+            ("200 returned, one of which does not read",
+             Stub.soap("X_GetRecordScheduleList", result: list(199, unreadable: 1)), .notKnownThere(listRead: true)),
+            ("150 returned, 250 said to be there",
+             Stub.soap("X_GetRecordScheduleList", result: list(150), totalMatches: 250),
+             .notKnownThere(listRead: true)),
+            ("a list that cannot be read", Stub.fault("501"), .notKnownThere(listRead: false)),
+            ("199 returned", Stub.soap("X_GetRecordScheduleList", result: list(199), totalMatches: 199), nil),
+        ]
+        for (name, answer, stop) in cases {
+            let sent = stop == nil
+            let store = try temporaryStore()
+            let row = pending("確かめてから送る番組", eventID: 1, start: now.addingTimeInterval(3600),
+                              problem: RecorderDriver.heldAfterSilence)
+            try await store.queue(row)
+            let transport = StubTransport { request, _ in
+                request.headers["SOAPACTION"]?.contains("#X_GetRecordScheduleList") == true ? answer : Self.created
+            }
+            let client = RecorderClient(host: "192.0.2.1", transport: transport)
+
+            let outcome = await PendingQueue.flush(client: client, store: store,
+                                                   consenting: [row.id: RecorderDriver.heldAfterSilence],
+                                                   only: row.id, now: now)
+
+            expectEqual(await actions(transport), sent ? ["X_GetRecordScheduleList", "X_CreateRecordSchedule"]
+                                                       : ["X_GetRecordScheduleList"], name)
+            XCTAssertEqual(outcome.sent.map(\.id), sent ? [row.id] : [], name)
+            XCTAssertEqual(outcome.stopped, stop, name)
+            if !sent { XCTAssertNil(outcome.summary, "the strip would say something of a row not sent: \(name)") }
+            expectEqual(try await store.pendingReservations().map(\.problem),
+                        sent ? [] : [RecorderDriver.heldAfterSilence], name)
+        }
     }
 }
 

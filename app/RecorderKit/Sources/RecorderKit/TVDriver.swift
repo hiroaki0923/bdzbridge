@@ -700,7 +700,7 @@ public final class TVDriver: LinkDriver {
             _ = link.say(.silentOnARead(sentence: noAnswerLine))
         case .needsPairing?:
             note(link.say(.refused(.needsPairing, sentence: ScalarError.notRegistered.explanation)))
-        case .cannotRecord?, .saysNothing?, nil:
+        case .cannotRecord?, .saysNothing?, .notKnownThere?, nil:
             break
         }
     }
@@ -967,7 +967,7 @@ public final class TVDriver: LinkDriver {
         case .silent(afterSending: false)?: return .waiting(row, saying: Self.waitsNotConnected)
         case .needsPairing?: return .waiting(row, saying: Self.waitsForTheRegistration)
         case .cannotRecord?: return .waiting(row, saying: Self.waitsForTheDisk)
-        case .saysNothing?: return .waiting(row, saying: Self.waitsUnanswered)
+        case .saysNothing?, .notKnownThere?: return .waiting(row, saying: Self.waitsUnanswered)
         case nil: break
         }
         if let held = list?.compactMap(\.tvRow).holding(row.request) {

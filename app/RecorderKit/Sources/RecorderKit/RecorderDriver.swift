@@ -647,11 +647,18 @@ public final class RecorderDriver: LinkDriver {
     /// Written on a waiting row whose create met silence (`PendingQueue.flush`, `QueueTarget.heldAfterSilence`),
     /// which holds it as a refusal does, and said on the line as that silence. It may have been made: whether
     /// it was is for the reader to see in the recorder's list, and the row goes again only when they send it
-    /// again. Not looked for on the recorder, as a television's row is: a look at one list of at most 200 rows,
-    /// read just after the create, can miss it. Stored on the phone's rows: a rewording keeps every wording a
-    /// build has written recognised wherever the rows are told by it.
+    /// again -- and then only once a list known to be whole has not shown it (`RecorderClient.send`). It does
+    /// not go by itself on a look, as a television's row does: one list of at most 200 rows can miss it. Stored
+    /// on the phone's rows: a rewording keeps every wording a build has written recognised, in
+    /// `heldAfterSilence(matches:)`.
     public nonisolated static let heldAfterSilence = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"
         + "自動では送り直しません。予約一覧で確かめ、届いていなければ「もう一度送る」を選んでください。"
+
+    /// Whether `reason`, as a waiting row carries it, is the one written after silence at its create, in any
+    /// wording a build has written it in: the one above, so far.
+    public nonisolated static func heldAfterSilence(matches reason: String) -> Bool {
+        reason == heldAfterSilence
+    }
 
     /// Sends what waits in the phone's queue for the recorder, by the rules in `PendingQueue` -- the same ones
     /// the overnight run uses. What the round came to, nil when none ran, and the list read after it, nil when
@@ -681,11 +688,12 @@ public final class RecorderDriver: LinkDriver {
     /// held for another recorder all the same. The host is told the queue may have changed as it is looked at
     /// and after the round (`LinkHost.queueWritten`), so that the screens read it again.
     ///
-    /// The list is read after a round that made something only where nothing else reads it: after the attach
-    /// of a waking that a check began, outside any connect (`SessionState.waking`), so that the row that left
-    /// the queue is on screen as a reservation and its programme is not offered the recorder again. A
-    /// connect's attach has its list read as the connect gets there (`LinkHost.reached`), and a pull-down
-    /// reads it after the sending.
+    /// The round reads the list once as it opens, for the rows the recorder holds already, which leave the queue
+    /// unsent (`RecorderClient.openRound`); that list is the round's, and is not handed back. The list is read
+    /// after a round that made something only where nothing else reads it: after the attach of a waking that a
+    /// check began, outside any connect (`SessionState.waking`), so that the row that left the queue is on
+    /// screen as a reservation and its programme is not offered the recorder again. A connect's attach has its
+    /// list read as the connect gets there (`LinkHost.reached`), and a pull-down reads it after the sending.
     ///
     /// The count of recorders let go of is noted as this is asked, with the client and the question whether it
     /// can be asked; once the queue has been read, and again once the check has answered, both are asked again,
@@ -703,13 +711,16 @@ public final class RecorderDriver: LinkDriver {
 
     /// The sending. `row`: the id of the one row `resend` sends again, and nil for what waits. For that row the
     /// round is the row's alone (`PendingQueue.flush`'s `only`), under the line of `resend`, which has made the
-    /// check already. It runs whatever the queue holds of the row as it is looked at: a row another sending has
-    /// taken meanwhile is answered from the list. The list is read after it, for `resend` to hand back, as a
-    /// television's row sent again has it (`TVDriver.sendOne`): when the round did not leave the row waiting or
-    /// drop it as over and nothing stopped it -- after a row made, and after a round that had the row in none
-    /// of its lists, where the list is all that says what became of it -- while the recorder can be asked.
-    private func sendWhatWaits(sendingAgain row: String?) async -> (round: PendingQueue.Outcome?,
-                                                                     list: [Reservation]?) {
+    /// check already, and `consent` the reason of a row held after silence that the reader sent again, handed to
+    /// the round as their consent (`PendingQueue.flush`'s `consenting`). It runs whatever the queue holds of the
+    /// row as it is looked at: a row another sending has taken meanwhile is answered from the list. The list is
+    /// read after it, for `resend` to hand back, as a television's row sent again has it (`TVDriver.sendOne`):
+    /// when the round did not leave the row waiting or drop it as over and nothing stopped it -- after a row
+    /// made, and after a round that had the row in none of its lists, where the list is all that says what
+    /// became of it -- while the recorder can be asked.
+    private func sendWhatWaits(sendingAgain row: String?,
+                               consentingTo consent: String? = nil) async -> (round: PendingQueue.Outcome?,
+                                                                              list: [Reservation]?) {
         guard let link, link.client is RecorderClient, let store = link.owner?.cache, canBeAsked(on: link) else {
             return (nil, nil)
         }
@@ -737,7 +748,8 @@ public final class RecorderDriver: LinkDriver {
                   let client = link.client as? RecorderClient else {
                 return (nil, nil)
             }
-            let round = await PendingQueue.flush(client: client, store: store, only: row)
+            let consenting = row.flatMap { id in consent.map { [id: $0] } } ?? [:]
+            let round = await PendingQueue.flush(client: client, store: store, consenting: consenting, only: row)
             if !link.letGo(since: began) { self.say(stopped: round.stopped, on: link) }
             await link.owner?.queueWritten()
             if let row {
@@ -765,7 +777,7 @@ public final class RecorderDriver: LinkDriver {
             _ = link.say(.silentAfterSending(sentence: Self.heldAfterSilence))
         case .silent(afterSending: false)?:
             _ = link.say(.silentOnARead(sentence: noAnswerLine))
-        case .needsPairing?, .cannotRecord?, .saysNothing?, nil:
+        case .needsPairing?, .cannotRecord?, .saysNothing?, .notKnownThere?, nil:
             break
         }
     }
@@ -775,9 +787,19 @@ public final class RecorderDriver: LinkDriver {
     /// by itself the next time the recorder answers.
     public static let waitsPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を端末に保存しました。"
         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
-    /// Said of a row sent again that the recorder's list held already. Reached by no round of the recorder's
-    /// yet, which looks for nothing on the recorder before it sends (`RecorderClient.openRound`).
+    /// Said of a row sent again that the recorder's list held already, as the round found it before sending
+    /// (`RecorderClient.openRound`).
     public static let foundThere = "レコーダーにはこの番組の予約がすでにありました。"
+    /// Said of a row held after silence at its create that the reader sent again, when the list the round opened
+    /// on could not say it was not there for being too long -- 200 reservations returned, the most one read lists,
+    /// or more said to be there -- so that nothing was sent (`RecorderClient.send`). It keeps its reason. The way
+    /// out it names goes by no look: a reservation made from the guide is sent as any reservation is.
+    public static let notKnownThere = "レコーダーの予約が多いため、この予約が届いているか一覧で確かめられませんでした。送っていません。"
+        + "レコーダー本体の予約一覧で確かめ、届いていなければ、この送信待ちの予約を削除してから番組表で予約し直してください。"
+    /// The same, when that list could not be read -- the recorder busy with somebody else, a fault, an answer that
+    /// does not read: the next try may read it.
+    public static let notKnownThereUnread = "レコーダーの予約一覧を読めなかったため、この予約が届いているか確かめられませんでした。"
+        + "送っていません。少し待ってから、もう一度送ってください。"
     /// Said of a row sent again whose programme's end has passed: it is neither made nor kept. The television's
     /// letters, read from its driver, so that the two devices say it alike.
     public static var programmeIsOver: String { TVDriver.programmeIsOver }
@@ -798,9 +820,10 @@ public final class RecorderDriver: LinkDriver {
     /// and one that has gone is left at that.
     ///
     /// The row's reason is taken off, so that it goes with the rest from now on, and the host is told, so that
-    /// the screens show it without one: before a connect, which sends it, and otherwise once the recorder has
-    /// been made sure of. Not before: the check can wake the recorder, and the waking's attach sends what
-    /// waits, as any attach does. The row keeps its reason through that sending, and goes in a round of its
+    /// the screens show it without one -- only while it is the reason the row was read with, so that one another
+    /// recorder's arrival writes meanwhile stands: before a connect, which sends it, and otherwise once the
+    /// recorder has been made sure of. Not before: the check can wake the recorder, and the waking's attach sends
+    /// what waits, as any attach does. The row keeps its reason through that sending, and goes in a round of its
     /// own after it, which says what it came to. Nor at all when the recorder was let go of while it was made
     /// sure of (`DeviceLink.letGo(since:)`) -- another recorder heard on the waking, whose arrival writes on
     /// every waiting row that it is held for the one before (`heldForAnotherRecorder`): the row as read before
@@ -819,6 +842,29 @@ public final class RecorderDriver: LinkDriver {
     /// Otherwise the row is sent now, and no other, as a television's row sent again is: the round is for that
     /// row alone (`PendingQueue.flush`'s `only`), and what else waits goes with the next sending of what waits.
     ///
+    /// A row held after silence at its create (`heldAfterSilence(matches:)`) keeps its reason, and sending it
+    /// again is the reader's consent to send it once more though it may be on the recorder already: the reason
+    /// the queue has for it is handed to the round as that consent, as a television's row held for what it would
+    /// stop is (`TVDriver.resend`). The round's list says whether it may go (`RecorderClient.send`): held there,
+    /// it leaves the queue as there; known not to be, it is sent; not known -- a list of 200, or none read --
+    /// nothing is sent, it keeps its reason, and the answer says which of the two it was. Connected to here, it
+    /// is not sent by that connect's attach, which sends no row with a reason, but from here once the connect
+    /// has made the recorder one that can be asked, as a television's held row is; a connect that does not get
+    /// that far leaves it unsent, said as not connected. Its reason comes off only once its round has passed it
+    /// over, a list that did not hold it having been read and its create answered with something that says it
+    /// was not taken: it then goes by itself, as any row passed over does. Only while the reason is still the
+    /// one handed in, and never when the recorder was let go of while the round was out.
+    ///
+    /// Any row sent again, held after silence or not, whose recorder was let go of while its round was out
+    /// (`DeviceLink.letGo(since:)`) has had written on it by the arrival of another that it is held for the one
+    /// before, which stands, whatever its create was answered with. What the round came to is not the one in
+    /// play's to say: unless the round made the row, the result says why, as above (`whyLetGo`) -- but for two
+    /// answers that are truer. A row the round did not see, which another sending took first and may have made
+    /// on the recorder let go of, could not be confirmed, as ever: the list that would say is not read across the
+    /// let-go. A create that met silence may have arrived on the recorder let go of. That is said as a delete's
+    /// or a change's silence across such an arrival is, on the line and in the result (`mayHaveArrived`), and
+    /// loses nobody (`DeviceLink.say(_:since:ofARead:)`).
+    ///
     /// What the row came to is about the row as it waits now, its reason gone where it was taken off here. A
     /// round is read by `came`. Where no round answers for it: nil for one turned away at the door or no longer
     /// in the queue; not done, saying why, for one whose check let go of the recorder; what the queue shows of
@@ -832,38 +878,63 @@ public final class RecorderDriver: LinkDriver {
         guard var row = (try? await store.pendingReservations())?.first(where: { $0.id == waiting.id }) else {
             return (nil, nil, nil)
         }
+        let consent = row.problem.flatMap { Self.heldAfterSilence(matches: $0) ? $0 : nil }
         func takeTheReasonOff() async {
-            if row.problem != nil, (try? await store.setPendingProblem(row.id, nil)) != nil { row.problem = nil }
+            if consent == nil, let reason = row.problem,
+               (try? await store.clearPendingProblem(row.id, ifItIs: reason)) != nil {
+                row.problem = nil
+            }
             await link.owner?.queueWritten()
-        }
-        guard !link.offline else {
-            await takeTheReasonOff()
-            await link.connect()
-            return (nil, nil, await leftToTheConnect(row, on: link, from: store))
         }
         let began = link.generation
         var letGo: String?
-        let sent = await link.underALine(Self.sendingLine) { _ -> OneSent? in
-            let up = await link.ensureUp(evenIfRecent: link.checksAgain)
-            // The row as read before the check is the recorder let go of's: the reason the arrival wrote stands.
-            guard !link.letGo(since: began) else {
-                letGo = self.whyLetGo(on: link)
-                return (nil, nil)
+        func sendNow() async -> OneSent? {
+            await link.underALine(Self.sendingLine) { _ -> OneSent? in
+                let up = await link.ensureUp(evenIfRecent: link.checksAgain)
+                // The row as read before the check is the recorder let go of's: the reason the arrival wrote stands.
+                guard !link.letGo(since: began) else {
+                    letGo = self.whyLetGo(on: link)
+                    return (nil, nil)
+                }
+                await takeTheReasonOff()
+                guard up else { return (nil, nil) }
+                // The connect goes once the line is down: it has a line of its own.
+                guard self.canBeAsked(on: link) else { return nil }
+                guard link.mayBeSent else {
+                    self.sayWhyNotSent(on: link)
+                    return (nil, nil)
+                }
+                return await self.sendWhatWaits(sendingAgain: row.id, consentingTo: consent)
             }
-            await takeTheReasonOff()
-            guard up else { return (nil, nil) }
-            // The connect goes once the line is down: it has a line of its own.
-            guard self.canBeAsked(on: link) else { return nil }
-            guard link.mayBeSent else {
-                self.sayWhyNotSent(on: link)
-                return (nil, nil)
-            }
-            return await self.sendWhatWaits(sendingAgain: row.id)
         }
+        // A connect, and then the row held after silence sent from here, where the connect leaves the recorder
+        // one that can be asked; every other row is left to that connect's attach.
+        func connectFirst() async -> Bool {
+            await link.connect()
+            return consent != nil && canBeAsked(on: link)
+        }
+        if link.offline {
+            await takeTheReasonOff()
+            guard await connectFirst() else {
+                return (nil, nil, await leftToTheConnect(row, consentingTo: consent, on: link, from: store))
+            }
+        }
+        var sent = await sendNow()
+        if sent == nil, letGo == nil, await connectFirst() { sent = await sendNow() }
         if let letGo { return (nil, nil, .notDone(letGo)) }
         guard let sent else {
-            await link.connect()
-            return (nil, nil, await leftToTheConnect(row, on: link, from: store))
+            return (nil, nil, await leftToTheConnect(row, consentingTo: consent, on: link, from: store))
+        }
+        // Let go of while the round was out: the reason the arrival wrote on the row stands, and what came of the
+        // round is not the one in play's to say.
+        guard !link.letGo(since: began) else {
+            return (sent.round, sent.list, acrossALetGo(await came(row, sent, from: store), sent, on: link,
+                                                        since: began))
+        }
+        if let consent, let round = sent.round, round.deferred.contains(where: { $0.id == row.id }),
+           (try? await store.clearPendingProblem(row.id, ifItIs: consent)) != nil {
+            row.problem = nil
+            await link.owner?.queueWritten()
         }
         return (sent.round, sent.list, await came(row, sent, from: store))
     }
@@ -871,6 +942,22 @@ public final class RecorderDriver: LinkDriver {
     /// What a round for one row, and the list read after it, hand back: nil for a round that never ran, and
     /// for a list that was not read.
     private typealias OneSent = (round: PendingQueue.Outcome?, list: [Reservation]?)
+
+    /// What one row's round came to, as `came` read it, when the recorder was let go of while the row waited for
+    /// the round or the round was out (`DeviceLink.letGo(since:)`, by the count `began` noted as the operation
+    /// began): made, when the round made it, as ever; that it could not be confirmed, when the round did not see
+    /// the row, as ever -- another sending took it first, and may have made it on the recorder let go of, which
+    /// the list, not read across the let-go, cannot say; when its create met silence, that it may have arrived,
+    /// on the line and in the result, as a delete's or a change's silence across such an arrival -- the newcomer
+    /// lost by nobody (`DeviceLink.say(_:since:ofARead:)`); and otherwise not done, saying why (`whyLetGo`):
+    /// nothing was sent, or what was sent was turned down or passed over.
+    private func acrossALetGo(_ came: Reserved, _ sent: OneSent, on link: DeviceLink, since began: Int) -> Reserved {
+        if case .made = came { return came }
+        if came == .notDone(Self.couldNotBeConfirmed) { return came }
+        guard sent.round?.stopped == .silent(afterSending: true) else { return .notDone(whyLetGo(on: link)) }
+        _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived), since: began)
+        return .notDone(Self.mayHaveArrived)
+    }
 
     /// What one row sent again came to, as a television's (`TVDriver.came`). `row` is the row as it waits now,
     /// its reason gone where that was taken off. With no round the row was not sent (`notSent`). A round for
@@ -896,7 +983,10 @@ public final class RecorderDriver: LinkDriver {
     /// - Dropped because its programme was over: neither made nor kept.
     /// - Passed over: kept with no reason, to go by itself (`waitsPassedOver`).
     /// - The round stopped at silence after its create: held with the reason the round wrote on it
-    ///   (`heldAfterSilence`). At silence before it, at the USB slot: kept with no reason (`keptUnsent`).
+    ///   (`heldAfterSilence`). At silence before it, at the list or the USB slot: kept as it was (`notSent`).
+    /// - The round stopped with nothing sent for a row held after silence, its list not able to say the row was
+    ///   not there: held with its reason, and said so, by why the list could not say it -- too long
+    ///   (`notKnownThere`) or not read (`notKnownThereUnread`).
     ///
     /// A row in none of the round's lists, with nothing stopped, was not in the queue when the round came to
     /// it: another sending took it first, the reader deleted it, or the queue could not be read. Its absence
@@ -918,8 +1008,10 @@ public final class RecorderDriver: LinkDriver {
             var held = row
             held.problem = Self.heldAfterSilence
             return .waiting(held, saying: Self.heldAfterSilence)
+        case .notKnownThere(let listRead)?:
+            return .waiting(row, saying: listRead ? Self.notKnownThere : Self.notKnownThereUnread)
         case .silent(afterSending: false)?, .needsPairing?, .cannotRecord?, .saysNothing?:
-            return .waiting(row, saying: Self.keptUnsent)
+            return notSent(row)
         case nil:
             break
         }
@@ -929,9 +1021,10 @@ public final class RecorderDriver: LinkDriver {
 
     /// What a row sent again is answered as when nothing could be asked about it: the check said no, or heard
     /// something else than the recorder saying which it is, or the recorder could not be sent to in the turn
-    /// the round's client was read. One with no reason goes the next time the recorder answers, and is said
-    /// so, as a reservation kept on the phone is (`keptUnsent`). One that still carries a reason -- one that
-    /// could not be taken off -- waits for the reader, and why it was not sent is that the app is not connected.
+    /// the round's client was read, or fell silent before the round had sent anything. One with no reason goes
+    /// the next time the recorder answers, and is said so, as a reservation kept on the phone is (`keptUnsent`).
+    /// One that still carries a reason -- one that could not be taken off, or one held after silence, which
+    /// keeps it -- waits for the reader, and why it was not sent is that the app is not connected.
     private func notSent(_ row: PendingReservation) -> Reserved {
         .waiting(row, saying: row.problem == nil ? Self.keptUnsent : whyNotConnected)
     }
@@ -943,18 +1036,21 @@ public final class RecorderDriver: LinkDriver {
     ///
     /// - Gone: nil. That sending made it or dropped it as over, and the host says which. Nil too where the
     ///   queue cannot be read, and nothing is known of the row.
-    /// - There with a reason: that sending wrote it -- a refusal, or silence at its create -- and it is said as
-    ///   it stands.
+    /// - There with the reason it was sent again with (`consent`), a row held after silence: that sending, which
+    ///   sends no row with a reason, did not send it, nor did this, and why is that the app is not connected
+    ///   (`notSent`), as for such a row whose round could not run. Its reason tells the reader to send it again.
+    /// - There with another reason: that sending wrote it -- a refusal, or silence at its create -- and it is
+    ///   said as it stands.
     /// - There with none, and the recorder still cannot be asked: it goes when the recorder answers
     ///   (`keptUnsent`).
     /// - There with none, and the recorder can be asked: the connect got through, and its sending passed the
     ///   row over (`waitsPassedOver`).
-    private func leftToTheConnect(_ row: PendingReservation, on link: DeviceLink,
+    private func leftToTheConnect(_ row: PendingReservation, consentingTo consent: String?, on link: DeviceLink,
                                   from store: GuideStore) async -> Reserved? {
         guard let waits = (try? await store.pendingReservations())?.first(where: { $0.id == row.id }) else {
             return nil
         }
-        if let reason = waits.problem { return .waiting(waits, saying: reason) }
+        if let reason = waits.problem { return reason == consent ? notSent(waits) : .waiting(waits, saying: reason) }
         return .waiting(waits, saying: canBeAsked(on: link) ? Self.waitsPassedOver : Self.keptUnsent)
     }
 

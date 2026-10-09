@@ -21,8 +21,9 @@ final class SilenceAtACreateTests: XCTestCase {
         let store = try temporaryStore()
         for row in recorders { try await store.queue(row) }
         let made = Stub.soap("X_CreateRecordSchedule", extra: "<RecordScheduleID>0x1</RecordScheduleID>")
+        // The list read as the round opens, and the first create.
         let transport = StubTransport { _, index in
-            guard index == 0 else { throw RecorderError.transport("timed out") }
+            guard index <= 1 else { throw RecorderError.transport("timed out") }
             return made
         }
 
@@ -31,7 +32,7 @@ final class SilenceAtACreateTests: XCTestCase {
 
         XCTAssertEqual(round.stopped, .silent(afterSending: true))
         XCTAssertEqual(round.sent.map(\.id), [recorders[0].id])
-        expectEqual(await transport.requests.count, 2, "something was sent after the create that met silence")
+        expectEqual(await transport.requests.count, 3, "something was sent after the create that met silence")
         let left = try await store.pendingReservations()
         XCTAssertEqual(left.map(\.id), [recorders[1].id, recorders[2].id])
         XCTAssertEqual(left.map(\.problem), [RecorderDriver.heldAfterSilence, nil],

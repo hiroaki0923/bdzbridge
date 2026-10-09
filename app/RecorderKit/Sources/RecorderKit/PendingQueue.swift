@@ -60,8 +60,9 @@ public enum PendingQueue {
     ///
     /// One the device refused with a reason of its own keeps that reason and is not sent again, since the
     /// answer would be the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`)
-    /// or cancel it. A failure that says nothing about the reservation -- a 503, an answer with no code --
-    /// leaves it as it was.
+    /// or cancel it. The reason is written over the one the row was sent with alone -- none, or the one
+    /// consented to: one written while the create was out stands, as it does for silence. A failure that says
+    /// nothing about the reservation -- a 503, an answer with no code -- leaves it as it was.
     ///
     /// `consenting`: the rows the reader has said to make though they stop another reservation from
     /// recording, each by its id with the reason the reader consented to, letter for letter. A consent is
@@ -170,7 +171,7 @@ public enum PendingQueue {
                 try? await store.removePending(pending.id)
                 outcome.alreadyThere.append(pending)
             case .refused(let reason):
-                try? await store.setPendingProblem(pending.id, reason)
+                try? await store.setPendingProblem(pending.id, reason, ifItIs: pending.problem)
                 var refused = pending
                 refused.problem = reason
                 outcome.refused.append(refused)
