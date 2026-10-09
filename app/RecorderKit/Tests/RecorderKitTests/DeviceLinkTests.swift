@@ -279,6 +279,31 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertEqual(world.problem, Self.noAnswer)
     }
 
+    /// Silence is said once, at a waking too. What a write or a reservation that met silence left on the line --
+    /// that it may have arrived, which is all the reader has to go by -- is not cleared as the waking begins,
+    /// nor written over by its giving up, nor by the search after it; any other line is, as above.
+    func testAWakingThatGetsNoAnswerLeavesWhatSomethingSentSaid() async {
+        let world = LinkWorld()
+        place(silent: true, in: world)
+        world.near = [Self.moved]
+        let link = makeLink(mac: Self.mac, world)
+
+        for said in [RecorderDriver.mayHaveArrived, RecorderDriver.reservationMayHaveArrived] {
+            world.problem = said
+            world.events = []
+            await link.connect()
+
+            XCTAssertGreaterThan(world.count("ask description.xml"), 1, "not asked again after the packet")
+            XCTAssertEqual(world.count("search"), 1)
+            XCTAssertTrue(link.session.gaveUp)
+            XCTAssertEqual(world.problem, said, "the waking wrote over what was sent and may have arrived")
+        }
+
+        world.problem = "left by the request before"
+        await link.connect()
+        XCTAssertEqual(world.problem, Self.noAnswer)
+    }
+
     /// A recorder silent where it was, and not woken there, is looked for once on the subnet by the MAC its UDN
     /// ends with. Found, it is the recorder the app had and nothing of it is forgotten: the address moves --
     /// written down, then where the MAC was read -- and it is attached there with a client of its own.

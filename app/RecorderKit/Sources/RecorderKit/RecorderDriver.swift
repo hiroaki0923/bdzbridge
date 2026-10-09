@@ -65,9 +65,19 @@ public final class RecorderDriver: LinkDriver {
     public nonisolated static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
 
-    /// Every one, whatever the session says: a recorder that answered without saying which it is is not
-    /// connected, is read all the same, and its silence is to lose it and be said like any other.
-    public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { true }
+    /// Only while the recorder is not known to be away already: silence is said once, as a television's is, so
+    /// that a read which waited its turn behind the request that met it does not write over what that one said
+    /// -- something sent that may have arrived. Not by whether it is connected, as a television's goes: a
+    /// recorder that answered without saying which it is is not connected, is read all the same, and its silence
+    /// is to lose it and be said like any other.
+    public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { !link.session.unreachable }
+
+    /// Whether the line says that something sent met silence and may have arrived (`mayHaveArrived`,
+    /// `reservationMayHaveArrived`): all the reader has to go by until the recorder answers, which what an attach
+    /// or a waking meets on the way does not write over.
+    private static func saysItMayHaveArrived(_ line: String?) -> Bool {
+        line == mayHaveArrived || line == reservationMayHaveArrived
+    }
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         RecorderClient(host: link.host, transport: link.environment.transport(link.host),
@@ -92,6 +102,10 @@ public final class RecorderDriver: LinkDriver {
     /// in either has not reached anything to show. Once the description and what goes with it have been read, and
     /// before what waits is sent, the client is the one whose attach went through (`DeviceLink.attachedClient`),
     /// as a television's attach has it: what is asked from inside the attach is asked of that client.
+    ///
+    /// An attach that fails says why on the host's line, but for silence over a line that says something sent
+    /// may have arrived, as a television's attach leaves it: that the recorder is silent still adds nothing to it.
+    /// One that goes through clears the line.
     ///
     /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet.
     public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
@@ -141,7 +155,8 @@ public final class RecorderDriver: LinkDriver {
             // else answered, and what is known of the recorder stands (`SessionState.attachFailed`).
             link.session.attachFailed(deviceError?.failure)
             // Quiet keeps only silence off the screen, since only silence is answered with a magic packet.
-            if !quiet || !link.session.unreachable {
+            let saidAlready = deviceError?.failure == .silent && Self.saysItMayHaveArrived(owner?.problem)
+            if !saidAlready, !quiet || !link.session.unreachable {
                 owner?.problem = deviceError?.explanation ?? String(describing: error)
             }
             return false
@@ -401,13 +416,16 @@ public final class RecorderDriver: LinkDriver {
 
     /// The magic packet, then waiting for the recorder to answer; a BDZ-FBT4100 is back in about ten seconds.
     /// The wait goes on in a task of its own whatever becomes of the caller: a pull on the list abandoned half
-    /// way must not leave the app given up on a recorder that is coming up.
+    /// way must not leave the app given up on a recorder that is coming up. The line of what went wrong is
+    /// cleared as it begins and says so when the recorder does not answer, but for a line that says something
+    /// sent may have arrived, which stays as it is.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool {
         guard link.session.unreachable, link.session.mac != nil else { return false }
         sendPacket(link)   // again: the attempt sends one too, and a second costs nothing
         let owner = link.owner
-        // Nothing is wrong yet, so nothing on screen should say there is.
-        owner?.problem = nil
+        // Nothing is wrong yet, so nothing on screen should say there is; but that something sent may have arrived
+        // is still all the reader has to go by.
+        if !Self.saysItMayHaveArrived(owner?.problem) { owner?.problem = nil }
         link.session.beginWaking()
         let activity = owner?.beginActivity(Self.wakingLine(0))
         defer {
@@ -426,7 +444,9 @@ public final class RecorderDriver: LinkDriver {
         if outcome == .answered {
             return await attach(link, client: client, what: "接続中", timeout: probeTimeout, quiet: false)
         }
-        owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
+        if !Self.saysItMayHaveArrived(owner?.problem) {
+            owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
+        }
         return false
     }
 

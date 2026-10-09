@@ -401,6 +401,63 @@ final class ReservationGateTests: XCTestCase {
         }
     }
 
+    /// Silence is said once, as a television's: a pull-down's read asked for while a delete is out waits its
+    /// turn behind the delete in the client's queue, and when the delete has met silence that read meets it
+    /// too. It leaves what the delete said -- that it may have arrived, which is all the reader has to go by
+    /// -- where it is, and sends nothing more.
+    func testAReadBehindAWriteThatMetSilenceLeavesWhatTheWriteSaid() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.delete)
+        let deleting = Task { await model.cancel(row) }
+        try await until("the delete never got to the recorder") {
+            await recorder.heard(since: count).contains(Kind.delete)
+        }
+        let pulling = Task { await model.refreshReservations() }
+        try await until("the pull-down's read was never asked for") { model.busy == "予約一覧を取得中" }
+        // Long enough for that read to be waiting its turn behind the delete.
+        try await Task.sleep(for: .milliseconds(300))
+        // Silent to the delete held, and to the read after it.
+        await recorder.goQuiet(for: 2)
+        await recorder.letGo()
+        expectFalse(await deleting.value, "a delete that met silence was taken for done")
+        await pulling.value
+
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.delete, Kind.list],
+                    "the pull-down's read did not wait behind the delete, or something more was sent")
+        XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived,
+                       "the read's silence was said over what the delete's said")
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertNil(model.busy)
+    }
+
+    /// The same at the connect asked for after it: a write that met silence says that it may have arrived, and
+    /// the connect wakes the recorder, which answers the waking only to fall silent again in the attach after
+    /// it. Neither the waking, as it begins, nor the attach that met silence writes over that sentence.
+    func testAWakingAndAnAttachAfterAWriteThatMetSilenceLeaveWhatTheWriteSaid() async throws {
+        let (_, recorder, model) = try await connectedHome(wakeable: true)
+        let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        await recorder.goQuiet(on: Kind.delete)
+        expectFalse(await model.cancel(row), "a delete that met silence was taken for done")
+        XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived)
+        XCTAssertTrue(model.gaveUp)
+
+        // Silent to the connect's first ask, answering the waking's, and silent again inside the attach.
+        let before = await recorder.asked
+        await recorder.goQuiet(for: 1)
+        await recorder.goQuiet(on: Kind.firmware)
+        await model.connect()
+
+        expectEqual(await recorder.asked(Kind.firmware, since: before), 1,
+                    "the attach after the waking never got as far as the firmware")
+        XCTAssertFalse(model.connected, "the recorder was meant to fall silent in the attach after the waking")
+        XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived,
+                       "the waking or the attach after it wrote over what the delete said")
+        XCTAssertTrue(model.gaveUp)
+    }
+
     /// A delete or a change whose read is out when a connect finds the same recorder at another address -- the
     /// router has handed it another lease -- with a client of its own. The write goes out once, on that client,
     /// and nothing more goes to the address the recorder left. Each reads the recorder's client again after its
@@ -1269,6 +1326,8 @@ private enum Kind {
     static let clashes = "X_GetConflictList"
     /// What a connect asks first, and the check before an operation.
     static let description = "description.xml"
+    /// Read by every attach, after the description.
+    static let firmware = "X_GetFirmwareVersion"
 }
 
 /// A delete or a change of one of the recorder's reservations, as a screen asks for it: each by what the
