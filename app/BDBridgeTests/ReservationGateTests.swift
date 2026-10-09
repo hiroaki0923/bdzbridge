@@ -448,6 +448,51 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertNil(model.reservation(for: program), "the list on screen is the one read for the recorder let go of")
     }
 
+    /// The same for a reservation: made on the recorder in play, whose list is read again once the create has
+    /// been answered, and another recorder answers a connect while that read is out. The newcomer's arrival
+    /// empties the lists in that turn and its connect reads its own. The list the reservation read comes back
+    /// afterwards and is not put over the newcomer's, by the rule a read's list is kept by.
+    ///
+    /// The read is held only once the create has been heard, so that it is the read after the create and no
+    /// read before it. The bench's recorder answers it as the newcomer, once a reservation has been made on the
+    /// newcomer's own screen, so that what it read can be told from what the connect read.
+    func testAReservationMadeAcrossAnotherRecordersArrivalLeavesTheNewcomersList() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let programs = try await programmesNotReserved(model, 2)
+        let forgotten = model.timesForgotten
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.create)
+        let reserving = Task { await reserveOnTheRecorder(model, programs[0], quality: "DR", repeating: "none") }
+        try await until("the reservation never got to the recorder") {
+            await recorder.heard(since: count).contains(Kind.create)
+        }
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.list)
+        await recorder.letGo(only: Kind.create)
+        try await until("the list was never read after the reservation") {
+            await recorder.asked(Kind.list, since: before) == 1
+        }
+
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertGreaterThan(model.timesForgotten, forgotten, "the lists were meant to go as the newcomer arrived")
+        let newcomers = model.reservations
+        XCTAssertFalse(newcomers.isEmpty, "the newcomer's connect did not put its list on screen")
+        // Made on the newcomer from its own screen, so that the list the held read comes back with is not the
+        // one the connect read.
+        try await aClient(of: recorder).create(try XCTUnwrap(ReservationRequest(program: programs[1], quality: "DR",
+                                                                                 repeating: "none")))
+        await recorder.letGo()
+        _ = await reserving.value
+
+        XCTAssertEqual(model.reservations, newcomers,
+                       "the list read after the reservation for the recorder let go of was put over the newcomer's")
+        XCTAssertNil(model.reservation(for: programs[1]),
+                     "the list on screen is the one read after the reservation for the recorder let go of")
+    }
+
     /// As it is today, and to be rewritten whole: only silence stops a write after the read before it. A
     /// read the recorder turned down -- with a fault, or busy through both tries after the first -- leaves the
     /// app not offline, so the reservation is looked for in the list in hand, and the write goes out. Afterwards
