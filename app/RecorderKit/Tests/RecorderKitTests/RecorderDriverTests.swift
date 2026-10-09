@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import RecorderKit
+import RecorderKit
 
 /// What the recorder's driver does with the reservations asked of it after its attach, on a link of its own in
 /// a world that puts down what it was asked (`LinkWorld`). The steps themselves are held by the app's tests, which

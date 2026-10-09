@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import RecorderKit
+import RecorderKit
 
 /// What the recorder's driver sends after a wait inside one of its operations -- the queue read before what waits
 /// is sent, the USB slot waited for before a change or a reservation that names it -- when something has been

@@ -1,5 +1,5 @@
 import XCTest
-@testable import RecorderKit
+import RecorderKit
 
 /// Read-only checks against a real recorder, skipped unless `RECORDER_HOST` names one on the LAN:
 ///
