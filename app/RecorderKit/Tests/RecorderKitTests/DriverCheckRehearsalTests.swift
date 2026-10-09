@@ -35,6 +35,61 @@ final class DriverCheckRehearsalTests: XCTestCase {
         XCTAssertEqual(after.count, before.count)
     }
 
+    /// The same, with the row the recorder makes for itself carrying the mark of an app, as a recorder has been
+    /// seen to put it on reservations no app made: it meets the whole rule the check tells its own by, and is
+    /// listed ahead of the check's own. Which of the two is the check's cannot be told, so the check stops there
+    /// -- nothing is changed and nothing deleted, the recorder's row and the check's own among them -- and says
+    /// that a reservation may be left at the programme's time.
+    func testTheCheckWritesNothingMoreWhenItCannotTellItsOwnRow() async throws {
+        let recorder = try RecorderReservations(Self.household(), guide: Self.guide(),
+                                                itsOwnAfterTheCreate: [Self.itsOwnAtSix()], marksItsOwnWith: "2200")
+        let before = await recorder.rows
+
+        let (failure, lines) = try await rehearse(on: recorder)
+
+        let failed = try XCTUnwrap(failure as? DriverCheck.Failed, "the check went on past two rows taken for its own")
+        XCTAssertTrue(failed.description.hasPrefix("2 new reservations"), failed.description)
+        let made = await recorder.made
+        XCTAssertEqual(made.count, 1)
+        expectEqual(await recorder.changed, [], "a row was changed though the check's own could not be told")
+        expectEqual(await recorder.deleted, [], "a row was deleted though the check's own could not be told")
+        let six = try Self.date("2026-09-14T06:00:00+09:00")
+        let after = await recorder.rows
+        let itsOwn = try XCTUnwrap(after.first(where: { $0.id != made[0].id && $0.request.start == six }))
+        XCTAssertEqual(itsOwn.creator, "2200")
+        XCTAssertEqual(itsOwn.request, try Self.itsOwnAtSix(), "the recorder's own row was written to")
+        XCTAssertTrue(after.contains(made[0]), "the check's own was written to")
+        XCTAssertTrue(after.contains(before[0]), "the household's reservation was written to")
+        XCTAssertTrue(lines.contains { $0.hasPrefix("may be left on the recorder: a reservation at "
+                                                    + RecorderTime.format(six)) }, "\(lines)")
+    }
+
+    /// The recorder makes a row of its own for the programme only once the check has deleted its own, marked as
+    /// an app's: the one new row at the programme's time, it meets the whole rule the check tells its own by. The
+    /// check never held its id, and its own delete has gone through, so the row is not the check's own: the
+    /// clean-up leaves it, nothing but the check's own is deleted, and the check says that a reservation may be
+    /// left at the programme's time.
+    func testTheCheckLeavesARowItNeverHeldOnceItsOwnIsDeleted() async throws {
+        let recorder = try RecorderReservations(Self.household(), guide: Self.guide(),
+                                                itsOwnAfterADelete: [Self.itsOwnAtSix()], marksItsOwnWith: "2200")
+
+        let (failure, lines) = try await rehearse(on: recorder)
+
+        if let failure { XCTFail("the check failed: \(failure)") }
+        let made = await recorder.made
+        XCTAssertEqual(made.count, 1)
+        expectEqual(await recorder.deleted, made.map(\.id), "a row other than the check's own was deleted")
+        let six = try Self.date("2026-09-14T06:00:00+09:00")
+        let after = await recorder.rows
+        let itsOwn = try XCTUnwrap(after.first(where: { $0.request.start == six }),
+                                   "the recorder's own row at six was deleted")
+        XCTAssertEqual(itsOwn.creator, "2200")
+        XCTAssertEqual(itsOwn.request, try Self.itsOwnAtSix(), "the recorder's own row was written to")
+        XCTAssertTrue(lines.contains { $0.hasPrefix("may be left on the recorder: a reservation at "
+                                                    + RecorderTime.format(six)) }, "\(lines)")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("listed again") }, "\(lines)")
+    }
+
     /// A step that fails -- the change meets silence, and the link gives the recorder up -- still has the check
     /// delete its own reservation, through the client the link had, and the recorder ends with the reservations it
     /// began with. The failure is the change's.
@@ -143,8 +198,9 @@ final class DriverCheckRehearsalTests: XCTestCase {
 /// changed and deleted; and, beside them, the terrestrial guide of the vectors. Anything else is refused. It can
 /// meet a request with silence, list what was there at the read before rather than now, as a recorder a moment
 /// behind itself, leave what a create made out of the list for a number of reads, and work through its guide
-/// again right after a create, as a recorder does: what it made for itself is made again, all under new ids. What
-/// was made, changed and deleted is put down.
+/// again right after a create or a delete, as a recorder does: what it made for itself is made again, all under
+/// new ids, and marked as its own or, as a recorder has been seen to mark some, as an app's. What was made,
+/// changed and deleted is put down.
 actor RecorderReservations {
     /// One reservation as it keeps it: the id it gave, who made it (`Reservation.creator`) and what was asked.
     struct Row: Sendable, Equatable {
@@ -170,14 +226,23 @@ actor RecorderReservations {
     /// For each row a create made and the list leaves out still, how many more reads leave it out.
     private var unlisted: [String: Int] = [:]
     private let itsOwnAfterTheCreate: [ReservationRequest]?
+    private let itsOwnAfterADelete: [ReservationRequest]?
+    /// The rows it made for itself, by id, which working through its guide again makes anew; and the creator it
+    /// marks the new ones with.
+    private var itsOwn: Set<String>
+    private let marksItsOwnWith: String
 
     /// Holds `rows`, serves `guide`, meets the SOAP actions of `silentOn` with silence, lists a read behind when
     /// `aReadBehind`, leaves what a create made out of the next `listsACreateAfter` reads, and after a create
-    /// makes its own as `itsOwnAfterTheCreate`, when that is given.
+    /// makes its own as `itsOwnAfterTheCreate`, and after each delete as `itsOwnAfterADelete`, when that is
+    /// given, in place of those it holds as its own (creator 1100), each marked `marksItsOwnWith`.
     init(_ rows: [(creator: String, request: ReservationRequest)], guide: Data, silentOn: Set<String> = [],
-         aReadBehind: Bool = false, listsACreateAfter: Int = 0, itsOwnAfterTheCreate: [ReservationRequest]? = nil) {
+         aReadBehind: Bool = false, listsACreateAfter: Int = 0, itsOwnAfterTheCreate: [ReservationRequest]? = nil,
+         itsOwnAfterADelete: [ReservationRequest]? = nil, marksItsOwnWith: String = "1100") {
         self.rows = rows.enumerated().map { Row(id: Self.id($0.offset), creator: $0.element.creator,
                                                 request: $0.element.request) }
+        itsOwn = Set(self.rows.filter { $0.creator == "1100" }.map(\.id))
+        self.marksItsOwnWith = marksItsOwnWith
         given = self.rows
         atTheLastRead = self.rows
         self.guide = guide
@@ -185,6 +250,7 @@ actor RecorderReservations {
         self.aReadBehind = aReadBehind
         self.listsACreateAfter = listsACreateAfter
         self.itsOwnAfterTheCreate = itsOwnAfterTheCreate
+        self.itsOwnAfterADelete = itsOwnAfterADelete
     }
 
     func answer(_ request: HTTPRequest) throws -> HTTPResponse {
@@ -206,10 +272,7 @@ actor RecorderReservations {
             let row = add("2200", asked.request)
             made.append(row)
             if listsACreateAfter > 0 { unlisted[row.id] = listsACreateAfter }
-            if let itsOwn = itsOwnAfterTheCreate {
-                rows.removeAll { $0.creator == "1100" }
-                for request in itsOwn { add("1100", request) }
-            }
+            if let requests = itsOwnAfterTheCreate { makeItsOwnAgain(requests) }
             return Stub.soap(action)
         case "X_UpdateRecordSchedule":
             guard let asked = Self.asked(in: call), let index = rows.firstIndex(where: { $0.id == asked.id }) else {
@@ -223,10 +286,17 @@ actor RecorderReservations {
                   let index = rows.firstIndex(where: { $0.id == id }) else { return Stub.fault("804") }
             rows.remove(at: index)
             deleted.append(id)
+            if let requests = itsOwnAfterADelete { makeItsOwnAgain(requests) }
             return Stub.soap(action)
         default:
             return HTTPResponse(statusCode: 500)
         }
+    }
+
+    /// Its own made again as `requests`, under new ids, in place of those it holds as its own.
+    private func makeItsOwnAgain(_ requests: [ReservationRequest]) {
+        rows.removeAll { itsOwn.contains($0.id) }
+        itsOwn = Set(requests.map { add(marksItsOwnWith, $0).id })
     }
 
     @discardableResult

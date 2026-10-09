@@ -889,6 +889,19 @@ extension LiveRecorderTests {
 /// take for the check's own, and does not close it: the driver reads the list again itself before it writes, and
 /// an id gone between the two reads would still be found by its channel and start.
 ///
+/// The mark of an app is no guard on its own: the recorder has been seen to put it on reservations no app made
+/// (docs/xsrs-api.md), so a row it makes for itself for the same programme can meet the whole rule. What holds is
+/// that the check's own is the one new row there. When a read lists more than one -- after the create, after the
+/// change or after the delete, or at the clean-up -- which is the check's own cannot be told: the check writes
+/// nothing more, deletes none of them, and says that a reservation may be left at that time. And the check keeps
+/// the ids of the rows it has taken for its own: once its own delete has gone through, a row at that time whose
+/// id it never held is not its own, and the clean-up leaves it and says so.
+///
+/// One corner stays open. A list that lags behind the create, not yet listing the check's own, can list a row the
+/// recorder has just made for itself for the same programme, marked as an app's: the one new row there, it is
+/// taken for the check's own, and changed and deleted. No id is held by then to tell the two apart, the create
+/// handing none back.
+///
 /// It says counts, seconds and whether something was found: never a title, an id, an address or a MAC.
 @MainActor
 enum DriverCheck {
@@ -914,9 +927,10 @@ enum DriverCheck {
 
     /// The check, in its eight steps: connected and the list read; a programme taken from the guide; the clash
     /// check; the reservation made; changed; deleted; whatever happened, the check's own deleted if it is still,
-    /// again or only now listed; and as many reservations at the end as at the start. A step that fails ends it
-    /// there, after the clean-up, and is thrown; so is a skip. `now` is when the programme is to be four hours ahead
-    /// of, `pause` what goes by between two reads of a step, and `say` where its lines go.
+    /// again or only now listed, and alone there; and as many reservations at the end as at the start. A step that
+    /// fails ends it there, after the clean-up, and is thrown; so is a skip, and so are more new rows than one at
+    /// the chosen time. `now` is when the programme is to be four hours ahead of, `pause` what goes by between two
+    /// reads of a step, and `say` where its lines go.
     static func run(_ link: DeviceLink, driver: RecorderDriver, world: LinkWorld, now: Date,
                     pause: @MainActor () async throws -> Void, say: @MainActor (String) -> Void) async throws {
         // A sentence of the recorder's or of the line's, with the recorder's address taken out of it.
@@ -985,7 +999,20 @@ enum DriverCheck {
             !held.contains(row.id) && row.createdByApp && row.broadcastingType == channel
                 && row.serviceID == program.serviceID && row.start == program.start
         }
-        func ours(in list: [Reservation]?) -> Reservation? { list?.first(where: isOurs) }
+        // Set once a read has listed more than one row the rule takes: from then on nothing is written or deleted.
+        var notToldApart = false
+        // The ids of the rows the check has taken for its own, after the create and after the change.
+        var taken: Set<String> = []
+        // The check's own in `list`, or nil; more than one such row ends the check.
+        func ours(in list: [Reservation]?) throws -> Reservation? {
+            let matching = list?.filter(isOurs) ?? []
+            guard matching.count < 2 else {
+                notToldApart = true
+                throw Failed(description: "\(matching.count) new reservations at the chosen time:"
+                             + " which is the check's own cannot be told")
+            }
+            return matching.first
+        }
 
         var failure: (any Error)?
         // Whether the create went out, made or met by silence; and whether a delete of the check's own went through.
@@ -1011,15 +1038,17 @@ enum DriverCheck {
             }
             guard case .made = came.reserved else { throw Failed(description: "not made: \(words(came.reserved))") }
             let made = ContinuousClock.now
-            say("made in \(seconds(since: asked)); in the list handed back: \(ours(in: came.list) != nil)")
-            var found = ours(in: came.list)
+            let handedBack = came.list?.contains(where: isOurs) == true
+            say("made in \(seconds(since: asked)); in the list handed back: \(handedBack)")
+            var found = try ours(in: came.list)
             var reads = 0
             while found == nil, reads < 10 {
                 reads += 1
-                found = ours(in: try await readAgain())
+                found = try ours(in: try await readAgain())
                 if found != nil { say("listed at read \(reads), \(seconds(since: made)) after it was made") }
             }
             guard var current = found else { throw Failed(description: "made and not listed in ten reads") }
+            taken.insert(current.id)
             say("it carries the programme id: \(current.eventID == program.eventID)")
 
             // 5. Changed, and the list read until it shows the change: the one handed back, then a read every second
@@ -1035,10 +1064,11 @@ enum DriverCheck {
             reads = 0
             while true {
                 if let list {
-                    guard let listed = ours(in: list) else {
+                    guard let listed = try ours(in: list) else {
                         throw Failed(description: "no longer listed after the change")
                     }
                     current = listed
+                    taken.insert(listed.id)
                     if listed.qualityName == "SR" { break }
                 }
                 guard reads < 10 else { throw Failed(description: "the change not listed in ten reads") }
@@ -1049,15 +1079,16 @@ enum DriverCheck {
                 : "the change shown at read \(reads), \(seconds(since: changed)) after it was made")
 
             // 6. Deleted, and then whether it comes back in a read every second for ten: in what each read hands
-            // back, not in the list the delete handed back, from which the driver takes the row out itself.
+            // back, not in the list the delete handed back, from which the driver takes the row out itself; and
+            // by an id the check held, a new row at that time being none of its own.
             let deletion = await driver.cancel(current, inHand: { [] })
             guard deletion.deleted else { throw Failed(description: "not deleted: \(said(world.problem))") }
             gone = true
             let deleted = ContinuousClock.now
             var back: String?
             for read in 1...10 {
-                let listed = try await readAgain()
-                if back == nil, ours(in: listed) != nil {
+                let again = try ours(in: try await readAgain())
+                if back == nil, let again, taken.contains(again.id) {
                     back = "listed again at read \(read), \(seconds(since: deleted)) after the delete"
                 }
             }
@@ -1069,7 +1100,9 @@ enum DriverCheck {
         // 7. Whatever happened, any row of the check's own still or again listed is deleted: through the client, by
         // the id just read, so that it goes on after the link has given up and never falls back on a row's channel
         // and start. One that went out and was neither listed nor deleted yet is waited for as step 4 waits, and
-        // said to be left, with its time, when it is still not listed.
+        // said to be left, with its time, when it is still not listed. Nothing is deleted once a read has listed
+        // more than one row the rule takes, here or in a step before, and a reservation is said to be left. Once its
+        // own delete has gone through, a row whose id the check never held is not its own: it is left, and said.
         let mayBeLeft = "may be left on the recorder: a reservation at \(RecorderTime.format(program.start))"
             + " on the internal disk"
         var last: [Reservation]?
@@ -1077,19 +1110,34 @@ enum DriverCheck {
             var listed = try await client.reservations()
             var left = listed.filter(isOurs)
             var reads = 0
-            while left.isEmpty, sent, !gone, reads < 10 {
+            while left.isEmpty, sent, !gone, !notToldApart, reads < 10 {
                 reads += 1
                 try await pause()
                 listed = try await client.reservations()
                 left = listed.filter(isOurs)
             }
-            if left.isEmpty, sent, !gone { say(mayBeLeft + ", sent and not found in the list") }
-            for row in left { try await client.deleteReservation(id: row.id) }
-            if !left.isEmpty {
-                say("cleaned up: \(left.count) of the check's own deleted")
-                listed = try await client.reservations()
+            let neverHeld = gone ? Set(left.map(\.id)).subtracting(taken) : []
+            left.removeAll { neverHeld.contains($0.id) }
+            if !neverHeld.isEmpty {
+                say(mayBeLeft + ", \(neverHeld.count) new at that time that the check never held: not deleted")
             }
-            if listed.contains(where: isOurs) { say(mayBeLeft + ", listed after its delete") }
+            if notToldApart || left.count > 1 {
+                say(mayBeLeft + ", among more than one new reservation at that time: none was deleted")
+                if failure == nil {
+                    failure = Failed(description: "\(left.count) new reservations at the chosen time at the clean-up:"
+                                     + " which is the check's own cannot be told")
+                }
+            } else {
+                if left.isEmpty, sent, !gone { say(mayBeLeft + ", sent and not found in the list") }
+                for row in left { try await client.deleteReservation(id: row.id) }
+                if !left.isEmpty {
+                    say("cleaned up: \(left.count) of the check's own deleted")
+                    listed = try await client.reservations()
+                }
+                if listed.contains(where: { isOurs($0) && !neverHeld.contains($0.id) }) {
+                    say(mayBeLeft + ", listed after its delete")
+                }
+            }
             last = listed
         } catch {
             say(mayBeLeft + " (\(said(LiveRecorderTests.code(error))))")
