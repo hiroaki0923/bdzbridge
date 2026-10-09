@@ -261,7 +261,9 @@ extension AppModel {
     /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
     /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
     /// the result is said, and once the reservation's line is down. The dialog waits on the reader, who may
-    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it.
+    /// leave the app instead of answering, and neither the reservation nor the app's work waits with it. As
+    /// there, not for one held with a reason, which waits for the reader, nor in the demo, whose recorder is
+    /// nobody's to be told of.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
                  repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
         if device == .tv {
@@ -273,7 +275,7 @@ extension AppModel {
         guard let came = await recorderDriver?.reserve(program, quality: quality, repeating: repeating, disk: disk)
         else { return .notDone(RecorderDriver.notConnected) }
         keepReservations(came.list, since: forgotten)
-        if case .waiting = came.reserved { await askForNotifications() }
+        if case .waiting(let row, _) = came.reserved, row.problem == nil, !isDemo { await askForNotifications() }
         return came.reserved
     }
 
