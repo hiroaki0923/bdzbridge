@@ -202,6 +202,18 @@ public final class DeviceLink {
     public let session: SessionState
     /// The client of the attempt under way or the last one. Nil when the device has been let go of.
     public var client: (any LinkClient)?
+    /// The client whose attach went through: the one that has heard which device answers it, and so the one that
+    /// may be asked what needs that. Every attempt makes a client of its own (`reach`), which is `client` from
+    /// before its first ask and has yet to hear who answers; it becomes this when its driver says so, part way
+    /// through an attach -- once the device has said which it is and what goes with that has been read, before
+    /// what waits is sent, so that what is asked from inside the attach passes. An attempt that fails before then
+    /// never becomes it, and leaves the last one here; one that fails after, sending what waits or reading on,
+    /// stays it, and what the session says of the device stands beside it. Weak: this is not what keeps a client
+    /// alive. Nil once the device has been let go of (`forgetTheDevice`).
+    @ObservationIgnored public internal(set) weak var attachedClient: (any LinkClient)?
+
+    /// Whether the client in hand is the one whose attach went through (`attachedClient`).
+    public var clientIsAttached: Bool { client != nil && client === attachedClient }
     /// The check before an operation that is out, so that everything asked for while it runs waits for its
     /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
     /// from it when the device is up.
@@ -328,11 +340,12 @@ public final class DeviceLink {
         if session.link.sawAnotherNetwork { networkReported() }
     }
 
-    /// Lets go of the device as far as memory goes: what it said of itself, which it was, and the client. A wait
-    /// for the permission at it ends too.
+    /// Lets go of the device as far as memory goes: what it said of itself, which it was, and the client, the one
+    /// whose attach went through among them. A wait for the permission at it ends too.
     public func forgetTheDevice() {
         session.forgotTheDevice()
         client = nil
+        attachedClient = nil
         endTheReadLeftForLater()
         owner?.stopWaitingForPermission()
     }

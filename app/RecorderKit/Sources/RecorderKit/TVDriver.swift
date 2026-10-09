@@ -47,12 +47,6 @@ public final class TVDriver: LinkDriver {
     private let inFront: @MainActor () -> Bool
     /// The read of the reservations that is out, which whoever asks meanwhile waits for.
     private var reading: Task<[Reservation]?, Never>?
-    /// The client that has heard which television answers it and that its cookie is taken: the one that may
-    /// be asked what needs the registration. Every attempt at the television makes a client of its own, and
-    /// until its attach has got that far nothing is asked on the strength of the last one's. An attach that
-    /// got that far and then met silence sending what waits leaves this set, and the television still cannot
-    /// be asked: its session is lost (`canBeAsked`).
-    private weak var attachedClient: ScalarClient?
 
     public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool) {
         self.credentials = credentials
@@ -145,7 +139,10 @@ public final class TVDriver: LinkDriver {
             }
             facts.storage = try await client.storage()
             facts.needsPairing = false
-            attachedClient = client
+            // The client that has heard which television answers it and that its cookie is taken: the one that
+            // may be asked what needs the registration (`canBeAsked`). Until an attach has got this far nothing
+            // is asked on the strength of the last one's.
+            link.attachedClient = client
             if inFront(), credentials.load()?.renewalDue(now: Date()) == true {
                 // A renewal that fails costs nothing: the cookie in hand is still good.
                 _ = try await RecorderError.silenceOnly { try await client.renew(nickname: nickname) }
@@ -293,18 +290,19 @@ public final class TVDriver: LinkDriver {
     // MARK: - after the attach
 
     /// Whether what needs the registration can be asked: the television answered the last time, takes the
-    /// app's cookie, and the client in the link is the one it answered. The first two both, since an attach
-    /// that ended in a 403 leaves the session connected: the television said which it is before it refused. The
-    /// third because a connect under way has a client of its own and the session still says what the last one
-    /// found: another television may be at the address by now, and the cookie is not for it. Never with the
-    /// link gone. A check before an operation that heard something else than the television saying which it
-    /// is leaves this as it was: what is asked next makes the check again, and sends only once a check has
-    /// heard it (`mayBeSent`).
+    /// app's cookie, and the client in the link is the one whose attach heard it and had the cookie taken
+    /// (`DeviceLink.clientIsAttached`). The first two both, since an attach that ended in a 403 leaves the
+    /// session connected: the television said which it is before it refused. The third because a connect under
+    /// way has a client of its own and the session still says what the last one found: another television may
+    /// be at the address by now, and the cookie is not for it. An attach that got that far and then met silence
+    /// sending what waits leaves its client the link's attached one, and the television still cannot be asked:
+    /// its session is lost. Never with the link gone. A check before an operation that heard something else
+    /// than the television saying which it is leaves this as it was: what is asked next makes the check again,
+    /// and sends only once a check has heard it (`mayBeSent`).
     public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
 
     private func canBeAsked(on link: DeviceLink) -> Bool {
-        guard let attachedClient, link.session.connected, !facts.needsPairing else { return false }
-        return (link.client as? ScalarClient) === attachedClient
+        link.clientIsAttached && link.session.connected && !facts.needsPairing
     }
 
     /// What the check before an operation heard in place of the television saying which it is: a refusal, a
@@ -1072,7 +1070,7 @@ public final class TVDriver: LinkDriver {
             return ScalarClient.holdsForWhatItWouldStop(reason) ? .wouldStop(waits) : .waiting(waits, saying: reason)
         }
         guard canBeAsked(on: link) else {
-            let reachedTheRegistration = attachedClient != nil && (link.client as? ScalarClient) === attachedClient
+            let reachedTheRegistration = link.clientIsAttached
             guard reachedTheRegistration, link.owner?.problem == Self.createMetSilence else {
                 return reserved(waits, by: nil, listing: nil)
             }

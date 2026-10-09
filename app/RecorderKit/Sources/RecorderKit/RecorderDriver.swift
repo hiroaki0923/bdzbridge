@@ -71,7 +71,9 @@ public final class RecorderDriver: LinkDriver {
     /// firmware, the MAC, the free space and the disk in the USB slot are read too, but another model may refuse
     /// one or answer in a shape of its own, and that must not fail the attach: what cannot be read is left
     /// unknown. Silence still ends it. What waits is sent before the slot is read, and an attach that met silence
-    /// in either has not reached anything to show.
+    /// in either has not reached anything to show. Once the description and what goes with it have been read, and
+    /// before what waits is sent, the client is the one whose attach went through (`DeviceLink.attachedClient`),
+    /// as a television's attach has it: what is asked from inside the attach is asked of that client.
     ///
     /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet.
     public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
@@ -102,6 +104,7 @@ public final class RecorderDriver: LinkDriver {
             // it -- a disk known is not to be had until the slot answers it: in the same turn as the answer, before
             // anything waiting is sent, so that nothing that names the slot goes in between.
             let diskKnown = await Self.knownUSBDisk(link) != nil
+            link.attachedClient = client
             link.session.answered()
             if diskKnown { link.session.answeredWithAUSBDiskKnown() }
             owner?.problem = nil

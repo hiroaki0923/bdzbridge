@@ -217,6 +217,56 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertEqual(world.count("ask description.xml"), 1)
     }
 
+    // MARK: - the client whose attach went through
+
+    /// The link holds the client whose attach went through, as its driver's attach sets it. A recorder's link
+    /// has none before it is connected, and the connect's client once that has answered. A connect that the
+    /// recorder answers busy, as it asks who it is, makes a client of its own that never becomes it: the last
+    /// one stays -- kept alive here, since the link holds it weakly -- and the client in hand is not the one
+    /// whose attach went through, though the session is still connected from the attach before. A connect that
+    /// goes through takes its place, and letting go of the device lets go of it. A television's link is the same:
+    /// none before its connect, the connect's client after it, none once the device is let go of.
+    func testTheLinkHoldsTheClientWhoseAttachWentThrough() async throws {
+        let world = LinkWorld()
+        let recorder = try place(in: world)
+        let link = makeLink(world)
+        XCTAssertNil(link.attachedClient)
+        XCTAssertFalse(link.clientIsAttached)
+
+        await link.connect()
+        let first = try XCTUnwrap(link.client)
+        XCTAssertTrue(link.attachedClient === first)
+        XCTAssertTrue(link.clientIsAttached)
+
+        await recorder.answer(.busy)
+        await link.connect()
+        XCTAssertFalse(link.client === first, "the connect made no client of its own")
+        XCTAssertTrue(link.session.connected, "the attach before no longer stands")
+        XCTAssertTrue(link.attachedClient === first, "a connect answered busy took the place of the last attach")
+        XCTAssertFalse(link.clientIsAttached)
+
+        await recorder.answer(.itself)
+        await link.connect()
+        let second = try XCTUnwrap(link.client)
+        XCTAssertTrue(link.attachedClient === second)
+        XCTAssertTrue(link.clientIsAttached)
+
+        link.forgetTheDevice()
+        XCTAssertNil(link.attachedClient, "the device was let go of and its client kept")
+        XCTAssertFalse(link.clientIsAttached)
+
+        let (itsWorld, television) = await aTelevision()
+        XCTAssertNil(television.attachedClient)
+        await television.connect()
+        XCTAssertTrue(television.session.connected, itsWorld.problem ?? "no reason given")
+        let itsClient = try XCTUnwrap(television.client)
+        XCTAssertTrue(television.attachedClient === itsClient)
+        XCTAssertTrue(television.clientIsAttached)
+        television.forgetTheDevice()
+        XCTAssertNil(television.attachedClient, "the television was let go of and its client kept")
+        XCTAssertFalse(television.clientIsAttached)
+    }
+
     // MARK: - an operation through the link
 
     /// One thing asked through the link, the work a closure of the test's. Going through, it hands back what
@@ -340,6 +390,21 @@ final class LinkPartsTests: XCTestCase {
         link.owner = world
         await link.connect()
         XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        return (world, link)
+    }
+
+    /// A link to an invented television at `Stub.host` that is registered with it, not yet connected.
+    private func aTelevision() async -> (LinkWorld, DeviceLink) {
+        let world = LinkWorld()
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        world.devices[Stub.host] = television
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                            cookieReceived: Date(), cookieMaxAge: 1_209_600))
+        let link = DeviceLink(host: Stub.host, session: SessionState(),
+                              driver: TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { false }),
+                              environment: world.environment)
+        link.owner = world
         return (world, link)
     }
 }
