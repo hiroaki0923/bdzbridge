@@ -296,13 +296,14 @@ struct ReservationsScreen: View {
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
-                            // A television's row stays listed until its delete has read the list again,
-                            // and a second delete sent meanwhile would be answered as if the first had failed.
+                            // A row stays listed until its delete has read the list again, the recorder's
+                            // as a television's, and a second delete sent meanwhile would be answered as if the
+                            // first had failed: held while the row's own device works.
                             Button("削除") {
                                 removing = Picked(listKey: reservation.listKey, device: reservation.device)
                             }
                             .tint(.red)
-                            .disabled(reservation.device == .tv && model.isBusy(for: .tv))
+                            .disabled(model.isBusy(for: reservation.device))
                         }
                     }
                 }
