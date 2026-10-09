@@ -352,6 +352,9 @@ final class QueueGateTests: XCTestCase {
         expectEqual(reasons(try await store.pendingReservations()), [held.id: Said.heldForAnotherRecorder],
                     "a row the list holds is still waiting, or the row held for another recorder is not")
         XCTAssertEqual(reasons(model.pending), [held.id: Said.heldForAnotherRecorder])
+        // The strip names the first of the two sent by when it begins: two that began together would leave it
+        // in no set order.
+        XCTAssertNotEqual(daily.request.start, theirs.request.start, "the two rows sent begin at the same moment")
         let sent = [daily, theirs].sorted { $0.request.start < $1.request.start }
         XCTAssertEqual(model.flushReport, [Said.heldBack(1), Said.sent(sent[0].request.title, andOthers: 1),
                                            Said.alreadyThere(there.request.title)].joined(separator: "。"))
@@ -791,8 +794,12 @@ final class QueueGateTests: XCTestCase {
         let (bench, recorder, model) = try await connectedHome()
         addTeardownBlock { await recorder.letGo() }
         let store = try GuideStore(path: bench.guidePath)
-        let rows = try await programmesNotReserved(model, 2).map { try waiting(for: $0) }
-            .sorted { $0.request.start < $1.request.start }
+        // Two that begin at different moments: at some hours the first two free are on two channels at once.
+        // The demo's guide has nine channels, so twelve programmes hold at least two moments.
+        let free = try await programmesNotReserved(model, 12)
+        let first = try XCTUnwrap(free.min { $0.start < $1.start })
+        let next = try XCTUnwrap(free.filter { $0.start > first.start }.min { $0.start < $1.start })
+        let rows = try [first, next].map { try waiting(for: $0) }
         XCTAssertLessThan(rows[0].request.start, rows[1].request.start, "the round would send them in no set order")
         let pressed = rows[1]
         for row in rows { try await store.queue(row) }
