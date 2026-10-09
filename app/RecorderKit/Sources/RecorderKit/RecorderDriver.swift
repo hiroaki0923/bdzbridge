@@ -47,6 +47,24 @@ public final class RecorderDriver: LinkDriver {
 
     public var noAnswerLine: String { RecorderError.transport("no answer").explanation }
 
+    /// Said when something the reader asked for was not sent at all because the app is not connected to the
+    /// recorder, unless the local network permission is why (`whyNotConnected`).
+    public nonisolated static let notConnected = "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
+
+    /// Why something the reader asked for was not sent at all: the app is not connected. While the local network
+    /// permission is what stands in the way (`SessionState.connectBlocked`), the title the screens give that
+    /// (`LocalNetwork.accessNotAllowed`); otherwise `notConnected`. What the host says when the link has nothing
+    /// to ask (`LinkHost.sayNotConnected`).
+    public var whyNotConnected: String {
+        link?.session.connectBlocked == true ? LocalNetwork.accessNotAllowed : Self.notConnected
+    }
+
+    /// Said when something the reader asked for was not done because another recorder answered where the
+    /// one it was meant for had been. Not only what is sent: a read comes through the same check. What the host
+    /// says when the check before an operation hears another (`LinkHost.anotherAnsweredTheCheck`).
+    public nonisolated static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
+        + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+
     /// Every one, whatever the session says: a recorder that answered without saying which it is is not
     /// connected, is read all the same, and its silence is to lose it and be said like any other.
     public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { true }

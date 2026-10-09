@@ -63,6 +63,25 @@ final class RecorderDriverTests: XCTestCase {
         XCTAssertEqual(world.problem, Self.left)
     }
 
+    /// What the recorder's driver gives its host to say when nothing could be asked because the app is not
+    /// connected: that it is not, and to press 再接続; and, while the local network permission is what stands in
+    /// the way, the title the screens give that. In the letters the screens have shown.
+    func testTheDriverSaysWhyTheAppIsNotConnected() async throws {
+        let world = LinkWorld()
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        XCTAssertEqual(driver.whyNotConnected, "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。")
+        XCTAssertEqual(driver.whyNotConnected, RecorderDriver.notConnected)
+
+        world.blocked = true
+        await link.connect()
+        XCTAssertTrue(link.session.connectBlocked, "the connect did not end waiting for the permission")
+        XCTAssertEqual(driver.whyNotConnected, "ローカルネットワークへのアクセスが許可されていません")
+        XCTAssertEqual(driver.whyNotConnected, LocalNetwork.accessNotAllowed)
+    }
+
     /// A television's reservation given to the recorder's driver to delete is none of its: nothing is asked of
     /// the recorder, not the read a delete begins with, the list in hand is not looked at, no line goes up and
     /// the line of what went wrong is as it was. Nothing was deleted, and no list is handed back. The recorder is
