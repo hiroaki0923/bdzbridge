@@ -604,6 +604,129 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the type that failed was said over the silence")
         XCTAssertEqual(model.guideDownloads, 0)
     }
+
+    // MARK: - a recording's details
+
+    /// A recording's details are asked as its sheet opens, before anybody has asked for anything, and have no
+    /// line: nothing on the strip while they are out, the recorder in play can still be changed, and the line of
+    /// what went wrong is left as it was whichever way they end. Answered, they are what the recorder said.
+    /// Refused, there are none, and the recorder is kept. Met by silence, there are none, and the app gives up on
+    /// the recorder without a word. With the recorder known to be away, nothing is asked.
+    ///
+    /// As it is, and to stay: a recording's details, as the clash check, have no line of their own.
+    func testARecordingsDetailsHaveNoLineAndLeaveTheLineAsItWasHoweverTheyEnd() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        let told = try await aClient(of: recorder).titleDetail(id: subjects.title.id)
+
+        // Answered, held for a look at the screen while they are out.
+        leaveALine(on: model)
+        var before = await recorder.asked
+        await recorder.hold(only: Kind.details)
+        let reading = Task { await model.detail(of: subjects.title) }
+        try await until("the details were never asked for") {
+            await recorder.asked(Kind.details, since: before) == 1
+        }
+        XCTAssertNil(model.busy, "the details put a line up")
+        XCTAssertTrue(model.canChangeRecorder, "the details held the recorder in play")
+        await recorder.letGo()
+        let answered = await reading.value
+        XCTAssertEqual(answered?.summary, told.summary)
+        XCTAssertEqual(answered?.details, told.details)
+        XCTAssertFalse(told.summary.isEmpty, "the demo was meant to say what the recording is about")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "details that came back cleared the line")
+
+        // Refused.
+        before = await recorder.asked
+        await recorder.answer(Kind.details, with: .fault(402))
+        expectNil(await model.detail(of: subjects.title))
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a refusal of the details was said")
+        XCTAssertTrue(model.connected, "a refusal of the details was taken for the recorder going")
+        XCTAssertFalse(model.gaveUp, "a refusal of the details was taken for silence")
+        expectEqual(await recorder.asked(Kind.details, since: before), 1)
+
+        // Silent.
+        await recorder.goQuiet(on: Kind.details)
+        expectNil(await model.detail(of: subjects.title))
+        XCTAssertTrue(model.gaveUp, "silence on the details did not lose the recorder")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence on the details was said")
+
+        // Known to be away.
+        before = await recorder.asked
+        expectNil(await model.detail(of: subjects.title))
+        expectEqual(await recorder.asked, before, "a recorder known to be away was asked for a recording's details")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the details said something, unasked")
+    }
+
+    /// A recording's details asked while the recorder is being made sure of wait for that answer, as everything
+    /// else does. When the check meets silence they are not asked, and what is said is the check's. When the
+    /// recorder answers the check, if only to say it is busy with somebody else, they are asked and answered: a
+    /// request with no line goes on after such a check, as the clash check does.
+    ///
+    /// As it is, and to stay: the clash check and the details are left as they are by a later change that sends
+    /// no write and reads no list after a check that heard the recorder busy.
+    func testARecordingsDetailsWaitForTheCheckAndGoOnAfterOneThatHeardTheRecorderBusy() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        // Nothing public says that the details are waiting for the check, so they are taken to be once ten looks
+        // have gone by, about a fifth of a second. A guess, not a sign: on a loaded machine they can reach the
+        // check only after it has answered. This still passes then -- the details are asked of nobody after the
+        // silence, and asked and answered after the busy check -- but a mistake in how they wait for the check
+        // would go unseen.
+        var looks = 0
+
+        leaveALine(on: model)
+        var count = await recorder.heard.count
+        let silent = try await duringACheck(by: model, of: recorder, endingIn: .silence, "the details",
+                                            waitingFor: { looks += 1; return looks > 10 }) {
+            await model.detail(of: subjects.title)
+        }
+        XCTAssertFalse(silent.there)
+        XCTAssertNil(silent.came, "details were handed back although the check met silence")
+        expectEqual(await recorder.heard(since: count), [Kind.description],
+                    "the details were asked, or sent a probe of their own, beside a check that met silence")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
+        XCTAssertTrue(model.gaveUp)
+        await reconnect(model)
+
+        looks = 0
+        count = await recorder.heard.count
+        let busy = try await duringACheck(by: model, of: recorder, endingIn: .busy, "the details",
+                                          waitingFor: { looks += 1; return looks > 10 }) {
+            await model.detail(of: subjects.title)
+        }
+        XCTAssertTrue(busy.there, "a recorder that answered busy was taken for gone")
+        XCTAssertNotNil(busy.came, "the details were not asked of a recorder that had answered the check")
+        expectEqual(await recorder.heard(since: count).filter { $0 == Kind.details }, [Kind.details])
+        XCTAssertTrue(model.connected)
+        await recorder.comeFree()
+    }
+
+    /// A connect to the same recorder made while a recording's details are out makes a client of its own and
+    /// lets go of nothing. Silence met by the details' client, which the model no longer holds, says nothing of
+    /// the recorder in play: the app is not given up on, and nothing is said. Whatever comes to ask whether the
+    /// recorder was let go of meanwhile has to leave this as it is: nothing was.
+    func testSilenceOnARecordingsDetailsAcrossAConnectToTheSameRecorderLosesNobody() async throws {
+        let (bench, recorder, model, subjects) = try await settled()
+        let before = await recorder.asked
+        await recorder.hold(only: Kind.details)
+        let reading = Task { await model.detail(of: subjects.title) }
+        try await until("the details were never asked for") {
+            await recorder.asked(Kind.details, since: before) == 1
+        }
+        let made = bench.clientsMade
+        await model.connect()
+        // What this test stands on, rather than what it holds: the details' client is no longer the one in hand.
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        XCTAssertTrue(model.connected)
+        leaveALine(on: model)
+        await recorder.goQuiet(on: Kind.details)
+        await recorder.letGo()
+
+        expectNil(await reading.value)
+        XCTAssertFalse(model.gaveUp, "silence met by a client the model no longer holds lost the recorder")
+        XCTAssertTrue(model.connected)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the silence of a client let go of was said")
+        expectEqual(await recorder.asked(Kind.details, since: before), 1)
+    }
 }
 
 // MARK: - what the tests ask for
@@ -622,6 +745,7 @@ private enum Kind {
     static let removeCondition = "X_DeletePrefRecSetting"
     static let freeSpace = "X_HDLnkGetRecordDestinationInfo"
     static let clashes = "X_GetConflictList"
+    static let details = "X_GetTitleDetail"
     /// What a connect asks first, and the check before an operation.
     static let description = "description.xml"
     /// The guide's files in the order they are fetched: 地上デジタル, BS, CS, BS4K.
