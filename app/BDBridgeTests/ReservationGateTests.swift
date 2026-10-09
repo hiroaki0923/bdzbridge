@@ -152,16 +152,27 @@ final class ReservationGateTests: XCTestCase {
     /// takes a delete of a number it does not know for done, and the model takes the row out of its own list by
     /// hand, so a delete sent under the dead number would show in neither the answer nor the model.
     ///
-    /// As it is today: a number that still stands is taken at its word whatever else of the row differs --
-    /// another channel, another programme. A later change sends nothing then, and says that the list has been
-    /// updated.
+    /// A number that still stands on another channel and another programme is not the row held: nothing is sent
+    /// to it, the change is not done and says that the list has been updated, and the row of that number is as
+    /// it was.
+    ///
+    /// The rows are the recorder's own, which are the ones it renumbers: two, since a change sent from here makes
+    /// a row an app's on the demo's recorder, and the delete is asked of the other.
     func testAReservationTheRecorderHasRenumberedIsFoundByItsChannelAndStart() async throws {
         let (_, recorder, model) = try await connectedHome()
-        let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        // The one changed is one whose programme has not ended. The lists are looked at with the reservation being
+        // recorded left out: the demo's began twenty minutes before the bench was made, and so at one second of
+        // the day it stands at the channel and start of one of the recorder's own.
+        let itsOwn = model.reservations.filter { $0.createdByRecorder && $0.eventID != nil && !$0.recording }
+        let row = try XCTUnwrap(itsOwn.first { $0.end > Date() },
+                                "the demo was meant to hold a reservation of the recorder's own still to end")
+        let other = try XCTUnwrap(itsOwn.first { $0.id != row.id },
+                                  "the demo was meant to hold two of the recorder's own")
         // What a list has at the row's channel and start, which is where a renumbered reservation is found.
         func there(_ list: [Reservation]) -> [Reservation] {
             list.filter {
                 $0.broadcastingType == row.broadcastingType && $0.serviceID == row.serviceID && $0.start == row.start
+                    && !$0.recording
             }
         }
         // The row as a screen holds it from an earlier read: under a number the recorder no longer has, and
@@ -186,20 +197,59 @@ final class ReservationGateTests: XCTestCase {
         odd.serviceID += 1
         odd.eventID = odd.eventID.map { $0 + 1 }
         count = await recorder.heard.count
-        expectTrue(await changeOnTheRecorder(model, odd, quality: "SR", repeating: "none"),
-                   model.problem(for: .recorder) ?? "no reason given")
-        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
+        expectFalse(await changeOnTheRecorder(model, odd, quality: "SR", repeating: "none"),
+                    "a change went to a number that now stands on another programme")
+        expectEqual(await recorder.heard(since: count), [Kind.list])
+        XCTAssertEqual(model.problem(for: .recorder), Said.renumbered)
         held = there(model.reservations)
         XCTAssertEqual(held.map(\.id), [row.id])
-        XCTAssertEqual(held.first?.qualityCode, Codes.quality["SR"], "the row of that number was not changed")
+        XCTAssertEqual(held.first?.qualityCode, Codes.quality["ER"], "the row of that number was changed")
 
+        // The other, as a screen holds it from an earlier read, and what a list has at its channel and start.
+        var otherStale = other
+        otherStale.id = "0x00000000000ffffe"
+        func whereTheOtherIs(_ list: [Reservation]) -> [Reservation] {
+            list.filter {
+                $0.broadcastingType == other.broadcastingType && $0.serviceID == other.serviceID
+                    && $0.start == other.start && !$0.recording
+            }
+        }
         count = await recorder.heard.count
-        expectTrue(await model.cancel(stale), model.problem(for: .recorder) ?? "no reason given")
+        expectTrue(await model.cancel(otherStale), model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.delete, Kind.list])
-        XCTAssertTrue(there(model.reservations).isEmpty)
+        XCTAssertTrue(whereTheOtherIs(model.reservations).isEmpty)
         let onTheRecorder = try await aClient(of: recorder).reservations()
-        XCTAssertTrue(there(onTheRecorder).isEmpty,
+        XCTAssertTrue(whereTheOtherIs(onTheRecorder).isEmpty,
                       "the delete went out under the number the screen held, and the recorder still records it")
+    }
+
+    /// The reader's own reservation, made by an app, deleted on the recorder's own screen since the app read its
+    /// list; and in the list read before a delete or a change, the recorder's own reservation of the same
+    /// programme at the same start, under a number of its own. The recorder has not been seen to renumber what an
+    /// app made, so the reader's has gone: nothing is sent to the recorder's own, and the line says the
+    /// reservation was not found in the list just read.
+    func testAReservationDeletedOnTheRecorderIsNotTakenForTheRecordersOwnOfItsProgramme() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        let mine = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        XCTAssertTrue(mine.createdByApp, "the reader's reservation was meant to be one an app made")
+        let request = ReservationRequest(title: mine.title, start: mine.start, durationSec: mine.durationSec,
+                                         repeatCode: mine.repeatCode, broadcastingType: mine.broadcastingType,
+                                         serviceID: mine.serviceID, qualityCode: mine.qualityCode,
+                                         eventID: mine.eventID, destination: mine.destination)
+        let itsOwn = XsrsElements.update(id: "0x00000000000b11ff", request)
+            .replacingOccurrences(of: "</item></xsrs>",
+                                  with: "<reservationCreatorID>1100</reservationCreatorID></item></xsrs>")
+
+        for write in ReservationWrite.allCases {
+            await recorder.answer(Kind.list, with: .result(itsOwn))
+            let count = await recorder.heard.count
+            expectFalse(await write.ask(model, mine), write.name)
+            expectEqual(await recorder.heard(since: count), [Kind.list],
+                        "\(write.name) went to the recorder's own reservation of the programme")
+            XCTAssertEqual(model.problem(for: .recorder), Said.gone, write.name)
+            XCTAssertEqual(model.reservations.map(\.id), ["0x00000000000b11ff"],
+                           "the list on screen is not the one just read")
+        }
     }
 
     /// A recorder that turns a delete or a change down. A refusal with a code of its own is said in the

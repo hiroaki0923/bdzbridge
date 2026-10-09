@@ -68,6 +68,71 @@ final class ReservationRulesTests: XCTestCase {
         XCTAssertEqual([held, televisions].current(televisions), televisions)
     }
 
+    /// What has become of a reservation held, in a list read from the recorder: the row under its id while that
+    /// is still the same programme on the same channel -- its type, its service and its programme id, or its
+    /// start for one made by its times -- and changed when the id now stands on another. The start of one that
+    /// follows its programme can move, and the id is still it.
+    func testTheIdIsItOnlyWhileItIsStillTheSameProgramme() {
+        let held = reservation(id: "0x1")
+        XCTAssertEqual([reservation(id: "0x1")].target(of: held), .found(reservation(id: "0x1")))
+        let moved = reservation(id: "0x1", start: start.addingTimeInterval(900))
+        XCTAssertEqual([moved].target(of: held), .found(moved))
+        XCTAssertEqual([reservation(id: "0x1", serviceID: 0x408)].target(of: held), .changed, "another service")
+        XCTAssertEqual([reservation(id: "0x1", broadcastingType: 3)].target(of: held), .changed, "another type")
+        XCTAssertEqual([reservation(id: "0x1", eventID: 0x3120)].target(of: held), .changed,
+                       "another programme on the same channel")
+        XCTAssertEqual([reservation(id: "0x1", eventID: nil)].target(of: held), .changed,
+                       "the programme id lost")
+
+        let byItsTimes = reservation(id: "0x1", eventID: nil)
+        XCTAssertEqual([byItsTimes].target(of: byItsTimes), .found(byItsTimes))
+        XCTAssertEqual([reservation(id: "0x1", start: start.addingTimeInterval(60), eventID: nil)]
+            .target(of: byItsTimes), .changed, "one made by its times at another start")
+        XCTAssertEqual([reservation(id: "0x1")].target(of: byItsTimes), .changed, "a programme id gained")
+        XCTAssertNil([reservation(id: "0x1", serviceID: 0x408)].current(held))
+    }
+
+    /// When the id has gone, the recorder's renumbering keeps the programme, so the row is looked for by its
+    /// channel and its start and, for one held with a programme id, that programme id too: a row there under
+    /// another programme is not the one held, and the reservation has gone. One made by its times is its start.
+    func testAVanishedIdIsFoundAgainOnlyWithItsProgramme() {
+        let held = reservation(id: "0x1")
+        XCTAssertEqual([reservation(id: "0x9")].target(of: held), .found(reservation(id: "0x9")))
+        XCTAssertEqual([reservation(id: "0x9", eventID: 0x3120)].target(of: held), .gone,
+                       "found by its channel and start under another programme")
+        XCTAssertEqual([reservation(id: "0x9", eventID: nil)].target(of: held), .gone,
+                       "found by its channel and start with no programme")
+        XCTAssertEqual([reservation(id: "0x9", serviceID: 0x408)].target(of: held), .gone)
+        XCTAssertEqual([Reservation]().target(of: held), .gone)
+
+        let byItsTimes = reservation(id: "0x1", eventID: nil)
+        XCTAssertEqual([reservation(id: "0x9", eventID: nil)].target(of: byItsTimes),
+                       .found(reservation(id: "0x9", eventID: nil)))
+        XCTAssertNil([reservation(id: "0x9", eventID: 0x3120)].current(held))
+    }
+
+    /// The recorder has been seen to renumber only what its own automatic recording made, and never a reservation
+    /// an app made (docs/xsrs-api.md). So when the id has gone, a row at the same channel and start is the one held
+    /// only when the same hand made it, and with the same programme id -- or, for one made by its times, with none
+    /// either; and a reservation an app made whose id has gone was deleted, and is not looked for at all.
+    func testAVanishedIdIsFoundAgainOnlyAmongTheRowsOfItsMaker() {
+        let held = reservation(id: "0x1")
+        var anApps = reservation(id: "0x9")
+        anApps.creator = "2200"
+        XCTAssertEqual([anApps].target(of: held), .gone, "found among the rows another made")
+        XCTAssertEqual([reservation(id: "0x9")].target(of: held), .found(reservation(id: "0x9")))
+
+        var made = reservation(id: "0x1")
+        made.creator = "2200"
+        XCTAssertEqual([made].target(of: made), .found(made))
+        XCTAssertEqual([anApps].target(of: made), .gone,
+                       "a reservation an app made was looked for by its channel and its start")
+
+        let byItsTimes = reservation(id: "0x1", eventID: nil)
+        XCTAssertEqual([reservation(id: "0x9")].target(of: byItsTimes), .gone,
+                       "one made by its times found again as a row that follows a programme")
+    }
+
     // MARK: - the request for a new one
 
     private func program(broadcasting: String = "td") -> GuideProgramRow {

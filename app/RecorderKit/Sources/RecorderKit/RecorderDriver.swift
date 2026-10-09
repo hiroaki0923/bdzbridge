@@ -673,7 +673,9 @@ public final class RecorderDriver: LinkDriver {
     public static let alreadyDeleted = "この予約はすでにレコーダーから削除されていました。一覧を更新しました。"
 
     /// Said when the recorder answers a delete or a change that it holds no such reservation (804 or 820) though
-    /// the list just read had one: that list was itself out of date, and it has been read again.
+    /// the list just read had one: that list was itself out of date, and it has been read again. And when the
+    /// list just read has the reservation's id on another programme (`ReservationFoundAgain.changed`): nothing was
+    /// sent, and the list on screen is that one.
     public static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
@@ -688,8 +690,9 @@ public final class RecorderDriver: LinkDriver {
     /// The recorder rewrites the ids of the reservations its own automatic recording made, the whole block of
     /// them at once, when it works through the guide again (`Reservation.createdByRecorder`): an id read a few
     /// hours ago can be dead while the row still looks right, and deleting it answers 804. So the list is read
-    /// again first (`reservations`) and this reservation found in it: by its id while that stands, and otherwise
-    /// by its channel and the moment it starts (`current`).
+    /// again first (`reservations`) and this reservation found in it (`target(of:)`): by its id while that still
+    /// stands on the same programme, and otherwise by its channel, the moment it starts, its programme and who
+    /// made it -- but for one an app made, which the recorder has not been seen to renumber.
     ///
     /// A reservation that is not the recorder's is refused before anything else: nothing is read, sent or said
     /// for it. It is another device's to delete. With the link gone any reservation is refused the same way, and
@@ -701,7 +704,9 @@ public final class RecorderDriver: LinkDriver {
     /// The delete goes only from a list read now, as a television's does: a read that did not go through ends it
     /// there, nothing sent, under whatever the read's failure left on the line -- silence, a refusal, busy with
     /// somebody else, a check inside the read that said no or heard something in place of the recorder saying
-    /// which it is. A reservation not in the list just read has gone, and the line says so.
+    /// which it is. A reservation not in the list just read has gone, and the line says so; one whose id now
+    /// stands on another programme is not written to, and the line says the recorder has updated it and asks for
+    /// another try from the list just read (`renumbered`).
     ///
     /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
     /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
@@ -737,8 +742,15 @@ public final class RecorderDriver: LinkDriver {
         guard !link.letGo(since: began) else { return (false, nil) }
         // The read has said why.
         guard let read else { return (false, nil) }
-        guard let target = read.current(reservation) else {
+        let target: Reservation
+        switch read.target(of: reservation) {
+        case .found(let row):
+            target = row
+        case .gone:
             owner?.problem = Self.alreadyDeleted
+            return (false, read)
+        case .changed:
+            owner?.problem = Self.renumbered
             return (false, read)
         }
         guard let client = link.client as? RecorderClient else { return (false, read) }
@@ -796,7 +808,8 @@ public final class RecorderDriver: LinkDriver {
     /// under way, or the recorder has not said which it is. The read makes sure of the recorder too, and wakes it
     /// if it has gone to sleep. The change goes only from a list read now, as the delete does: a read that did
     /// not go through ends it there, nothing sent, under whatever its failure left on the line. A reservation
-    /// not in the list just read has gone, and the line says so. The request is built from the row just found,
+    /// not in the list just read has gone, and the line says so; one whose id now stands on another programme
+    /// is not written to, as for a delete (`renumbered`). The request is built from the row just found,
     /// on the client the link holds after the read, asked again whether it may be written to, as the delete's
     /// is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
     ///
@@ -843,8 +856,15 @@ public final class RecorderDriver: LinkDriver {
         guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
         // The read has said why.
         guard let read else { return (notDone(), nil) }
-        guard let target = read.current(reservation) else {
+        let target: Reservation
+        switch read.target(of: reservation) {
+        case .found(let row):
+            target = row
+        case .gone:
             owner?.problem = Self.alreadyDeleted
+            return (notDone(), read)
+        case .changed:
+            owner?.problem = Self.renumbered
             return (notDone(), read)
         }
         guard link.client is RecorderClient else { return (notDone(), read) }

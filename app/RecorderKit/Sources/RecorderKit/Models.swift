@@ -53,20 +53,59 @@ public struct Reservation: Equatable, Sendable, Identifiable {
 }
 
 public extension Array where Element == Reservation {
-    /// The same reservation as the device holds it now, in this list read from it, whatever it has been
-    /// renumbered to: by its id while that stands, and otherwise by its channel and its start.
+    /// What has become of a reservation the app holds, in this list just read from the recorder, whatever it
+    /// has been renumbered to (`ReservationFoundAgain`).
     ///
-    /// Anything that writes finds the reservation again with this first (see `Reservation.createdByRecorder`).
+    /// The row under its id, while that row is still the same programme on the same channel: its broadcasting
+    /// type, its service and its programme id, and for one made by its times, which has none, its start -- as a
+    /// television's row is checked (`TVScheduleRow.isStill`). The start of one that follows its programme moves
+    /// with its broadcast, and the id is still it; an id now on another programme, or on one that has gained or
+    /// lost a programme id, is changed, and nothing is to be written to it. A repeat the recorder has moved on
+    /// to its next programme, or its next start, under the same id answers so too.
+    ///
+    /// When the id has gone, the row is looked for by its channel and its start, as the recorder renumbers the
+    /// reservations its own automatic recording made, the programmes unchanged (`Reservation.createdByRecorder`):
+    /// only a row made by the same hand, and with the same programme id -- or, for one made by its times, with
+    /// none either -- is it; a row there under another programme, or put there by another, means the one held
+    /// has gone. Not for a reservation an app made (`Reservation.createdByApp`): the recorder has not been seen
+    /// to renumber one, so one whose id has gone was deleted, and a row at its channel and start is another's.
     /// The id comes first so that two reservations of one programme are still told apart while their ids hold.
+    ///
     /// Only among the rows of the device that holds it: another device numbers for itself and may hold the
     /// same programme, so its row would be found here by either, and written to in place of the one meant.
-    func current(_ wanted: Reservation) -> Reservation? {
-        first { $0.device == wanted.device && $0.id == wanted.id }
-            ?? first { $0.device == wanted.device
-                       && $0.broadcastingType == wanted.broadcastingType
-                       && $0.serviceID == wanted.serviceID
-                       && $0.start == wanted.start }
+    /// Anything that writes to the recorder finds the reservation again with this first.
+    func target(of wanted: Reservation) -> ReservationFoundAgain {
+        if let row = first(where: { $0.device == wanted.device && $0.id == wanted.id }) {
+            let same = row.broadcastingType == wanted.broadcastingType && row.serviceID == wanted.serviceID
+                && row.eventID == wanted.eventID && (wanted.eventID != nil || row.start == wanted.start)
+            return same ? .found(row) : .changed
+        }
+        guard !wanted.createdByApp else { return .gone }
+        let again = first {
+            $0.device == wanted.device && $0.broadcastingType == wanted.broadcastingType
+                && $0.serviceID == wanted.serviceID && $0.start == wanted.start
+                && $0.creator == wanted.creator && $0.eventID == wanted.eventID
+        }
+        return again.map(ReservationFoundAgain.found) ?? .gone
     }
+
+    /// The same reservation as the device holds it now, in this list read from it: the row `target(of:)` finds,
+    /// and nil when it has gone or its id now stands on another programme.
+    func current(_ wanted: Reservation) -> Reservation? {
+        if case .found(let row) = target(of: wanted) { return row }
+        return nil
+    }
+}
+
+/// What has become of a reservation of the recorder's that the app holds, in the list just read from it
+/// (`Array.target(of:)`).
+public enum ReservationFoundAgain: Equatable, Sendable {
+    /// It is there: the row just read, which is the one to send.
+    case found(Reservation)
+    /// The recorder lists it neither under its id nor, by its channel, start, programme and maker, under another.
+    case gone
+    /// The id is there, and not as it was held: on another programme.
+    case changed
 }
 
 /// What the recorder says about its own place on the network.
