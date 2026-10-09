@@ -105,6 +105,11 @@ public enum PendingQueue {
     /// For a change to what waits that a sending must not meet half way -- the screens deleting what a run
     /// with no screen may have in hand. One turn for every device, as the flushes have. Nil never comes from
     /// a `work` that does not throw.
+    ///
+    /// Nothing in `work` may go through a link's check before an operation (`DeviceLink.check`): a recorder's
+    /// check can wake it, and the attach after the waking sends what waits, which waits for this turn -- the
+    /// work would never end, and no flush would run again until the app is started anew. What `work` asks of a
+    /// device it asks of the client in hand, as `RecorderDriver.deleteWaiting` reads the recorder's list.
     public static func betweenFlushes<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T? {
         try? await oneAtATime.run(work)
     }

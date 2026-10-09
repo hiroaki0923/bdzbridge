@@ -309,13 +309,14 @@ extension AppModel {
     ///
     /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
     /// list of the television in play, read by its host, which keeps it for the screens
-    /// (`TVHost.readReservations`), and whether one is in play. A row made is not deleted, and what to say in
-    /// place of that is handed back, as the strip says a row sent (`TVDriver.madeBeforeItsDelete`,
-    /// `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip does: `deviceSaid`). So a row has
-    /// one delete at a time: a second one, asked for while the first waits its turn -- the row is still listed
-    /// then, and the reader can confirm again -- would find the row gone and say it was made, and it comes back
-    /// with nil at once instead. The warning of reservations not yet at the television is taken away once none
-    /// of its rows waits (`forgetTheWarningOnceSent`).
+    /// (`TVHost.readReservations`), and whether one is in play. The recorder's driver hands back the list it
+    /// read in the turn, kept here by the count noted as the delete began (`keepReservations`). A row made is
+    /// not deleted, and what to say in place of that is handed back, as the strip says a row sent
+    /// (`TVDriver.madeBeforeItsDelete`, `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip
+    /// does: `deviceSaid`). So a row has one delete at a time: a second one, asked for while the first waits its
+    /// turn -- the row is still listed then, and the reader can confirm again -- would find the row gone and say
+    /// it was made, and it comes back with nil at once instead. The warning of reservations not yet at the
+    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
     ///
     /// Nil when the row was deleted, when nothing was done while its device works or while the row has a
     /// delete under way already, and when the row has gone and nothing says it was made.
@@ -325,9 +326,12 @@ extension AppModel {
         guard deletingWaiting.insert(waiting.id).inserted else { return nil }
         defer { deletingWaiting.remove(waiting.id) }
         guard waiting.target == .tv else {
-            let made = await recorderDriver?.deleteWaiting(waiting) ?? false
+            let forgotten = timesForgotten
+            let deleted = await recorderDriver?.deleteWaiting(waiting)
+            keepReservations(deleted?.list, since: forgotten)
             await loadPending()
-            return made ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
+            return deleted?.made == true
+                ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
         }
         let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
                                                 listing: { await self.tvHost?.readReservations() },

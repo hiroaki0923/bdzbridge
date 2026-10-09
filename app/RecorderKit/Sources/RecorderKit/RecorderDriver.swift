@@ -976,26 +976,71 @@ public final class RecorderDriver: LinkDriver {
     /// a round, a television's included.
     ///
     /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it would
-    /// be a reservation on the recorder that the reader believes gone. Whether it was is handed back. It was
-    /// made when the sending took it out of the queue though its programme is not over: nothing else takes a
-    /// recorder's row out but a round that made it, and a delete of the app's own, which the app asks for one
-    /// at a time for a row. A queue that cannot be read is no sign that a sending took the row: the delete is
-    /// tried. Once the row has been taken out, the host is told, so that the screens read the queue again
-    /// (`LinkHost.queueWritten`).
+    /// be a reservation on the recorder that the reader believes gone. Whether it was is handed back, with the
+    /// list read in the turn, nil when none was, for the host to keep. It was made when that list, read before
+    /// anything is deleted, holds a reservation that answers for the row (`ByProgram.lists`) -- though the row
+    /// still waited, as one does whose create the recorder took and whose answer was lost: that row leaves the
+    /// queue as a row made does. Not a row held for the recorder before another took its place
+    /// (`heldForAnotherRecorder`), as the queue has it, or as handed in when it has gone: the list is the
+    /// newcomer's, which was never sent that row. And it was made when the sending took it out of the queue
+    /// though its programme is not over, whatever the list gave: nothing else takes a recorder's row out but a
+    /// round that made it, and a delete of the app's own, which the app asks for one at a time for a row. A
+    /// queue that cannot be read is no sign that a sending took the row: the delete is tried. Once the row has
+    /// been taken out, the host is told, so that the screens read the queue again (`LinkHost.queueWritten`).
+    ///
+    /// The list is read on the client in hand, and only while it can be asked with no check before it
+    /// (`listInTheTurn`): the link's read (`reservations`) makes the check, which can wake the recorder, and the
+    /// waking's attach sends what waits -- which waits for this turn, so the delete would never come back, and
+    /// no sending could run again. When it cannot, nothing is read, and the row is made only by a sending that
+    /// took it. A read that fails is said as a read's failure is (`DeviceLink.say`), once the turn is over. A
+    /// list read for a recorder let go of meanwhile says nothing of the row, and is not handed back.
+    ///
+    /// What it cannot tell: a row whose create the recorder took and whose answer was lost is deleted unsent,
+    /// with nothing said, when the list is not read -- the recorder not answering lately, as it seldom has after
+    /// such a silence -- and the recorder keeps the reservation.
     ///
     /// Nil for a row that is not the recorder's, with nothing read or taken out: it is another device's to
     /// delete. Nil too with the link or the cache gone.
-    public func deleteWaiting(_ waiting: PendingReservation) async -> Bool? {
+    public func deleteWaiting(_ waiting: PendingReservation) async -> (made: Bool, list: [Reservation]?)? {
         guard waiting.target == RecorderClient.slot, let link, let store = link.owner?.cache else { return nil }
-        return await PendingQueue.betweenFlushes { @MainActor in
-            let stillWaits = (try? await store.pendingReservations())
-                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
+        let began = link.generation
+        let deleted = await PendingQueue.betweenFlushes { @MainActor () -> (made: Bool, listed: ListRead?) in
+            let queued = try? await store.pendingReservations()
+            let stillWaits = queued.map { rows in rows.contains { $0.id == waiting.id } } ?? true
+            let held = (queued?.first { $0.id == waiting.id } ?? waiting).problem == Self.heldForAnotherRecorder
+            let listed = await self.listInTheTurn(link, since: began)
+            let made = (try? listed?.get()).map { !held && ByProgram.lists(waiting, in: $0) } == true
+                || (!stillWaits && waiting.request.end >= Date())
             if stillWaits {
                 try? await store.removePending(waiting.id)
                 await link.owner?.queueWritten()
             }
-            return !stillWaits && waiting.request.end >= Date()
-        } ?? false
+            return (made, listed)
+        }
+        if case .failure(let failure)? = deleted?.listed { _ = link.say(failure, since: began, ofARead: true) }
+        return (deleted?.made ?? false, try? deleted?.listed?.get())
+    }
+
+    /// A read of the recorder's list made from inside the queue's turn: what it read, or how it failed.
+    private typealias ListRead = Result<[Reservation], OperationFailure>
+
+    /// The recorder's list, read on the client in hand from inside the queue's turn, as a round's opening read
+    /// is, with no line and no check; nil when it is not read. Only while nothing would make the check before
+    /// asking it: the client is the one whose attach went through, the recorder is connected and not known to
+    /// be away, nothing was heard in its place (`DeviceLink.mayBeSent`), no check is out -- the read would wait
+    /// behind its probe, and its waking -- and the recorder answered within the time after which it is made
+    /// sure of (`LinkRules.needsCheck`). Nil too for a recorder let go of while the read was out.
+    private func listInTheTurn(_ link: DeviceLink, since began: Int) async -> ListRead? {
+        guard link.mayBeSent, !link.session.unreachable, link.wakeCheck == nil,
+              let client = link.client as? RecorderClient,
+              !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date()) else { return nil }
+        let read: ListRead
+        do {
+            read = .success(try await client.reservations())
+        } catch {
+            read = .failure(OperationFailure(error, sending: nil))
+        }
+        return link.letGo(since: began) ? nil : read
     }
 
     // MARK: - deleting one

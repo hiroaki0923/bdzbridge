@@ -611,6 +611,110 @@ final class QueueGateTests: XCTestCase {
         expectEqual(await recorder.asked(Kind.create, since: before), 0, "the row went to the newcomer")
     }
 
+    // MARK: - deleting a waiting row
+
+    /// A waiting row deleted while the recorder lists a reservation that answers for it -- a create the recorder
+    /// took whose answer was lost, made here beside the app -- is said to have been made, in the strip's sentence
+    /// for a row sent, and leaves the queue as a row made does; the list read for it in the queue's turn is the
+    /// one on screen, and nothing else is asked. One whose listed reservation falls short of it -- recorded once,
+    /// where the row asks for every day -- and one whose listed reservation the recorder made for itself are
+    /// deleted as asked, and nothing is said.
+    func testADeleteOfAWaitingRowTheRecorderListsSaysItWasMade() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 3)
+        let lost = try waiting(for: programmes[0], problem: Said.heldAfterSilence)
+        var daily = try waiting(for: programmes[1], problem: Said.heldAfterSilence)
+        daily.request.repeatCode = "d"
+        let theirs = try waiting(for: programmes[2], problem: Said.heldAfterSilence)
+        for row in [lost, daily, theirs] { try await store.queue(row) }
+        var once = daily.request
+        once.repeatCode = "1"
+        for request in [lost.request, once] { try await aClient(of: recorder).create(request) }
+        await model.loadPending()
+
+        let count = await recorder.heard.count
+        expectEqual(await model.deleteWaiting(lost), Said.sent(lost.request.title),
+                    "a reservation the recorder holds was said to be deleted")
+        expectEqual(await recorder.heard(since: count), [Kind.list])
+        XCTAssertNotNil(model.reservation(for: programmes[0]), "the list read for the delete is not on screen")
+        XCTAssertNil(model.pending(for: programmes[0]), "the row made is still shown as waiting")
+
+        expectNil(await model.deleteWaiting(daily), "a reservation that falls short of the row was taken for it")
+
+        let itsOwn = XsrsElements.update(id: "0x00000000000b11ff", theirs.request)
+            .replacingOccurrences(of: "</item></xsrs>",
+                                  with: "<reservationCreatorID>1100</reservationCreatorID></item></xsrs>")
+        await recorder.answer(Kind.list, with: .result(itsOwn))
+        expectNil(await model.deleteWaiting(theirs), "the recorder's own reservation was taken for the row")
+        expectEqual(try await store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty)
+    }
+
+    /// A waiting row held for the recorder before another took its place, deleted while the recorder in play
+    /// lists a reservation of the same programme: that reservation is the newcomer's and not the row's, which was
+    /// never sent to it. The row is deleted as asked, and nothing is said, as the round's opening look leaves
+    /// such a row out.
+    func testADeleteOfAWaitingRowHeldForAnotherRecorderIsNotTakenForTheNewcomersReservation() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let held = try waiting(for: try await programmesNotReserved(model, 1)[0], problem: Said.heldForAnotherRecorder)
+        try await store.queue(held)
+        try await aClient(of: recorder).create(held.request)
+        await model.loadPending()
+
+        expectNil(await model.deleteWaiting(held), "a row held for another recorder was said to be made")
+        expectEqual(try await store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty)
+    }
+
+    /// A waiting row deleted while the check before an operation is out -- its probe held and then silent, with
+    /// a MAC kept: the recorder may have dozed off, and the bench has no clock to let its last answer grow old
+    /// -- is deleted with nothing read, and the delete comes back while the probe is still out. A read for it in
+    /// the queue's turn that went through the check would wait for the check, and once the check woke the
+    /// recorder, for the waking's attach, whose sending waits for that turn: never. Let go, the probe's silence
+    /// wakes the recorder, and the waking's sending runs after the delete: the other row is made, the deleted
+    /// one is not.
+    func testADeleteOfAWaitingRowWhileTheRecorderIsMadeSureOfComesBackAndASendingRunsAfterIt() async throws {
+        let (bench, recorder, model) = try await connectedHome(wakeable: true)
+        // Let go as the test ends, however it ends: the probe then answers, and a delete waiting on it is over.
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+        let (deleted, other) = (try waiting(for: programmes[0]), try waiting(for: programmes[1]))
+        try await store.queue(deleted)
+        try await store.queue(other)
+        await model.loadPending()
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.description)
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.heard(since: count).contains(Kind.description)
+        }
+
+        let returned = Returned()
+        let deleting = Task {
+            let instead = await model.deleteWaiting(deleted)
+            returned.yes = true
+            return instead
+        }
+        try await until("the delete did not come back while the recorder was being made sure of", within: 5) {
+            returned.yes
+        }
+        expectNil(await deleting.value, "a row no sending took was said to be made")
+        expectEqual(await recorder.heard(since: count), [Kind.description], "the delete asked the recorder something")
+        expectEqual(try await store.pendingReservations().map(\.id), [other.id], "the row was not deleted")
+
+        await recorder.goQuiet(on: Kind.description)
+        await recorder.letGo()
+        expectTrue(await check.value, "the recorder was not woken")
+        expectEqual(await recorder.heard(since: count).filter { $0 == Kind.create }.count, 1,
+                    "what waited was not sent once")
+        XCTAssertNotNil(model.reservation(for: programmes[1]), "the other row was not made")
+        XCTAssertNil(model.reservation(for: programmes[0]), "the row deleted was made")
+        XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
+    }
+
     // MARK: - what the strip says
 
     /// How many reservations the strip says are held for another recorder is the number of waiting rows whose
@@ -710,6 +814,12 @@ final class QueueGateTests: XCTestCase {
             let outcome = await PendingQueue.flush(client: aClient(of: recorder), store: store)
             XCTAssertEqual(outcome.summary, sending.says, sending.name)
         }
+    }
+
+    /// Whether something begun in a task of its own has come back, for a test to look at meanwhile.
+    @MainActor
+    private final class Returned {
+        var yes = false
     }
 
     // MARK: - what the tests put in the queue
