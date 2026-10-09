@@ -116,7 +116,13 @@ final class LinkWorld: LinkHost {
         events.append("send what waits")
         await onSendWhatWaits?()
     }
-    func queueWritten() async { events.append("queue written") }
+    /// What the host does when it is told the queue may have changed, after putting it down: for a test that
+    /// holds a sending there, the moment before the queue is read.
+    var onQueueWritten: (@MainActor () async -> Void)?
+    func queueWritten() async {
+        events.append("queue written")
+        await onQueueWritten?()
+    }
     func reached() async {
         events.append("reached")
         await onReached?()

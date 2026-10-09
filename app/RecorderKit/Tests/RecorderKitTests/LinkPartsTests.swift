@@ -373,6 +373,96 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertEqual(world.problem, Self.mayHaveArrived)
     }
 
+    /// What comes back to an operation that noted the count of devices let go of as it began, after another
+    /// recorder has described itself on a connect made while it was out. A read that went through is not handed
+    /// back, and the line is left as it was. A read's silence is neither said nor taken for the newcomer: it is
+    /// not lost or given up on. Nor is a read's refusal said: it is the let-go recorder's. Silence on something
+    /// sent is said all the same, since it may have arrived, and loses nobody either; and a refusal of something
+    /// sent is said, being the answer to what was asked. A connect to the same recorder made meanwhile has a
+    /// client of its own and lets go of nothing: the value is handed back and the line cleared. An operation
+    /// that noted no count is handed its value back across a newcomer, as before.
+    func testWhatComesBackAfterTheDeviceWasLetGoOfIsNotKept() async throws {
+        let silence = RecorderError.transport("The request timed out.")
+        /// Has another recorder answer a connect made from inside the work, and leaves a line after it.
+        func anotherTakesOver(_ recorder: ScriptedRecorder, _ link: DeviceLink, _ world: LinkWorld) async {
+            await recorder.become(Self.another)
+            await link.connect()
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            world.problem = Self.left
+        }
+
+        var (world, recorder, link) = try await connected()
+        var began = link.generation
+        var failed = await link.run(line: "reading", since: began) { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            return 7
+        }
+        XCTAssertEqual(failed, .failure(.letGoMeanwhile))
+        XCTAssertNotEqual(link.generation, began, "another describing itself was meant to let go of the first")
+        XCTAssertEqual(world.problem, Self.left, "a read for the recorder let go of cleared the line")
+
+        (world, recorder, link) = try await connected()
+        failed = await link.run(line: "reading") { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            return 7
+        }
+        XCTAssertEqual(failed, .success(7), "an operation that noted no count was not handed its value back")
+
+        (world, recorder, link) = try await connected()
+        began = link.generation
+        failed = await link.run(since: began) { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            throw silence
+        }
+        XCTAssertEqual(failed, .failure(.silentOnARead(sentence: silence.explanation)))
+        XCTAssertFalse(link.session.unreachable, "a read's silence for the recorder let go of lost the newcomer")
+        XCTAssertFalse(link.session.gaveUp)
+        XCTAssertEqual(world.problem, Self.left, "a read's silence for the recorder let go of was said")
+
+        let busy = RecorderError.busy(action: "X_GetRecordScheduleList")
+        (world, recorder, link) = try await connected()
+        began = link.generation
+        failed = await link.run(since: began) { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            throw busy
+        }
+        XCTAssertEqual(failed, .failure(.refused(.busy, sentence: busy.explanation)))
+        XCTAssertEqual(world.problem, Self.left, "a read's refusal for the recorder let go of was said")
+        XCTAssertTrue(link.session.connected)
+
+        (world, recorder, link) = try await connected()
+        began = link.generation
+        failed = await link.run(sending: Self.mayHaveArrived, since: began) { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            throw busy
+        }
+        XCTAssertEqual(failed, .failure(.refused(.busy, sentence: busy.explanation)))
+        XCTAssertEqual(world.problem, busy.explanation, "the refusal of what was sent was not said")
+
+        (world, recorder, link) = try await connected()
+        began = link.generation
+        failed = await link.run(sending: Self.mayHaveArrived, since: began) { _ -> Int in
+            await anotherTakesOver(recorder, link, world)
+            throw silence
+        }
+        XCTAssertEqual(failed, .failure(.silentAfterSending(sentence: Self.mayHaveArrived)))
+        XCTAssertEqual(world.problem, Self.mayHaveArrived, "silence on what was sent was not said")
+        XCTAssertFalse(link.session.unreachable, "silence on what was sent to the recorder let go of lost the newcomer")
+        XCTAssertFalse(link.session.gaveUp)
+
+        (world, recorder, link) = try await connected()
+        began = link.generation
+        let went = await link.run(line: "reading", since: began) { asked -> Int in
+            await link.connect()
+            // What this stands on, rather than what it holds: a client of the connect's own.
+            XCTAssertFalse(link.client === asked, "the connect was meant to make a client of its own")
+            world.problem = Self.left
+            return 7
+        }
+        XCTAssertEqual(went, .success(7), "a connect to the same recorder let go of it")
+        XCTAssertNil(world.problem)
+    }
+
     /// An error that is no device's.
     private struct NotADevices: Error {}
 

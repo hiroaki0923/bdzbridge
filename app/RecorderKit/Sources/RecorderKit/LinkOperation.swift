@@ -18,6 +18,9 @@ public enum OperationFailure: Error, Sendable, Equatable {
     case silentAfterSending(sentence: String)
     /// Silence on a read: nothing is in doubt but whether the device is there. The sentence is the error's own.
     case silentOnARead(sentence: String)
+    /// What came back went through, but the device was let go of while it was out (`DeviceLink.letGo(since:)`):
+    /// it is not about the device in play, and was neither kept nor said.
+    case letGoMeanwhile
 
     /// What `error` is, thrown by the work. `sending` is the sentence to say if what was sent
     /// changes the device and met silence -- an operation gives its own, since what the reader is to check
@@ -155,17 +158,27 @@ extension DeviceLink {
     /// Apart from telling what a failure is (`OperationFailure.init`), so that an operation handed an outcome
     /// rather than an error can say it here all the same. Hands back what it was given, for a caller that
     /// tells, says and answers in one expression.
-    public func say(_ failure: OperationFailure) -> OperationFailure {
+    ///
+    /// `since` is the count an operation noted as it began (`generation`). When the device was let go of since
+    /// then, silence is not the device's in play: silence on something sent is still said, since it may have
+    /// arrived whatever became of the device, but loses nobody, and silence on a read is neither said nor taken.
+    /// A refusal of something sent is said as ever: it is the answer to what the reader asked for. A read's
+    /// (`ofARead`) is not, any more than what a read that went through brought back: it is about the device let
+    /// go of, and the line is the newcomer's. A client made anew for the same device meanwhile moves nothing.
+    public func say(_ failure: OperationFailure, since generation: Int? = nil,
+                    ofARead: Bool = false) -> OperationFailure {
+        let letGo = generation.map { letGo(since: $0) } ?? false
         switch failure {
-        case .notSent:
+        case .notSent, .letGoMeanwhile:
             break
         case .refused(_, let sentence):
+            guard !(letGo && ofARead) else { break }
             owner?.problem = sentence
         case .silentAfterSending(let sentence):
-            lost()
+            if !letGo { lost() }
             owner?.problem = sentence
         case .silentOnARead(let sentence):
-            guard driver.takesSilenceOnARead(self) else { break }
+            guard !letGo, driver.takesSilenceOnARead(self) else { break }
             lost()
             owner?.problem = sentence
         }
@@ -181,7 +194,13 @@ extension DeviceLink {
     /// failure of the request before. A failure is said (`say`). `sending` is the sentence for silence met by
     /// what changes the device, nil for a read. `work` is handed the client that was in hand as the check was
     /// asked (`check`), which `evenIfRecent` is handed to.
-    public func run<T>(line: String? = nil, sending: String? = nil, evenIfRecent: Bool = false,
+    ///
+    /// `since` is the count the operation noted as it began (`generation`), nil for one that does not ask. When
+    /// the device was let go of since then, what `work` returned is not handed back and the line is not cleared
+    /// (`OperationFailure.letGoMeanwhile`), and a failure is said by that count (`say(_:since:ofARead:)`), a read
+    /// being one with no `sending`. A client made anew for the same device meanwhile lets go of nothing, and the
+    /// value is handed back.
+    public func run<T>(line: String? = nil, sending: String? = nil, evenIfRecent: Bool = false, since: Int? = nil,
                        _ work: @MainActor (_ client: any LinkClient) async throws -> T)
         async -> Result<T, OperationFailure> {
         // Read once, as the line's is: what went wrong is cleared on the host the operation began under.
@@ -193,10 +212,12 @@ extension DeviceLink {
             case .up(let client):
                 do {
                     let value = try await work(client)
+                    if let since, self.letGo(since: since) { return .failure(.letGoMeanwhile) }
                     owner?.problem = nil
                     return .success(value)
                 } catch {
-                    return .failure(self.say(OperationFailure(error, sending: sending)))
+                    return .failure(self.say(OperationFailure(error, sending: sending), since: since,
+                                             ofARead: sending == nil))
                 }
             }
         }

@@ -364,6 +364,53 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertTrue(link.offline)
     }
 
+    /// The check's probe out when the reader chooses another address and the recorder there is connected to,
+    /// and then met with silence. The silence is the recorder's let go of: the one connected to now is neither
+    /// marked silent nor given up on, nothing is said over the line its connect left, and the check answers that
+    /// the device was let go of. The same when the connect to the new address met silence itself: what that
+    /// connect said stays, with nothing of the check's said over it. And the same with a MAC kept, which goes
+    /// with the recorder and not with its address: the check does nothing more about a silence that is not the
+    /// device in play's -- the permission is not asked about, and the recorder let go of is not woken, which
+    /// would clear the line, send packets and ask the address it left, and then say that it did not answer.
+    func testACheckThatMeetsSilenceAfterTheRecorderWasLetGoOfLeavesTheNewcomerAlone() async throws {
+        let rows: [(newcomerAnswers: Bool, mac: String?)] = [(true, nil), (false, nil), (true, Self.mac),
+                                                             (false, Self.mac)]
+        for (newcomerAnswers, mac) in rows {
+            let world = LinkWorld()
+            let first = try ScriptedRecorder(at: Stub.host, udn: Self.udn, world: world)
+            world.devices[Stub.host] = first
+            place(at: Self.moved, silent: !newcomerAnswers, in: world)
+            let link = makeLink(mac: mac, world)
+            await link.connect()
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+
+            await first.hold()
+            let checking = Task { await link.check(evenIfRecent: true) }
+            await first.whenHeld()
+            link.forgetTheDevice()
+            link.host = Self.moved
+            await link.connect()
+            XCTAssertEqual(link.session.connected, newcomerAnswers)
+            let left = "left by the connect to the new address"
+            world.problem = left
+            let gaveUp = link.session.gaveUp
+            let since = world.events.count
+            await first.answer(.silence)
+            await first.letGo()
+
+            let came = await checking.value
+            let what = (newcomerAnswers ? "the newcomer connected" : "the newcomer silent too")
+                + (mac == nil ? "" : ", a MAC kept")
+            if case .notUp(.letGo) = came {} else { XCTFail("the check answered \(came): \(what)") }
+            XCTAssertEqual(link.session.connected, newcomerAnswers, "the check's silence was taken: \(what)")
+            XCTAssertEqual(link.session.unreachable, !newcomerAnswers, what)
+            XCTAssertEqual(link.session.gaveUp, gaveUp, what)
+            XCTAssertEqual(world.problem, left, "the check's silence was said: \(what)")
+            XCTAssertEqual(Array(world.events[since...]), [],
+                           "the check went on after a silence that was not the newcomer's: \(what)")
+        }
+    }
+
     // MARK: - a television that has moved
 
     /// Another television's MAC: Sony's OUI and the rest zeroed, with a last digit of its own.

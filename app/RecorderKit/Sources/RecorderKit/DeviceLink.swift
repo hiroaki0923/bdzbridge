@@ -166,8 +166,10 @@ public enum NotUp: Sendable, Equatable {
     case anotherAnswered
     /// The device was let go of while it was made sure of, and not because the check heard another: the
     /// waking's attach was broken off by the host, which let go of the device -- over a cache that could not
-    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`). As for
-    /// `anotherAnswered`, what was asked for is not for the device in play now; the host has said why.
+    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`) -- or something else let
+    /// go of it while the check met silence: another address chosen, another device described itself on a
+    /// connect. As for `anotherAnswered`, what was asked for is not for the device in play now; the host has
+    /// said why, or whatever let go of it has, and the silence is neither taken for the device in play nor said.
     case letGo
     /// Silent to the probe, woken, and the attach that followed was turned away: busy, a fault, not a
     /// recorder. It is there and not given up on, and the attach has said why.
@@ -455,6 +457,13 @@ public final class DeviceLink {
     }
 
     /// The check itself. Nil when the device is up.
+    ///
+    /// Silence met once the device has been let go of since the check began -- another address chosen, another
+    /// device described itself on a connect -- is not the device in play's: the session, which is the newcomer's
+    /// by then, is neither marked silent nor lost, nothing is said, and the answer is `NotUp.letGo`. Nor is
+    /// anything more done about it: the permission is not asked about and the device is not woken, which with
+    /// a MAC kept would send packets for the device let go of, ask the address it was at, and say over the
+    /// newcomer's line that it did not answer. A device of either kind, the check being the link's.
     private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> NotUp? {
         if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
             return nil
@@ -473,14 +482,18 @@ public final class DeviceLink {
                 let answer = await self.driver.check(self, client: client)
                 if answer.stranger { stranger = true }
                 if answer.failure == .silent {
-                    // Silence, which is what waking is for.
+                    // Silence, which is what waking is for -- unless the device was let go of while the probe
+                    // was out: the silence is the one let go of's, and the session is another's by now.
                     answeredTheProbe = false
-                    self.session.wentSilent(on: network)
+                    if !self.letGo(since: began) { self.session.wentSilent(on: network) }
                 }
                 return answer.failure
             },
-            blocked: { await self.environment.lanIsBlocked(self.host) },
-            wake: { await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached }))
+            blocked: { self.letGo(since: began) ? false : await self.environment.lanIsBlocked(self.host) },
+            wake: {
+                guard !self.letGo(since: began) else { return .silent }
+                return await self.driver.wakeAndAttach(self, client: client) ? nil : self.whyNotAttached
+            }))
         switch outcome {
         case .answered:
             // Another device answers where the one in play was -- on the probe, or after a waking, whose attach
@@ -502,6 +515,8 @@ public final class DeviceLink {
             waitForPermission()
             return .waitingForPermission
         case .silent:
+            // Not the device in play's silence: nothing is lost or said for it.
+            guard !letGo(since: began) else { return .letGo }
             lost()
             // Waking says why it gave up; without a way to wake it there was no waking to say it.
             if !driver.canWake(self) { owner?.problem = driver.noAnswerLine }

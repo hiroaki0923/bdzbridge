@@ -408,6 +408,109 @@ final class ReservationGateTests: XCTestCase {
                        "the delete for the recorder let go of changed the newcomer's list on screen")
     }
 
+    /// A delete or a change whose read is out when another recorder answers a connect beside it. The write was
+    /// asked of the recorder let go of, and nothing goes to the newcomer, whether or not a row of the same number
+    /// is in its list: the delete is not done, and the change is not done and says that another recorder
+    /// answered. Neither writes on the line, not even that the row has gone.
+    ///
+    /// The bench's recorder answers the held read as the newcomer, from the same rows, so the row asked for is in
+    /// the list that read comes back with and in the one the connect read -- unless it is deleted on the
+    /// newcomer's own screen first.
+    func testAWriteWhoseReadIsOutWhenAnotherRecorderAnswersSendsItNothing() async throws {
+        for write in ReservationWrite.allCases {
+            for newcomerHoldsIt in [true, false] {
+                let what = write.name + (newcomerHoldsIt ? "" : ", of a number the newcomer does not hold")
+                let (_, recorder, model) = try await connectedHome()
+                addTeardownBlock { await recorder.letGo() }
+                let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+                let before = await recorder.asked
+                await recorder.holdTheNext(Kind.list)
+                let deleting = write == .delete ? Task { await model.cancel(row) } : nil
+                let changing = write == .change
+                    ? Task { await model.change(row, quality: "ER", repeating: "none") } : nil
+                try await until("\(what): its read never got to the recorder") {
+                    await recorder.asked(Kind.list, since: before) == 1
+                }
+
+                await recorder.become(2)
+                if !newcomerHoldsIt { try await aClient(of: recorder).deleteReservation(id: row.id) }
+                // Counted from here: that delete was the newcomer's own screen's.
+                let sent = await recorder.asked
+                await model.connect()
+                XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2),
+                               model.problem(for: .recorder) ?? "no reason given")
+                XCTAssertEqual(model.reservations.contains { $0.id == row.id }, newcomerHoldsIt,
+                               "the newcomer's list was meant to be so: \(what)")
+                leaveALine(on: model)
+                await recorder.letGo()
+
+                if let deleting {
+                    expectFalse(await deleting.value, "a delete asked of the recorder let go of went to the newcomer")
+                }
+                if let changing {
+                    expectEqual(await changing.value, .notDone(Said.anotherAnswered), what)
+                }
+                expectEqual(await recorder.asked(write.rawValue, since: sent), 0, "\(what) was sent")
+                XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(what) wrote on the newcomer's line")
+            }
+        }
+    }
+
+    /// A delete or a change out when another recorder answers a connect beside it, and then met by silence. What
+    /// was sent may have arrived, and that is said, as for any write that meets silence; but the silence was the
+    /// recorder let go of's, and the newcomer is neither lost nor given up on.
+    func testAWritesSilenceBesideAnotherRecordersArrivalIsSaidAndLosesNobody() async throws {
+        for write in ReservationWrite.allCases {
+            let (_, recorder, model) = try await connectedHome()
+            addTeardownBlock { await recorder.letGo() }
+            let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+            let before = await recorder.asked
+            await recorder.hold(only: write.rawValue)
+            let asking = Task { await write.ask(model, row) }
+            try await until("\(write.name) never got to the recorder") {
+                await recorder.asked(write.rawValue, since: before) == 1
+            }
+
+            await recorder.become(2)
+            await model.connect()
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+            await recorder.goQuiet(on: write.rawValue)
+            await recorder.letGo()
+
+            expectFalse(await asking.value, write.name)
+            XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived, write.name)
+            XCTAssertFalse(model.gaveUp, "silence on \(write.name) for the recorder let go of gave the newcomer up")
+            XCTAssertTrue(model.connected, write.name)
+            expectEqual(await recorder.asked(write.rawValue, since: before), 1, "\(write.name) was sent again")
+        }
+    }
+
+    /// A delete or a change out when another recorder answers a connect beside it, and then taken. The line is
+    /// the newcomer's by then, and what is on it -- here a line an earlier operation left -- is not cleared by a
+    /// write that went through on the recorder let go of.
+    func testAWriteTakenBesideAnotherRecordersArrivalLeavesTheNewcomersLine() async throws {
+        for write in ReservationWrite.allCases {
+            let (_, recorder, model) = try await connectedHome()
+            addTeardownBlock { await recorder.letGo() }
+            let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+            let before = await recorder.asked
+            await recorder.hold(only: write.rawValue)
+            let asking = Task { await write.ask(model, row) }
+            try await until("\(write.name) never got to the recorder") {
+                await recorder.asked(write.rawValue, since: before) == 1
+            }
+
+            await recorder.become(2)
+            await model.connect()
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+            leaveALine(on: model)
+            await recorder.letGo()
+
+            expectTrue(await asking.value, "\(write.name) was meant to be taken")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(write.name) cleared the newcomer's line")
+        }
+    }
+
     /// A read of the list out when another recorder answers a connect beside it: the newcomer's arrival empties
     /// the lists in that turn, and the connect reads its reservations, its own read going through while the first
     /// is held. The first read, asked for the recorder let go of, comes back afterwards and is not put over the
