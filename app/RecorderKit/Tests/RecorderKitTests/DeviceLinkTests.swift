@@ -288,7 +288,7 @@ final class DeviceLinkTests: XCTestCase {
         world.near = [Self.moved]
         let link = makeLink(mac: Self.mac, world)
 
-        for said in [RecorderDriver.mayHaveArrived, RecorderDriver.reservationMayHaveArrived] {
+        for said in [RecorderDriver.mayHaveArrived, RecorderDriver.heldAfterSilence] {
             world.problem = said
             world.events = []
             await link.connect()

@@ -832,6 +832,43 @@ final class ReservationGateTests: XCTestCase {
                      "the list on screen is the one read after the reservation for the recorder let go of")
     }
 
+    /// A reservation whose create is out when another recorder answers a connect beside it, and is then met by
+    /// silence. It may have been made on the recorder let go of: the answer and the line say so, as for a delete
+    /// or a change whose silence came beside such an arrival, and the newcomer is neither lost nor given up on.
+    /// Nothing is kept for whichever recorder answers next -- the row is taken out, as for any reservation across
+    /// such an arrival -- and nothing is created on the newcomer, then or at the pull-down after.
+    func testAReservationWhoseCreateMetSilenceBesideAnotherRecordersArrivalSaysItMayHaveArrived() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.hold(only: Kind.create)
+        let reserving = Task { await model.reserve(program, on: .recorder, quality: "DR", repeating: "none") }
+        try await until("the reservation never got to the recorder") {
+            await recorder.asked(Kind.create, since: before) == 1
+        }
+
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await recorder.goQuiet(on: Kind.create)
+        await recorder.letGo()
+        let came = await reserving.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(came, .notDone(Said.mayHaveArrived))
+        XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived, "the silence was not said on the line")
+        XCTAssertFalse(model.gaveUp, "silence at the create for the recorder let go of gave the newcomer up")
+        XCTAssertTrue(model.connected)
+        expectEqual(try await store.pendingReservations(), [],
+                    "the reservation waits for the recorder that answered next")
+        XCTAssertNil(model.pending(for: program, on: .recorder), "the reservation is shown as waiting")
+        await model.refreshReservations()
+        try await untilIdle(model)
+        expectEqual(await recorder.asked(Kind.create, since: before), 1, "the reservation was sent again")
+    }
+
     /// A reservation asked for while the check before it is out, and the recorder let go of before the check
     /// answers: another address has been chosen, and the connect to it is under way. The check then meets
     /// silence where it asked. Nothing was sent, and the reservation is not kept either -- kept, it would wait as
@@ -1328,16 +1365,17 @@ final class ReservationGateTests: XCTestCase {
         expectEqual(await recorder.asked(Kind.clashes, since: before), 1, "the clash check was asked again")
     }
 
-    /// A reservation made with the recorder there: sent once, under a line of its own with the choice of
-    /// another recorder held back, then read back from the recorder's list, and not said to be waiting. A
-    /// refusal with a code of its own -- 831, a channel the recorder cannot receive -- and busy through both
-    /// tries after the first are said in the recorder's words and are not queued: only silence before anything
-    /// was sent is. A mode the tables do not know sends nothing and keeps nothing. And one that went out and met
-    /// silence may have been made all the same, so it is not queued either, and says so in a sentence of its
-    /// own, the whole of which is looked at here.
-    ///
-    /// A television's routing is to come in front of this. The recorder's own way has to stay as it is here.
-    func testAReservationTheRecorderTakesIsReadBackAndOneItTurnsDownIsNotQueued() async throws {
+    /// A reservation made with the recorder there is kept on the phone first and sent as that one row, under a
+    /// line of its own with the choice of another recorder held back: the list read as its round opens, the
+    /// create once, then the list read back, and it is not said to be waiting. One the recorder does not make
+    /// is kept, and none is sent twice: turned down with a code of its own -- 831, a channel the recorder
+    /// cannot receive -- it waits with the recorder's words as its reason, for the reader; busy through both
+    /// tries after the first, it waits with no reason, to go by itself; and one that went out and met silence
+    /// may have been made all the same, so it waits held for the reader with the sentence the round writes on
+    /// it, the whole of which is looked at here, and the recorder is lost. The line is left as it was by the
+    /// refusal and by busy, as a television's round leaves it. A mode the tables do not know sends nothing and
+    /// keeps nothing. Each is of the same programme, whose row waiting from the one before it replaces.
+    func testAReservationTheRecorderTakesIsReadBackAndOneItDoesNotMakeIsKept() async throws {
         let (bench, recorder, model) = try await connectedHome()
         let programmes = try await programmesNotReserved(model, 2)
         let (taken, refused) = (programmes[0], programmes[1])
@@ -1348,6 +1386,13 @@ final class ReservationGateTests: XCTestCase {
             XCTAssertNil(keptJustNow(model), "\(what) is said to be waiting", line: line)
             XCTAssertTrue(model.pending.isEmpty, "\(what) was queued", line: line)
         }
+        // Kept on the phone, as the one row waiting, with `reason` on it or none.
+        func expectKept(_ what: String, saying reason: String?, line: UInt = #line) {
+            let kept = keptJustNow(model)
+            XCTAssertNotNil(kept, "\(what) was not kept", line: line)
+            XCTAssertEqual(kept?.problem, reason, "\(what) waits with another reason", line: line)
+            XCTAssertEqual(model.pending.map(\.id), kept.map { [$0.id] } ?? [], "\(what) is not what waits", line: line)
+        }
 
         var count = await recorder.heard.count
         await recorder.hold(only: Kind.create)
@@ -1355,12 +1400,12 @@ final class ReservationGateTests: XCTestCase {
         try await until("the reservation never got to the recorder") {
             await recorder.heard(since: count).contains(Kind.create)
         }
-        expectEqual(await recorder.heard(since: count), [Kind.create])
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create])
         XCTAssertEqual(model.busy, "予約を登録中")
         XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with the reservation out")
         await recorder.letGo()
         expectTrue(await asking.value, model.problem(for: .recorder) ?? "no reason given")
-        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.list],
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.list],
                     "the reservation was sent again, or the list was not read after it")
         XCTAssertNil(model.problem(for: .recorder))
         XCTAssertNil(model.busy)
@@ -1369,35 +1414,39 @@ final class ReservationGateTests: XCTestCase {
 
         count = await recorder.heard.count
         await recorder.answer(Kind.create, with: .fault(831))
-        expectFalse(await reserve(refused))
-        XCTAssertEqual(model.problem(for: .recorder), Said.fault(831, Kind.create))
-        expectEqual(await recorder.heard(since: count), [Kind.create], "something was read after a refusal")
-        expectNothingWaits("a reservation the recorder refused")
+        expectTrue(await reserve(refused))
+        XCTAssertNil(model.problem(for: .recorder))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create], "something was read after a refusal")
+        expectKept("a reservation the recorder refused", saying: Said.fault(831, Kind.create))
         XCTAssertTrue(model.connected)
 
         count = await recorder.heard.count
         await recorder.beBusy(with: Kind.create)
-        expectFalse(await reserve(refused))
-        XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.create))
-        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.create, Kind.create])
-        expectNothingWaits("a reservation the recorder was too busy for")
+        expectTrue(await reserve(refused))
+        XCTAssertNil(model.problem(for: .recorder))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.create, Kind.create])
+        expectKept("a reservation the recorder was too busy for", saying: nil)
         XCTAssertTrue(model.connected)
 
         leaveALine(on: model)
         count = await recorder.heard.count
+        let waiting = model.pending
         expectFalse(await reserve(refused, quality: "知らない画質"))
         expectEqual(await recorder.heard(since: count), [], "a reservation in a mode nobody knows was sent")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
-        expectNothingWaits("a reservation in a mode nobody knows")
+        XCTAssertNil(keptJustNow(model), "a reservation in a mode nobody knows is said to be waiting")
+        XCTAssertEqual(model.pending, waiting, "a reservation in a mode nobody knows was queued")
 
         count = await recorder.heard.count
         await recorder.goQuiet(on: Kind.create)
-        expectFalse(await reserve(refused))
-        XCTAssertEqual(model.problem(for: .recorder), Said.reservationMayHaveArrived)
-        expectEqual(await recorder.heard(since: count), [Kind.create], "a reservation that met silence was sent again")
+        expectTrue(await reserve(refused))
+        XCTAssertEqual(model.problem(for: .recorder), Said.heldAfterSilence)
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create],
+                    "a reservation that met silence was sent again")
         XCTAssertTrue(model.gaveUp)
-        expectNothingWaits("a reservation that may have arrived")
-        expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty)
+        expectKept("a reservation that may have arrived", saying: Said.heldAfterSilence)
+        let onThePhone = try await GuideStore(path: bench.guidePath).pendingReservations()
+        XCTAssertEqual(onThePhone.map(\.problem), [Said.heldAfterSilence])
         XCTAssertNil(model.reservation(for: refused))
     }
 

@@ -126,6 +126,26 @@ final class DriverCheckRehearsalTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.hasPrefix("may be left") }, "\(lines)")
     }
 
+    /// A reservation the recorder takes and then meets with silence, listing it only after a few reads: the driver
+    /// keeps it on the phone, held for the reader since it may have been made, and the check fails at that step.
+    /// The clean-up waits for it as for one listed late, and deletes it there: the recorder ends with the
+    /// reservations it began with, and nothing is said to be left on it.
+    func testTheCheckDeletesItsOwnReservationWhoseCreateMetSilenceAndIsListedLate() async throws {
+        let recorder = try RecorderReservations(Self.household(), guide: Self.guide(), listsACreateAfter: 3,
+                                                silentAfterTheCreate: true)
+        let before = await recorder.rows
+
+        let (failure, lines) = try await rehearse(on: recorder)
+
+        let failed = try XCTUnwrap(failure as? DriverCheck.Failed, "the check went on past a create that met silence")
+        XCTAssertTrue(failed.description.hasPrefix("not made: kept on the phone"), failed.description)
+        let made = await recorder.made
+        XCTAssertEqual(made.count, 1)
+        expectEqual(await recorder.deleted, made.map(\.id), "the check's own was not cleaned up")
+        expectEqual(await recorder.rows, before)
+        XCTAssertFalse(lines.contains { $0.hasPrefix("may be left") }, "\(lines)")
+    }
+
     /// One the recorder takes and never lists is said to be left on it, with its time, though the counts agree.
     func testTheCheckSaysWhenItsOwnReservationWasNeverListed() async throws {
         let recorder = try RecorderReservations(Self.household(), guide: Self.guide(), listsACreateAfter: 100)
@@ -197,7 +217,8 @@ final class DriverCheckRehearsalTests: XCTestCase {
 /// XML the client reads, the latest start first and the newest made first among those that start together; made,
 /// changed and deleted; and, beside them, the terrestrial guide of the vectors. Anything else is refused. It can
 /// meet a request with silence, list what was there at the read before rather than now, as a recorder a moment
-/// behind itself, leave what a create made out of the list for a number of reads, and work through its guide
+/// behind itself, leave what a create made out of the list for a number of reads, meet a create it has taken with
+/// silence, and work through its guide
 /// again right after a create or a delete, as a recorder does: what it made for itself is made again, all under
 /// new ids, and marked as its own or, as a recorder has been seen to mark some, as an app's. What was made,
 /// changed and deleted is put down.
@@ -223,6 +244,7 @@ actor RecorderReservations {
     private let silentOn: Set<String>
     private let aReadBehind: Bool
     private let listsACreateAfter: Int
+    private let silentAfterTheCreate: Bool
     /// For each row a create made and the list leaves out still, how many more reads leave it out.
     private var unlisted: [String: Int] = [:]
     private let itsOwnAfterTheCreate: [ReservationRequest]?
@@ -233,11 +255,13 @@ actor RecorderReservations {
     private let marksItsOwnWith: String
 
     /// Holds `rows`, serves `guide`, meets the SOAP actions of `silentOn` with silence, lists a read behind when
-    /// `aReadBehind`, leaves what a create made out of the next `listsACreateAfter` reads, and after a create
-    /// makes its own as `itsOwnAfterTheCreate`, and after each delete as `itsOwnAfterADelete`, when that is
-    /// given, in place of those it holds as its own (creator 1100), each marked `marksItsOwnWith`.
+    /// `aReadBehind`, leaves what a create made out of the next `listsACreateAfter` reads, meets each create with
+    /// silence once it has made it when `silentAfterTheCreate`, and after a create makes its own as
+    /// `itsOwnAfterTheCreate`, and after each delete as `itsOwnAfterADelete`, when that is given, in place of
+    /// those it holds as its own (creator 1100), each marked `marksItsOwnWith`.
     init(_ rows: [(creator: String, request: ReservationRequest)], guide: Data, silentOn: Set<String> = [],
-         aReadBehind: Bool = false, listsACreateAfter: Int = 0, itsOwnAfterTheCreate: [ReservationRequest]? = nil,
+         aReadBehind: Bool = false, listsACreateAfter: Int = 0, silentAfterTheCreate: Bool = false,
+         itsOwnAfterTheCreate: [ReservationRequest]? = nil,
          itsOwnAfterADelete: [ReservationRequest]? = nil, marksItsOwnWith: String = "1100") {
         self.rows = rows.enumerated().map { Row(id: Self.id($0.offset), creator: $0.element.creator,
                                                 request: $0.element.request) }
@@ -249,6 +273,7 @@ actor RecorderReservations {
         self.silentOn = silentOn
         self.aReadBehind = aReadBehind
         self.listsACreateAfter = listsACreateAfter
+        self.silentAfterTheCreate = silentAfterTheCreate
         self.itsOwnAfterTheCreate = itsOwnAfterTheCreate
         self.itsOwnAfterADelete = itsOwnAfterADelete
     }
@@ -273,6 +298,7 @@ actor RecorderReservations {
             made.append(row)
             if listsACreateAfter > 0 { unlisted[row.id] = listsACreateAfter }
             if let requests = itsOwnAfterTheCreate { makeItsOwnAgain(requests) }
+            if silentAfterTheCreate { throw RecorderError.transport("The request timed out.") }
             return Stub.soap(action)
         case "X_UpdateRecordSchedule":
             guard let asked = Self.asked(in: call), let index = rows.firstIndex(where: { $0.id == asked.id }) else {

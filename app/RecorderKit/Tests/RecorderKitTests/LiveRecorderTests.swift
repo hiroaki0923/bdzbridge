@@ -1030,11 +1030,14 @@ enum DriverCheck {
             // 4. Made, and looked for in the list handed back, then in a read every second for ten: how soon a new
             // reservation is listed, and whether it carries the programme id it would be looked for by.
             let asked = ContinuousClock.now
-            let came = await driver.reserve(program, quality: "LSR", repeating: "none", disk: RecorderDisk.internalID)
+            let came = await driver.reserve(program, quality: "LSR", repeating: "none", disk: RecorderDisk.internalID,
+                                            now: now)
+            // Silence at the create keeps the row on the phone, held with the sentence the round writes on it: the
+            // reservation may be on the recorder all the same.
             switch came.reserved {
             case .made: sent = true
-            case .notDone(let why): sent = why == RecorderDriver.reservationMayHaveArrived
-            case .waiting, .wouldStop: break
+            case .waiting(_, let why): sent = why == RecorderDriver.heldAfterSilence
+            case .notDone, .wouldStop: break
             }
             guard case .made = came.reserved else { throw Failed(description: "not made: \(words(came.reserved))") }
             let made = ContinuousClock.now

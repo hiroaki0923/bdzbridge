@@ -287,7 +287,26 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
                                   usb: RecorderDisk?) -> String {
         guard let disk = shown(destination, on: .recorder, usb: usb),
               let (code, action) = refusalTheDiskCanBeBehind(error) else { return error.explanation }
-        return "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
+        return turnedDown(on: disk, code: code, action: action)
+    }
+
+    /// What `turnedDown` says of a reservation just asked for, read from the reason the round that sent it wrote
+    /// on its row (`waitingRowTurnedDown`) in the same turn: the reader is at the sheet that offered the disk, and
+    /// is asked for another there, rather than told to delete a row and reserve again. Nil for any other reason,
+    /// and for a destination no disk is named for (`shown`), whose row keeps the reason it was given.
+    public static func turnedDown(asWaiting reason: String, sentTo destination: String,
+                                  usb: RecorderDisk?) -> String? {
+        let lead = waitingRowTurnedDownLead + " ("
+        guard let disk = shown(destination, on: .recorder, usb: usb), reason.hasPrefix(lead), reason.hasSuffix(")")
+        else { return nil }
+        let inside = reason.dropFirst(lead.count).dropLast()
+        guard let colon = inside.range(of: ": ") else { return nil }
+        return turnedDown(on: disk, code: String(inside[..<colon.lowerBound]),
+                          action: String(inside[colon.upperBound...]))
+    }
+
+    private static func turnedDown(on disk: String, code: String, action: String) -> String {
+        "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
     }
 
     /// The reason a row waiting for `destination` carries when the recorder turns it down
@@ -298,9 +317,10 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         guard destination != internalID, let (code, action) = refusalTheDiskCanBeBehind(error) else {
             return error.explanation
         }
-        return "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
-            + " (\(code): \(action))"
+        return waitingRowTurnedDownLead + " (\(code): \(action))"
     }
+
+    private static let waitingRowTurnedDownLead = "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
 
     /// The reason a row waiting for the USB slot carries when the slot, waited for before it is sent, answers no
     /// disk that takes recordings (`RecorderClient`'s round): nothing was sent for it. Passed over in silence, the

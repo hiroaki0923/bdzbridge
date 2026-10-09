@@ -145,7 +145,9 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
                                                    now: program.start)
                     return came.altered.map { "\($0)" } ?? "nil"
                 }
-                let came = await driver.reserve(program, quality: "DR", repeating: "none", disk: RecorderDisk.usbID)
+                // Asked at the programme's start too, so that the round does not drop it as over.
+                let came = await driver.reserve(program, quality: "DR", repeating: "none", disk: RecorderDisk.usbID,
+                                                now: program.start)
                 return "\(came.reserved)"
             }
             await first.whenTheSlotIsHeld()

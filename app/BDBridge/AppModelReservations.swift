@@ -252,11 +252,12 @@ extension AppModel {
     /// `quality` is not read. With no television in play, as in the demo before its television is added,
     /// nothing is kept and nothing sent.
     ///
-    /// The recorder's is its driver's (`RecorderDriver.reserve`): made, kept on the phone when the recorder
-    /// cannot be asked, or not done with its reason, the driver's result saying which; with no driver, that the
-    /// app is not connected. The list it hands back after a reservation made is kept by the count noted here
-    /// (`keepReservations`): a reservation for a recorder let go of meanwhile leaves the list of the one after
-    /// it alone. A television has no disk to choose, and `disk` is not read for one.
+    /// The recorder's is its driver's (`RecorderDriver.reserve`): made; kept on the phone, waiting -- with no
+    /// reason when the recorder cannot be asked or passed it over, with the recorder's reason when it turned it
+    /// down, or held after silence at its create; or not done with its reason, the driver's result saying which;
+    /// with no driver, that the app is not connected. The list it hands back after a reservation made is kept by
+    /// the count noted here (`keepReservations`): a reservation for a recorder let go of meanwhile leaves the list
+    /// of the one after it alone. A television has no disk to choose, and `disk` is not read for one.
     ///
     /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
     /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before

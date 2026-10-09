@@ -194,7 +194,7 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// The slot answering the disk on its second read -- a disk that comes up seconds after the wake -- the
-    /// reservation is created right after that read, and the disk is taken as it answered, the read left for later
+    /// reservation's round goes right after that read, and the disk is taken as it answered, the read left for later
     /// ended.
     func testAReservationToAKeptDiskIsCreatedOnceTheSlotAnswersIt() async throws {
         let (_, recorder, model) = try await connected(times: 1)
@@ -210,7 +210,8 @@ final class USBDiskChoiceTests: XCTestCase {
                    model.problem ?? "no reason given")
 
         expectEqual(await recorder.heard(since: before),
-                    ["X_GetMediaInfo", "X_GetMediaInfo", "X_CreateRecordSchedule", "X_GetRecordScheduleList"])
+                    ["X_GetMediaInfo", "X_GetMediaInfo", "X_GetRecordScheduleList", "X_CreateRecordSchedule",
+                     "X_GetRecordScheduleList"])
         XCTAssertEqual(model.reservation(for: program)?.destination, "USBHDD")
         XCTAssertEqual(model.usbDisk?.freeMB, 100_000, "the disk was not taken as it answered")
         XCTAssertNil(model.recorder.readLeftForLater, "the read left for later was not ended")
@@ -593,12 +594,13 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// Nothing is waited for, and no read of the slot added, where nothing names a disk kept through an answer of
-    /// none: in a home with no USB disk the clash check, a reservation, a change and a condition each send what
-    /// they always sent, and so do the same to a USB disk the slot has answered since the recorder woke.
+    /// none: in a home with no USB disk the clash check, a change and a condition each send what they always
+    /// sent, and a reservation that and the list its round opens with; and so do the same to a USB disk the slot
+    /// has answered since the recorder woke.
     func testNoReadOfTheSlotIsAddedWithNoUSBDiskOrWithTheDiskAnswered() async throws {
         let (_, home, noUSB) = try await connectedHome()
         let (_, recorder, answered) = try await connected()
-        let sent = ["X_GetConflictList", "X_CreateRecordSchedule", "X_GetRecordScheduleList",
+        let sent = ["X_GetConflictList", "X_GetRecordScheduleList", "X_CreateRecordSchedule", "X_GetRecordScheduleList",
                     "X_GetRecordScheduleList", "X_UpdateRecordSchedule", "X_GetRecordScheduleList",
                     "X_CreatePrefRecSetting", "X_GetPrefRecSettingList"]
         for (what, model, transport, disk) in [("no USB disk", noUSB, home, "HDD"),
@@ -861,8 +863,9 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// The recorder turning down a reservation to the USB disk, or a move to it, is said as the disk and what to
-    /// do, and nothing is left looking made or kept to be sent; the internal disk's refusals are said as they
-    /// always were.
+    /// do, and nothing is left looking made or kept to be sent. A reservation to the internal disk turned down is
+    /// kept, waiting with the recorder's words as its reason, as any refusal of a reservation is; a change's is
+    /// said as it always was.
     func testARefusalOfTheUSBDiskSaysWhichDiskAndWhatToDo() async throws {
         let (_, recorder, model) = try await connected()
         let programs = try await programmesNotReserved(model, 2)
@@ -874,8 +877,8 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertNil(model.reservation(for: programs[0]), "a reservation turned down was shown as made")
         XCTAssertTrue(model.pending.isEmpty, "a reservation turned down was kept to be sent")
         await recorder.answer("X_CreateRecordSchedule", with: .fault(402))
-        expectFalse(await reserveOnTheRecorder(model, programs[0], quality: "DR", repeating: "none"))
-        XCTAssertEqual(model.problem, "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)")
+        expectTrue(await reserveOnTheRecorder(model, programs[0], quality: "DR", repeating: "none"))
+        XCTAssertEqual(keptJustNow(model)?.problem, "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)")
 
         expectTrue(await reserveOnTheRecorder(model, programs[1], quality: "DR", repeating: "none"),
                    model.problem ?? "no reason given")

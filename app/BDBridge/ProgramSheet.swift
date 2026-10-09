@@ -79,11 +79,12 @@ struct ProgramSheet: View {
     @State private var asking: String?
     /// How many requests of this sheet's own are out and not under `asking`: a delete of a waiting row, which
     /// waits for the queue's turn and puts up no line. A request to the television does not begin while there
-    /// is one. As it ends, such a request closes the sheet, or puts up its own answer and takes `asking` down,
-    /// and one begun first would do that under the television's: the sheet gone while the television's answer
-    /// is still out, or left open to be pressed and closed while its round runs. Read by the television's three
-    /// buttons -- 録画予約する, もう一度送る and the way to change its reservation, whose sheet would send a request
-    /// of its own -- by the recorder's もう一度送る, 予約を変更する and 予約を削除 for the same reason, and by the
+    /// is one, nor one to the recorder. As it ends, such a request closes the sheet, or puts up its own answer
+    /// and takes `asking` down, and one begun first would do that under the other's: the sheet gone while that
+    /// answer is still out, or left open to be pressed and closed while its round runs -- a reservation on the
+    /// recorder waits for the same queue's turn as the delete. Read by the television's three buttons --
+    /// 録画予約する, もう一度送る and the way to change its reservation, whose sheet would send a request of its own
+    /// -- by the recorder's 録画予約する, もう一度送る, 予約を変更する and 予約を削除 for the same reason, and by the
     /// sheet's close, as `asking` is: the sheet is held for such a delete as for its other requests.
     @State private var others = 0
 
@@ -199,6 +200,7 @@ struct ProgramSheet: View {
                         // reservation made now goes to the queue and is sent when the recorder next answers.
                         // With a disk picked and let go of since, what 予約する would do is done at once: the
                         // question would promise a registration the recorder's driver is about to refuse.
+                        // Held while a delete of this sheet's own is out (`others`), as the television's is.
                         Button("録画予約する") {
                             turn = .recorder
                             if let gone = pickedAndGone {
@@ -207,7 +209,7 @@ struct ProgramSheet: View {
                                 ask = .reserve(.recorder, disk: askedDisk)
                             }
                         }
-                        .disabled(model.working)
+                        .disabled(model.working || others > 0)
                     }
                 } else if device == .tv, !past {
                     televisionOffer

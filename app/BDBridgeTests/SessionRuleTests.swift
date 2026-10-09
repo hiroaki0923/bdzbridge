@@ -338,10 +338,11 @@ final class SessionRuleTests: XCTestCase {
 
     // MARK: - writes
 
-    /// A reservation that went out and met silence may have been made all the same. It is not sent again and
-    /// not queued, which would make it a second time once the recorder is back, and the reader is told to
-    /// look.
-    func testAReservationThatMetSilenceAfterItWasSentIsNotQueued() async throws {
+    /// A reservation whose round meets silence at the list it opens with has had nothing of it sent: it is kept
+    /// on the phone with no reason, to go by itself once the recorder is back, and said so. Nothing more is
+    /// asked, and the recorder is lost, as for a read's silence. Silence at the create itself is the reservation
+    /// gate's to look at.
+    func testAReservationWhoseRoundMeetsSilenceBeforeItsCreateIsKept() async throws {
         let bench = try aBench()
         let recorder = RecorderAtHome()
         let model = try await started(bench, recorder: recorder)
@@ -350,14 +351,14 @@ final class SessionRuleTests: XCTestCase {
 
         await recorder.setReachable(false)
         let asked = await recorder.asked
-        let made = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
+        let came = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
 
-        XCTAssertFalse(made)
-        expectEqual(await recorder.asked, asked + 1, "the reservation was sent more than once, or not at all")
-        XCTAssertNil(model.pending(for: program), "a reservation that may have arrived was queued")
-        expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty)
+        let row = try XCTUnwrap(model.pending(for: program), "a reservation nothing of which was sent was not kept")
+        XCTAssertEqual(came, .waiting(row, saying: Said.keptForTheRecorder))
+        expectEqual(await recorder.asked, asked + 1, "more was asked than the list the round opens with")
+        expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.problem), [nil])
         XCTAssertTrue(model.gaveUp)
-        XCTAssertTrue(model.problem?.contains("送信待ちにはしていません") ?? false, model.problem ?? "no reason given")
+        XCTAssertEqual(model.problem, Said.noAnswer)
     }
 
     /// While the recorder is being made sure of, whatever else is asked waits for that answer rather than
