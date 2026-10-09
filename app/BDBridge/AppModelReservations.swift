@@ -475,11 +475,10 @@ extension AppModel {
     ///
     /// The recorder's is its driver's (`RecorderDriver.update`): the list read again first and the reservation
     /// found in it, the slot waited for when the change names the USB disk, and the change sent once. The list
-    /// on screen is handed over for the driver to look in when its read fails, and the list it hands back is
-    /// kept by the count noted here (`keepReservations`): a change for a recorder let go of meanwhile leaves the
-    /// list of the one after it alone. What it came to is the driver's result: done, with nothing to add; or not
-    /// done, with the recorder's line -- what the sheet said before, in the same words. A row the driver turns
-    /// away as no recorder's, which no screen holds, is not done with the line as it stands.
+    /// it hands back is kept by the count noted here (`keepReservations`): a change for a recorder let go of
+    /// meanwhile leaves the list of the one after it alone. What it came to is the driver's result: done, with
+    /// nothing to add; or not done, with the recorder's line -- what the sheet said before, in the same words. A
+    /// row the driver turns away as no recorder's, which no screen holds, is not done with the line as it stands.
     func change(_ reservation: Reservation, quality: String, repeating: String,
                 disk: String? = nil) async -> Altered {
         if reservation.device == .tv {
@@ -487,8 +486,7 @@ extension AppModel {
         }
         let forgotten = timesForgotten
         await start()
-        let came = await recorderDriver?.update(reservation, quality: quality, repeating: repeating, disk: disk,
-                                                inHand: { self.reservations })
+        let came = await recorderDriver?.update(reservation, quality: quality, repeating: repeating, disk: disk)
         keepReservations(came?.list, since: forgotten)
         return came?.altered ?? .notDone(problem ?? RecorderDriver.returnedAnError)
     }
@@ -498,17 +496,16 @@ extension AppModel {
     /// A television's reservation is its host's to delete, handed over first as for a change (`change`).
     ///
     /// The recorder's is its driver's (`RecorderDriver.cancel`): the list read again first and the reservation
-    /// found in it, the delete sent once, and the row taken out of the list read after it. The list on screen is
-    /// handed over for the driver to look in when its read fails. The list it hands back is kept by the count
-    /// noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not touch the list of the
-    /// one after it, which may hold another row under the same number. A recorder that refuses says why, on its
-    /// line, which is what the row's screen reads.
+    /// found in it, the delete sent once, and the row taken out of the list read after it. The list it hands back
+    /// is kept by the count noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not
+    /// touch the list of the one after it, which may hold another row under the same number. A recorder that
+    /// refuses says why, on its line, which is what the row's screen reads.
     @discardableResult
     func cancel(_ reservation: Reservation) async -> Bool {
         if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }
         let forgotten = timesForgotten
         await start()
-        guard let came = await recorderDriver?.cancel(reservation, inHand: { self.reservations }) else {
+        guard let came = await recorderDriver?.cancel(reservation) else {
             return false
         }
         keepReservations(came.list, since: forgotten)

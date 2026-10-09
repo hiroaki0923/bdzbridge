@@ -1053,7 +1053,7 @@ enum DriverCheck {
 
             // 5. Changed, and the list read until it shows the change: the one handed back, then a read every second
             // for ten. Each must still list it.
-            let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil, inHand: { [] })
+            let change = await driver.update(current, quality: "SR", repeating: "none", disk: nil)
             switch change.altered {
             case .done?: break
             case .notDone(let why)?: throw Failed(description: "not changed: \(said(why))")
@@ -1081,7 +1081,7 @@ enum DriverCheck {
             // 6. Deleted, and then whether it comes back in a read every second for ten: in what each read hands
             // back, not in the list the delete handed back, from which the driver takes the row out itself; and
             // by an id the check held, a new row at that time being none of its own.
-            let deletion = await driver.cancel(current, inHand: { [] })
+            let deletion = await driver.cancel(current)
             guard deletion.deleted else { throw Failed(description: "not deleted: \(said(world.problem))") }
             gone = true
             let deleted = ContinuousClock.now

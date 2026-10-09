@@ -696,21 +696,19 @@ public final class RecorderDriver: LinkDriver {
     /// with no recorder's client in hand nothing is said either. Known to be away, nothing is sent -- the list
     /// has to be read first, and nothing can be read -- and the host says that the app is not connected; so it
     /// does, with nothing read, when nothing can be written to the recorder (`canBeAsked`): a connect is under
-    /// way, or the recorder has not said which it is. A read that meets silence ends it there, under the read's
-    /// sentence. A reservation not in the list has gone, and the line says so.
+    /// way, or the recorder has not said which it is.
     ///
-    /// The list it is looked for in is the one the read handed back, or when the read failed some other way,
-    /// the list the caller holds as it stands after the read (`inHand`), which a pull-down may have replaced
-    /// meanwhile: a read turned down leaves the recorder there, and the delete goes out from that list. As it is
-    /// today; a later change sends nothing after a read that failed, and takes `inHand` away.
+    /// The delete goes only from a list read now, as a television's does: a read that did not go through ends it
+    /// there, nothing sent, under whatever the read's failure left on the line -- silence, a refusal, busy with
+    /// somebody else, a check inside the read that said no or heard something in place of the recorder saying
+    /// which it is. A reservation not in the list just read has gone, and the line says so.
     ///
     /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
     /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
     /// an address the recorder has left. That client is asked again whether it may be written to
-    /// (`DeviceLink.mayBeSent`): one whose connect is still under way, or a check inside the read whose waking
-    /// the recorder turned away, sends nothing, and the host says that the app is not connected; a check that
-    /// heard something in place of the recorder saying which it is sends nothing, and what it heard is said, as
-    /// the read failed with it. The line comes down before anything is read after it. Silence there may
+    /// (`DeviceLink.mayBeSent`): one whose connect is still under way, which the read went through on, sends
+    /// nothing, and the host says that the app is not connected. The line comes down before anything is read
+    /// after it. Silence there may
     /// be a delete that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
     /// arrived. 804 or 820 -- the list just read was itself out of date, which is what happens when reading it
     /// failed -- has the list read again first, since a read that goes through clears the line, and then says
@@ -718,8 +716,8 @@ public final class RecorderDriver: LinkDriver {
     /// words, the recorder kept and nothing read after it, and an error that is no device's as Swift describes it.
     ///
     /// After a delete that went through the list is read once more, and the row is taken out of whatever comes
-    /// back -- that read, the one before it, or the caller's list when neither went through: a recorder a moment
-    /// behind itself must not bring it back, and the delete counts though that read fails.
+    /// back -- that read, or the one before it when that read did not go through: a recorder a moment behind
+    /// itself must not bring it back, and the delete counts though that read fails.
     ///
     /// The delete is for the recorder in play as it was asked for. Let go of before it is sent -- another has
     /// described itself while the read was out, or another address was chosen -- and nothing is sent, nothing is
@@ -727,8 +725,7 @@ public final class RecorderDriver: LinkDriver {
     /// delete is out, its silence is said as ever, since it may have arrived, but loses nobody: the recorder now
     /// in play has not been asked anything (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone,
     /// which is the newcomer's. The reads go by the same count.
-    public func cancel(_ reservation: Reservation, inHand: @MainActor () -> [Reservation]) async
-        -> (deleted: Bool, list: [Reservation]?) {
+    public func cancel(_ reservation: Reservation) async -> (deleted: Bool, list: [Reservation]?) {
         guard reservation.device == .recorder, let link, link.client is RecorderClient else { return (false, nil) }
         let owner = link.owner
         guard !link.offline, canBeAsked(on: link) else {
@@ -739,8 +736,8 @@ public final class RecorderDriver: LinkDriver {
         let read = await reservations(since: began)
         guard !link.letGo(since: began) else { return (false, nil) }
         // The read has said why.
-        guard !link.offline else { return (false, read) }
-        guard let target = (read ?? inHand()).current(reservation) else {
+        guard let read else { return (false, nil) }
+        guard let target = read.current(reservation) else {
             owner?.problem = Self.alreadyDeleted
             return (false, read)
         }
@@ -760,7 +757,7 @@ public final class RecorderDriver: LinkDriver {
         guard let failure else {
             if !link.letGo(since: began) { owner?.problem = nil }
             let after = await reservations(since: began)
-            return (true, (after ?? read ?? inHand()).filter { $0.id != target.id })
+            return (true, (after ?? read).filter { $0.id != target.id })
         }
         if (failure as? any DeviceError)?.failure == .unknownItem {
             let newer = await reservations(since: began)
@@ -797,13 +794,11 @@ public final class RecorderDriver: LinkDriver {
     /// the list has to be read first, and nothing can be read -- and the host says that the app is not connected;
     /// so it does, with nothing read, when nothing can be written to the recorder (`canBeAsked`): a connect is
     /// under way, or the recorder has not said which it is. The read makes sure of the recorder too, and wakes it
-    /// if it has gone to sleep; one that meets silence ends it there, under the read's sentence. The row is looked
-    /// for in the list the read handed back, or when the read failed some other way, in the list the caller holds
-    /// as it stands after the read (`inHand`): as it is today; a later change sends nothing after a read that
-    /// failed, and takes `inHand` away. A reservation not in the list has gone, and the line says so. The request
-    /// is built from the row just found, on the client the link holds after the read, asked again whether it may
-    /// be written to, and not after a check that heard something in place of the recorder saying which it is,
-    /// as the delete's is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
+    /// if it has gone to sleep. The change goes only from a list read now, as the delete does: a read that did
+    /// not go through ends it there, nothing sent, under whatever its failure left on the line. A reservation
+    /// not in the list just read has gone, and the line says so. The request is built from the row just found,
+    /// on the client the link holds after the read, asked again whether it may be written to, as the delete's
+    /// is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
     ///
     /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
     /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
@@ -827,8 +822,8 @@ public final class RecorderDriver: LinkDriver {
     /// address among them -- has made anew. Let go of while the change is out, its silence is said, but loses
     /// nobody (`DeviceLink.say(_:since:ofARead:)`); taken, it leaves the line alone, which is the newcomer's. The
     /// reads go by the same count.
-    public func update(_ reservation: Reservation, quality: String, repeating: String, disk: String?,
-                       inHand: @MainActor () -> [Reservation]) async -> (altered: Altered?, list: [Reservation]?) {
+    public func update(_ reservation: Reservation, quality: String, repeating: String,
+                       disk: String?) async -> (altered: Altered?, list: [Reservation]?) {
         guard reservation.device == .recorder else { return (nil, nil) }
         clearTheDiskNotHad()
         let owner = link?.owner
@@ -847,8 +842,8 @@ public final class RecorderDriver: LinkDriver {
         let read = await reservations(since: began)
         guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
         // The read has said why.
-        guard !link.offline else { return (notDone(), read) }
-        guard let target = (read ?? inHand()).current(reservation) else {
+        guard let read else { return (notDone(), nil) }
+        guard let target = read.current(reservation) else {
             owner?.problem = Self.alreadyDeleted
             return (notDone(), read)
         }

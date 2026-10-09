@@ -99,8 +99,7 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
             await first.holdTheSlot()
             let writing = Task { () -> String in
                 if write == "the change" {
-                    let came = await driver.update(row, quality: "SR", repeating: "none", disk: RecorderDisk.usbID,
-                                                   inHand: { [] })
+                    let came = await driver.update(row, quality: "SR", repeating: "none", disk: RecorderDisk.usbID)
                     return came.altered.map { "\($0)" } ?? "nil"
                 }
                 let came = await driver.reserve(program, quality: "DR", repeating: "none", disk: RecorderDisk.usbID)

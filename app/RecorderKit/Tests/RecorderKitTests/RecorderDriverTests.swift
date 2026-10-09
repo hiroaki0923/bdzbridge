@@ -83,49 +83,38 @@ final class RecorderDriverTests: XCTestCase {
     }
 
     /// A television's reservation given to the recorder's driver to delete is none of its: nothing is asked of
-    /// the recorder, not the read a delete begins with, the list in hand is not looked at, no line goes up and
-    /// the line of what went wrong is as it was. Nothing was deleted, and no list is handed back. The recorder is
-    /// there and connected, and the list in hand holds the very row, so that a delete that went on would have
-    /// asked it something.
+    /// the recorder, not the read a delete begins with, no line goes up and the line of what went wrong is as it
+    /// was. Nothing was deleted, and no list is handed back. The recorder is there and connected, so that a
+    /// delete that went on would have asked it something.
     func testATelevisionsReservationDeletedThroughTheRecordersDriverIsLeftAlone() async throws {
         let (world, driver, link) = try await connected()
         let televisions = try Self.televisionsReservation()
         let begun = world.begun.count
-        var lookedIn = 0
 
-        let came = await driver.cancel(televisions, inHand: {
-            lookedIn += 1
-            return [televisions]
-        })
+        let came = await driver.cancel(televisions)
 
         XCTAssertFalse(came.deleted)
         XCTAssertNil(came.list, "a list was read for another device's reservation")
         XCTAssertEqual(world.events, [], "something was asked, sent or told for another device's reservation")
-        XCTAssertEqual(lookedIn, 0, "the list in hand was looked in for another device's reservation")
         XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for another device's reservation")
         XCTAssertEqual(world.problem, Self.left, "something was said for another device's reservation")
         XCTAssertTrue(link.session.connected)
     }
 
-    /// The same for a change: no result, no list, nothing asked or looked at, no line, the line as it was. Nor is
-    /// the disk the last request found not to be had forgotten, as a change of the recorder's own begins by doing:
-    /// the sheets go on reading it for the request that found it.
+    /// The same for a change: no result, no list, nothing asked, no line, the line as it was. Nor is the disk
+    /// the last request found not to be had forgotten, as a change of the recorder's own begins by doing: the
+    /// sheets go on reading it for the request that found it.
     func testATelevisionsReservationChangedThroughTheRecordersDriverIsLeftAlone() async throws {
         let (world, driver, link) = try await connected()
         let televisions = try Self.televisionsReservation()
         link.session.slotHadNoDisk(for: RecorderDisk.usbID)
         let begun = world.begun.count
-        var lookedIn = 0
 
-        let came = await driver.update(televisions, quality: "SR", repeating: "daily", disk: nil, inHand: {
-            lookedIn += 1
-            return [televisions]
-        })
+        let came = await driver.update(televisions, quality: "SR", repeating: "daily", disk: nil)
 
         XCTAssertNil(came.altered, "a change of another device's reservation was answered")
         XCTAssertNil(came.list, "a list was read for another device's reservation")
         XCTAssertEqual(world.events, [], "something was asked, sent or told for another device's reservation")
-        XCTAssertEqual(lookedIn, 0, "the list in hand was looked in for another device's reservation")
         XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for another device's reservation")
         XCTAssertEqual(world.problem, Self.left, "something was said for another device's reservation")
         XCTAssertEqual(link.session.diskNotHad, RecorderDisk.usbID,
