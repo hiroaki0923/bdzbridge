@@ -820,7 +820,9 @@ public final class RecorderDriver: LinkDriver {
     /// the line, and then says so; a read that does not go through leaves what it failed with, as for a delete.
     /// Any other answer of the recorder's is said by the disk the change named (`RecorderDisk.turnedDown`), and
     /// an error that is no device's as Swift describes it. After a change that went through the line is cleared
-    /// and the list read again.
+    /// and the list read again; when that read does not go through, the list handed back is the one read before,
+    /// with the row given the mode, the repeat and the disk sent, as a television's change hands back what it
+    /// sent: the change was answered as made.
     ///
     /// A change not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError` when it
     /// is empty: for one that said nothing -- a mode the tables do not know, a slot given up on -- that is the line
@@ -910,8 +912,12 @@ public final class RecorderDriver: LinkDriver {
                 return (notDone(), read)
             }
             if !link.letGo(since: began) { owner?.problem = nil }
-            let after = await self.reservations(since: began)
-            return (.done(saying: nil), after ?? read)
+            if let after = await self.reservations(since: began) { return (.done(saying: nil), after) }
+            var sent = target
+            sent.qualityCode = request.qualityCode
+            sent.repeatCode = request.repeatCode
+            sent.destination = request.destination
+            return (.done(saying: nil), read.map { $0.id == target.id ? sent : $0 })
         }
     }
 

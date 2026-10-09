@@ -85,6 +85,26 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertTrue(model.connected)
     }
 
+    /// A change the recorder answered as made, whose read after it is turned down: the change is done, the
+    /// read's sentence is on the line, and the row on screen shows what was sent -- the mode and the repeat --
+    /// in the list read before it, as a television's change shows what it sent.
+    func testAChangeWhoseReadAfterFailsShowsWhatWasSent() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
+        XCTAssertNotEqual(row.repeatName, "daily", "the row was meant to be changed to a repeat it has not")
+        let count = await recorder.heard.count
+        // The read before the change is let through first.
+        await recorder.answer(Kind.list, with: .fault(402), after: 1)
+
+        expectEqual(await model.change(row, quality: "ER", repeating: "daily"), .done(saying: nil))
+        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.change, Kind.list])
+        XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.list))
+        let shown = try XCTUnwrap(model.reservations.first { $0.id == row.id }, "the row left the list")
+        XCTAssertEqual(shown.qualityCode, Codes.quality["ER"], "the row on screen does not show the mode sent")
+        XCTAssertEqual(shown.repeatName, "daily", "the row on screen does not show the repeat sent")
+        XCTAssertEqual(shown.destination, row.destination)
+    }
+
     /// What keeps a delete or a change from being sent, and what is said of each. A reservation that is not in
     /// the list just read has gone -- deleted on the recorder's own screen -- and the list on screen is the new
     /// one. A read before it that meets silence ends it there, under the read's sentence. Known to be away after
