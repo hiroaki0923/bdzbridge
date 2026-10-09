@@ -219,6 +219,42 @@ final class QueueGateTests: XCTestCase {
         XCTAssertEqual(other.clientsMade, 0, "a connect was set going with no cache to connect over")
     }
 
+    /// A reservation that was saved is kept, whatever reading the queue back would come to: the save alone says
+    /// so, as for a television's, and a row saved is one that goes. Here the queue takes the row and fails every
+    /// read of it (`QueueUnreadable`). The answer is that the reservation waits, nothing is said of the read on
+    /// the line, and once the queue can be read again the row is there, on the phone and then on screen.
+    func testAReservationSavedIsKeptThoughTheQueueCannotBeReadBack() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let recorder = SilentRecorder()
+        let model = bench.model(recorder: recorder)
+        await model.start()
+        try await untilGivenUp(model)
+        let program = try await aProgramme(model)
+        leaveALine(on: model)
+
+        let unreadable = QueueUnreadable(in: bench.guidePath)
+        let came = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
+        // What this stands on: the row saved cannot be read back, through the store the app reads the queue with.
+        let readBack: Result<[PendingReservation], any Error>
+        do {
+            readBack = .success(try await GuideStore(path: bench.guidePath).pendingReservations())
+        } catch {
+            readBack = .failure(error)
+        }
+        XCTAssertThrowsError(try readBack.get(), "the queue was meant to fail a read of what it holds")
+        unreadable.putBack()
+
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation that was saved was said not to be: \(came)")
+        }
+        XCTAssertEqual(row.request.eventID, program.eventID)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the read back was said, or the line cleared")
+        expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.id), [row.id])
+        await model.loadPending()
+        XCTAssertEqual(model.pending(for: program)?.id, row.id, "the row saved is not shown as waiting")
+    }
+
     /// With the recorder known to be away. Asking for a waiting reservation to be sent again takes the reason
     /// off its row, on the phone and on screen, so that it goes with the rest the next time the recorder
     /// answers -- and does nothing more: nothing is asked, and nothing is said on the failure line or the strip.

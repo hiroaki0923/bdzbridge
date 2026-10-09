@@ -993,13 +993,12 @@ public final class RecorderDriver: LinkDriver {
     /// the line saying why: one that could not be saved has been made nowhere.
     ///
     /// The row is written at a whole second, as the cache keeps the moment, so that the row handed back is the
-    /// row that waits. The queue is read back before the row is said to be kept, and a read-back that fails says
-    /// it was not kept, as a write that fails does, though the row was written: as it is today; a later change
-    /// goes by the write alone. Kept, the line of what went wrong is left as it was, as a television's
-    /// reservation kept leaves it: nothing was sent, and what the recorder or an earlier operation said there
-    /// still stands. The host is told that the queue has changed (`LinkHost.queueWritten`). The system's
-    /// question about notifications is asked by whoever asked for the reservation, once its line is down, and
-    /// not here, where the line can still be up.
+    /// row that waits. The write alone says whether it was kept, as for a television's: the queue is not read
+    /// back, and a row written is one that goes. Kept, the line of what went wrong is left as it was, as a
+    /// television's reservation kept leaves it: nothing was sent, and what the recorder or an earlier operation
+    /// said there still stands. The host is told that the queue has changed (`LinkHost.queueWritten`). The
+    /// system's question about notifications is asked by whoever asked for the reservation, once its line is
+    /// down, and not here, where the line can still be up.
     private func keep(_ request: ReservationRequest, serviceName: String, on link: DeviceLink) async -> Reserved? {
         let owner = link.owner
         guard let store = owner?.cache else {
@@ -1011,7 +1010,6 @@ public final class RecorderDriver: LinkDriver {
                                      target: RecorderClient.slot)
         do {
             try await store.queue(row)
-            _ = try await store.pendingReservations()
         } catch {
             owner?.problem = PendingQueue.couldNotBeKept(error)
             return nil

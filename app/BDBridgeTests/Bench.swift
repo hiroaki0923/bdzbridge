@@ -791,6 +791,51 @@ final class QueueOutOfReach {
     deinit { sqlite3_close(connection) }
 }
 
+/// Another connection that has put the queue's table behind a view of the same name, until it puts it back: a
+/// row the app writes to the queue meanwhile goes into the table, and every read of the queue that comes upon a
+/// row fails at once. (A read of an empty queue works nothing out, and goes through.) A write that went through
+/// and a read of it that did not, which neither a writer's lock nor the table out of reach gives: each stops the
+/// write as well.
+final class QueueUnreadable {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        let columns = columnsOfTheQueue()
+        XCTAssertFalse(columns.isEmpty, "the queue's table was not found")
+        let named = columns.joined(separator: ", ")
+        let new = columns.map { "NEW.\($0)" }.joined(separator: ", ")
+        XCTAssertEqual(run("ALTER TABLE pending_reservations RENAME TO behind_a_view"), SQLITE_OK)
+        // A whole number too large to be one, worked out for each row a read of the view comes upon: an error.
+        XCTAssertEqual(run("CREATE VIEW pending_reservations AS "
+                               + "SELECT *, abs(-9223372036854775807 - 1) AS overflow FROM behind_a_view"), SQLITE_OK)
+        XCTAssertEqual(run("CREATE TRIGGER written_through INSTEAD OF INSERT ON pending_reservations BEGIN "
+                               + "INSERT OR REPLACE INTO behind_a_view (\(named)) VALUES (\(new)); END"), SQLITE_OK)
+    }
+
+    /// The view goes, its trigger with it, and the table is the queue again.
+    func putBack() {
+        XCTAssertEqual(run("DROP VIEW pending_reservations"), SQLITE_OK)
+        XCTAssertEqual(run("ALTER TABLE behind_a_view RENAME TO pending_reservations"), SQLITE_OK)
+    }
+
+    private func columnsOfTheQueue() -> [String] {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(connection, "PRAGMA table_info(pending_reservations)", -1, &statement, nil)
+            == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var names: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW, let name = sqlite3_column_text(statement, 1) {
+            names.append(String(cString: name))
+        }
+        return names
+    }
+
+    private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
+
+    deinit { sqlite3_close(connection) }
+}
+
 /// Thrown to end a test that is waiting for something that is not coming, once the failure is recorded.
 struct StillWaiting: Error {}
 
