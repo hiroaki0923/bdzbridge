@@ -891,6 +891,127 @@ final class FunnelGateTests: XCTestCase {
             }
         }
     }
+
+    /// The keyword conditions read from the recorder in play, and still out when another recorder describes
+    /// itself on a connect, whose arrival empties the lists in that turn: as the recordings are, the list that
+    /// comes back afterwards is put over the emptied one, and the screen says the conditions were read. The
+    /// newcomer's connect reads none of its own, none having been read when it arrived.
+    ///
+    /// As it is today, and to be rewritten: a later change keeps a list only for the recorder it was read for,
+    /// and has the newcomer's connect read its own.
+    func testTheConditionsReadAcrossAnotherRecordersArrivalArePutOverTheNewcomersList() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+        XCTAssertFalse(model.recorderRulesLoaded, "the conditions were meant not to have been read yet")
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.conditions)
+        let reading = Task { await model.loadRecorderRules() }
+        try await until("the conditions were never asked for") {
+            await recorder.asked(Kind.conditions, since: before) == 1
+        }
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertTrue(model.recorderRules.isEmpty, "the lists were meant to go as the newcomer arrived")
+        XCTAssertFalse(model.recorderRulesLoaded)
+        await recorder.letGo()
+        await reading.value
+
+        XCTAssertTrue(model.recorderRulesLoaded)
+        XCTAssertFalse(model.recorderRules.isEmpty)
+        XCTAssertNil(model.recorderRulesFailure)
+        expectEqual(await recorder.asked(Kind.conditions, since: before), 1)
+    }
+
+    // MARK: - the keyword conditions' reason and lines
+
+    /// Why the keyword conditions' screen has no list to show, and what a read of them leaves when the recorder
+    /// cannot be asked. Known to be away with none read, the screen's reason is the line an earlier operation
+    /// left. Known to be away with a list read before, the list, its screen and the line are left as they were.
+    /// And a read whose silence is not said -- the recorder known to be away by the time it is answered, a
+    /// connect made meanwhile having met silence and said so -- gives as its reason, over an empty line, that the
+    /// app is not connected: with nothing on the line the recorder said nothing that can be told.
+    ///
+    /// As it is today, and to be rewritten in part: a later change has the read say its own reason, that the app
+    /// is not connected, where it was turned away at its door with nothing read, rather than the line an earlier
+    /// operation left. The last case stands for a read turned away for the local network permission, which
+    /// writes nothing on the line either and which this bench cannot have a recorder's check meet: the bench
+    /// puts nothing on the network, and its recorder's check never looks at the permission.
+    func testTheConditionsReasonIsTheLineOrThatTheAppIsNotConnected() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+
+        // Known to be away, with none read.
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        XCTAssertFalse(model.recorderRulesLoaded)
+        leaveALine(on: model)
+        var asked = await recorder.asked
+        await model.loadRecorderRules()
+        XCTAssertEqual(model.recorderRulesFailure, lineLeft)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
+        expectEqual(await recorder.asked, asked, "a recorder known to be away was asked for its conditions")
+
+        // Known to be away, with a list read before.
+        await reconnect(model)
+        await model.loadRecorderRules()
+        let rules = model.recorderRules
+        XCTAssertFalse(rules.isEmpty)
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        leaveALine(on: model)
+        asked = await recorder.asked
+        await model.loadRecorderRules()
+        XCTAssertEqual(model.recorderRules, rules, "the list read before went")
+        XCTAssertTrue(model.recorderRulesLoaded)
+        XCTAssertNil(model.recorderRulesFailure, "the screen says the list it shows could not be read")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
+        expectEqual(await recorder.asked, asked, "a recorder known to be away was asked for its conditions")
+
+        // A read whose silence is not said: held, while a connect meets silence; then silent itself.
+        await reconnect(model)
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.conditions)
+        let reading = Task { await model.loadRecorderRules() }
+        try await until("the conditions were never asked for") {
+            await recorder.asked(Kind.conditions, since: before) == 1
+        }
+        await recorder.goQuiet(for: 1)
+        await model.connect()
+        XCTAssertTrue(model.gaveUp, "the connect was meant to meet silence")
+        XCTAssertNotNil(model.problem(for: .recorder), "the connect's silence was meant to be said")
+        clearTheLine(on: model)
+        await recorder.goQuiet(on: Kind.conditions)
+        await recorder.letGo()
+        await reading.value
+        XCTAssertNil(model.problem(for: .recorder), "the read's silence was said a second time")
+        XCTAssertEqual(model.recorderRulesFailure, Said.conditionsNotAsked)
+    }
+
+    /// What the strip says while a keyword condition is added or removed and the list is read after it: the
+    /// write's own line while the write is out, and then the read's own while the read is.
+    ///
+    /// As it is today, and to be rewritten: a later change keeps the write's line up until the read after it is
+    /// in, the read having none of its own.
+    func testAConditionsWriteAndTheReadAfterItEachPutUpTheirOwnLine() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        for row in [Funnelled.add, .remove] {
+            let before = await recorder.asked
+            await recorder.holdTheNext(row.kind)
+            let asking = Task { await row.ask(model, subjects) }
+            try await until("\(row.name) never got to the recorder") {
+                await recorder.asked(row.kind, since: before) == 1
+            }
+            XCTAssertEqual(model.busy, row.line, row.name)
+            await recorder.holdTheNext(Kind.conditions)
+            await recorder.letGo(only: row.kind)
+            try await until("the conditions were never read after \(row.name)") {
+                await recorder.asked(Kind.conditions, since: before) == 1
+            }
+            XCTAssertEqual(model.busy, Funnelled.conditions.line, "after \(row.name)")
+            await recorder.letGo()
+            expectEqual(await asking.value, true, model.problem(for: .recorder) ?? "no reason given")
+            XCTAssertNil(model.busy, row.name)
+        }
+    }
 }
 
 // MARK: - what the tests ask for

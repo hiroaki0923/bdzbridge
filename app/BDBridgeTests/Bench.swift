@@ -1023,6 +1023,8 @@ enum Said {
         + "送っていません。少し待ってから、もう一度送ってください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    /// The keyword conditions' screen's reason when its read failed and nothing says why.
+    static let conditionsNotAsked = "レコーダーに接続していません"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
     static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
     static let changeRecording = "録画中の予約は変更できません。"
@@ -1076,6 +1078,10 @@ let lineLeft = "前の操作が残した文"
 /// Leaves it on the recorder's line of what went wrong.
 @MainActor
 func leaveALine(on model: AppModel) { model.problem = lineLeft }
+
+/// Leaves nothing there, for a test that looks at what is said over an empty line.
+@MainActor
+func clearTheLine(on model: AppModel) { model.problem = nil }
 
 // MARK: - what the tests do to the connection
 //

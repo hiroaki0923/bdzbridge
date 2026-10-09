@@ -270,6 +270,72 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 6)
     }
 
+    /// A condition to the USB disk is not sent past a check or a slot that said nothing. The check before it
+    /// meeting silence, nothing is asked of the slot, and the line says that the recorder did not answer. The
+    /// slot falling silent while it is waited for, the line says the same and the recorder is lost. The wait
+    /// given up, nothing is said, and the line is left as an earlier operation left it.
+    ///
+    /// As it is today, and to be rewritten for the wait given up: a later change says in the condition's result
+    /// that the wait was given up and nothing sent, the line still left.
+    func testAConditionToTheUSBDiskIsNotSentPastACheckOrASlotThatSaidNothing() async throws {
+        // The check meets silence, the disk answered at the connect.
+        do {
+            let (bench, recorder, model) = try await connected()
+            bench.network = "away"
+            await recorder.hold(only: "description.xml")
+            addTeardownBlock { await recorder.letGo() }
+            let check = Task { await lookAtTheNetwork(model) }
+            try await until("the recorder was never made sure of") { isMakingSure(model) }
+            let before = await recorder.asked
+            leaveALine(on: model)
+            let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
+            try await until("the condition was never begun", within: 5) { model.busy != nil }
+            await recorder.goQuiet(on: "description.xml")
+            await recorder.letGo()
+            expectFalse(await adding.value, "a condition was made past a check that met silence")
+            _ = await check.value
+            XCTAssertEqual(model.problem, Said.noAnswer)
+            XCTAssertTrue(model.gaveUp)
+            expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
+            expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 0)
+        }
+
+        // The slot falls silent, the disk kept through an answer of none.
+        do {
+            let (_, recorder, model) = try await connected(times: 1)
+            await reconnect(model)
+            await recorder.goQuiet(on: "X_GetMediaInfo")
+            let before = await recorder.asked
+            leaveALine(on: model)
+            expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
+                        "a condition was made past a slot that fell silent")
+            XCTAssertEqual(model.problem, Said.noAnswer, "the slot's silence was not said")
+            XCTAssertTrue(model.gaveUp, "silence at the slot did not lose the recorder")
+            XCTAssertFalse(model.diskCannotBeHad("USBHDD"), "a slot that said nothing was taken for one with no disk")
+            expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
+            expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
+        }
+
+        // The wait given up while the slot is read.
+        do {
+            let (_, recorder, model) = try await connected(times: 1)
+            addTeardownBlock { await recorder.letGo() }
+            await reconnect(model)
+            let before = await recorder.asked
+            await recorder.hold(only: "X_GetMediaInfo")
+            let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
+            try await until("the slot was never read") { await recorder.asked("X_GetMediaInfo", since: before) == 1 }
+            leaveALine(on: model)
+            adding.cancel()
+            await recorder.letGo()
+            expectFalse(await adding.value, "a condition given up was made")
+            XCTAssertEqual(model.problem, lineLeft, "a condition given up wrote on the line")
+            XCTAssertFalse(model.gaveUp)
+            XCTAssertNil(model.busy)
+            expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
+        }
+    }
+
     /// A clash check asked for a kept disk waits for the slot as a reservation does. The slot answering none each
     /// time, the clashes are not asked, and it is said as for a disk that cannot be had, its sheet going back to the
     /// internal disk.
