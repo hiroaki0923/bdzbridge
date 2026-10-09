@@ -816,6 +816,43 @@ final class SessionRuleTests: XCTestCase {
         }
     }
 
+    /// A recorder busy with somebody else when the first connect asked who it is is there, and what is asked of
+    /// it goes. Silence on it is silence like any other: on a read of the recordings or of the conditions the app
+    /// gives up on it and says the recorder did not answer, and on a protect it says that the protect may have
+    /// arrived. Not connected to is not known to be away.
+    ///
+    /// As it is today, and to be rewritten for the protect: a later change writes nothing to a recorder that has
+    /// not said which it is, and the protect is then not sent. The reads are to stay as they are.
+    func testSilenceFromARecorderThatAnsweredTheFirstConnectBusyIsSilence() async throws {
+        for what in ["the recordings", "the conditions", "the protect"] {
+            let bench = try aBench()
+            let (model, recorder, _, _) = try await leftAtTheDoor(bench)
+            let before = await recorder.asked
+            switch what {
+            case "the recordings":
+                await recorder.goQuiet(on: "X_GetTitleList")
+                await model.loadTitles()
+                expectEqual(await recorder.asked("X_GetTitleList", since: before), 1, what)
+                XCTAssertEqual(model.problem, Said.noAnswer, what)
+            case "the conditions":
+                await recorder.goQuiet(on: "X_GetPrefRecSettingList")
+                await model.loadRecorderRules()
+                expectEqual(await recorder.asked("X_GetPrefRecSettingList", since: before), 1, what)
+                XCTAssertEqual(model.problem, Said.noAnswer, what)
+                XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer, what)
+            default:
+                await model.loadTitles()
+                let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+                await recorder.goQuiet(on: "X_UpdateTitle")
+                expectFalse(await protectARecording(model, title, true), what)
+                expectEqual(await recorder.asked("X_UpdateTitle", since: before), 1, what)
+                XCTAssertEqual(model.problem, Said.mayHaveArrived, what)
+            }
+            XCTAssertTrue(model.gaveUp, "silence on \(what) did not lose the recorder")
+            XCTAssertFalse(model.connected, what)
+        }
+    }
+
     // MARK: - when it asks again
 
     /// Given up stays given up until the network changes or the reader asks. 再接続 and pulling down are the
