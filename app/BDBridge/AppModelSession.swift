@@ -278,8 +278,9 @@ extension AppModel {
     }
 
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
-    /// attach: the list it read after a sending is kept by the count noted here (`keepReservations`), and what
-    /// the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
+    /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
+    /// waking's attach that no connect reads after, is kept by the count noted here (`keepReservations`), and
+    /// what the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
     func sendWhatWaits() async {
         let forgotten = timesForgotten
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }

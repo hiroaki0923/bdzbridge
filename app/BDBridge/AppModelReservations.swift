@@ -56,17 +56,16 @@ extension AppModel {
         return reservationsRead
     }
 
-    /// What pulling the reservations down asks for: the list read again and what waits sent, or a connect when
+    /// What pulling the reservations down asks for: what waits sent and then the list read, or a connect when
     /// the app is not connected, which does both once the recorder has answered -- the driver's to decide, once
-    /// (`RecorderDriver.refreshReservations`), after `start()` whichever it does. The list it hands back is kept
-    /// by the count noted here (`keepReservations`), and what the sending came to goes on the strip
-    /// (`tellTheStrip`).
+    /// (`RecorderDriver.refreshReservations`), after `start()` whichever it does. The driver asks for the
+    /// sending through this model, as an attach does (`sendWhatWaits`), which puts what it came to on the
+    /// strip. The list it hands back is kept by the count noted here (`keepReservations`).
     func refreshReservations() async {
         let forgotten = timesForgotten
         await start()
-        guard let pulled = await recorderDriver?.refreshReservations() else { return }
-        keepReservations(pulled.list, since: forgotten)
-        tellTheStrip(pulled.round)
+        guard let list = await recorderDriver?.refreshReservations() else { return }
+        keepReservations(list, since: forgotten)
     }
 
     enum ReservationSort: String, CaseIterable {

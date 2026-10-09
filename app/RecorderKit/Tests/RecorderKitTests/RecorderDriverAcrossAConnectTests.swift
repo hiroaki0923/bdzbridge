@@ -14,7 +14,8 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
     /// before the queue is read. Meanwhile the reader chooses another address, where the same recorder answers and
     /// is connected to. The recorder the sending was asked of has been let go of, so nothing is sent, to either
     /// address, and the row still waits. Again with the recorder still in play, while a check by another
-    /// operation hears it busy: nothing is sent on the strength of that check either.
+    /// operation hears it busy, and busy it stays: the sending makes its own check, at once after one that heard
+    /// something else, hears it busy too, and sends nothing, nothing but who answers being asked.
     func testASendingWhoseRecorderIsLetGoOfWhileItsQueueIsReadSendsNothing() async throws {
         for meanwhile in ["another address chosen", "a check heard the recorder busy"] {
             let world = LinkWorld()
@@ -43,7 +44,6 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
                 } else {
                     await first.answer(.busy)
                     _ = await link.check(evenIfRecent: true)
-                    await first.answer(.itself)
                     XCTAssertFalse(link.mayBeSent, "the check was meant to hear the recorder busy")
                 }
                 world.events = []
@@ -52,7 +52,8 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
 
             XCTAssertNil(sent.round, "a round ran: \(meanwhile)")
             XCTAssertNil(sent.list, meanwhile)
-            XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") }, [], "something was sent: \(meanwhile)")
+            XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") && !$0.hasPrefix("ask description.xml") }, [],
+                           "something was sent: \(meanwhile)")
             expectEqual(try await store.pendingReservations(), waiting, meanwhile)
             XCTAssertFalse(link.session.gaveUp, meanwhile)
         }

@@ -21,19 +21,17 @@ import XCTest
 final class QueueGateTests: XCTestCase {
     // MARK: - sending what waits
 
-    /// Pulling the reservations down while connected reads the list and then sends what waits. The list is read
-    /// once more only when something was made, which is what puts the new reservation on screen: with nothing
-    /// waiting, or nothing but what was turned down before, the recorder is asked for its list and for nothing
-    /// else. A sending with nothing to say leaves the strip's last line where it was.
+    /// Pulling the reservations down while connected sends what waits and then reads the list, once, as a
+    /// television's pull-down does: the read after the sending is what puts the new reservation on screen. With
+    /// nothing waiting, or nothing but what was turned down before, the recorder is asked for its list and for
+    /// nothing else. A sending with nothing to say leaves the strip's last line where it was.
     ///
     /// The sending has a line of its own, and while it is out the recorder in play cannot be changed. A
     /// reservation the recorder turns down keeps the recorder's reason on its row, on screen and on the phone,
     /// and is said on the strip in the queue's words. It is not put on the failure line, which is for what the
     /// reader asked the recorder for and is left as it was. Leaving the app takes the strip's line away: it was
     /// for that visit.
-    ///
-    /// The read after something was made has to stay when the two reads of a connect become one.
-    func testPullingDownWhileConnectedReadsThenSendsWhatWaitsUnderALineOfItsOwn() async throws {
+    func testPullingDownWhileConnectedSendsWhatWaitsUnderALineOfItsOwnThenReads() async throws {
         let (bench, recorder, model) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
         let programmes = try await programmesNotReserved(model, 2)
@@ -49,8 +47,8 @@ final class QueueGateTests: XCTestCase {
         try await store.queue(waiting(for: taken))
         count = await recorder.heard.count
         await model.refreshReservations()
-        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create, Kind.list],
-                    "the list is read, what waits is sent, and the list is read again for what was made")
+        expectEqual(await recorder.heard(since: count), [Kind.create, Kind.list],
+                    "what waits is sent, and the list is read once after it")
         XCTAssertEqual(model.flushReport, Said.sent(taken.title))
         XCTAssertNotNil(model.reservation(for: taken), "the programme is not marked as reserved")
         XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
@@ -98,9 +96,10 @@ final class QueueGateTests: XCTestCase {
     }
 
     /// A sending has one line, up from before its check to after its last read, as a television's: the list
-    /// read after something was made goes under the sending's line, with none of its own, and a row sent again
-    /// from its swipe has the sending's line up while the recorder is made sure of. A pull-down's own read,
-    /// before what waits is sent, is a read by itself and keeps its line.
+    /// read after a row sent again was made goes under the sending's line, with none of its own, and a row sent
+    /// again from its swipe has the sending's line up while the recorder is made sure of. A pull-down's sending
+    /// is under that line, and the pull-down's read, after what waits is sent, is a read by itself and has its
+    /// own line.
     ///
     /// The read after the create is held only once the create has been heard, so that it is that read and no
     /// other. The check before a row sent again is made only when the recorder has not answered for a while, or
@@ -115,23 +114,20 @@ final class QueueGateTests: XCTestCase {
         // A pull-down, with one row waiting.
         try await store.queue(waiting(for: programmes[0]))
         var count = await recorder.heard.count
-        await recorder.holdTheNext(Kind.list)
         await recorder.hold(only: Kind.create)
         let pulling = Task { await model.refreshReservations() }
-        try await until("the list was never read") { await recorder.heard(since: count).contains(Kind.list) }
-        XCTAssertEqual(model.busy, "予約一覧を取得中", "the pull-down's own read is not under its line")
-        await recorder.letGo(only: Kind.list)
         try await until("what waits never got to the recorder") {
             await recorder.heard(since: count).contains(Kind.create)
         }
+        XCTAssertEqual(model.busy, "送信待ちの予約を登録中", "the pull-down's sending is not under its line")
+        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with what waits being sent")
         let before = await recorder.asked
         await recorder.holdTheNext(Kind.list)
         await recorder.letGo(only: Kind.create)
         try await until("the list was never read after what was made") {
             await recorder.asked(Kind.list, since: before) == 1
         }
-        XCTAssertEqual(model.busy, "送信待ちの予約を登録中", "the read after the sending showed a line of its own, or none")
-        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with what waits being sent")
+        XCTAssertEqual(model.busy, "予約一覧を取得中", "the pull-down's read after its sending is not under its own line")
         await recorder.letGo()
         await pulling.value
         XCTAssertNil(model.pending(for: programmes[0]), "what waited was not sent")
@@ -160,12 +156,12 @@ final class QueueGateTests: XCTestCase {
         XCTAssertNil(model.busy)
     }
 
-    /// The order of a connect. What waits is sent inside the attach, and the list is read after it for what was
-    /// made; then the reservations are read, before a guide that is behind is fetched -- the guide marks what is
-    /// already set to record from that list. So a connect that sent something reads the list twice, and nothing
-    /// of the guide is asked for before the second.
+    /// The order of a connect. What waits is sent inside the attach, which reads nothing after it; then the
+    /// reservations are read, once, before a guide that is behind is fetched -- the guide marks what is already
+    /// set to record from that list, the reservation just made among them. Nothing of the guide is asked for
+    /// before that read.
     ///
-    /// The two reads are to become one, and the strip's sentence is to name the device.
+    /// The strip's sentence is to name the device.
     func testAConnectSendsWhatWaitsThenReadsTheReservationsThenTheGuide() async throws {
         let bench = try aBench()
         // No guide in the cache, so every type of it is behind; and so the reservation is of the test's making.
@@ -178,9 +174,9 @@ final class QueueGateTests: XCTestCase {
 
         // Of everything a connect asks, what this is about: the reservation, the list, and the guide's files.
         let heard = await recorder.heard.filter { $0 == Kind.create || $0 == Kind.list || $0.hasPrefix(Kind.guide) }
-        XCTAssertEqual(Array(heard.prefix(3)), [Kind.create, Kind.list, Kind.list],
-                       "what waits is sent and read back, and the reservations are read, before the guide")
-        let afterwards = heard.dropFirst(3)
+        XCTAssertEqual(Array(heard.prefix(2)), [Kind.create, Kind.list],
+                       "what waits is sent, and the reservations are read once, before the guide")
+        let afterwards = heard.dropFirst(2)
         XCTAssertFalse(afterwards.isEmpty, "the guide was meant to be behind, and so to be fetched")
         XCTAssertTrue(afterwards.allSatisfy { $0.hasPrefix(Kind.guide) },
                       "something was sent or read once the guide was being fetched: \(heard)")
@@ -191,10 +187,9 @@ final class QueueGateTests: XCTestCase {
     }
 
     /// Silence at a create while a pull-down sends what waits: the recorder is lost and given up on, nothing
-    /// more is sent or read, and the reservation stays in the queue, on screen and on the phone, to go the next
-    /// time. Nothing is said of it, on the strip or on the line: the line left while the create was out --
-    /// after the pull's read, which cleared the one before -- is still there, though what was out may have
-    /// arrived.
+    /// more is sent or read -- the pull-down's read after the sending among it -- and the reservation stays in
+    /// the queue, on screen and on the phone, to go the next time. Nothing is said of it, on the strip or on
+    /// the line: the line left while the create was out is still there, though what was out may have arrived.
     ///
     /// As it is today, and to be rewritten: a later change says on the line that the reservation may have
     /// arrived.
@@ -217,7 +212,7 @@ final class QueueGateTests: XCTestCase {
         await recorder.letGo()
         await pulling.value
 
-        expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create],
+        expectEqual(await recorder.heard(since: count), [Kind.create],
                     "something was sent or read after the create met silence")
         XCTAssertTrue(model.gaveUp, "silence at the create did not lose the recorder")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence at the create was said on the line")
@@ -226,6 +221,68 @@ final class QueueGateTests: XCTestCase {
                     "the reservation no longer waits on the phone")
         XCTAssertNil(model.flushReport, "the strip says something of a sending that sent nothing")
         XCTAssertNil(model.busy)
+    }
+
+    /// A pull-down's sending makes sure of the recorder first, and a check that meets silence, with a MAC kept,
+    /// wakes it before anything waiting is sent: the row goes in the waking's attach, once the recorder has
+    /// answered, and no create goes to a recorder that has said nothing since it dozed off the LAN. Made once:
+    /// the sending after the check finds nothing left to send. The check here is one already out when the
+    /// sending asks, which the sending's joins -- the bench has no clock to let a minute and a half go by for
+    /// the last answer to grow old -- with its probe held until then and silent once let go.
+    func testAPullDownWhoseCheckMeetsSilenceWakesTheRecorderBeforeAnythingIsSent() async throws {
+        let (bench, recorder, model) = try await connectedHome(wakeable: true)
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let program = try await programmesNotReserved(model, 1)[0]
+        try await store.queue(try waiting(for: program))
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.description)
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.heard(since: count).contains(Kind.description)
+        }
+        let pulling = Task { await model.refreshReservations() }
+        // Long enough for the pull-down's sending to be waiting on the check before its probe is let go.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.goQuiet(on: Kind.description)
+        await recorder.letGo()
+        expectTrue(await check.value, "the recorder was not woken")
+        await pulling.value
+
+        let heard = await recorder.heard(since: count)
+        XCTAssertEqual(heard.first, Kind.description, "the check's probe was not the first thing asked: \(heard)")
+        let answered = try XCTUnwrap(heard.dropFirst().firstIndex(of: Kind.description),
+                                     "the recorder was never asked again after the silence: \(heard)")
+        let create = try XCTUnwrap(heard.firstIndex(of: Kind.create), "what waits was never sent: \(heard)")
+        XCTAssertGreaterThan(create, answered, "a create went before the recorder had answered the waking: \(heard)")
+        XCTAssertEqual(heard.filter { $0 == Kind.create }.count, 1, "what waits was sent twice: \(heard)")
+        XCTAssertNil(model.pending(for: program), "what waited was not sent")
+        XCTAssertNotNil(model.reservation(for: program), "the reservation made is not on screen")
+        XCTAssertFalse(model.gaveUp, "the recorder woken was given up on")
+    }
+
+    /// The check before an operation that wakes the recorder -- silent to its probe, with a MAC kept -- has
+    /// what waits sent by the waking's attach, outside any connect, and nothing reads the list after that
+    /// attach but the sending itself: so it does, after a round that made something. The row made is on screen
+    /// as a reservation, the strip says it was sent, and its programme is no longer offered the recorder.
+    func testASendingInTheAttachOfACheckThatWokeTheRecorderReadsTheListAfter() async throws {
+        let (bench, recorder, model) = try await connectedHome(wakeable: true)
+        let store = try GuideStore(path: bench.guidePath)
+        let program = try await programmesNotReserved(model, 1)[0]
+        try await store.queue(try waiting(for: program))
+        await model.loadPending()
+        XCTAssertEqual(model.destinations(for: program), [], "a programme waiting was offered the recorder again")
+        let count = await recorder.heard.count
+        await recorder.goQuiet(on: Kind.description)
+
+        expectTrue(await makeSure(model), "the recorder was not woken")
+
+        let heard = await recorder.heard(since: count)
+        XCTAssertEqual(heard.filter { $0 == Kind.create }.count, 1, "what waits was not sent once: \(heard)")
+        XCTAssertNil(model.pending(for: program), "what waited was not sent")
+        XCTAssertNotNil(model.reservation(for: program), "the reservation made is not on screen")
+        XCTAssertEqual(model.destinations(for: program), [], "a programme the recorder holds was offered it again")
+        XCTAssertEqual(model.flushReport, Said.sent(program.title))
     }
 
     // MARK: - keeping one, asking for one again, taking one away

@@ -567,27 +567,27 @@ public final class RecorderDriver: LinkDriver {
         return nil
     }
 
-    /// What pulling the list down asks for: the list read again and what waits sent, or a connect when nothing
-    /// can be written to the recorder (`canBeAsked`), which does both once it has answered (`attach`,
-    /// `LinkHost.reached`), and nil -- what a connect that got nowhere has to say is on its line. That is so
-    /// of a recorder the app is not connected to, and of one whose last connect it answered busy with somebody
-    /// else, as it was asked which it is: neither is offline, the queue does not go to them (`sendWhatWaits`),
-    /// and for the second no 再接続 is offered, the app being connected from the attach before. Otherwise the
-    /// newest list read, nil when none was, and what the sending came to, nil when none ran.
+    /// What pulling the list down asks for, as a television's: when something can be written to the recorder
+    /// (`canBeAsked`), what waits is sent, and then the list is read now, as `reservations` reads it, so that
+    /// what was just made is in it. The list read, nil when none was. The sending is asked through the host,
+    /// as an attach asks it (`LinkHost.sendWhatWaits`): the host says what became of it, and keeps the list
+    /// the sending read, when it read one. One that lost the recorder has nothing read after it: `reservations`
+    /// asks nothing of a recorder known to be away.
     ///
-    /// The list is read before what waits is sent, and again after a sending that made something; the read
-    /// after is the one handed back when there is one, since the one before would put the older list over it.
-    /// The sending is this driver's own, not asked through the host as an attach asks it. As it is today; a
-    /// later change sends first and reads once, as the television's pull-down does.
-    public func refreshReservations() async -> (list: [Reservation]?, round: PendingQueue.Outcome?)? {
+    /// When nothing can be written to it, the reader has asked for it to be tried again: a connect, which
+    /// sends what waits and reads the list once the recorder has answered (`attach`, `LinkHost.reached`), and
+    /// nil -- what a connect that got nowhere has to say is on its line. That is so of a recorder the app is not
+    /// connected to, and of one whose last connect it answered busy with somebody else, as it was asked which
+    /// it is: neither is offline, the queue does not go to them (`sendWhatWaits`), and for the second no
+    /// 再接続 is offered, the app being connected from the attach before.
+    public func refreshReservations() async -> [Reservation]? {
         guard let link else { return nil }
         guard canBeAsked(on: link) else {
             await link.connect()
             return nil
         }
-        let read = await reservations()
-        let (round, after) = await sendWhatWaits()
-        return (after ?? read, round)
+        await link.owner?.sendWhatWaits()
+        return await reservations()
     }
 
     // MARK: - what waits in the queue
@@ -613,55 +613,78 @@ public final class RecorderDriver: LinkDriver {
 
     /// Sends what waits in the phone's queue for the recorder, by the rules in `PendingQueue` -- the same ones
     /// the overnight run uses. What the round came to, nil when none ran, and the list read after it, nil when
-    /// none was: read only when something was sent, which is what puts the new reservation on screen. Asked by
-    /// the host whenever the recorder has just answered, which means from inside a connect, and here when the
-    /// list is pulled down or a row sent again: nothing here waits for the app's start.
+    /// none was. Asked by the host whenever the recorder has just answered, which means from inside an attach,
+    /// and when the list is pulled down (`refreshReservations`): nothing here waits for the app's start.
     ///
-    /// Only to a recorder that has described itself, on the client whose attach heard it, and not after a check
-    /// that heard something in place of its saying which it is (`DeviceLink.mayBeSent`): whatever answers a
-    /// connect some other way -- a 503, or as something that is no recorder -- must not be handed what was
-    /// waiting for the last recorder, nor must whatever a check hears busy or faulted. Inside an attach the
-    /// client is that one by the time this is asked, and the attach has heard the recorder say which it is.
-    /// Nothing is said here of a sending not made: a pull-down's read has said what the check heard. And only
+    /// Only to a recorder that has described itself, on the client whose attach heard it (`canBeAsked`), and
+    /// made sure of first: the check before an operation goes under the sending's line, as a television's
+    /// does, made whatever the time since the recorder last answered when the check before heard something in
+    /// its place (`DeviceLink.checksAgain`). A recorder that has dozed off the LAN is woken by it, rather than
+    /// sent creates it does not hear, whose silence would lose it. Inside an attach -- a connect's, or a
+    /// waking's -- the check answers at once. Nothing is sent once the check has said no, nor after a check
+    /// that heard something in place of the recorder saying which it is (`DeviceLink.mayBeSent`): whatever
+    /// answers a connect some other way -- a 503, or as something that is no recorder -- must not be handed
+    /// what was waiting for the last recorder, nor must whatever a check hears busy or faulted. Nothing is
+    /// said here of a sending not made: the pull-down's read after it says what the check heard. And only
     /// when a row waits for the recorder. What waits for the television is its own driver's to send
     /// (`TVDriver.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
     /// sends nothing, and that flush would wait its turn behind a television's sending that is out. Otherwise
     /// nothing is asked and nothing said. The host is told the queue may have changed as it is looked at and
     /// after the round (`LinkHost.queueWritten`), so that the screens read it again.
     ///
+    /// The list is read after a round that made something only where nothing else reads it: after the attach
+    /// of a waking that a check began, outside any connect (`SessionState.waking`), so that the row that left
+    /// the queue is on screen as a reservation and its programme is not offered the recorder again. A
+    /// connect's attach has its list read as the connect gets there (`LinkHost.reached`), and a pull-down
+    /// reads it after the sending.
+    ///
     /// The count of recorders let go of is noted as this is asked, with the client and the question whether it
-    /// may be sent; once the queue has been read both are asked again, and nothing is sent when the recorder was
-    /// let go of meanwhile (`DeviceLink.letGo(since:)`) or may no longer be sent to. The rows go under a line of
-    /// their own, on the client the link holds once the queue has been read, and the list read after them goes
-    /// under the same line. What had not been sent when the recorder fell silent stays queued for the next
-    /// answer, and the recorder is lost as for any silence, with nothing said: as it is today; a later change
-    /// says on the line that what was out may have arrived. Not lost when it was let go of while the round was
-    /// out: the silence is not the one in play's, and the list read after it is not kept for it either. A round
-    /// that waits for the queue's turn sends on its client when its turn comes, whatever became of the recorder
-    /// meanwhile (`PendingQueue.flush`): as it is today. What became of the round is the host's to say.
+    /// can be asked; once the queue has been read, and again once the check has answered, both are asked again,
+    /// and nothing is sent when the recorder was let go of meanwhile (`DeviceLink.letGo(since:)`) or may no
+    /// longer be sent to. The rows go on the client the link holds once the check has answered, and a list read
+    /// after them goes under the sending's line. What had not been sent when the recorder fell silent stays
+    /// queued for the next answer, and the recorder is lost as for any silence, with nothing said: as it is
+    /// today; a later change says on the line that what was out may have arrived. Not lost when it was let go
+    /// of while the round was out: the silence is not the one in play's, and the list read after it is not kept
+    /// for it either. A round that waits for the queue's turn sends on its client when its turn comes, whatever
+    /// became of the recorder meanwhile (`PendingQueue.flush`): as it is today. What became of the round is
+    /// the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
-        await sendWhatWaits(under: Self.sendingLine)
+        await sendWhatWaits(forARowSentAgain: false)
     }
 
-    /// The sending, under `line`, or under the line of whoever asked for it with none (`resend`).
-    private func sendWhatWaits(under line: String?) async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
-        guard let link, link.client is RecorderClient, let store = link.owner?.cache, link.mayBeSent else {
+    /// The sending. `forARowSentAgain`: under the line of `resend`, which has made the check already, and with
+    /// the list read after every round that made something, for `resend` to hand back.
+    private func sendWhatWaits(forARowSentAgain: Bool) async -> (round: PendingQueue.Outcome?,
+                                                                   list: [Reservation]?) {
+        guard let link, link.client is RecorderClient, let store = link.owner?.cache, canBeAsked(on: link) else {
             return (nil, nil)
         }
         let began = link.generation
         await link.owner?.queueWritten()
         let rows = (try? await store.pendingReservations()) ?? []
         // Asked again once the queue has been read: the recorder may have been let go of meanwhile, or a check
-        // have heard something in its place; and the client is the one the link holds now.
+        // have heard something in its place.
         guard rows.contains(where: { $0.target == RecorderClient.slot }), !link.session.unreachable,
-              !link.letGo(since: began), link.mayBeSent, let client = link.client as? RecorderClient else {
+              !link.letGo(since: began), canBeAsked(on: link) else {
             return (nil, nil)
         }
-        return await link.underALine(line) { _ -> (round: PendingQueue.Outcome?, list: [Reservation]?) in
+        return await link.underALine(forARowSentAgain ? nil : Self.sendingLine)
+            { _ -> (round: PendingQueue.Outcome?, list: [Reservation]?) in
+            if !forARowSentAgain {
+                guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return (nil, nil) }
+            }
+            // The client is the one the link holds now, once the check has answered.
+            guard !link.session.unreachable, !link.letGo(since: began), link.mayBeSent,
+                  let client = link.client as? RecorderClient else {
+                return (nil, nil)
+            }
             let round = await PendingQueue.flush(client: client, store: store)
             if round.interrupted, !link.letGo(since: began) { link.lost() }
             await link.owner?.queueWritten()
-            let list = round.sent.isEmpty ? nil : await self.reservations(since: began, underALine: false)
+            let readsAfter = forARowSentAgain || (link.session.waking && !link.session.connecting)
+            let list = round.sent.isEmpty || !readsAfter
+                ? nil : await self.reservations(since: began, underALine: false)
             return (round, list)
         }
     }
@@ -706,7 +729,7 @@ public final class RecorderDriver: LinkDriver {
                 self.sayWhyNotSent(on: link)
                 return (nil, nil)
             }
-            return await self.sendWhatWaits(under: nil)
+            return await self.sendWhatWaits(forARowSentAgain: true)
         }
         guard let sent else {
             await link.connect()
