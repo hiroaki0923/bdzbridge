@@ -713,12 +713,13 @@ public final class RecorderDriver: LinkDriver {
     /// an address the recorder has left. That client is asked again whether it may be written to
     /// (`DeviceLink.mayBeSent`): one whose connect is still under way, which the read went through on, sends
     /// nothing, and the host says that the app is not connected. The line comes down before anything is read
-    /// after it. Silence there may
-    /// be a delete that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
-    /// arrived. 804 or 820 -- the list just read was itself out of date, which is what happens when reading it
-    /// failed -- has the list read again first, since a read that goes through clears the line, and then says
-    /// so. Any other failure is said on the line by the link (`DeviceLink.say`): a refusal in the recorder's
-    /// words, the recorder kept and nothing read after it, and an error that is no device's as Swift describes it.
+    /// after it. Silence there may be a delete that arrived: nothing is sent after it, the recorder is lost, and
+    /// the line says it may have arrived. 804 or 820 -- the list just read was itself out of date -- has the list
+    /// read again first, since a read that goes through clears the line, and then says so, as a television's
+    /// does; when that read does not go through, what it failed with is left on the line instead, the list not
+    /// having been updated. Any other failure is said on the line by the link (`DeviceLink.say`): a refusal in
+    /// the recorder's words, the recorder kept and nothing read after it, and an error that is no device's as
+    /// Swift describes it.
     ///
     /// After a delete that went through the list is read once more, and the row is taken out of whatever comes
     /// back -- that read, or the one before it when that read did not go through: a recorder a moment behind
@@ -773,7 +774,7 @@ public final class RecorderDriver: LinkDriver {
         }
         if (failure as? any DeviceError)?.failure == .unknownItem {
             let newer = await reservations(since: began)
-            owner?.problem = Self.renumbered
+            if newer != nil { owner?.problem = Self.renumbered }
             return (false, newer ?? read)
         }
         _ = link.say(OperationFailure(failure, sending: Self.mayHaveArrived), since: began)
@@ -816,9 +817,10 @@ public final class RecorderDriver: LinkDriver {
     /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
     /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
     /// arrived (`DeviceLink.say`). 804 or 820 has the list read again first, since a read that goes through clears
-    /// the line, and then says so. Any other answer of the recorder's is said by the disk the change named
-    /// (`RecorderDisk.turnedDown`), and an error that is no device's as Swift describes it. After a change that went
-    /// through the line is cleared and the list read again.
+    /// the line, and then says so; a read that does not go through leaves what it failed with, as for a delete.
+    /// Any other answer of the recorder's is said by the disk the change named (`RecorderDisk.turnedDown`), and
+    /// an error that is no device's as Swift describes it. After a change that went through the line is cleared
+    /// and the list read again.
     ///
     /// A change not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError` when it
     /// is empty: for one that said nothing -- a mode the tables do not know, a slot given up on -- that is the line
@@ -896,7 +898,7 @@ public final class RecorderDriver: LinkDriver {
                 return (notDone(), read)
             } catch let error as any DeviceError where error.failure == .unknownItem {
                 let newer = await self.reservations(since: began)
-                owner?.problem = Self.renumbered
+                if newer != nil { owner?.problem = Self.renumbered }
                 return (notDone(), newer ?? read)
             } catch let error as any DeviceError {
                 // A move turned down is said by the disk moved to; a change that leaves the disk, as it always was.

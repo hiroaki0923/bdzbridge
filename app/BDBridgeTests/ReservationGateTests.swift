@@ -257,8 +257,8 @@ final class ReservationGateTests: XCTestCase {
     /// list just read had one -- has the list read again, and is said in the app's own sentence. Either way
     /// nothing is sent a second time, the recorder is kept and the list is as it was.
     ///
-    /// As it is today: that sentence stands, saying the list has been updated, when the read after the 804 was
-    /// itself turned down. A later change leaves the read's own sentence there.
+    /// When the read after the 804 is itself turned down, the list has not been updated, and the read's own
+    /// sentence is what is left on the line.
     func testADeleteOrAChangeTheRecorderTurnsDownIsSaidAndNotSentAgain() async throws {
         let (_, recorder, model) = try await connectedHome()
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -268,7 +268,7 @@ final class ReservationGateTests: XCTestCase {
             let cases: [(code: Int, readTurnedDown: Bool, line: String, heard: [String])] = [
                 (402, false, Said.fault(402, write.rawValue), [Kind.list, write.rawValue]),
                 (804, false, Said.renumbered, [Kind.list, write.rawValue, Kind.list]),
-                (804, true, Said.renumbered, [Kind.list, write.rawValue, Kind.list]),
+                (804, true, Said.fault(402, Kind.list), [Kind.list, write.rawValue, Kind.list]),
             ]
             for (code, readTurnedDown, line, heard) in cases {
                 let what = "\(write.name) answered \(code)" + (readTurnedDown ? ", and the read after it 402" : "")
