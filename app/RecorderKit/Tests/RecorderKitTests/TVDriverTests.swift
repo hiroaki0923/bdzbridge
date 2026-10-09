@@ -575,11 +575,17 @@ final class TVDriverTests: XCTestCase {
     /// Silence is said once. A read asked for while a delete is out waits its turn behind it, and when the
     /// delete has met silence that read meets it too: it leaves what the delete said -- that the delete may
     /// have arrived, which is all the reader has to go by -- where it is.
+    ///
+    /// The delete is answered only once the read has had time to be waiting behind it: nothing public says
+    /// that it is, and a read that has not got so far by the time the delete has met silence is not the one
+    /// this is about -- one asked once the television has been lost sends nothing.
     func testARequestBehindTheOneThatMetSilenceAddsNothing() async throws {
         let bench = await attached()
         let behind = Behind()
         await bench.gate.before(Self.delete) { @MainActor in
             behind.read = Task { await bench.driver.reservations() }
+            // Long enough for the read to be waiting behind the delete.
+            try? await Task.sleep(for: .milliseconds(300))
             await bench.gate.silence(Self.delete)
             await bench.gate.silence(Self.read)
         }
