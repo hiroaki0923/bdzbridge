@@ -221,9 +221,10 @@ public final class DeviceLink {
     /// What the check before an operation heard in place of the device saying which it is: a refusal, a fault, an
     /// answer that does not read -- from the device, or from whatever has taken its address. Nil until then, and
     /// again once a check or an attach hears the device say which it is; the driver's check and its attach write
-    /// it (`TVDriver.check`). While it is set nothing is sent that is for the device known alone (`mayBeSent`),
-    /// and an operation makes its check whatever the time since the address last answered (`checksAgain`): an
-    /// answer that does not say which device gave it says nothing of the device asked next. Not observed.
+    /// it (`TVDriver.check`, `RecorderDriver.check`). While it is set nothing is sent that is for the device
+    /// known alone (`mayBeSent`), and an operation makes its check whatever the time since the address last
+    /// answered (`checksAgain`): an answer that does not say which device gave it says nothing of the device
+    /// asked next. Not observed.
     @ObservationIgnored public internal(set) var heardInstead: (any DeviceError)?
 
     /// Whether the check before an operation is made however lately the address answered: the last check heard
@@ -491,10 +492,10 @@ public final class DeviceLink {
             return nil
         case .refused:
             // On the probe: something answered, so what is wrong is for the request itself to say, or for the
-            // driver, which may send nothing on the strength of it (`TVDriver.check`). After the waking: it
-            // answered only to refuse, which the attach has said already -- or its attach was broken off by the
-            // host, which let go of the device and has said why. The count tells the two apart: nothing an
-            // attach turned away moves it.
+            // driver, which may send nothing on the strength of it (`TVDriver.check`, `RecorderDriver.check`).
+            // After the waking: it answered only to refuse, which the attach has said already -- or its attach was
+            // broken off by the host, which let go of the device and has said why. The count tells the two apart:
+            // nothing an attach turned away moves it.
             guard !answeredTheProbe else { return nil }
             return letGo(since: began) ? .letGo : .turnedAway
         case .blocked:

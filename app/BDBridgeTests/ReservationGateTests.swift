@@ -505,6 +505,13 @@ final class ReservationGateTests: XCTestCase {
         try await reservingAcrossALetGo { await $0.goQuiet(on: Kind.description) }
     }
 
+    /// The same when the check is answered busy with somebody else, through both tries after the first, where
+    /// it asked: it has not heard which recorder answers, so nothing is sent, and the reservation is not kept
+    /// either, the recorder having been let go of meanwhile.
+    func testAReservationWhoseRecorderIsLetGoOfBeforeItsCheckHeardItBusyIsNotKept() async throws {
+        try await reservingAcrossALetGo { await $0.beBusy(with: Kind.description) }
+    }
+
     /// Asks for a reservation while the check before it is out on the recorder at `Bench.host`, lets go of that
     /// recorder and connects to `Bench.otherHost`, as a choice of another address does (`adopt`), and then has the
     /// first recorder answer the check as `answer` sets it to, while a second recorder at the other address holds
@@ -746,6 +753,81 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertFalse(model.connected, "the recorder was meant not to have said which it is")
         XCTAssertFalse(model.offline, "the recorder was meant to have answered, if only as busy")
         return (came, await recorder.heard(since: count).filter { $0 != Kind.description })
+    }
+
+    /// A check before an operation whose question of who answers is answered busy with somebody else, through
+    /// both tries after the first, has not heard which recorder answers, and nothing is written on its strength
+    /// until a check hears it say which it is. The check writes nothing on the line itself: the question of
+    /// what a reservation would clash with goes on after it, as ever, is answered, and leaves the line as it
+    /// was. What is stopped says what the check heard: a delete and a change send nothing -- not the read
+    /// before them either, which fails with it -- and each checks again, however lately the recorder answered;
+    /// a reservation is kept on the phone; a pull-down's read fails with it and what waits is not sent; and
+    /// 「もう一度送る」 sends nothing. Once the recorder is free, the next check hears it and what waits goes.
+    func testNothingIsWrittenAfterACheckThatHeardTheRecorderBusy() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        let rows = try ReservationWrite.rows(of: model, atLeast: 2)
+        let programs = try await programmesNotReserved(model, 2)
+        let busy = Said.busy(Kind.description)
+        await recorder.busyAtTheDoor()
+
+        // The check, made whatever the time since the last answer, and the clash check after it.
+        leaveALine(on: model)
+        var before = await recorder.asked
+        expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+        expectEqual(await recorder.asked(Kind.description, since: before), 3, "the check did not ask who answers")
+        let clashes = await model.conflicts(for: programs[1], quality: "DR", repeating: "none")
+        XCTAssertNotNil(clashes, "the clash check was not answered after a check that heard the recorder busy")
+        expectEqual(await recorder.asked(Kind.clashes, since: before), 1)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the check or the clash check wrote on the line")
+
+        // A delete, twice: each checks again within the minute and a half, and nothing is read or sent.
+        for attempt in ["the first delete", "the second delete"] {
+            leaveALine(on: model)
+            before = await recorder.asked
+            expectFalse(await model.cancel(rows[0]), "\(attempt) went through")
+            XCTAssertEqual(model.problem(for: .recorder), busy, attempt)
+            expectEqual(await recorder.asked(Kind.description, since: before), 3, "\(attempt) did not check again")
+            expectEqual(await recorder.asked(Kind.list, since: before), 0, "\(attempt) read the list")
+            expectEqual(await recorder.asked(Kind.delete, since: before), 0, "\(attempt) was sent")
+        }
+
+        // A change.
+        leaveALine(on: model)
+        before = await recorder.asked
+        expectEqual(await model.change(rows[1], quality: "ER", repeating: "none"), .notDone(busy))
+        XCTAssertEqual(model.problem(for: .recorder), busy)
+        expectEqual(await recorder.asked(Kind.list, since: before), 0, "the change read the list")
+        expectEqual(await recorder.asked(Kind.change, since: before), 0, "the change was sent")
+
+        // A reservation, kept.
+        leaveALine(on: model)
+        before = await recorder.asked
+        let came = await model.reserve(programs[0], on: .recorder, quality: "DR", repeating: "none")
+        guard case .waiting(let kept, _) = came else {
+            return XCTFail("a reservation asked after a check that heard the recorder busy was not kept: \(came)")
+        }
+        XCTAssertEqual(model.problem(for: .recorder), busy, "the reservation kept did not say what the check heard")
+        XCTAssertEqual(model.pending(for: programs[0])?.id, kept.id)
+        expectEqual(await recorder.asked(Kind.create, since: before), 0, "the reservation was sent")
+
+        // A pull-down, and the row kept sent again.
+        leaveALine(on: model)
+        before = await recorder.asked
+        await model.refreshReservations()
+        XCTAssertEqual(model.problem(for: .recorder), busy)
+        leaveALine(on: model)
+        await model.resend(kept)
+        XCTAssertEqual(model.problem(for: .recorder), busy, "sending it again did not say what the check heard")
+        expectEqual(await recorder.asked(Kind.create, since: before), 0, "what waits was sent")
+        XCTAssertNotNil(model.pending(for: programs[0]), "the reservation kept no longer waits")
+
+        // Free again: the pull-down's check hears it say which it is, and what waits goes.
+        await recorder.comeFree()
+        before = await recorder.asked
+        await model.refreshReservations()
+        expectEqual(await recorder.asked(Kind.create, since: before), 1, model.problem(for: .recorder) ?? "")
+        XCTAssertNil(model.pending(for: programs[0]))
+        XCTAssertNotNil(model.reservation(for: programs[0]))
     }
 
     // MARK: - what would clash, and a reservation made

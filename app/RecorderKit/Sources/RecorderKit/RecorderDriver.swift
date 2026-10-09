@@ -153,6 +153,8 @@ public final class RecorderDriver: LinkDriver {
     /// attach, before anything is read from the recorder or sent to it. False when the cache is another's and
     /// could not be made over: the caller does not go on.
     private func settle(_ link: DeviceLink, whoAnswered recorder: RecorderDescription) async -> Bool {
+        // It has said which it is: whatever a check heard in its place before says nothing of it now.
+        link.heardInstead = nil
         let owner = link.owner
         let wasConnected = link.session.connected
         let inMemory = link.session.described(recorder)
@@ -499,10 +501,16 @@ public final class RecorderDriver: LinkDriver {
     /// line of what went wrong. It is sent on the client `run` hands over, the one in hand as the check was
     /// asked. A read that is a step of something else -- before a delete or a change, after a sending -- has
     /// a line of its own all the same, as it is today; a later change reads those under the operation's line.
+    ///
+    /// After a check that heard something in place of the recorder saying which it is, nothing is sent, as for
+    /// a television's read: what it heard is what the read fails as, and the link says it
+    /// (`DeviceLink.heardInstead`). The read after such a check checks again, however lately the recorder
+    /// answered (`DeviceLink.checksAgain`).
     public func reservations() async -> [Reservation]? {
         guard let link, link.client is RecorderClient, !link.session.unreachable else { return nil }
-        let read = await link.run(line: Self.readingLine) { client in
-            try await (client as? RecorderClient)?.reservations()
+        let read = await link.run(line: Self.readingLine, evenIfRecent: link.checksAgain) { client in
+            if let heard = link.heardInstead { throw heard }
+            return try await (client as? RecorderClient)?.reservations()
         }
         if case .success(let list) = read { return list }
         return nil
@@ -558,10 +566,13 @@ public final class RecorderDriver: LinkDriver {
     /// the host whenever the recorder has just answered, which means from inside a connect, and here when the
     /// list is pulled down or a row sent again: nothing here waits for the app's start.
     ///
-    /// Only to a recorder that has described itself, on the client whose attach heard it (`canBeAsked`):
-    /// whatever answers a connect some other way -- a 503, or as something that is no recorder -- must not be
-    /// handed what was waiting for the last recorder. Inside an attach the client is that one by the time this
-    /// is asked. And only when a row waits for the recorder. What waits for the television is its own driver's to send
+    /// Only to a recorder that has described itself, on the client whose attach heard it, and not after a check
+    /// that heard something in place of its saying which it is (`DeviceLink.mayBeSent`): whatever answers a
+    /// connect some other way -- a 503, or as something that is no recorder -- must not be handed what was
+    /// waiting for the last recorder, nor must whatever a check hears busy or faulted. Inside an attach the
+    /// client is that one by the time this is asked, and the attach has heard the recorder say which it is.
+    /// Nothing is said here of a sending not made: a pull-down's read has said what the check heard. And only
+    /// when a row waits for the recorder. What waits for the television is its own driver's to send
     /// (`TVDriver.sendWhatWaits`): with nothing but such rows the recorder's line would go up for a flush that
     /// sends nothing, and that flush would wait its turn behind a television's sending that is out. Otherwise
     /// nothing is asked and nothing said. The host is told the queue may have changed as it is looked at and
@@ -573,7 +584,7 @@ public final class RecorderDriver: LinkDriver {
     /// have arrived. What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
         guard let link, let client = link.client as? RecorderClient, let store = link.owner?.cache,
-              canBeAsked(on: link) else { return (nil, nil) }
+              link.mayBeSent else { return (nil, nil) }
         await link.owner?.queueWritten()
         let rows = (try? await store.pendingReservations()) ?? []
         guard rows.contains(where: { $0.target == RecorderClient.slot }), !link.session.unreachable else {
@@ -602,7 +613,10 @@ public final class RecorderDriver: LinkDriver {
     /// is known to be away, or the check before an operation says no: the row goes the next time the recorder
     /// answers. There, and nothing can be written to it (`canBeAsked`) -- not connected, or connected from an
     /// attach before a reconnect it answered without saying which it is -- a connect asks it again, and its
-    /// attach sends what waits if it describes itself. Otherwise what waits is sent now.
+    /// attach sends what waits if it describes itself. A check that heard something in place of the recorder
+    /// saying which it is sends nothing either, and what it heard is said here, at the door
+    /// (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears the recorder. Otherwise what
+    /// waits is sent now.
     ///
     /// Everything that waits for the recorder is sent, not this row alone, and nothing is handed back of the
     /// row itself, the strip saying what was sent: as it is today; a later change sends the one row and says
@@ -614,9 +628,13 @@ public final class RecorderDriver: LinkDriver {
         }
         try? await store.setPendingProblem(waiting.id, nil)
         await link.owner?.queueWritten()
-        guard !link.offline, await link.ensureUp() else { return (nil, nil, nil) }
+        guard !link.offline, await link.ensureUp(evenIfRecent: link.checksAgain) else { return (nil, nil, nil) }
         guard canBeAsked(on: link) else {
             await link.connect()
+            return (nil, nil, nil)
+        }
+        guard link.mayBeSent else {
+            sayWhyNotSent(on: link)
             return (nil, nil, nil)
         }
         let (round, list) = await sendWhatWaits()
@@ -666,10 +684,11 @@ public final class RecorderDriver: LinkDriver {
     ///
     /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
     /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
-    /// an address the recorder has left. That client is asked again whether it may be written to: one whose
-    /// connect is still under way, or a check inside the read whose waking the recorder turned away, sends
-    /// nothing, and the host says that the app is not connected. The line comes down before anything is read
-    /// after it. Silence there may
+    /// an address the recorder has left. That client is asked again whether it may be written to
+    /// (`DeviceLink.mayBeSent`): one whose connect is still under way, or a check inside the read whose waking
+    /// the recorder turned away, sends nothing, and the host says that the app is not connected; a check that
+    /// heard something in place of the recorder saying which it is sends nothing, and what it heard is said, as
+    /// the read failed with it. The line comes down before anything is read after it. Silence there may
     /// be a delete that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
     /// arrived. 804 or 820 -- the list just read was itself out of date, which is what happens when reading it
     /// failed -- has the list read again first, since a read that goes through clears the line, and then says
@@ -695,8 +714,8 @@ public final class RecorderDriver: LinkDriver {
             return (false, read)
         }
         guard let client = link.client as? RecorderClient else { return (false, read) }
-        guard canBeAsked(on: link) else {
-            owner?.sayNotConnected()
+        guard link.mayBeSent else {
+            sayWhyNotSent(on: link)
             return (false, read)
         }
         let failure = await link.underALine(Self.deletingLine) { _ -> (any Error)? in
@@ -752,7 +771,8 @@ public final class RecorderDriver: LinkDriver {
     /// as it stands after the read (`inHand`): as it is today; a later change sends nothing after a read that
     /// failed, and takes `inHand` away. A reservation not in the list has gone, and the line says so. The request
     /// is built from the row just found, on the client the link holds after the read, asked again whether it may
-    /// be written to, as the delete's is; a mode or a repeat the tables do not know sends nothing.
+    /// be written to, and not after a check that heard something in place of the recorder saying which it is,
+    /// as the delete's is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
     ///
     /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
     /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
@@ -789,8 +809,8 @@ public final class RecorderDriver: LinkDriver {
             return (notDone(), read)
         }
         guard let client = link.client as? RecorderClient else { return (notDone(), read) }
-        guard canBeAsked(on: link) else {
-            owner?.sayNotConnected()
+        guard link.mayBeSent else {
+            sayWhyNotSent(on: link)
             return (notDone(), read)
         }
         guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
@@ -940,9 +960,14 @@ public final class RecorderDriver: LinkDriver {
     /// the check's own waking (`NotUp.letGo`), or by anything else while the check was out, another address
     /// chosen among them, whatever the check then answers (`DeviceLink.letGo(since:)`). Then it is not done:
     /// kept, it would wait as one made for the recorder before, and go to whichever answers the next connect.
-    /// The slot is waited for when the reservation names a USB disk the slot has not answered since the recorder
-    /// last answered (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as
-    /// when the recorder could not be made sure of, unless the recorder was let go of since the reservation began
+    /// When it answers, but heard something in place of the recorder saying which it is (`DeviceLink.mayBeSent`)
+    /// -- busy with somebody else, a fault -- nothing is sent either: what it heard is said on the line, and the
+    /// reservation is kept, to go once the recorder has said which it is; by the same rule, not when the recorder
+    /// was let go of meanwhile, when it is not done and nothing is said. The check is made however lately the
+    /// recorder answered when the one before heard such a thing (`DeviceLink.checksAgain`). The slot is waited
+    /// for when the reservation names a USB disk the slot has not answered since the recorder last answered
+    /// (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as when the
+    /// recorder could not be made sure of, unless the recorder was let go of since the reservation began
     /// (`DeviceLink.letGo(since:)`) -- not for a connect to the same recorder, whose client is new and which lets
     /// go of nothing; a wait given up on ends it.
     ///
@@ -977,7 +1002,7 @@ public final class RecorderDriver: LinkDriver {
         }
         let began = link.generation
         return await link.underALine(Self.reservingLine) { _ -> (reserved: Reserved, list: [Reservation]?) in
-            switch await link.check() {
+            switch await link.check(evenIfRecent: link.checksAgain) {
             case .up:
                 break
             case .notUp(.anotherAnswered), .notUp(.letGo):
@@ -985,6 +1010,12 @@ public final class RecorderDriver: LinkDriver {
             case .notUp:
                 // Nothing was sent; kept only for the recorder it was asked of.
                 guard !link.letGo(since: began) else { return (notDone(), nil) }
+                return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
+            }
+            // The check heard something in place of the recorder saying which it is: said here, as nothing goes.
+            guard link.mayBeSent else {
+                guard !link.letGo(since: began) else { return (notDone(), nil) }
+                if let heard = link.heardInstead { owner?.problem = heard.explanation }
                 return (await self.keep(request, serviceName: program.serviceName, on: link) ?? notDone(), nil)
             }
             switch await self.withholds(disk) {
@@ -1081,13 +1112,42 @@ public final class RecorderDriver: LinkDriver {
 
     // MARK: - the check before an operation
 
+    /// Asks which recorder answers, as an attach asks it first. Another one, by its UDN, is a stranger, and the
+    /// link tells the host (`anotherAnsweredTheCheck`). Silence is the link's to read, as ever.
+    ///
+    /// Anything else -- busy with somebody else after the client's tries, a fault, an answer that does not
+    /// read -- says nothing of which recorder gave it, and is kept on the link (`DeviceLink.heardInstead`), as
+    /// a television's check keeps it: nothing is written to the recorder on its strength
+    /// (`DeviceLink.mayBeSent`), the reads fail with it, and the next operation checks again however lately
+    /// the recorder answered (`DeviceLink.checksAgain`). Any description heard clears it, as an attach's does
+    /// (`settle`). The link takes such an answer for one, and lets the operation go on to this driver.
+    ///
+    /// Unlike a television's, the check writes nothing on the line: what it heard is said by the operation it
+    /// stops -- a read through the link, which says how it failed (`DeviceLink.say`), a write at its door. The
+    /// recorder has a request the television has not, the question of what a reservation would clash with,
+    /// which goes on after such a check, reads nothing of what it heard, and leaves the line as it was.
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
         guard let client = client as? RecorderClient else { return (.unexpected("not a recorder's client"), false) }
         do {
             let answering = try await client.describe(timeout: probeTimeout)
+            link.heardInstead = nil
             return (nil, link.session.recognises(answering) == .another)
+        } catch let heard as any DeviceError where heard.failure != .silent {
+            link.heardInstead = heard
+            return (heard.failure, false)
         } catch {
             return ((error as? any DeviceError)?.failure ?? .unexpected(String(describing: error)), false)
+        }
+    }
+
+    /// Said at the door of something sent after the check before it, when it may not be sent
+    /// (`DeviceLink.mayBeSent`): what that check heard in place of the recorder saying which it is, in the
+    /// recorder's words, or else that the app is not connected.
+    private func sayWhyNotSent(on link: DeviceLink) {
+        if let heard = link.heardInstead {
+            link.owner?.problem = heard.explanation
+        } else {
+            link.owner?.sayNotConnected()
         }
     }
 
