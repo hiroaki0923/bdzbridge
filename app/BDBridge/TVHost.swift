@@ -90,10 +90,13 @@ final class TVHost: LinkHost {
         keep(list)
     }
 
-    /// Takes a reservation off the television. Whether it was deleted; the list read on the way is kept
-    /// either way, since a delete that was refused has still seen what the television holds now.
-    func cancel(_ reservation: Reservation) async -> Bool {
-        guard let driver else { return false }
+    /// Takes a reservation off the television. What it came to, for whoever asked to say: the result is what
+    /// says it. The list read on the way is kept either way, since a delete that was refused has still seen
+    /// what the television holds now. Nil for a row that is not the television's, which the driver refuses
+    /// with nothing said. From a host the app has let go of nothing is sent, and the answer is that the app is
+    /// not connected, as for a change.
+    func cancel(_ reservation: Reservation) async -> Altered? {
+        guard let driver else { return .notDone(TVDriver.notConnected) }
         let (deleted, list) = await driver.cancel(reservation)
         if let list { keep(list) }
         return deleted

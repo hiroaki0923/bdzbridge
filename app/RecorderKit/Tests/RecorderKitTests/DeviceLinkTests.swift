@@ -832,7 +832,8 @@ final class DeviceLinkTests: XCTestCase {
             XCTAssertFalse(link.session.gaveUp, what)
             XCTAssertEqual(world.count("another device on the check"), 0, what)
             expectNil(await driver?.reservations(), "\(what): the list was read")
-            expectEqual(await driver?.cancel(held).deleted, false, what)
+            expectEqual(await driver?.cancel(held).deleted, Altered.notDone(ScalarError.notRegistered.explanation),
+                        what)
             let asked = await refusing.requests
             XCTAssertEqual(asked.count, 1, "\(what): asked again")
             XCTAssertTrue(onlyAskedWhichItIs(asked), "\(what) was asked more than which television it is")

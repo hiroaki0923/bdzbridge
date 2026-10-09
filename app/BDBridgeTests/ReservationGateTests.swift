@@ -156,7 +156,10 @@ final class ReservationGateTests: XCTestCase {
     /// that, not even the list is asked for, and the app says it is not connected. A change to a mode the tables
     /// do not know reads the list, and then sends nothing and says nothing.
     ///
-    /// As it is today: with no recorder in hand both are false without a word, where a later change says why.
+    /// The delete says it in its result alone, and leaves the line as the read before it or an earlier
+    /// operation left it; with no recorder in hand it says that the app is not connected. As it is today, the
+    /// change says it on the line, which its result then gives, and with no recorder in hand it is not done
+    /// with what the line holds, where a later change says why in the result alone.
     func testADeleteOrAChangeThatCannotBeSentSaysWhyAndSendsNothing() async throws {
         let (_, recorder, model) = try await connectedHome()
         let rows = try ReservationWrite.rows(of: model, atLeast: 3)
@@ -166,8 +169,8 @@ final class ReservationGateTests: XCTestCase {
             // Deleted on the recorder's own screen since the app read its list.
             try await aClient(of: recorder).deleteReservation(id: gone.id)
             var count = await recorder.heard.count
-            expectFalse(await write.ask(model, gone), write.name)
-            XCTAssertEqual(model.problem(for: .recorder), Said.gone, write.name)
+            expectEqual(await write.result(model, gone), .notDone(Said.gone), write.name)
+            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? nil : Said.gone, write.name)
             expectEqual(await recorder.heard(since: count), [Kind.list],
                         "\(write.name) was sent for a reservation the recorder no longer lists")
             XCTAssertFalse(model.reservations.contains { $0.id == gone.id },
@@ -185,8 +188,8 @@ final class ReservationGateTests: XCTestCase {
             // And from then on the recorder is known to be away.
             leaveALine(on: model)
             count = await recorder.heard.count
-            expectFalse(await write.ask(model, kept), write.name)
-            XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, write.name)
+            expectEqual(await write.result(model, kept), .notDone(Said.notConnected), write.name)
+            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? lineLeft : Said.notConnected, write.name)
             expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked")
             XCTAssertTrue(model.reservations.contains(kept), write.name)
             await reconnect(model)
@@ -202,7 +205,8 @@ final class ReservationGateTests: XCTestCase {
         leaveALine(on: model)
         count = await recorder.heard.count
         for write in ReservationWrite.allCases {
-            expectFalse(await write.ask(model, kept), write.name)
+            expectEqual(await write.result(model, kept), .notDone(write == .delete ? Said.notConnected : lineLeft),
+                        write.name)
             XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(write.name) said something, with no recorder")
         }
         expectEqual(await recorder.heard(since: count), [], "a recorder the app had let go of was asked")
@@ -291,8 +295,8 @@ final class ReservationGateTests: XCTestCase {
     /// The reader's own reservation, made by an app, deleted on the recorder's own screen since the app read its
     /// list; and in the list read before a delete or a change, the recorder's own reservation of the same
     /// programme at the same start, under a number of its own. The recorder has not been seen to renumber what an
-    /// app made, so the reader's has gone: nothing is sent to the recorder's own, and the line says the
-    /// reservation was not found in the list just read.
+    /// app made, so the reader's has gone: nothing is sent to the recorder's own, and the result says the
+    /// reservation was not found in the list just read -- the delete there alone, the change on the line too.
     func testAReservationDeletedOnTheRecorderIsNotTakenForTheRecordersOwnOfItsProgramme() async throws {
         let (_, recorder, model) = try await connectedHome()
         let mine = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -308,10 +312,10 @@ final class ReservationGateTests: XCTestCase {
         for write in ReservationWrite.allCases {
             await recorder.answer(Kind.list, with: .result(itsOwn))
             let count = await recorder.heard.count
-            expectFalse(await write.ask(model, mine), write.name)
+            expectEqual(await write.result(model, mine), .notDone(Said.gone), write.name)
             expectEqual(await recorder.heard(since: count), [Kind.list],
                         "\(write.name) went to the recorder's own reservation of the programme")
-            XCTAssertEqual(model.problem(for: .recorder), Said.gone, write.name)
+            XCTAssertEqual(model.problem(for: .recorder), write == .delete ? nil : Said.gone, write.name)
             XCTAssertEqual(model.reservations.map(\.id), ["0x00000000000b11ff"],
                            "the list on screen is not the one just read")
         }
@@ -323,7 +327,9 @@ final class ReservationGateTests: XCTestCase {
     /// nothing is sent a second time, the recorder is kept and the list is as it was.
     ///
     /// When the read after the 804 is itself turned down, the list has not been updated, and the read's own
-    /// sentence is what is left on the line.
+    /// sentence is what is left on the line. Each is said in the result; the 804 settled by a read that went
+    /// through is said there alone by the delete, whose read has cleared the line, and on the line too by the
+    /// change, as it is today.
     func testADeleteOrAChangeTheRecorderTurnsDownIsSaidAndNotSentAgain() async throws {
         let (_, recorder, model) = try await connectedHome()
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
@@ -341,9 +347,10 @@ final class ReservationGateTests: XCTestCase {
                 await recorder.answer(write.rawValue, with: .fault(code))
                 // The read before the write is let through first.
                 if readTurnedDown { await recorder.answer(Kind.list, with: .fault(402), after: 1) }
-                expectFalse(await write.ask(model, row), what)
+                expectEqual(await write.result(model, row), .notDone(line), what)
 
-                XCTAssertEqual(model.problem(for: .recorder), line, what)
+                XCTAssertEqual(model.problem(for: .recorder),
+                               write == .delete && code == 804 && !readTurnedDown ? nil : line, what)
                 expectEqual(await recorder.heard(since: count), heard, what)
                 XCTAssertTrue(model.connected, "a refusal was taken for the recorder going: \(what)")
                 XCTAssertFalse(model.gaveUp, what)
@@ -1140,15 +1147,16 @@ final class ReservationGateTests: XCTestCase {
         let reread = try XCTUnwrap(model.reservationsRead)
         XCTAssertGreaterThan(reread, read, "the list the connect read again has the old time")
 
-        // Given up on after silence. A delete is turned down with nothing read, and the list stands with its time.
+        // Given up on after silence. A delete is turned down with nothing read, which its result says and the line
+        // does not, and the list stands with its time.
         await recorder.goQuiet(for: 1)
         expectFalse(await makeSure(model), "a recorder that said nothing was taken for one to ask")
         XCTAssertTrue(model.gaveUp)
         let listed = model.reservations
         XCTAssertEqual(model.reservationsStaleSince, reread, "the list a recorder given up on left is not old")
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
-        expectFalse(await deleteAReservation(model, row))
-        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected)
+        expectEqual(await model.cancel(row), .notDone(Said.notConnected))
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
         XCTAssertEqual(model.reservations, listed, "a delete turned down unread took the list")
         XCTAssertEqual(model.reservationsRead, reread, "a delete turned down unread counts as a read")
         XCTAssertEqual(model.reservationsStaleSince, reread)
@@ -1409,6 +1417,15 @@ enum ReservationWrite: String, CaseIterable {
         switch self {
         case .delete: return await deleteAReservation(model, row)
         case .change: return await changeOnTheRecorder(model, row, quality: "ER", repeating: "none")
+        }
+    }
+
+    /// Asks for it as `ask` does, and hands back what it came to, as the screen that asked says it.
+    @MainActor
+    func result(_ model: AppModel, _ row: Reservation) async -> Altered {
+        switch self {
+        case .delete: return await model.cancel(row)
+        case .change: return await model.change(row, quality: "ER", repeating: "none")
         }
     }
 

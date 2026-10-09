@@ -272,7 +272,7 @@ final class TVDriverTests: XCTestCase {
         }
         await ask("read") { expectNil(await bench.driver.reservations()) }
         await ask("pull") { expectNil(await bench.driver.refreshReservations()) }
-        await ask("delete") { expectFalse(await bench.driver.cancel(drama).deleted) }
+        await ask("delete") { expectEqual(await bench.driver.cancel(drama).deleted, .notDone(fault)) }
         await ask("change") {
             expectEqual(await bench.driver.update(drama, repeating: "daily").altered, .notDone(fault))
         }
@@ -393,8 +393,9 @@ final class TVDriverTests: XCTestCase {
     }
 
     /// A television that cannot be asked -- its cookie refused at the attach, or silent since -- is sent
-    /// nothing. A read says nothing either, so that what an earlier operation left on the line stays; a cancel
-    /// says why: the registration that is wanted, or that the app is not connected.
+    /// nothing. A read says nothing, so that what an earlier operation left on the line stays; a cancel says
+    /// why in its result, the registration that is wanted or that the app is not connected, and leaves the line
+    /// as it was too.
     func testATelevisionThatCannotBeAskedIsSentNothing() async throws {
         let refused = await attached(with: MemoryTVCredentials(Self.stale))
         XCTAssertTrue(refused.link.session.connected)
@@ -405,7 +406,7 @@ final class TVDriverTests: XCTestCase {
         _ = await silent.link.ensureUp(evenIfRecent: true)
         await silent.television.goSilent(false)
 
-        for (bench, why) in [(refused, ScalarError.notRegistered.explanation), (silent, LinkWorld.notConnected)] {
+        for (bench, why) in [(refused, ScalarError.notRegistered.explanation), (silent, TVDriver.notConnected)] {
             XCTAssertFalse(bench.driver.canBeAsked, why)
             bench.world.problem = Self.left
             let asked = await bench.gate.asked
@@ -414,9 +415,9 @@ final class TVDriverTests: XCTestCase {
             XCTAssertEqual(bench.world.problem, Self.left, "a read that was not sent wrote over the line")
             let cancelled = await bench.driver.cancel(try held())
 
-            XCTAssertFalse(cancelled.deleted, why)
+            XCTAssertEqual(cancelled.deleted, .notDone(why), why)
             XCTAssertNil(cancelled.list, why)
-            XCTAssertEqual(bench.world.problem, why)
+            XCTAssertEqual(bench.world.problem, Self.left, "a delete turned away at its door wrote the line")
             XCTAssertNil(bench.world.line)
             expectEqual(await bench.gate.asked, asked, "sent to a television that cannot be asked")
         }
@@ -445,7 +446,7 @@ final class TVDriverTests: XCTestCase {
         expectNil(await driver.reservations())
         expectNil(await driver.refreshReservations())
         let cancelled = await driver.cancel(try held())
-        XCTAssertFalse(cancelled.deleted)
+        XCTAssertEqual(cancelled.deleted, .notDone(TVDriver.notConnected))
         XCTAssertNil(cancelled.list)
         expectEqual(await television.calls, asked, "sent by a driver with no link")
         expectEqual(await television.schedules, [Self.drama, Self.weather])
@@ -471,7 +472,7 @@ final class TVDriverTests: XCTestCase {
         let cancelled = await bench.driver.cancel(recorders)
         let changed = await bench.driver.update(recorders, repeating: "daily")
 
-        XCTAssertFalse(cancelled.deleted)
+        XCTAssertNil(cancelled.deleted)
         XCTAssertNil(cancelled.list)
         XCTAssertNil(changed.altered)
         XCTAssertNil(changed.list)
@@ -494,7 +495,7 @@ final class TVDriverTests: XCTestCase {
 
             let turnedAway = await unasked.driver.cancel(recorders)
 
-            XCTAssertFalse(turnedAway.deleted, which)
+            XCTAssertNil(turnedAway.deleted, which)
             XCTAssertNil(turnedAway.list, which)
             XCTAssertEqual(unasked.world.problem, Self.left, "\(which): said what is said of a television's own")
             expectEqual(await unasked.gate.asked, sentSoFar, "\(which): sent for another device's reservation")
@@ -533,6 +534,8 @@ final class TVDriverTests: XCTestCase {
         var sent: [String]
         var connected = true
         var needsPairing = false
+        /// The sentence of a cancel not done, nil for one done.
+        var said: String?
     }
 
     /// Cancels the drama held on a bench of its own, once `arrange` has set up what happens on the way.
@@ -546,9 +549,11 @@ final class TVDriverTests: XCTestCase {
 
         XCTAssertNil(bench.world.line, "a line was left up")
         let sent = Array(await bench.gate.asked.dropFirst(before))
-        return (Outcome(deleted: cancelled.deleted, list: cancelled.list?.map(\.id), problem: bench.world.problem,
-                        sent: sent, connected: bench.link.session.connected,
-                        needsPairing: bench.driver.facts.needsPairing), bench)
+        var said: String?
+        if case .notDone(let why)? = cancelled.deleted { said = why }
+        return (Outcome(deleted: cancelled.deleted == .done(saying: nil), list: cancelled.list?.map(\.id),
+                        problem: bench.world.problem, sent: sent, connected: bench.link.session.connected,
+                        needsPairing: bench.driver.facts.needsPairing, said: said), bench)
     }
 
     /// A cancel reads the list, sends the row it has just read, once, and reads again: the reservation is off
@@ -583,7 +588,7 @@ final class TVDriverTests: XCTestCase {
         let cancelled = await bench.driver.cancel(try held())
         let list = await behind.read?.value
 
-        XCTAssertFalse(cancelled.deleted)
+        XCTAssertEqual(cancelled.deleted, .notDone(TVDriver.mayHaveArrived))
         XCTAssertNil(list)
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.read, Self.delete, Self.read])
         XCTAssertEqual(bench.world.problem, TVDriver.mayHaveArrived)
@@ -624,7 +629,7 @@ final class TVDriverTests: XCTestCase {
         let cancelled = await driver.cancel(try held())
 
         XCTAssertNil(link, "something beside the cancel held the link, which shows nothing of the cancel")
-        XCTAssertTrue(cancelled.deleted)
+        XCTAssertEqual(cancelled.deleted, .done(saying: nil))
         XCTAssertEqual(cancelled.list?.map(\.id), ["recording.42"])
         expectEqual(Array(await gate.asked.dropFirst(before)), [Self.read, Self.delete, Self.read])
         expectEqual(await television.schedules, [Self.reminder, Self.weather])
@@ -645,7 +650,9 @@ final class TVDriverTests: XCTestCase {
     /// delete is, with nothing sent after it and the row kept in the list; silence at the read after a delete
     /// that went through still counts the delete, and the row is out of the list read before. A television
     /// that answers it has no such reservation is read again, and what is said goes by whether the row is
-    /// still listed. A delete refused for its cookie puts down that the registration is wanted.
+    /// still listed. A delete refused for its cookie puts down that the registration is wanted. Whatever is
+    /// said is in the result; a row gone or changed, and a 41200 settled by a read that went through, are said
+    /// there alone, the read having cleared the line, and the rest on the line as well.
     func testWhatACancelComesToWithSomethingInItsWay() async throws {
         let read = Self.read, delete = Self.delete
         let both = ["recording.42", "recording.41"], later = ["recording.42"]
@@ -660,31 +667,35 @@ final class TVDriverTests: XCTestCase {
             XCTAssertEqual(outcome, expected, name, line: line)
         }
 
-        try await expect("gone", .init(deleted: false, list: later, problem: TVDriver.notInList, sent: [read])) {
+        try await expect("gone", .init(deleted: false, list: later, problem: nil, sent: [read],
+                                       said: TVDriver.notInList)) {
             await $0.television.put([Self.weather])
         }
-        try await expect("changed", .init(deleted: false, list: both, problem: TVDriver.listChanged, sent: [read])) {
+        try await expect("changed", .init(deleted: false, list: both, problem: nil, sent: [read],
+                                          said: TVDriver.listChanged)) {
             await $0.television.put([another, Self.weather])
         }
         try await expect("silence at the read before",
-                         .init(deleted: false, list: nil, problem: noAnswer, sent: [read], connected: false)) {
+                         .init(deleted: false, list: nil, problem: noAnswer, sent: [read], connected: false,
+                               said: noAnswer)) {
             await $0.gate.silence(read)
         }
         try await expect("silence at the delete", .init(deleted: false, list: both, problem: TVDriver.mayHaveArrived,
-                                                        sent: [read, delete], connected: false)) {
+                                                        sent: [read, delete], connected: false,
+                                                        said: TVDriver.mayHaveArrived)) {
             await $0.gate.silence(delete)
         }
         try await expect("silence at the read after", .init(deleted: true, list: later, problem: noAnswer,
                                                             sent: [read, delete, read], connected: false)) { bench in
             await bench.gate.before(delete) { await bench.gate.silence(read) }
         }
-        try await expect("41200, the row gone", .init(deleted: false, list: later, problem: TVDriver.notInList,
-                                                      sent: [read, delete, read])) { bench in
+        try await expect("41200, the row gone", .init(deleted: false, list: later, problem: nil,
+                                                      sent: [read, delete, read], said: TVDriver.notInList)) { bench in
             await bench.gate.before(delete) { await bench.television.put([Self.weather]) }
         }
-        try await expect("41200, the row still there", .init(deleted: false, list: both,
-                                                             problem: TVDriver.deleteRefused,
-                                                             sent: [read, delete, read])) { bench in
+        try await expect("41200, the row still there", .init(deleted: false, list: both, problem: nil,
+                                                             sent: [read, delete, read],
+                                                             said: TVDriver.deleteRefused)) { bench in
             await bench.gate.before(delete) { await bench.television.put([retitled, Self.weather]) }
         }
         // A television a moment behind itself still lists the row at the read after: it is taken out all the same.
@@ -696,7 +707,7 @@ final class TVDriverTests: XCTestCase {
         }
         try await expect("41200, and silence at the read after it",
                          .init(deleted: false, list: both, problem: noAnswer, sent: [read, delete, read],
-                               connected: false)) { bench in
+                               connected: false, said: noAnswer)) { bench in
             await bench.gate.before(delete) {
                 await bench.television.put([Self.weather])
                 await bench.gate.silence(read)
@@ -704,14 +715,15 @@ final class TVDriverTests: XCTestCase {
         }
         let off = ScalarError.rpc(method: delete, version: "1.1", code: 40005, message: "").explanation
         try await expect("a refusal of the television's own",
-                         .init(deleted: false, list: both, problem: off, sent: [read, delete])) {
+                         .init(deleted: false, list: both, problem: off, sent: [read, delete], said: off)) {
             await $0.gate.answer(delete, with: HTTPResponse(
                 statusCode: 200, body: Data(#"{"error":[40005,"display off"],"id":1}"#.utf8)))
         }
         // The cookie goes bad between the read and the delete: handed to the store as the read is on its way.
         try await expect("403 at the delete", .init(deleted: false, list: both,
                                                     problem: ScalarError.notRegistered.explanation,
-                                                    sent: [read, delete], needsPairing: true)) { bench in
+                                                    sent: [read, delete], needsPairing: true,
+                                                    said: ScalarError.notRegistered.explanation)) { bench in
             await bench.gate.before(read) { bench.credentials.save(Self.stale) }
         }
     }

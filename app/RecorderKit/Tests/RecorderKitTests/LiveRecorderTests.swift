@@ -1082,7 +1082,11 @@ enum DriverCheck {
             // back, not in the list the delete handed back, from which the driver takes the row out itself; and
             // by an id the check held, a new row at that time being none of its own.
             let deletion = await driver.cancel(current)
-            guard deletion.deleted else { throw Failed(description: "not deleted: \(said(world.problem))") }
+            switch deletion.deleted {
+            case .done?: break
+            case .notDone(let why)?: throw Failed(description: "not deleted: \(said(why))")
+            case nil: throw Failed(description: "not deleted: taken for another device's")
+            }
             gone = true
             let deleted = ContinuousClock.now
             var back: String?

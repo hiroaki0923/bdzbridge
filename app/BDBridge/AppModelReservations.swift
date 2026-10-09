@@ -506,25 +506,29 @@ extension AppModel {
         return came?.altered ?? .notDone(problem ?? RecorderDriver.returnedAnError)
     }
 
-    /// Deletes one reservation, as the device that holds it holds it now. Whether it was deleted.
+    /// Deletes one reservation, as the device that holds it holds it now. What it came to, in the one value both
+    /// devices answer with (`Altered`), for the screen that asked to say.
     ///
-    /// A television's reservation is its host's to delete, handed over first as for a change (`change`).
+    /// A television's reservation is its host's to delete, handed over first as for a change (`change`). With no
+    /// television in play nothing is sent, and the answer is that the app is not connected to it.
     ///
     /// The recorder's is its driver's (`RecorderDriver.cancel`): the list read again first and the reservation
     /// found in it, the delete sent once, and the row taken out of the list read after it. The list it hands back
     /// is kept by the count noted here (`keepReservations`): a delete for a recorder let go of meanwhile does not
-    /// touch the list of the one after it, which may hold another row under the same number. A recorder that
-    /// refuses says why, on its line, which is what the row's screen reads.
+    /// touch the list of the one after it, which may hold another row under the same number. What it came to is
+    /// the driver's result, the reason with it; with no driver, that the app is not connected.
     @discardableResult
-    func cancel(_ reservation: Reservation) async -> Bool {
-        if reservation.device == .tv { return await tvHost?.cancel(reservation) ?? false }
+    func cancel(_ reservation: Reservation) async -> Altered {
+        if reservation.device == .tv {
+            return await tvHost?.cancel(reservation) ?? .notDone(TVDriver.notConnected)
+        }
         let forgotten = timesForgotten
         await start()
         guard let came = await recorderDriver?.cancel(reservation) else {
-            return false
+            return .notDone(RecorderDriver.notConnected)
         }
         keepReservations(came.list, since: forgotten)
-        return came.deleted
+        return came.deleted ?? .notDone(RecorderDriver.notConnected)
     }
 
     /// What to call the channel a reservation is on: the guide's name for it, and for a television's row on a

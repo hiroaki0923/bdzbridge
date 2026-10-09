@@ -208,6 +208,70 @@ final class TVReservationTests: XCTestCase {
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: asked), 1)
     }
 
+    // MARK: - what a delete came to
+
+    /// What a delete turned away at its door came to is in its result, whichever device holds the row, and the
+    /// line of what went wrong is left as an earlier operation left it: nothing was sent, and that line is not
+    /// the delete's to write over. A television given up on, a television the app has let go of -- asked of
+    /// the screens' entry or of its host itself -- and a recorder given up on each answer that the app is not
+    /// connected, with nothing sent to either device. A television's row whose id the television now lists on
+    /// another programme is not written to, and the result says so; the read that found it went through and
+    /// cleared the television's line, and the sentence is not put there. Neither device's delete touches the
+    /// other's line.
+    func testWhatADeleteTurnsAwayIsSaidInTheResultAndTheLineIsLeft() async throws {
+        let home = try await atHome([Self.followed(41), Self.followed(42)])
+        let (recorder, television, model) = (home.recorder, home.television, home.model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let recorders = try aRecordersReservation(model)
+        let renumbered = try XCTUnwrap(host.reservations.first { $0.id == "recording.41" })
+        let held = try XCTUnwrap(host.reservations.first { $0.id == "recording.42" })
+        await television.put([DemoTV.Schedule(id: "recording.41", start: Self.soon, eventId: 49_999),
+                              Self.followed(42)])
+        model.problem = Self.left
+        host.problem = Self.left
+        let asked = await recorder.asked
+        var calls = await television.calls
+
+        expectEqual(await model.cancel(renumbered), .notDone(TVDriver.listChanged))
+
+        XCTAssertNil(model.problem(for: .tv), "the television's line was not cleared by the read, or says the result")
+        expectEqual(Array(await television.calls.dropFirst(calls.count)), ["getScheduleList cookie=yes pin=no"])
+        XCTAssertEqual(model.problem, Self.left)
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        await television.goSilent(false)
+        XCTAssertTrue(link.session.gaveUp)
+        host.problem = Self.left
+        calls = await television.calls
+
+        expectEqual(await model.cancel(held), .notDone(TVDriver.notConnected))
+
+        XCTAssertEqual(model.problem(for: .tv), Self.left, "a delete turned away at its door wrote the line")
+        expectEqual(await television.calls, calls, "a television given up on was sent a delete")
+
+        model.removeTV()
+
+        expectEqual(await model.cancel(held), .notDone(TVDriver.notConnected))
+        expectEqual(await host.cancel(held), .notDone(TVDriver.notConnected))
+
+        expectEqual(await television.calls, calls, "a television let go of was sent a delete")
+        expectEqual(await television.schedules.map(\.id), ["recording.41", "recording.42"])
+
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        XCTAssertTrue(model.offline)
+        model.problem = Self.left
+        let heard = await recorder.asked
+
+        expectEqual(await model.cancel(recorders), .notDone(RecorderDriver.notConnected))
+
+        XCTAssertEqual(model.problem, Self.left, "a delete turned away at its door wrote the recorder's line")
+        expectEqual(await recorder.asked, heard, "a recorder given up on was sent a delete")
+        XCTAssertTrue(model.reservations.contains(recorders))
+        expectEqual(await recorder.asked("X_DeleteRecordSchedule", since: asked), 0)
+    }
+
     // MARK: - two lists, two lines
 
     /// Each device numbers its own, so a row of each can carry the same id. In the list of both they are told
@@ -215,8 +279,9 @@ final class TVReservationTests: XCTestCase {
     /// recorder. The television's rows are among 通常の予約 and never among おまかせ, and the rows of both
     /// devices that the screens look through are every row, whichever kind is shown; what overlaps a
     /// reservation is looked for among its own device's; and a channel the guide does not have goes by the
-    /// name the television gave. A delete the television turns down is said on the television's line, the
-    /// recorder's left as it was, and the list read on the way is the one kept.
+    /// name the television gave. A delete of a row the television no longer lists is said in its result and on
+    /// neither line -- the television's was cleared by the read that found it gone, the recorder's left as it
+    /// was -- and the list read on the way is the one kept.
     func testTheTwoDevicesListsAndLinesAreKeptApart() async throws {
         let home = try await atHome()
         let (recorder, television, model) = (home.recorder, home.television, home.model)
@@ -269,9 +334,9 @@ final class TVReservationTests: XCTestCase {
         model.problem = Self.left
         asked = await recorder.asked
 
-        expectFalse(await deleteAReservation(model, besideRow))
+        expectEqual(await model.cancel(besideRow), .notDone(TVDriver.notInList))
 
-        XCTAssertEqual(model.problem(for: .tv), TVDriver.notInList)
+        XCTAssertNil(model.problem(for: .tv))
         XCTAssertEqual(model.problem, Self.left, "the television's failure is on the recorder's line")
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43"], "the list read on the way was not kept")
         XCTAssertGreaterThan(try XCTUnwrap(host.reservationsRead), read)
@@ -589,7 +654,8 @@ final class TVReservationTests: XCTestCase {
     /// Pulling the list down reads it from a television that is connected: one request, and no connect. From
     /// one given up on after silence it is the reader asking for it to be tried again: the television is
     /// connected to, and its list read as that connect reaches it. A delete asked for while it is given up on
-    /// is turned down with nothing read, which the line says, and the list it gave stands with its time.
+    /// is turned down with nothing read, which its result says, the line left as the silence left it, and the
+    /// list it gave stands with its time.
     /// That time is since when the list is old, for the screens to say, for as long as the television cannot
     /// be asked: not while it can, and not of a list with no rows.
     func testPullingDownReadsTheListOrConnectsAndReadsIt() async throws {
@@ -622,9 +688,9 @@ final class TVReservationTests: XCTestCase {
         let row = try XCTUnwrap(listed.first)
         XCTAssertEqual(host.staleSince, try XCTUnwrap(read), "the list a television given up on left is not old")
 
-        expectFalse(await deleteAReservation(model, row))
+        expectEqual(await model.cancel(row), .notDone(TVDriver.notConnected))
 
-        XCTAssertEqual(model.problem(for: .tv), TVDriver.notConnected)
+        XCTAssertEqual(model.problem(for: .tv), ScalarError.transport("").explanation)
         XCTAssertEqual(host.reservations, listed, "a delete turned down unread took the television's list")
         XCTAssertEqual(host.reservationsRead, read, "a delete turned down unread counts as a read")
         XCTAssertEqual(host.staleSince, read)

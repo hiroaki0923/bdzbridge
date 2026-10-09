@@ -157,9 +157,12 @@ struct ReservationSheet: View {
                     Button("削除する", role: .destructive) {
                         if onTelevision { asking = TVDriver.deletingLine }
                         Task {
-                            done = await model.cancel(reservation)
+                            let deleted = await model.cancel(reservation)
                             asking = nil
-                            if !done { failure = whatWentWrong }
+                            switch deleted {
+                            case .done: done = true
+                            case .notDone(let why): failure = why
+                            }
                         }
                     }
                     Button("キャンセル", role: .cancel) {}
@@ -231,12 +234,6 @@ struct ReservationSheet: View {
             // what is left.
             if let moved, model.diskCannotBeHad(moved) { movedTo = nil }
         }
-    }
-
-    /// What a delete that failed is reported as: the line of the row's device, which is where its delete
-    /// says what went wrong.
-    private var whatWentWrong: String {
-        model.problem(for: reservation.device) ?? "\(reservation.device.label)がエラーを返しました"
     }
 
     /// What the recorder holds of it beyond the times, and the choices that can still be changed: the mode, the

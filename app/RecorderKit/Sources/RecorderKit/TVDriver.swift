@@ -421,67 +421,70 @@ public final class TVDriver: LinkDriver {
         if case .refused(.needsPairing, _) = failure { facts.needsPairing = true }
     }
 
-    /// Takes a reservation off the television. Whether it was deleted, and the freshest list read on the way
-    /// for the caller to keep, nil when none was read.
+    /// Takes a reservation off the television. What it came to, with its sentence, and the freshest list read on
+    /// the way for the caller to keep, nil when none was read. The result is nil for a row that is not the
+    /// television's.
     ///
     /// A reservation that is not a television's is refused before anything else: nothing is read, sent or
-    /// said for it. It is another device's to delete, and looked for here it could only be taken for a row
-    /// of the television's. With the link gone any reservation is refused the same way.
+    /// said for it, and there is no result. It is another device's to delete, and looked for here it could
+    /// only be taken for a row of the television's.
     ///
-    /// A television that cannot be asked is sent nothing, and here the line says why: the reader asked for
-    /// this. Otherwise the list is read first and the reservation found in it (`tvTarget`): the row sent is
-    /// the one just read, and a reservation that has gone, or whose id is now another's, is not written to. A
-    /// read that fails sends nothing, nor does a check before it that did not hear the television say which
-    /// it is: what it heard is on the line. The delete is sent once. Silence there may be a delete that arrived, so
-    /// nothing is sent after it and the row stays listed until a read says otherwise. An answer that the
-    /// television has no such reservation (41200) is settled by reading again. After a delete that went
-    /// through the list is read once more, and the row is taken out of whatever comes back: a television a
-    /// moment behind itself must not bring it back, and the delete counts though that read fails.
+    /// Turned away at the door, with nothing sent and no line -- the sentence is in the result, and what an
+    /// earlier operation left on the line stays (`Reserved`): the link gone, which says that the app is not
+    /// connected; a television that cannot be asked, for which the registration it wants, or that the app is
+    /// not connected, is said as a change says it. Otherwise the list is read first and the reservation found
+    /// in it (`tvTarget`): the row sent is the one just read, and a reservation that has gone, or whose id is
+    /// now another's, is not written to, which the result says. A read that fails sends nothing, nor does a
+    /// check before it that did not hear the television say which it is: what the link said of it is on the
+    /// line, and the result says it again. The delete is sent once. Silence there may be a delete that
+    /// arrived, so nothing is sent after it, the row stays listed until a read says otherwise, and the line
+    /// and the result say so. An answer that the television has no such reservation (41200) is settled by
+    /// reading again, and the result says by the list read then whether the row is still listed. Any other
+    /// refusal is said in the television's words, on the line and in the result, and one for the cookie puts
+    /// down that the registration is wanted. After a delete that went through the list is read once more, and
+    /// the row is taken out of whatever comes back: a television a moment behind itself must not bring it
+    /// back, and the delete counts though that read fails.
     ///
     /// The reads on the way go under the delete's line, not one of their own. When making sure of the
     /// television ends at the local network permission, the reason is on the session (`connectBlocked`) and
-    /// not on the line. Asked for by the reader, a delete is carried through on the link it began on though
-    /// the app has let go of that link meanwhile: the link is read once, here, and held to the end. Two
-    /// cancels of one reservation at once would each send their delete; the screens hold the second back
-    /// while the first is out (the host's `isBusy`).
-    public func cancel(_ reservation: Reservation) async -> (deleted: Bool, list: [Reservation]?) {
-        guard reservation.device == .tv, let link else { return (false, nil) }
-        let owner = link.owner
+    /// not on the line, and the result says that the app is not connected. Asked for by the reader, a delete
+    /// is carried through on the link it began on though the app has let go of that link meanwhile: the link
+    /// is read once, here, and held to the end. Two cancels of one reservation at once would each send their
+    /// delete; the screens hold the second back while the first is out (the host's `isBusy`).
+    public func cancel(_ reservation: Reservation) async -> (deleted: Altered?, list: [Reservation]?) {
+        guard reservation.device == .tv else { return (nil, nil) }
+        guard let link else { return (.notDone(Self.notConnected), nil) }
         guard canBeAsked(on: link) else {
-            if facts.needsPairing {
-                owner?.problem = ScalarError.notRegistered.explanation
-            } else {
-                owner?.sayNotConnected()
-            }
-            return (false, nil)
+            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected), nil)
         }
+        let owner = link.owner
+        // What the link said on the line of a read or a check that failed, as for a change.
+        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? Self.notConnected) }
         let line = owner?.beginActivity(Self.deletingLine)
         defer { if let line { owner?.endActivity(line) } }
         guard await link.ensureUp(evenIfRecent: link.checksAgain), mayBeSent(on: link),
               let client = link.client as? ScalarClient,
-              let list = await read(link, underALine: false) else { return (false, nil) }
+              let list = await read(link, underALine: false) else { return (whatTheLinkSaid(), nil) }
         let target = list.tvTarget(of: reservation)
         guard case .found(let listed) = target, let row = listed.tvRow else {
-            owner?.problem = target == .gone ? Self.notInList : Self.listChanged
-            return (false, list)
+            return (.notDone(target == .gone ? Self.notInList : Self.listChanged), list)
         }
         do {
             try await client.deleteSchedule(row)
         } catch let error as any DeviceError where error.failure == .silent {
             link.lost()
             owner?.problem = Self.mayHaveArrived
-            return (false, list)
+            return (.notDone(Self.mayHaveArrived), list)
         } catch let error as any DeviceError where error.failure == .unknownItem {
             // The read comes first: one that goes through clears the line, and one that fails has said why.
-            guard let newer = await read(link, underALine: false) else { return (false, list) }
-            owner?.problem = newer.contains { $0.id == row.id } ? Self.deleteRefused : Self.notInList
-            return (false, newer)
+            guard let newer = await read(link, underALine: false) else { return (whatTheLinkSaid(), list) }
+            return (.notDone(newer.contains { $0.id == row.id } ? Self.deleteRefused : Self.notInList), newer)
         } catch {
             say(error, on: link)
-            return (false, list)
+            return (.notDone((error as? any DeviceError)?.explanation ?? String(describing: error)), list)
         }
         let after = await read(link, underALine: false) ?? list
-        return (true, after.filter { $0.id != row.id })
+        return (.done(saying: nil), after.filter { $0.id != row.id })
     }
 
     // MARK: - changing one

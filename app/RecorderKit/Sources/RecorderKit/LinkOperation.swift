@@ -55,17 +55,19 @@ public enum OperationFailure: Error, Sendable, Equatable {
 ///   another: what it came to is handed back for the screen the reader asked on, and is nil where there is
 ///   nothing to say of the row -- one that is another device's, which its driver refuses as it refuses a
 ///   delete of another's reservation, and one that no longer waits. Changing a television's reservation is
-///   a third (`Altered`), nil for a row of another device in the same way. Reserving on the recorder hands
-///   back the same `Reserved`, and changing one of its reservations the same `Altered`, nil for another
-///   device's row too; but both still say their door on the recorder's line, which their result then gives:
-///   as it is today; a later change says it in the result alone.
-/// - One that answers with a Bool says its door on the device's line, which is what the row's screen reads,
-///   until it too hands back a result with a sentence: a delete.
+///   a third (`Altered`), nil for a row of another device in the same way, and deleting one, on either
+///   device, a fourth (`Altered` too). Reserving on the recorder hands back the same `Reserved`, and
+///   changing one of its reservations the same `Altered`, nil for another device's row too; but both still
+///   say their door on the recorder's line, which their result then gives: as it is today; a later change
+///   says it in the result alone.
 /// - One that hands a screen nothing to say says nothing at its door: a sending of what waits, a read of
 ///   the list.
 ///
 /// What was sent and failed is written on the line by the link, whichever operation it was
-/// (`DeviceLink.say`), and what the check before an operation writes there is the check's.
+/// (`DeviceLink.say`), and what the check before an operation writes there is the check's; an operation
+/// with a result says either again in it. A row a delete finds gone or changed in the list just read, or
+/// that the device answers it does not hold, is said in its result alone, as a television's change says it:
+/// the read that found it has cleared the line.
 public enum Reserved: Sendable, Equatable {
     /// The device holds it: made now, or found there already. `saying` is what there is to add, in the
     /// device's own sentence -- that it was there already; what making it did beyond itself (another
@@ -84,13 +86,14 @@ public enum Reserved: Sendable, Equatable {
     case notDone(String)
 }
 
-/// What asking a device to change a reservation it holds came to, for a screen to say: a result with its
-/// sentence, as `Reserved` is, and under the same rule for what its door turns away. A change is made or it is
-/// not, and nothing of it is kept on the phone to go later, so there are two cases and no third.
+/// What asking a device to change a reservation it holds, or to delete one, came to, for a screen to say: a
+/// result with its sentence, as `Reserved` is, and under the same rule for what its door turns away. A change
+/// or a delete is made or it is not, and nothing of it is kept on the phone to go later, so there are two
+/// cases and no third.
 public enum Altered: Sendable, Equatable {
-    /// The device holds the reservation as it was asked to. `saying` is what there is to add, in the device's
-    /// own sentence -- reservations the change left marked as losing to others, the changed one itself
-    /// among them -- and nil for nothing.
+    /// The device holds the reservation as it was asked to, or no longer holds it. `saying` is what there is
+    /// to add, in the device's own sentence -- reservations a change left marked as losing to others, the
+    /// changed one itself among them -- and nil for nothing, as for every delete.
     case done(saying: String?)
     /// Not done, or not known to have been, and why.
     case notDone(String)

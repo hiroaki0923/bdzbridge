@@ -1133,14 +1133,16 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
 /// A delete of a reservation as a screen asks for it, whichever device holds the row: whether it went through.
 @MainActor
 func deleteAReservation(_ model: AppModel, _ row: Reservation) async -> Bool {
-    await model.cancel(row)
+    if case .done = await model.cancel(row) { return true }
+    return false
 }
 
 /// A delete of a television's reservation asked of its host itself, as no screen asks it: whether it went
 /// through.
 @MainActor
 func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
-    await host.cancel(row)
+    if case .done? = await host.cancel(row) { return true }
+    return false
 }
 
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands

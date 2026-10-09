@@ -155,10 +155,7 @@ struct ReservationsScreen: View {
                 case .confirm(let reservation):
                     Button("削除する", role: .destructive) {
                         Task {
-                            if await !model.cancel(reservation) {
-                                failure = model.problem(for: reservation.device)
-                                    ?? "\(reservation.device.label)がエラーを返しました"
-                            }
+                            if case .notDone(let why) = await model.cancel(reservation) { failure = why }
                         }
                     }
                     Button("キャンセル", role: .cancel) {}

@@ -277,11 +277,11 @@ struct ProgramSheet: View {
                     Button("削除する", role: .destructive) {
                         others += 1
                         Task {
-                            done = await model.cancel(reservation)
+                            let deleted = await model.cancel(reservation)
                             others -= 1
-                            if !done {
-                                ask = .failed(model.problem(for: reservation.device)
-                                              ?? "\(reservation.device.label)がエラーを返しました")
+                            switch deleted {
+                            case .done: done = true
+                            case .notDone(let why): ask = .failed(why)
                             }
                         }
                     }
