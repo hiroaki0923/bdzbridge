@@ -475,6 +475,142 @@ final class QueueGateTests: XCTestCase {
         XCTAssertNil(model.problem(for: .recorder))
     }
 
+    /// What a row sent again came to is handed back for the screen the reader asked on, as a television's is:
+    /// one the recorder makes, as made, with nothing to add; one it turns down again -- 831, a channel it
+    /// cannot receive -- as waiting, the row as it waits now carrying the recorder's reason, which is what is
+    /// said.
+    func testARowSentAgainIsAnsweredWithWhatItCameTo() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+        let (made, refused) = (try waiting(for: programmes[0], problem: "前に断られた理由"),
+                               try waiting(for: programmes[1], problem: "前に断られた理由"))
+        try await store.queue(made)
+        try await store.queue(refused)
+
+        expectEqual(await model.sendAgain(made), .made(saying: nil), "a row made was not said to be")
+        XCTAssertNotNil(model.reservation(for: programmes[0]), "the row made is not marked as reserved")
+
+        await recorder.answer(Kind.create, with: .fault(831))
+        let refusal = Said.fault(831, Kind.create)
+        let came = await model.sendAgain(refused)
+
+        guard case .waiting(let row, let saying)? = came else {
+            return XCTFail("a row turned down again was not said to wait: \(String(describing: came))")
+        }
+        XCTAssertEqual(row.id, refused.id)
+        XCTAssertEqual(row.problem, refusal, "the row handed back does not carry the recorder's reason")
+        XCTAssertEqual(saying, refusal)
+    }
+
+    /// A row sent again that another sending takes out of the queue while its round waits for the queue's
+    /// turn -- here a pull-down's, its create held -- is in none of its round's lists, and is answered from the
+    /// recorder's list read after that round, as a television's is: made when the list holds a reservation of
+    /// it, and when it does not, that it could not be confirmed. Nothing is sent for it.
+    func testARowSentAgainThatAnotherSendingTookIsAnsweredFromTheListReadAfter() async throws {
+        for listed in [true, false] {
+            let (bench, recorder, model) = try await connectedHome()
+            addTeardownBlock { await recorder.letGo() }
+            let store = try GuideStore(path: bench.guidePath)
+            let programmes = try await programmesNotReserved(model, 2)
+            let pressed = try waiting(for: programmes[0], problem: "前に断られた理由")
+            try await store.queue(pressed)
+            try await store.queue(try waiting(for: programmes[1]))
+            if listed {
+                // What the other sending would have made of it, on the recorder's own screen.
+                try await aClient(of: recorder).create(pressed.request)
+            }
+            let before = await recorder.asked
+            await recorder.hold(only: Kind.create)
+            let pulling = Task { await model.refreshReservations() }
+            try await until("what waits never got to the recorder") {
+                await recorder.asked(Kind.create, since: before) == 1
+            }
+            let asking = Task { await model.sendAgain(pressed) }
+            // Long enough for the row sent again to be waiting for the queue's turn.
+            try await Task.sleep(for: .milliseconds(300))
+            try await store.removePending(pressed.id)
+            await recorder.letGo()
+            await pulling.value
+            let came = await asking.value
+
+            expectEqual(came, listed ? .made(saying: nil) : .notDone(Said.couldNotBeConfirmed), "listed: \(listed)")
+            expectEqual(await recorder.asked(Kind.create, since: before), 1, "the row taken was sent: \(listed)")
+        }
+    }
+
+    /// A row sent again whose check wakes the recorder -- the check here one already out, its probe held and
+    /// then silent, with a MAC kept -- keeps its reason through the sending the waking's attach makes, which
+    /// sends the other row that waits. It goes in a round of its own after that, which makes it, and it is
+    /// answered as made; the strip says each sending.
+    func testARowSentAgainWhoseCheckWakesTheRecorderGoesInARoundOfItsOwn() async throws {
+        let (bench, recorder, model) = try await connectedHome(wakeable: true)
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+        let pressed = try waiting(for: programmes[0], problem: "前に断られた理由")
+        let other = try waiting(for: programmes[1])
+        try await store.queue(pressed)
+        try await store.queue(other)
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.description)
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.heard(since: count).contains(Kind.description)
+        }
+        let asking = Task { await model.sendAgain(pressed) }
+        // Long enough for the row's check to be waiting on the one out before its probe is let go.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.goQuiet(on: Kind.description)
+        await recorder.letGo()
+        expectTrue(await check.value, "the recorder was not woken")
+        let came = await asking.value
+
+        XCTAssertEqual(came, .made(saying: nil))
+        XCTAssertEqual(model.flushReport, Said.sent(other.request.title) + "。" + Said.sent(pressed.request.title),
+                       "the row sent again went with the waking's sending")
+        expectEqual(await recorder.heard(since: count).filter { $0 == Kind.create }.count, 2)
+        XCTAssertTrue(model.pending.isEmpty, "what was sent is still shown as waiting")
+    }
+
+    /// The same check, whose waking finds another recorder answering where the first was: the newcomer's
+    /// arrival holds every waiting row for the recorder before, and the row the reader pressed keeps that
+    /// reason, on screen and on the phone, rather than have the reason it was pressed with taken off. The
+    /// answer is that another recorder answered, and nothing goes to the newcomer, then, at the connect the
+    /// app makes to it, or at the pull-down after.
+    func testARowSentAgainWhoseCheckWakesAnotherRecorderStaysHeldForTheOneBefore() async throws {
+        let (bench, recorder, model) = try await connectedHome(wakeable: true)
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let pressed = try waiting(for: try await programmesNotReserved(model, 1)[0], problem: "前に断られた理由")
+        try await store.queue(pressed)
+        let before = await recorder.asked
+        await recorder.hold(only: Kind.description)
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.asked(Kind.description, since: before) == 1
+        }
+        let asking = Task { await model.sendAgain(pressed) }
+        // Long enough for the row's check to be waiting on the one out before its probe is let go.
+        try await Task.sleep(for: .milliseconds(300))
+        await recorder.goQuiet(on: Kind.description)
+        await recorder.become(2)
+        await recorder.letGo()
+        _ = await check.value
+        let came = await asking.value
+        try await untilIdle(model)
+
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(came, .notDone(Said.anotherAnswered))
+        XCTAssertEqual(reasons(model.pending), [pressed.id: Said.heldForAnotherRecorder],
+                       "the row is not shown held for the recorder before")
+        expectEqual(reasons(try await store.pendingReservations()), [pressed.id: Said.heldForAnotherRecorder],
+                    "the row does not wait on the phone held for the recorder before")
+        await model.refreshReservations()
+        try await untilIdle(model)
+        expectEqual(await recorder.asked(Kind.create, since: before), 0, "the row went to the newcomer")
+    }
+
     // MARK: - what the strip says
 
     /// How many reservations the strip says are held for another recorder is the number of waiting rows whose

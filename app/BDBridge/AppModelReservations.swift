@@ -368,32 +368,28 @@ extension AppModel {
     /// connected; to a recorder given up on, by the attach of a connect asked for here; and otherwise with the
     /// rest the next time the recorder answers: the driver's steps (`RecorderDriver.resend`). The list read
     /// after a sending is kept by the count noted here (`keepReservations`), and what the round came to goes on
-    /// the strip (`tellTheStrip`).
+    /// the strip (`tellTheStrip`). What the row came to is handed back, as the driver says it, nil where there
+    /// is nothing to say of the row.
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
     /// not made sure of on its account, and it takes no turn in the recorder's sending. With no television in
     /// play nothing is done, and the row keeps its reason.
-    func resend(_ waiting: PendingReservation) async {
-        if waiting.target == .tv {
-            await tvHost?.resend(waiting)
-            return
-        }
+    @discardableResult
+    func resend(_ waiting: PendingReservation) async -> Reserved? {
+        if waiting.target == .tv { return await tvHost?.resend(waiting) }
         let forgotten = timesForgotten
         await start()
-        guard let sent = await recorderDriver?.resend(waiting) else { return }
+        guard let sent = await recorderDriver?.resend(waiting) else { return nil }
         keepReservations(sent.list, since: forgotten)
         tellTheStrip(sent.round)
+        return sent.came
     }
 
     /// 「もう一度送る」 as a screen asks for it: the row is sent again (`resend`), and what it came to is
-    /// handed back for that screen to say what the strip does not. A television's row is answered by its
-    /// host. A recorder's is sent as it has always been, and says what it sent on the strip and nowhere
-    /// else: nothing comes back for it.
+    /// handed back for that screen to say what the strip does not, whichever device the row waits for.
     func sendAgain(_ waiting: PendingReservation) async -> Reserved? {
-        if waiting.target == .tv { return await tvHost?.resend(waiting) }
         await resend(waiting)
-        return nil
     }
 
     /// The word for the device a waiting row is for, where a row has to say it: with a television saved, or

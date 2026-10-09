@@ -1016,6 +1016,7 @@ enum Said {
     static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
         + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
     static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
+    static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"

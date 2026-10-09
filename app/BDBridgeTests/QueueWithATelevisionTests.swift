@@ -719,8 +719,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// 「もう一度送る」 as a screen asks for it hands back what the row came to, for that screen to say, and
     /// goes on telling the strip what any sending tells. A television's row that is turned down again is
     /// answered with the row and its reason, which the row says for itself, so nothing is left to say
-    /// beside it; one that is made, as made; and a recorder's row hands nothing back, and says what it
-    /// sent on the strip as it always has.
+    /// beside it; one that is made, as made; and a recorder's row made is answered as made too, and says
+    /// what it sent on the strip as it always has.
     ///
     /// What the television's sendings say is added to what the strip has unread, and no sentence is said
     /// twice. The row turned down again adds nothing to the sentence that sent the reader to it, the row
@@ -766,7 +766,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await store.queue(theirs)
         let asked = await recorder.asked
 
-        expectNil(await model.sendAgain(theirs), "a recorder's row handed a screen something to say")
+        expectEqual(await model.sendAgain(theirs), .made(saying: nil), "a recorder's row made was not said so")
 
         expectEqual(await recorder.asked(Self.create, since: asked), 1, "the recorder's row did not go to it once")
         XCTAssertEqual(model.flushReport, Said.sent("朝の番組", naming: "レコーダー"))

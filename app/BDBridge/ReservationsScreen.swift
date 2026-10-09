@@ -258,8 +258,8 @@ struct ReservationsScreen: View {
                             }
                             // A refused one is not sent again by itself, since the answer would be the same;
                             // the reader is the one who knows when whatever it names has changed. What it
-                            // came to is said here where the row does not say it; a recorder's row says
-                            // what it sent on the strip, as it has, and hands nothing back to say.
+                            // came to is said here where the row does not say it, whichever device it waits
+                            // for; what the sending sent is said on the strip as well.
                             // Nothing to say is not kept: it would take down what another row's sending
                             // put up meanwhile -- a recorder's can be out for as long as a waking takes,
                             // and a television's row sent after it is answered first -- before it was read.
