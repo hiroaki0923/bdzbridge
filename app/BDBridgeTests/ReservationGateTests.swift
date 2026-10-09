@@ -636,9 +636,8 @@ final class ReservationGateTests: XCTestCase {
     /// As it is today, and the delete's half to be rewritten: the one answer of the check before an
     /// operation that leaves the recorder neither connected nor offline. It says nothing to the check, is woken,
     /// and is then busy with somebody else as the waking's attach asks who it is: there, without having said
-    /// which it is, and the check's answer is no. A reservation asked for meanwhile is queued unsent, and
-    /// keeping it takes away what the attach had said -- as it is today: a later change leaves the device's
-    /// line to the device. A delete asked for meanwhile is sent all the same: the
+    /// which it is, and the check's answer is no. A reservation asked for meanwhile is queued unsent, and what
+    /// the attach said stays on the line over it. A delete asked for meanwhile is sent all the same: the
     /// read before it was not made, the app is not offline, and the reservation is found in the list in hand.
     func testACheckThatWokeTheRecorderOnlyToBeTurnedAwayQueuesAReservationAndStillSendsADelete() async throws {
         do {
@@ -653,7 +652,8 @@ final class ReservationGateTests: XCTestCase {
             XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
             expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.request.eventID),
                         [program.eventID])
-            XCTAssertNil(model.problem(for: .recorder), "what the attach said stayed over a reservation kept")
+            XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.description),
+                           "what the attach said was taken away by a reservation kept")
         }
         do {
             let (_, recorder, model) = try await connectedHome(wakeable: true)

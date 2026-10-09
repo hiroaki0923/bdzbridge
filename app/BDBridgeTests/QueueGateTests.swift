@@ -172,9 +172,9 @@ final class QueueGateTests: XCTestCase {
     /// writer for longer than the app waits, and when there is no cache at all -- in which case no connect was
     /// ever set going either. One that is kept asks the recorder nothing.
     ///
-    /// As it is today: keeping one takes away what was on the failure line. A later change leaves the device's
-    /// line to the device, and gives what is not the device's failure a line of its own. Both sentences
-    /// stay as they are.
+    /// Keeping one leaves the failure line as it was, here what the one before it said of the save that failed;
+    /// a later change says that in the result of the reservation it was about instead. Both sentences stay as
+    /// they are.
     func testAReservationThatCannotBeKeptOnThePhoneIsNotSaidToBeWaiting() async throws {
         let bench = try aBench()
         // The lock is held on purpose: what is tested is giving up, not the wait.
@@ -201,7 +201,7 @@ final class QueueGateTests: XCTestCase {
 
         writer.letGo()
         expectTrue(await reserve(with: model), model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertNil(model.problem(for: .recorder))
+        XCTAssertEqual(model.problem(for: .recorder), said, "keeping a reservation wrote on the line")
         XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
         XCTAssertNotNil(model.pending(for: program), "the reservation kept is not shown as waiting")
         expectEqual(try await store.pendingReservations().map(\.request.eventID), [program.eventID])

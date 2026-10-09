@@ -995,10 +995,11 @@ public final class RecorderDriver: LinkDriver {
     /// The row is written at a whole second, as the cache keeps the moment, so that the row handed back is the
     /// row that waits. The queue is read back before the row is said to be kept, and a read-back that fails says
     /// it was not kept, as a write that fails does, though the row was written: as it is today; a later change
-    /// goes by the write alone. Kept, the line of what went wrong is cleared -- as it is today; a later change
-    /// leaves the line to the recorder -- and the host is told that the queue has changed
-    /// (`LinkHost.queueWritten`). The system's question about notifications is asked by whoever asked for the
-    /// reservation, once its line is down, and not here, where the line can still be up.
+    /// goes by the write alone. Kept, the line of what went wrong is left as it was, as a television's
+    /// reservation kept leaves it: nothing was sent, and what the recorder or an earlier operation said there
+    /// still stands. The host is told that the queue has changed (`LinkHost.queueWritten`). The system's
+    /// question about notifications is asked by whoever asked for the reservation, once its line is down, and
+    /// not here, where the line can still be up.
     private func keep(_ request: ReservationRequest, serviceName: String, on link: DeviceLink) async -> Reserved? {
         let owner = link.owner
         guard let store = owner?.cache else {
@@ -1015,7 +1016,6 @@ public final class RecorderDriver: LinkDriver {
             owner?.problem = PendingQueue.couldNotBeKept(error)
             return nil
         }
-        owner?.problem = nil
         await owner?.queueWritten()
         return .waiting(row, saying: Self.keptUnsent)
     }
