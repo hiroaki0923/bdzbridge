@@ -1130,6 +1130,19 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
     return false
 }
 
+/// A delete of a reservation as a screen asks for it, whichever device holds the row: whether it went through.
+@MainActor
+func deleteAReservation(_ model: AppModel, _ row: Reservation) async -> Bool {
+    await model.cancel(row)
+}
+
+/// A delete of a television's reservation asked of its host itself, as no screen asks it: whether it went
+/// through.
+@MainActor
+func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
+    await host.cancel(row)
+}
+
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands
 /// the row back once, and the model keeps nothing of it after. Held weakly, so that a model a test is done with is
 /// not kept, and one made later is never taken for it.

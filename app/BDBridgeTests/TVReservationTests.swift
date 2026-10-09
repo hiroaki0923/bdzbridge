@@ -122,7 +122,7 @@ final class TVReservationTests: XCTestCase {
             XCTAssertEqual(model.reservation(for: program), recorders, "the guide's mark went with the change, \(way)")
             XCTAssertTrue(model.reservations.contains(recorders), "the recorder's reservation went with it, \(way)")
 
-            expectTrue(await model.cancel(row), model.problem(for: .tv) ?? way)
+            expectTrue(await deleteAReservation(model, row), model.problem(for: .tv) ?? way)
 
             expectEqual(await recorder.asked, asked, "a delete of the television's row reached the recorder, \(way)")
             let sent = Array(await television.calls.dropFirst(calls.count))
@@ -144,7 +144,7 @@ final class TVReservationTests: XCTestCase {
                     model.problem ?? "no reason given")
         let changed = try XCTUnwrap(model.reservation(for: program))
         XCTAssertEqual(changed.device, .recorder)
-        expectTrue(await model.cancel(changed), model.problem ?? "no reason given")
+        expectTrue(await deleteAReservation(model, changed), model.problem ?? "no reason given")
 
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: asked), 1)
         expectEqual(await recorder.asked("X_DeleteRecordSchedule", since: asked), 1)
@@ -196,7 +196,7 @@ final class TVReservationTests: XCTestCase {
                     model.problem ?? "no reason given")
         XCTAssertNil(model.problem)
         let changed = try XCTUnwrap(model.reservations.first { $0.id == recorders.id })
-        expectTrue(await model.cancel(changed), model.problem ?? "no reason given")
+        expectTrue(await deleteAReservation(model, changed), model.problem ?? "no reason given")
         expectEqual(await model.change(changed, quality: "DR", repeating: "none"),
                     .notDone("この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"))
         let another = try aRecordersReservation(model)
@@ -256,7 +256,7 @@ final class TVReservationTests: XCTestCase {
         XCTAssertEqual(model.channelName(for: besideRow), model.channelName(for: recorders))
 
         var asked = await recorder.asked
-        expectTrue(await model.cancel(twinRow), model.problem(for: .tv) ?? "no reason given")
+        expectTrue(await deleteAReservation(model, twinRow), model.problem(for: .tv) ?? "no reason given")
 
         expectEqual(await recorder.asked, asked, "the television's row took the recorder's of the same id with it")
         expectEqual(await television.schedules.map(\.id), [beside.id])
@@ -269,7 +269,7 @@ final class TVReservationTests: XCTestCase {
         model.problem = Self.left
         asked = await recorder.asked
 
-        expectFalse(await model.cancel(besideRow))
+        expectFalse(await deleteAReservation(model, besideRow))
 
         XCTAssertEqual(model.problem(for: .tv), TVDriver.notInList)
         XCTAssertEqual(model.problem, Self.left, "the television's failure is on the recorder's line")
@@ -325,7 +325,7 @@ final class TVReservationTests: XCTestCase {
         await first.reached()
         await first.loadReservations()
         await first.refreshReservations()
-        expectFalse(await first.cancel(held))
+        expectFalse(await deleteThroughTheHost(first, held))
         expectEqual(await television.calls, heard, "a host that is no longer the model's asked the television")
         XCTAssertTrue(firstLink.session.connected, "the first link is not one the television would still answer")
 
@@ -351,7 +351,7 @@ final class TVReservationTests: XCTestCase {
         XCTAssertNil(model.busy, "the line of the read that was out was left up")
 
         let asked = await recorder.asked, calls = await television.calls
-        expectFalse(await model.cancel(held))
+        expectFalse(await deleteAReservation(model, held))
         expectEqual(await model.change(held, quality: "DR", repeating: "none"), .notDone(TVDriver.notConnected))
 
         expectEqual(await recorder.asked, asked, "a row of a television taken away reached the recorder")
@@ -422,7 +422,7 @@ final class TVReservationTests: XCTestCase {
         model.problem = Self.left
         let calls = await television.calls
 
-        expectFalse(await model.cancel(held))
+        expectFalse(await deleteAReservation(model, held))
         expectEqual(await model.change(held, quality: "DR", repeating: "none"), .notDone(TVDriver.notConnected))
 
         XCTAssertEqual(model.reservations, listed, "the television's row reached the invented recorder")
@@ -433,7 +433,7 @@ final class TVReservationTests: XCTestCase {
         await host.reached()
         await host.loadReservations()
         await host.refreshReservations()
-        expectFalse(await host.cancel(held))
+        expectFalse(await deleteThroughTheHost(host, held))
         expectEqual(await host.update(held, repeating: "none"), .notDone(TVDriver.notConnected))
         let line = host.beginActivity(TVDriver.deletingLine)
         XCTAssertNil(model.busy, "a host the app let go of put a line on the screens")
@@ -501,7 +501,8 @@ final class TVReservationTests: XCTestCase {
 
         await host.loadReservations()
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43", "recording.42", "recording.41"])
-        expectTrue(await model.cancel(try XCTUnwrap(host.reservations.last)), model.problem(for: .tv) ?? "no reason")
+        expectTrue(await deleteAReservation(model, try XCTUnwrap(host.reservations.last)),
+                   model.problem(for: .tv) ?? "no reason")
 
         expectEqual(await television.schedules.map(\.id), ["recording.42", "recording.43"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43", "recording.42"])
@@ -529,7 +530,7 @@ final class TVReservationTests: XCTestCase {
                     ["recording.41 1", "recording.42 d"])
         XCTAssertEqual(host.reservations.map { "\($0.id) \($0.repeatCode)" }, ["recording.42 d", "recording.41 1"])
         XCTAssertNil(model.problem(for: .tv))
-        expectTrue(await model.cancel(row), model.problem(for: .tv) ?? "no reason given")
+        expectTrue(await deleteAReservation(model, row), model.problem(for: .tv) ?? "no reason given")
 
         expectEqual(await television.schedules.map(\.id), ["recording.41"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.41"])
@@ -621,7 +622,7 @@ final class TVReservationTests: XCTestCase {
         let row = try XCTUnwrap(listed.first)
         XCTAssertEqual(host.staleSince, try XCTUnwrap(read), "the list a television given up on left is not old")
 
-        expectFalse(await model.cancel(row))
+        expectFalse(await deleteAReservation(model, row))
 
         XCTAssertEqual(model.problem(for: .tv), TVDriver.notConnected)
         XCTAssertEqual(host.reservations, listed, "a delete turned down unread took the television's list")

@@ -73,13 +73,13 @@ final class ReservationGateTests: XCTestCase {
 
         // A moment behind itself: the list it gives after the delete is the one from before it.
         await recorder.beAMomentBehind()
-        expectTrue(await model.cancel(rows[2]), model.problem(for: .recorder) ?? "no reason given")
+        expectTrue(await deleteAReservation(model, rows[2]), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertFalse(model.reservations.contains { $0.id == rows[2].id },
                        "a recorder a moment behind itself brought the deleted reservation back")
 
         // The read after the delete turned down. The read before it is let through first.
         await recorder.answer(Kind.list, with: .fault(402), after: 1)
-        expectTrue(await model.cancel(rows[3]), "a read that failed took back the delete it followed")
+        expectTrue(await deleteAReservation(model, rows[3]), "a read that failed took back the delete it followed")
         XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.list))
         XCTAssertFalse(model.reservations.contains { $0.id == rows[3].id })
         XCTAssertTrue(model.connected)
@@ -280,7 +280,7 @@ final class ReservationGateTests: XCTestCase {
             }
         }
         count = await recorder.heard.count
-        expectTrue(await model.cancel(otherStale), model.problem(for: .recorder) ?? "no reason given")
+        expectTrue(await deleteAReservation(model, otherStale), model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.delete, Kind.list])
         XCTAssertTrue(whereTheOtherIs(model.reservations).isEmpty)
         let onTheRecorder = try await aClient(of: recorder).reservations()
@@ -411,7 +411,7 @@ final class ReservationGateTests: XCTestCase {
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
         let count = await recorder.heard.count
         await recorder.hold(only: Kind.delete)
-        let deleting = Task { await model.cancel(row) }
+        let deleting = Task { await deleteAReservation(model, row) }
         try await until("the delete never got to the recorder") {
             await recorder.heard(since: count).contains(Kind.delete)
         }
@@ -440,7 +440,7 @@ final class ReservationGateTests: XCTestCase {
         let (_, recorder, model) = try await connectedHome(wakeable: true)
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
         await recorder.goQuiet(on: Kind.delete)
-        expectFalse(await model.cancel(row), "a delete that met silence was taken for done")
+        expectFalse(await deleteAReservation(model, row), "a delete that met silence was taken for done")
         XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived)
         XCTAssertTrue(model.gaveUp)
 
@@ -524,7 +524,7 @@ final class ReservationGateTests: XCTestCase {
         let forgotten = model.timesForgotten
         let count = await recorder.heard.count
         await recorder.hold(only: Kind.delete)
-        let deleting = Task { await model.cancel(row) }
+        let deleting = Task { await deleteAReservation(model, row) }
         try await until("the delete never got to the recorder") {
             await recorder.heard(since: count).contains(Kind.delete)
         }
@@ -560,7 +560,7 @@ final class ReservationGateTests: XCTestCase {
         let forgotten = model.timesForgotten
         let count = await recorder.heard.count
         await recorder.hold(only: Kind.delete)
-        let deleting = Task { await model.cancel(row) }
+        let deleting = Task { await deleteAReservation(model, row) }
         try await until("the delete never got to the recorder") {
             await recorder.heard(since: count).contains(Kind.delete)
         }
@@ -597,7 +597,7 @@ final class ReservationGateTests: XCTestCase {
                 let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
                 let before = await recorder.asked
                 await recorder.holdTheNext(Kind.list)
-                let deleting = write == .delete ? Task { await model.cancel(row) } : nil
+                let deleting = write == .delete ? Task { await deleteAReservation(model, row) } : nil
                 let changing = write == .change
                     ? Task { await model.change(row, quality: "ER", repeating: "none") } : nil
                 try await until("\(what): its read never got to the recorder") {
@@ -852,7 +852,7 @@ final class ReservationGateTests: XCTestCase {
 
         var count = await recorder.heard.count
         await recorder.answer(Kind.list, with: .fault(402))
-        expectFalse(await model.cancel(rows[0]), "a delete went out after a read that was turned down")
+        expectFalse(await deleteAReservation(model, rows[0]), "a delete went out after a read that was turned down")
         expectEqual(await recorder.heard(since: count), [Kind.list])
         XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.list))
         XCTAssertEqual(model.reservations, listed)
@@ -898,7 +898,7 @@ final class ReservationGateTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, listed, quality: "ER", repeating: "none"),
                     model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the change said something else")
-        expectFalse(await model.cancel(listed), model.problem(for: .recorder) ?? "no reason given")
+        expectFalse(await deleteAReservation(model, listed), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, "the delete said something else")
 
         for kind in [Kind.create, Kind.change, Kind.delete] {
@@ -948,7 +948,9 @@ final class ReservationGateTests: XCTestCase {
         let changed = try await within(5, "the change waited for the connect") {
             await model.change(rows[0], quality: "ER", repeating: "none")
         }
-        let deleted = try await within(5, "the delete waited for the connect") { await model.cancel(rows[1]) }
+        let deleted = try await within(5, "the delete waited for the connect") {
+            await deleteAReservation(model, rows[1])
+        }
         await recorder.letGo()
         await connecting.value
         let read = await reading.value
@@ -995,7 +997,7 @@ final class ReservationGateTests: XCTestCase {
             let (_, recorder, model) = try await connectedHome(wakeable: true)
             let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
             let (deleted, heard) = try await duringACheckTurnedAwayAfterAWaking(by: model, of: recorder) {
-                await model.cancel(row)
+                await deleteAReservation(model, row)
             }
             XCTAssertFalse(deleted, "a delete was sent to a recorder that had not said which it is")
             XCTAssertEqual(heard, [], "something was sent after a check that said no")
@@ -1063,7 +1065,7 @@ final class ReservationGateTests: XCTestCase {
         for attempt in ["the first delete", "the second delete"] {
             leaveALine(on: model)
             before = await recorder.asked
-            expectFalse(await model.cancel(rows[0]), "\(attempt) went through")
+            expectFalse(await deleteAReservation(model, rows[0]), "\(attempt) went through")
             XCTAssertEqual(model.problem(for: .recorder), busy, attempt)
             expectEqual(await recorder.asked(Kind.description, since: before), 3, "\(attempt) did not check again")
             expectEqual(await recorder.asked(Kind.list, since: before), 0, "\(attempt) read the list")
@@ -1145,7 +1147,7 @@ final class ReservationGateTests: XCTestCase {
         let listed = model.reservations
         XCTAssertEqual(model.reservationsStaleSince, reread, "the list a recorder given up on left is not old")
         let row = try ReservationWrite.rows(of: model, atLeast: 1)[0]
-        expectFalse(await model.cancel(row))
+        expectFalse(await deleteAReservation(model, row))
         XCTAssertEqual(model.problem(for: .recorder), Said.notConnected)
         XCTAssertEqual(model.reservations, listed, "a delete turned down unread took the list")
         XCTAssertEqual(model.reservationsRead, reread, "a delete turned down unread counts as a read")
@@ -1405,7 +1407,7 @@ enum ReservationWrite: String, CaseIterable {
     @MainActor
     func ask(_ model: AppModel, _ row: Reservation) async -> Bool {
         switch self {
-        case .delete: return await model.cancel(row)
+        case .delete: return await deleteAReservation(model, row)
         case .change: return await changeOnTheRecorder(model, row, quality: "ER", repeating: "none")
         }
     }
