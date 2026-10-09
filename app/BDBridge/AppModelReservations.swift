@@ -293,41 +293,42 @@ extension AppModel {
     }
 
     /// 削除する as the reservations tab's question about a waiting row asks for it: the row is taken off the
-    /// phone, unsent (`removePending`). For a television's row nothing is done while the television works.
-    /// Its swipe is held back by the same, but the question was up for as long as the reader took, and a
-    /// sending begun meanwhile has the row in hand and would go on to make it, after the reader was told
-    /// that it is not sent. Taking the television away does nothing then either (`takeTheTelevisionAway`).
-    /// Never for the recorder's work, and a recorder's row is deleted whatever is under way, as it always
-    /// has been.
+    /// phone, unsent. Nothing is done while the device the row waits for works. Its swipe is held back by the
+    /// same, but the question was up for as long as the reader took, and a sending begun meanwhile has the row
+    /// in hand and would go on to make it, after the reader was told that it is not sent. Taking the television
+    /// away does nothing then either (`takeTheTelevisionAway`). Neither device's work holds back the other's
+    /// rows.
     ///
     /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
-    /// run -- sends through the same queue with a client of its own, so a television's row is deleted by the
-    /// television's driver in the queue's turn (`TVDriver.deleteWaiting`), which says whether a sending whose
-    /// turn came first made it. That the action shares the queue is inferred, not seen: it is an intent in
-    /// the app's own target, and Apple's article "Creating your first app intent" says only "You can also
-    /// place your app intent types in an app extension, and run them in a separate process from the rest of
-    /// your app."
+    /// run -- sends through the same queue with a client of its own, so a row is deleted by its device's driver
+    /// in the queue's turn (`TVDriver.deleteWaiting`, `RecorderDriver.deleteWaiting`), which says whether a
+    /// sending whose turn came first made it. That the action shares the queue is inferred, not seen: it is an
+    /// intent in the app's own target, and Apple's article "Creating your first app intent" says only "You can
+    /// also place your app intent types in an app extension, and run them in a separate process from the rest
+    /// of your app."
     ///
-    /// The driver is handed what the app holds as it stands in the turn: the phone's queue, the list of the
-    /// television in play, read by its host, which keeps it for the screens (`TVHost.readReservations`), and
-    /// whether one is in play. A row made is not deleted, and what to say in place of that is handed back, as
-    /// the strip says a row sent (`TVDriver.madeBeforeItsDelete`). So a row has one delete at a time: a second
-    /// one, asked for while the first waits its turn -- the row is still listed then, and the reader can
-    /// confirm again -- would find the row gone and say it was made, and it comes back with nil at once
-    /// instead. The warning of reservations not yet at the television is taken away once none of its rows
-    /// waits (`forgetTheWarningOnceSent`).
+    /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
+    /// list of the television in play, read by its host, which keeps it for the screens
+    /// (`TVHost.readReservations`), and whether one is in play. A row made is not deleted, and what to say in
+    /// place of that is handed back, as the strip says a row sent (`TVDriver.madeBeforeItsDelete`,
+    /// `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip does: `deviceSaid`). So a row has
+    /// one delete at a time: a second one, asked for while the first waits its turn -- the row is still listed
+    /// then, and the reader can confirm again -- would find the row gone and say it was made, and it comes back
+    /// with nil at once instead. The warning of reservations not yet at the television is taken away once none
+    /// of its rows waits (`forgetTheWarningOnceSent`).
     ///
-    /// Nil when the row was deleted, when nothing was done while the television works or while the row has
-    /// a delete under way already, and when the row has gone and nothing says it was made.
+    /// Nil when the row was deleted, when nothing was done while its device works or while the row has a
+    /// delete under way already, and when the row has gone and nothing says it was made.
     @discardableResult
     func deleteWaiting(_ waiting: PendingReservation) async -> String? {
-        guard !(waiting.target == .tv && isBusy(for: .tv)) else { return nil }
-        guard waiting.target == .tv else {
-            await removePending(waiting)
-            return nil
-        }
+        guard !isBusy(for: waiting.target) else { return nil }
         guard deletingWaiting.insert(waiting.id).inserted else { return nil }
         defer { deletingWaiting.remove(waiting.id) }
+        guard waiting.target == .tv else {
+            let made = await recorderDriver?.deleteWaiting(waiting) ?? false
+            await loadPending()
+            return made ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
+        }
         let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
                                                 listing: { await self.tvHost?.readReservations() },
                                                 inPlay: { self.tvHost != nil },

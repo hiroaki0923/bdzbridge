@@ -8,9 +8,10 @@ import Foundation
 ///
 /// What is asked of the recorder's reservations after its attach is here as well, as a television's is its
 /// driver's: reading them (`reservations`, `refreshReservations`), sending what waits for the recorder in the
-/// phone's queue (`sendWhatWaits`, `resend`), deleting and changing one (`cancel`, `update`), what a new one
-/// would clash with (`conflicts`), and making one, or keeping it on the phone when the recorder cannot be asked
-/// (`reserve`) -- the steps, and what each hands back for the app to keep.
+/// phone's queue (`sendWhatWaits`, `resend`) and deleting a row of it (`deleteWaiting`), deleting and changing
+/// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
+/// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
+/// keep.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
@@ -955,6 +956,46 @@ public final class RecorderDriver: LinkDriver {
         }
         if let reason = waits.problem { return .waiting(waits, saying: reason) }
         return .waiting(waits, saying: canBeAsked(on: link) ? Self.waitsPassedOver : Self.keptUnsent)
+    }
+
+    // MARK: - deleting a waiting row
+
+    /// What is said of a waiting row the reader asked to delete when a sending whose turn came first made it
+    /// (`deleteWaiting`): the queue's own sentence for a row it sent, as the strip and the notifications say it
+    /// -- naming `device`, which the app gives once a television is saved beside the recorder, and nil before,
+    /// as the strip names it. The row was made as any sending makes one, and has no sentence of its own.
+    public nonisolated static func madeBeforeItsDelete(_ row: PendingReservation, naming device: String?) -> String {
+        PendingQueue.Outcome(slot: RecorderClient.slot, sent: [row]).says(naming: device) ?? ""
+    }
+
+    /// The recorder's half of deleting a row that waits for it, as the reader asks: the row is taken off the
+    /// phone, unsent, in the queue's turn (`PendingQueue.betweenFlushes`), as a television's is
+    /// (`TVDriver.deleteWaiting`). A run with no screen -- the Shortcuts action, the overnight run -- sends
+    /// through the same queue with a client of its own, and a television's sending takes the same turn, so the
+    /// delete comes before a sending, which then does not see the row, or after one. The wait is the length of
+    /// a round, a television's included.
+    ///
+    /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it would
+    /// be a reservation on the recorder that the reader believes gone. Whether it was is handed back. It was
+    /// made when the sending took it out of the queue though its programme is not over: nothing else takes a
+    /// recorder's row out but a round that made it, and a delete of the app's own, which the app asks for one
+    /// at a time for a row. A queue that cannot be read is no sign that a sending took the row: the delete is
+    /// tried. Once the row has been taken out, the host is told, so that the screens read the queue again
+    /// (`LinkHost.queueWritten`).
+    ///
+    /// Nil for a row that is not the recorder's, with nothing read or taken out: it is another device's to
+    /// delete. Nil too with the link or the cache gone.
+    public func deleteWaiting(_ waiting: PendingReservation) async -> Bool? {
+        guard waiting.target == RecorderClient.slot, let link, let store = link.owner?.cache else { return nil }
+        return await PendingQueue.betweenFlushes { @MainActor in
+            let stillWaits = (try? await store.pendingReservations())
+                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
+            if stillWaits {
+                try? await store.removePending(waiting.id)
+                await link.owner?.queueWritten()
+            }
+            return !stillWaits && waiting.request.end >= Date()
+        } ?? false
     }
 
     // MARK: - deleting one

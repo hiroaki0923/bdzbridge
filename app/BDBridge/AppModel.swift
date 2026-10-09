@@ -428,8 +428,8 @@ final class AppModel: LinkHost {
     /// sheet can say it is waiting.
     var pendingByProgram: [String: PendingReservation] = [:]
 
-    /// The ids of the television's waiting rows a delete is under way for, so that a row has one delete at a
-    /// time (`deleteWaiting`).
+    /// The ids of the waiting rows a delete is under way for, either device's, so that a row has one delete at
+    /// a time (`deleteWaiting`).
     var deletingWaiting: Set<String> = []
 
     /// How many reservations are held for another recorder, and what the sendings of the queue came to since

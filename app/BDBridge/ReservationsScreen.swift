@@ -246,10 +246,10 @@ struct ReservationsScreen: View {
             if !model.pending.isEmpty {
                 Section {
                     ForEach(model.pending) { waiting in
-                        // A television's row is held back while the television works, as its reservations
-                        // below are: a sending that is out may have this row in hand. Never by the
-                        // recorder's work, and a recorder's row is held back by nothing, as it never was.
-                        let heldBack = waiting.target == .tv && model.isBusy(for: .tv)
+                        // Held back while the device it waits for works, as that device's reservations below
+                        // are: a sending that is out may have this row in hand. Never by the other device's
+                        // work.
+                        let heldBack = model.isBusy(for: waiting.target)
                         PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting),
                                        disk: model.diskShown(waiting))
                             // 削除, as on the reservations below it, and asked first like every other delete.

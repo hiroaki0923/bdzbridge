@@ -837,8 +837,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// the same, and this is for work begun while the question was up: a sending would go on to make the
     /// row after the reader was told that it is not sent. The row stays, on the phone and on screen.
     ///
-    /// A recorder's row is held back by nothing, as it never was: it is deleted under the television's
-    /// work, and under the recorder's own. Nor does the recorder's work hold a television's row back.
+    /// A recorder's row is held back by the recorder's work in the same way, and not by the television's:
+    /// it is deleted under the television's work. Nor does the recorder's work hold a television's row back.
     func testAWaitingRowIsNotDeletedWhileTheTelevisionItWaitsForWorks() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder)
@@ -876,9 +876,9 @@ final class QueueWithATelevisionTests: XCTestCase {
         await model.deleteWaiting(its)
         await recorder.letGo()
         await listing.value
-        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4402],
-                    "the recorder's work held a row back, its own or the television's")
-        XCTAssertEqual(model.pending.map(\.request.eventID), [4402])
+        expectEqual(try await store.pendingReservations().map(\.request.eventID), [4322, 4402],
+                    "the recorder's work held back the television's row, or not its own")
+        XCTAssertEqual(model.pending.map(\.request.eventID), [4322, 4402])
     }
 
     // MARK: - taking the television away
@@ -1435,10 +1435,12 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await home.store.pendingReservations(), [])
     }
 
-    /// A recorder's waiting row is deleted at once, as it always has been, whatever the television's sending
-    /// with no screen is doing: here the action's, held at the television's create. The recorder's row has a
-    /// reason on it, so that no sending of the recorder's takes it meanwhile.
-    func testARecordersWaitingRowIsDeletedAtOnceWhileATelevisionsCreateIsHeld() async throws {
+    /// A recorder's waiting row is deleted in the queue's turn, as a television's is, whichever device the
+    /// sending under way with no screen is for: here the television's action, held at the television's
+    /// create, which the delete waits for. That round does not take the recorder's row, so the row is deleted
+    /// once it is over, and nothing is said in place of that. The recorder's row has a reason on it, so that
+    /// no sending of the recorder's takes it meanwhile.
+    func testARecordersWaitingRowWaitsForATelevisionsSendingWithNoScreen() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, door) = (home.model, home.door)
         try await untilConnected(model)
@@ -1457,16 +1459,59 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let returned = Returned()
         let deleting = Task {
-            await model.deleteWaiting(morning)
+            let instead = await model.deleteWaiting(morning)
             returned.yes = true
+            return instead
         }
-        try await until("the recorder's row waited for the television's sending", within: 2) { returned.yes }
-        let stillHeld = await door.isHolding
-        XCTAssertTrue(stillHeld, "the television's create was let go before the delete came back")
-        expectEqual(try await home.store.pendingReservations().map(\.request.eventID), [4401])
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(returned.yes, "the recorder's row did not wait for the television's sending")
+        expectEqual(try await home.store.pendingReservations().map(\.request.eventID), [4401, 4321])
         await door.letGo()
-        await deleting.value
+        let instead = await deleting.value
         _ = await action.value
+        XCTAssertNil(instead, "a row no sending took was said to be made")
+        expectEqual(try await home.store.pendingReservations(), [])
+    }
+
+    /// 削除する on a recorder's row waits for a sending under way with no screen, which the guard on the
+    /// recorder's own work does not see, as a television's row's does: here the action's, held at the
+    /// recorder's create while the model's link is idle. The delete has not come back a moment after the create
+    /// was held. Let go, the sending makes the row it had in hand, and the delete comes back after it, saying
+    /// the row was made, in the strip's sentence for a row sent, naming the recorder now that a television is
+    /// saved: not as deleted.
+    func testADeleteOfARecordersRowWaitsForASendingWithNoScreenAndSaysItWasMade() async throws {
+        let recorder = NamedRecorder(1)
+        addTeardownBlock { await recorder.letGo() }
+        let home = try await launch(with: recorder)
+        let model = home.model
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let row = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await home.store.queue(row)
+        await model.loadPending()
+        let theirs = try GuideStore(path: try model.guidePath())
+        let asked = await recorder.asked
+        await recorder.hold(only: Self.create)
+        let action = Task { await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: theirs, mac: nil) }
+        try await until("the action never reached the create") { await recorder.asked(Self.create, since: asked) == 1 }
+
+        let returned = Returned()
+        let deleting = Task {
+            let instead = await model.deleteWaiting(row)
+            returned.yes = true
+            return instead
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(returned.yes, "the delete did not wait for the sending under way")
+        await recorder.letGo()
+        let instead = await deleting.value
+
+        XCTAssertEqual(instead, Said.sent("朝の番組", naming: "レコーダー"), "a reservation made was said to be deleted")
+        guard case .sent(let made) = await action.value else { return XCTFail("the action ran no round") }
+        XCTAssertEqual(made.sent.map(\.id), [row.id])
+        expectEqual(await recorder.asked(Self.create, since: asked), 1)
+        expectEqual(try await home.store.pendingReservations(), [])
+        XCTAssertTrue(model.pending.isEmpty, "the row made is still shown as waiting")
     }
 
     /// A delete whose row a sending made before its turn says the row was made though the app's own link
