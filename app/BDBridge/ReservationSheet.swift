@@ -36,6 +36,9 @@ struct ReservationSheet: View {
     @State private var saved = false
     /// A change made, and what its device added to it, said before the sheet closes.
     @State private var said: String?
+    /// A change of the recorder's not sent because the disk it goes to cannot be had: its report leaves the
+    /// sheet open, the sentence asking for another disk on this sheet's picker, which offers what is left.
+    @State private var anotherDiskWanted = false
     /// The line of a request of this sheet's own to the television, while it is out. Never set for the
     /// recorder.
     @State private var asking: String?
@@ -185,22 +188,26 @@ struct ReservationSheet: View {
         failure != nil ? "エラー" : said != nil ? "\(reservation.device.label)の予約" : "この予約を削除しますか？"
     }
 
-    /// The alert has been closed, whichever it was. For a television's row the report of a failed change or
-    /// delete takes the sheet with it: the list was read again on the way, and the row this sheet holds may
-    /// no longer be the television's, so trying again starts from the list. What a change made added takes
-    /// the sheet with it as well, as a change made with nothing to add does at once. Looked at here and not
-    /// in the button, before the report is cleared: closing the alert is what clears it.
+    /// The alert has been closed, whichever it was. The report of a failed change or delete takes the sheet
+    /// with it, for either device's row: the list was read again on the way, and the row this sheet holds may
+    /// no longer be the device's as it holds it, so trying again starts from the list -- but for a change of
+    /// the recorder's not sent because the disk it goes to cannot be had, whose sentence asks for another disk
+    /// on this sheet (`anotherDiskWanted`). What a change made added takes the sheet with it as well, as a
+    /// change made with nothing to add does at once. Looked at here and not in the button, before the report
+    /// is cleared: closing the alert is what clears it.
     private func alertClosed() {
-        if failure != nil, onTelevision { done = true }
+        if failure != nil, !anotherDiskWanted { done = true }
         if said != nil { done = true }
         confirming = false
         failure = nil
         said = nil
+        anotherDiskWanted = false
     }
 
     /// 変更を〈機器〉に送る: the change goes to the device that holds the row, with what the pickers hold as it
     /// is pressed, and what it came to is said. Made with nothing to add closes the sheet; made with something
-    /// to add says it, and closing that closes the sheet; not made says why. A request to the television holds
+    /// to add says it, and closing that closes the sheet; not made says why, and closing that closes the sheet
+    /// too, unless the disk the change goes to cannot be had (`alertClosed`). A request to the television holds
     /// the sheet open until it is answered (`asking`).
     private func sendTheChange() {
         let moved = movedTo
@@ -211,7 +218,13 @@ struct ReservationSheet: View {
             switch altered {
             case .done(nil): saved = true
             case .done(let more?): said = more
-            case .notDone(let why): failure = why
+            case .notDone(let why):
+                failure = why
+                // By why the change was not sent, not by whether the reservation's own disk is offered now: a
+                // disk moved to that is not offered, or the slot answering no disk for the disk it went to.
+                let notOffered = moved.map { !RecorderDisk.offers($0, with: model.usbDisk) } ?? false
+                anotherDiskWanted = !onTelevision
+                    && (notOffered || model.diskNotHad == (moved ?? reservation.destination))
             }
             // A move to a disk that cannot be had -- no longer offered, or not answered by the slot while it was
             // waited for -- is forgotten: the reservation stays where the recorder holds it, and the picker offers
