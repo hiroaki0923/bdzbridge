@@ -163,14 +163,14 @@ extension AppModel {
     /// the recorder has none, which is all the guide's mark needs to know. Time-only reservations carry no
     /// programme id and so cannot be matched to one.
     func reservation(for program: GuideProgramRow) -> Reservation? {
-        guard let key = Self.key(program) else { return nil }
+        guard let key = ByProgram.key(program) else { return nil }
         return reservationsByProgram[key] ?? tvHost?.reservationsByProgram[key]
     }
 
     /// Every reservation that follows this programme, one for each device that holds one, the recorder's
     /// first: for whatever has to say on which device a programme is set to record.
     func reservations(for program: GuideProgramRow) -> [Reservation] {
-        guard let key = Self.key(program) else { return [] }
+        guard let key = ByProgram.key(program) else { return [] }
         return [reservationsByProgram[key], tvHost?.reservationsByProgram[key]].compactMap { $0 }
     }
 
@@ -188,7 +188,7 @@ extension AppModel {
     /// The reservation for this programme that is waiting to be sent, if there is one. Queued from the guide,
     /// so it always carries the programme id.
     func pending(for program: GuideProgramRow) -> PendingReservation? {
-        guard let key = Self.key(program) else { return nil }
+        guard let key = ByProgram.key(program) else { return nil }
         return pendingByProgram[key]
     }
 
@@ -196,8 +196,8 @@ extension AppModel {
     /// devices, a row for each: `pending(for:)` stays the first of them, which is all the guide's mark
     /// needs.
     func pending(for program: GuideProgramRow, on device: DeviceSlot) -> PendingReservation? {
-        guard let key = Self.key(program) else { return nil }
-        return Self.byProgram(pending.filter { $0.target == device })[key]
+        guard let key = ByProgram.key(program) else { return nil }
+        return ByProgram.of(pending.filter { $0.target == device })[key]
     }
 
     /// Where a reservation can be made: the recorder alone until a television is saved -- in the demo, until
@@ -220,28 +220,6 @@ extension AppModel {
             !holding.contains(device) && pending(for: program, on: device) == nil
                 && (device != .tv || TVDriver.whyNot(program) == nil)
         }
-    }
-
-    private static func key(_ program: GuideProgramRow) -> String? {
-        Codes.broadcasting[program.broadcasting].map { key($0, program.serviceID, program.eventID) }
-    }
-
-    private static func key(_ broadcastingType: Int, _ serviceID: Int, _ eventID: Int) -> String {
-        "\(broadcastingType)-\(serviceID)-\(eventID)"
-    }
-
-    static func byProgram(_ reservations: [Reservation]) -> [String: Reservation] {
-        Dictionary(reservations.compactMap { reservation in
-            reservation.eventID.map { (key(reservation.broadcastingType, reservation.serviceID, $0), reservation) }
-        }, uniquingKeysWith: { first, _ in first })
-    }
-
-    static func byProgram(_ pending: [PendingReservation]) -> [String: PendingReservation] {
-        Dictionary(pending.compactMap { waiting in
-            waiting.request.eventID.map {
-                (key(waiting.request.broadcastingType, waiting.request.serviceID, $0), waiting)
-            }
-        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The disk a reservation's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that only a
@@ -322,31 +300,21 @@ extension AppModel {
     /// has been.
     ///
     /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
-    /// run -- sends through the same queue with a client of its own, so a television's row is deleted in the
-    /// queue's turn (`PendingQueue.betweenFlushes`): before a sending, which then does not see it, or after
-    /// one. The wait is the length of a round, a recorder's included. That the action shares the queue is
-    /// inferred, not seen: it is an intent in the app's own target, and Apple's article "Creating your first
-    /// app intent" says only "You can also place your app intent types in an app extension, and run them in a
-    /// separate process from the rest of your app."
+    /// run -- sends through the same queue with a client of its own, so a television's row is deleted by the
+    /// television's driver in the queue's turn (`TVDriver.deleteWaiting`), which says whether a sending whose
+    /// turn came first made it. That the action shares the queue is inferred, not seen: it is an intent in
+    /// the app's own target, and Apple's article "Creating your first app intent" says only "You can also
+    /// place your app intent types in an app extension, and run them in a separate process from the rest of
+    /// your app."
     ///
-    /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it
-    /// would be a reservation on the television that the reader believes gone. What to say in place of that
-    /// is handed back, as the strip says a row sent (`TVDriver.madeBeforeItsDelete`). It was made when the
-    /// television's list, read in the turn and before anything is deleted, holds its programme -- though the
-    /// row still waited, as one does whose create the television took and whose answer was lost: that row
-    /// leaves the queue as a row made does. And it was made when the sending took it out of the queue though
-    /// its programme is not over, whatever the list read gave, since a list that cannot be read now says
-    /// nothing: while the television is in play, nothing else takes such a row out but a round that made it
-    /// or found it there, and a delete of the app's own. So a row has one delete at a time: a second one,
-    /// asked for while the first waits its turn -- the row is still listed then, and the reader can confirm
-    /// again -- would find the row gone and say it was made, and it comes back with nil at once instead. The
-    /// list read is kept for the screens either way, and the warning of reservations not yet at the
-    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
-    ///
-    /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
-    /// unsent, with nothing said, when the app's own link cannot read the list -- as it often cannot, a
-    /// television that was silent to the action being silent to the app as well -- and the television keeps
-    /// the reservation.
+    /// The driver is handed what the app holds as it stands in the turn: the phone's queue, the list of the
+    /// television in play, read by its host, which keeps it for the screens (`TVHost.readReservations`), and
+    /// whether one is in play. A row made is not deleted, and what to say in place of that is handed back, as
+    /// the strip says a row sent (`TVDriver.madeBeforeItsDelete`). So a row has one delete at a time: a second
+    /// one, asked for while the first waits its turn -- the row is still listed then, and the reader can
+    /// confirm again -- would find the row gone and say it was made, and it comes back with nil at once
+    /// instead. The warning of reservations not yet at the television is taken away once none of its rows
+    /// waits (`forgetTheWarningOnceSent`).
     ///
     /// Nil when the row was deleted, when nothing was done while the television works or while the row has
     /// a delete under way already, and when the row has gone and nothing says it was made.
@@ -359,19 +327,10 @@ extension AppModel {
         }
         guard deletingWaiting.insert(waiting.id).inserted else { return nil }
         defer { deletingWaiting.remove(waiting.id) }
-        let made = await PendingQueue.betweenFlushes { @MainActor in
-            // A queue that cannot be read is no sign that a sending took the row: the delete is tried.
-            let stillWaits = (try? await self.store?.pendingReservations())
-                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
-            let listed = await self.tvHost?.readReservations() ?? []
-            let onTheTelevision = waiting.request.eventID.map {
-                AppModel.byProgram(listed)[AppModel.key(waiting.request.broadcastingType, waiting.request.serviceID,
-                                                        $0)] != nil
-            } ?? false
-            let made = onTheTelevision || (!stillWaits && waiting.request.end >= Date() && self.tvHost != nil)
-            if stillWaits { await self.removePending(waiting) }
-            return made
-        } ?? false
+        let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
+                                                listing: { await self.tvHost?.readReservations() },
+                                                inPlay: { self.tvHost != nil },
+                                                queueWritten: { await self.loadPending() }) ?? false
         await loadPending()
         await forgetTheWarningOnceSent()
         return made ? TVDriver.madeBeforeItsDelete(waiting, naming: DeviceSlot.tv.label) : nil

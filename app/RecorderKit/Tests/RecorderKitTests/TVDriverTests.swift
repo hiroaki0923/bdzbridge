@@ -1282,6 +1282,32 @@ final class TVDriverTests: XCTestCase {
         }
     }
 
+    /// A row waiting for the recorder, handed to the television's delete of a waiting row, is left alone: no
+    /// answer, nothing asked of what the app holds, and the row, and the television's row of the same
+    /// programme beside it, still wait as they were. It is the recorder's to delete.
+    func testTheTelevisionsDeleteOfAWaitingRowLeavesAnotherDevicesRowAlone() async throws {
+        let recorders = waiting("サンプル紀行", 50102, for: .recorder), mine = waiting("サンプル紀行", 50102)
+        let store = try temporaryStore()
+        for row in [recorders, mine] { try await store.queue(row) }
+        let asked = Asked()
+
+        let made = await TVDriver.deleteWaiting(recorders,
+                                                queue: { asked.what.append("queue"); return store },
+                                                listing: { asked.what.append("listing"); return [] },
+                                                inPlay: { asked.what.append("in play"); return true },
+                                                queueWritten: { asked.what.append("queue written") })
+
+        XCTAssertNil(made, "the television's delete answered for the recorder's row")
+        XCTAssertEqual(asked.what, [])
+        expectEqual(Set(try await store.pendingReservations().map(\.id)), [recorders.id, mine.id])
+    }
+
+    /// What a test's stand-ins for the app were asked, in order.
+    @MainActor
+    private final class Asked {
+        var what: [String] = []
+    }
+
     /// Asked outside an attach, a television that cannot be asked is sent nothing of what waits, and the row
     /// waits as it was. Given up on after silence, nothing is asked and no line goes up, so that what an
     /// earlier operation left on the line stays. So it is for one that is to be registered again, which a

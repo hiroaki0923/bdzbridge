@@ -724,6 +724,53 @@ public final class TVDriver: LinkDriver {
         }
     }
 
+    /// The television's half of deleting a row that waits for it, as the reader asks: the row is taken off the
+    /// phone, unsent, in the queue's turn (`PendingQueue.betweenFlushes`). A run with no screen -- the Shortcuts
+    /// action, the overnight run -- sends through the same queue with a client of its own, so the delete comes
+    /// before a sending, which then does not see the row, or after one. The wait is the length of a round, a
+    /// recorder's included.
+    ///
+    /// A sending whose turn came first may have made the row, and then it is not deleted: said to be, it would
+    /// be a reservation on the television that the reader believes gone. Whether it was is handed back. It was
+    /// made when the television's list, read in the turn and before anything is deleted, holds its programme
+    /// (`ByProgram.lists`) -- though the row still waited, as one does whose create the television took and
+    /// whose answer was lost: that row leaves the queue as a row made does. And it was made when the sending
+    /// took it out of the queue though its programme is not over, whatever the list read gave, since a list
+    /// that cannot be read now says nothing: while a television is in play, nothing else takes such a row out
+    /// but a round that made it or found it there, and a delete of the app's own. A queue that cannot be read
+    /// is no sign that a sending took the row: the delete is tried.
+    ///
+    /// What the app holds is asked in the turn, as it stands then: the phone's queue (`queue`), the list of
+    /// the television in play, read now and kept by whoever holds it -- nil with none in play, or none read
+    /// (`listing`) -- whether a television is in play (`inPlay`), and, once the row has been taken out, that
+    /// the queue on screen is to be read again (`queueWritten`).
+    ///
+    /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
+    /// unsent, with nothing said, when the list cannot be read -- as it often cannot, a television that was
+    /// silent to the action being silent to the app as well -- and the television keeps the reservation.
+    ///
+    /// Nil for a row that is not the television's, with nothing read, asked or taken out: it is another
+    /// device's to delete.
+    public static func deleteWaiting(_ waiting: PendingReservation,
+                                     queue: @escaping @Sendable @MainActor () -> GuideStore?,
+                                     listing: @escaping @Sendable @MainActor () async -> [Reservation]?,
+                                     inPlay: @escaping @Sendable @MainActor () -> Bool,
+                                     queueWritten: @escaping @Sendable @MainActor () async -> Void) async -> Bool? {
+        guard waiting.target == ScalarClient.slot else { return nil }
+        return await PendingQueue.betweenFlushes { @MainActor in
+            let stillWaits = (try? await queue()?.pendingReservations())
+                .map { rows in rows.contains { $0.id == waiting.id } } ?? true
+            let listed = await listing() ?? []
+            let made = ByProgram.lists(waiting, in: listed)
+                || (!stillWaits && waiting.request.end >= Date() && inPlay())
+            if stillWaits, let store = queue() {
+                try? await store.removePending(waiting.id)
+                await queueWritten()
+            }
+            return made
+        } ?? false
+    }
+
     // MARK: - reserving a programme
 
     /// The line on screen while a reservation the reader has just asked for is made.

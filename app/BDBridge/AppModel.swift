@@ -158,7 +158,7 @@ final class AppModel: LinkHost {
     var reservations: [Reservation] = [] {
         // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled -- taken
         // out of a list the load had not built -- went on being marked 予約 in the guide.
-        didSet { reservationsByProgram = Self.byProgram(reservations) }
+        didSet { reservationsByProgram = ByProgram.of(reservations) }
     }
     /// When the recorder's list was last read and kept (`keepReservations`), or nil when none has been since the
     /// lists were last emptied: a recorder that cannot be asked leaves the last list standing, and this says how
@@ -421,7 +421,7 @@ final class AppModel: LinkHost {
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
     var pending: [PendingReservation] = [] {
-        didSet { pendingByProgram = Self.byProgram(pending) }
+        didSet { pendingByProgram = ByProgram.of(pending) }
     }
 
     /// The same by the programme each is for, so that the guide, the search results and the programme's

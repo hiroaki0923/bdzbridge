@@ -34,7 +34,7 @@ final class TVHost: LinkHost {
     /// What the television is set to record, as last read from it: its rows only, and never among the
     /// recorder's (`AppModel.reservations`), whose reads replace that list whole.
     private(set) var reservations: [Reservation] = [] {
-        didSet { reservationsByProgram = AppModel.byProgram(reservations) }
+        didSet { reservationsByProgram = ByProgram.of(reservations) }
     }
     /// The same by the programme each follows, for the guide to mark, as the model keeps the recorder's.
     private(set) var reservationsByProgram: [String: Reservation] = [:]
