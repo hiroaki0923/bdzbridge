@@ -97,6 +97,69 @@ final class QueueGateTests: XCTestCase {
         XCTAssertNil(model.flushReport, "the strip's line outlived the visit it was for")
     }
 
+    /// A sending has one line, up from before its check to after its last read, as a television's: the list
+    /// read after something was made goes under the sending's line, with none of its own, and a row sent again
+    /// from its swipe has the sending's line up while the recorder is made sure of. A pull-down's own read,
+    /// before what waits is sent, is a read by itself and keeps its line.
+    ///
+    /// The read after the create is held only once the create has been heard, so that it is that read and no
+    /// other. The check before a row sent again is made only when the recorder has not answered for a while, or
+    /// when the check before heard something else than the recorder saying which it is: here, a check that heard
+    /// it busy with somebody else.
+    func testASendingShowsItsOwnLineFromItsCheckToItsReadAfter() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let programmes = try await programmesNotReserved(model, 2)
+
+        // A pull-down, with one row waiting.
+        try await store.queue(waiting(for: programmes[0]))
+        var count = await recorder.heard.count
+        await recorder.holdTheNext(Kind.list)
+        await recorder.hold(only: Kind.create)
+        let pulling = Task { await model.refreshReservations() }
+        try await until("the list was never read") { await recorder.heard(since: count).contains(Kind.list) }
+        XCTAssertEqual(model.busy, "予約一覧を取得中", "the pull-down's own read is not under its line")
+        await recorder.letGo(only: Kind.list)
+        try await until("what waits never got to the recorder") {
+            await recorder.heard(since: count).contains(Kind.create)
+        }
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.list)
+        await recorder.letGo(only: Kind.create)
+        try await until("the list was never read after what was made") {
+            await recorder.asked(Kind.list, since: before) == 1
+        }
+        XCTAssertEqual(model.busy, "送信待ちの予約を登録中", "the read after the sending showed a line of its own, or none")
+        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with what waits being sent")
+        await recorder.letGo()
+        await pulling.value
+        XCTAssertNil(model.pending(for: programmes[0]), "what waited was not sent")
+        XCTAssertNil(model.busy)
+
+        // A row sent again, after a check that heard the recorder busy: the next check is made at once.
+        let reason = "前に断られた理由"
+        let row = try waiting(for: programmes[1], problem: reason)
+        try await store.queue(row)
+        await recorder.busyAtTheDoor()
+        expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+        await recorder.comeFree()
+        count = await recorder.heard.count
+        await recorder.hold(only: Kind.description)
+        let asking = Task { await model.resend(row) }
+        try await until("the recorder was never made sure of") {
+            await recorder.heard(since: count).contains(Kind.description)
+        }
+        XCTAssertEqual(model.busy, "送信待ちの予約を登録中", "the check before the sending showed no line")
+        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with what waits being sent")
+        await recorder.letGo()
+        await asking.value
+        expectEqual(await recorder.heard(since: count), [Kind.description, Kind.create, Kind.list],
+                    model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertNil(model.pending(for: programmes[1]), "the row sent again was not sent")
+        XCTAssertNil(model.busy)
+    }
+
     /// The order of a connect. What waits is sent inside the attach, and the list is read after it for what was
     /// made; then the reservations are read, before a guide that is behind is fetched -- the guide marks what is
     /// already set to record from that list. So a connect that sent something reads the list twice, and nothing
@@ -460,6 +523,8 @@ private enum Kind {
     /// The reservations' list, read when asked for, by a connect, and after something waiting was made.
     static let list = "X_GetRecordScheduleList"
     static let create = "X_CreateRecordSchedule"
+    /// What a connect asks first, and the check before an operation.
+    static let description = "description.xml"
     /// What the name of each of the guide's files begins with.
     static let guide = "EPG_"
 }

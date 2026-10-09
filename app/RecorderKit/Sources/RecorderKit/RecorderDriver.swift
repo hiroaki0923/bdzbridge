@@ -501,8 +501,10 @@ public final class RecorderDriver: LinkDriver {
     /// One operation through the link (`DeviceLink.run`): under a line of its own, the recorder made sure of
     /// first -- inside a connect, which has just heard it, at once -- and a read that goes through clears the
     /// line of what went wrong. It is sent on the client `run` hands over, the one in hand as the check was
-    /// asked. A read that is a step of something else -- before a delete or a change, after a sending -- has
-    /// a line of its own all the same, as it is today; a later change reads those under the operation's line.
+    /// asked. A read that is a step of something else -- before a delete or a change, after a reservation or a
+    /// sending -- has no line of its own and goes under that operation's, as a television's does: the reader
+    /// sees one line for what they asked for, up from its check to its last read, with no moment between its
+    /// steps in which nothing is.
     ///
     /// After a check that heard something in place of the recorder saying which it is, nothing is sent, as for
     /// a television's read: what it heard is what the read fails as, and the link says it
@@ -517,9 +519,10 @@ public final class RecorderDriver: LinkDriver {
         await reservations(since: link?.generation)
     }
 
-    private func reservations(since began: Int?) async -> [Reservation]? {
+    private func reservations(since began: Int?, underALine: Bool = true) async -> [Reservation]? {
         guard let link, link.client is RecorderClient, !link.session.unreachable else { return nil }
-        let read = await link.run(line: Self.readingLine, evenIfRecent: link.checksAgain, since: began) { client in
+        let line = underALine ? Self.readingLine : nil
+        let read = await link.run(line: line, evenIfRecent: link.checksAgain, since: began) { client in
             if let heard = link.heardInstead { throw heard }
             return try await (client as? RecorderClient)?.reservations()
         }
@@ -592,14 +595,19 @@ public final class RecorderDriver: LinkDriver {
     /// The count of recorders let go of is noted as this is asked, with the client and the question whether it
     /// may be sent; once the queue has been read both are asked again, and nothing is sent when the recorder was
     /// let go of meanwhile (`DeviceLink.letGo(since:)`) or may no longer be sent to. The rows go under a line of
-    /// their own, on the client the link holds once the queue has been read. What had not been sent when the
-    /// recorder fell silent stays queued for the next answer, and the recorder is lost as for any silence, with
-    /// nothing said: as it is today; a later change says on the line that what was out may have arrived. Not
-    /// lost when it was let go of while the round was out: the silence is not the one in play's, and the list
-    /// read after it is not kept for it either. A round that waits for the queue's turn sends on its client when
-    /// its turn comes, whatever became of the recorder meanwhile (`PendingQueue.flush`): as it is today. What
-    /// became of the round is the host's to say.
+    /// their own, on the client the link holds once the queue has been read, and the list read after them goes
+    /// under the same line. What had not been sent when the recorder fell silent stays queued for the next
+    /// answer, and the recorder is lost as for any silence, with nothing said: as it is today; a later change
+    /// says on the line that what was out may have arrived. Not lost when it was let go of while the round was
+    /// out: the silence is not the one in play's, and the list read after it is not kept for it either. A round
+    /// that waits for the queue's turn sends on its client when its turn comes, whatever became of the recorder
+    /// meanwhile (`PendingQueue.flush`): as it is today. What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
+        await sendWhatWaits(under: Self.sendingLine)
+    }
+
+    /// The sending, under `line`, or under the line of whoever asked for it with none (`resend`).
+    private func sendWhatWaits(under line: String?) async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
         guard let link, link.client is RecorderClient, let store = link.owner?.cache, link.mayBeSent else {
             return (nil, nil)
         }
@@ -612,13 +620,13 @@ public final class RecorderDriver: LinkDriver {
               !link.letGo(since: began), link.mayBeSent, let client = link.client as? RecorderClient else {
             return (nil, nil)
         }
-        let round = await link.underALine(Self.sendingLine) { _ in
-            await PendingQueue.flush(client: client, store: store)
+        return await link.underALine(line) { _ -> (round: PendingQueue.Outcome?, list: [Reservation]?) in
+            let round = await PendingQueue.flush(client: client, store: store)
+            if round.interrupted, !link.letGo(since: began) { link.lost() }
+            await link.owner?.queueWritten()
+            let list = round.sent.isEmpty ? nil : await self.reservations(since: began, underALine: false)
+            return (round, list)
         }
-        if round.interrupted, !link.letGo(since: began) { link.lost() }
-        await link.owner?.queueWritten()
-        let list = round.sent.isEmpty ? nil : await reservations(since: began)
-        return (round, list)
     }
 
     /// Sends a row waiting for the recorder again, as the reader asked on that row: a refused row is not sent
@@ -632,13 +640,14 @@ public final class RecorderDriver: LinkDriver {
     ///
     /// The row's reason is taken off, so that it goes with the rest from now on, and the host is told, so that
     /// the screens show it without one before the recorder is made sure of. Then nothing more while the recorder
-    /// is known to be away, or the check before an operation says no: the row goes the next time the recorder
-    /// answers. There, and nothing can be written to it (`canBeAsked`) -- not connected, or connected from an
-    /// attach before a reconnect it answered without saying which it is -- a connect asks it again, and its
-    /// attach sends what waits if it describes itself. A check that heard something in place of the recorder
-    /// saying which it is sends nothing either, and what it heard is said here, at the door
-    /// (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears the recorder. Otherwise what
-    /// waits is sent now.
+    /// is known to be away. Otherwise the sending's line goes up before the check, as a television's row sent
+    /// again has it, and stays up through the sending and the read after it. When the check says no, the row
+    /// goes the next time the recorder answers. There, and nothing can be written to it (`canBeAsked`) -- not
+    /// connected, or connected from an attach before a reconnect it answered without saying which it is -- a
+    /// connect asks it again once the line is down, and its attach sends what waits if it describes itself. A
+    /// check that heard something in place of the recorder saying which it is sends nothing either, and what
+    /// it heard is said here, at the door (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears
+    /// the recorder. Otherwise what waits is sent now.
     ///
     /// Everything that waits for the recorder is sent, not this row alone, and nothing is handed back of the
     /// row itself, the strip saying what was sent: as it is today; a later change sends the one row and says
@@ -650,17 +659,23 @@ public final class RecorderDriver: LinkDriver {
         }
         try? await store.setPendingProblem(waiting.id, nil)
         await link.owner?.queueWritten()
-        guard !link.offline, await link.ensureUp(evenIfRecent: link.checksAgain) else { return (nil, nil, nil) }
-        guard canBeAsked(on: link) else {
+        guard !link.offline else { return (nil, nil, nil) }
+        let sent = await link.underALine(Self.sendingLine) { _ -> (round: PendingQueue.Outcome?,
+                                                                  list: [Reservation]?)? in
+            guard await link.ensureUp(evenIfRecent: link.checksAgain) else { return (nil, nil) }
+            // The connect goes once the line is down: it has a line of its own.
+            guard self.canBeAsked(on: link) else { return nil }
+            guard link.mayBeSent else {
+                self.sayWhyNotSent(on: link)
+                return (nil, nil)
+            }
+            return await self.sendWhatWaits(under: nil)
+        }
+        guard let sent else {
             await link.connect()
             return (nil, nil, nil)
         }
-        guard link.mayBeSent else {
-            sayWhyNotSent(on: link)
-            return (nil, nil, nil)
-        }
-        let (round, list) = await sendWhatWaits()
-        return (round, list, nil)
+        return (sent.round, sent.list, nil)
     }
 
     // MARK: - deleting one
@@ -709,18 +724,18 @@ public final class RecorderDriver: LinkDriver {
     /// nowhere in that list (`notInList`); one whose id now stands on another programme is not written to, and
     /// the line says the recorder has updated it and asks for another try from the list just read (`renumbered`).
     ///
-    /// The delete is sent once, under a line of its own, on the client the link holds after the read: a connect
-    /// made while the read was out has a client of its own, and one kept from before would send beside it, or to
-    /// an address the recorder has left. That client is asked again whether it may be written to
-    /// (`DeviceLink.mayBeSent`): one whose connect is still under way, which the read went through on, sends
-    /// nothing, and the host says that the app is not connected. The line comes down before anything is read
-    /// after it. Silence there may be a delete that arrived: nothing is sent after it, the recorder is lost, and
-    /// the line says it may have arrived. 804 or 820 -- the list just read was itself out of date -- has the list
-    /// read again first, since a read that goes through clears the line, and then says so, as a television's
-    /// does; when that read does not go through, what it failed with is left on the line instead, the list not
-    /// having been updated. Any other failure is said on the line by the link (`DeviceLink.say`): a refusal in
-    /// the recorder's words, the recorder kept and nothing read after it, and an error that is no device's as
-    /// Swift describes it.
+    /// The delete's line goes up before the read and stays up until the last read after it, as a television's
+    /// does: the reads on the way have none of their own. The delete is sent once, on the client the link holds
+    /// after the read: a connect made while the read was out has a client of its own, and one kept from before
+    /// would send beside it, or to an address the recorder has left. That client is asked again whether it may
+    /// be written to (`DeviceLink.mayBeSent`): one whose connect is still under way, which the read went through
+    /// on, sends nothing, and the host says that the app is not connected. Silence there may be a delete that
+    /// arrived: nothing is sent after it, the recorder is lost, and the line says it may have arrived. 804 or 820
+    /// -- the list just read was itself out of date -- has the list read again first, since a read that goes
+    /// through clears the line, and then says so, as a television's does; when that read does not go through,
+    /// what it failed with is left on the line instead, the list not having been updated. Any other failure is
+    /// said on the line by the link (`DeviceLink.say`): a refusal in the recorder's words, the recorder kept and
+    /// nothing read after it, and an error that is no device's as Swift describes it.
     ///
     /// After a delete that went through the list is read once more, and the row is taken out of whatever comes
     /// back -- that read, or the one before it when that read did not go through: a recorder a moment behind
@@ -740,46 +755,42 @@ public final class RecorderDriver: LinkDriver {
             return (false, nil)
         }
         let began = link.generation
-        let read = await reservations(since: began)
-        guard !link.letGo(since: began) else { return (false, nil) }
-        // The read has said why.
-        guard let read else { return (false, nil) }
-        let target: Reservation
-        switch read.target(of: reservation) {
-        case .found(let row):
-            target = row
-        case .gone:
-            owner?.problem = Self.notInList
-            return (false, read)
-        case .changed:
-            owner?.problem = Self.renumbered
-            return (false, read)
-        }
-        guard let client = link.client as? RecorderClient else { return (false, read) }
-        guard link.mayBeSent else {
-            sayWhyNotSent(on: link)
-            return (false, read)
-        }
-        let failure = await link.underALine(Self.deletingLine) { _ -> (any Error)? in
+        return await link.underALine(Self.deletingLine) { _ -> (deleted: Bool, list: [Reservation]?) in
+            let read = await self.reservations(since: began, underALine: false)
+            guard !link.letGo(since: began) else { return (false, nil) }
+            // The read has said why.
+            guard let read else { return (false, nil) }
+            let target: Reservation
+            switch read.target(of: reservation) {
+            case .found(let row):
+                target = row
+            case .gone:
+                owner?.problem = Self.notInList
+                return (false, read)
+            case .changed:
+                owner?.problem = Self.renumbered
+                return (false, read)
+            }
+            guard let client = link.client as? RecorderClient else { return (false, read) }
+            guard link.mayBeSent else {
+                self.sayWhyNotSent(on: link)
+                return (false, read)
+            }
             do {
                 try await client.deleteReservation(id: target.id)
-                return nil
             } catch {
-                return error
+                if (error as? any DeviceError)?.failure == .unknownItem {
+                    let newer = await self.reservations(since: began, underALine: false)
+                    if newer != nil { owner?.problem = Self.renumbered }
+                    return (false, newer ?? read)
+                }
+                _ = link.say(OperationFailure(error, sending: Self.mayHaveArrived), since: began)
+                return (false, read)
             }
-        }
-        guard let failure else {
             if !link.letGo(since: began) { owner?.problem = nil }
-            let after = await reservations(since: began)
+            let after = await self.reservations(since: began, underALine: false)
             return (true, (after ?? read).filter { $0.id != target.id })
         }
-        if (failure as? any DeviceError)?.failure == .unknownItem {
-            let newer = await reservations(since: began)
-            if newer != nil { owner?.problem = Self.renumbered }
-            return (false, newer ?? read)
-        }
-        _ = link.say(OperationFailure(failure, sending: Self.mayHaveArrived), since: began)
-        return (false, read)
     }
 
     // MARK: - changing one
@@ -815,15 +826,16 @@ public final class RecorderDriver: LinkDriver {
     /// just found, on the client the link holds after the read, asked again whether it may be written to, as the
     /// delete's is (`DeviceLink.mayBeSent`); a mode or a repeat the tables do not know sends nothing.
     ///
-    /// The change is sent once, under a line of its own that stays up through the read after it. Silence there may
-    /// be a change that arrived: nothing is sent after it, the recorder is lost, and the line says it may have
-    /// arrived (`DeviceLink.say`). 804 or 820 has the list read again first, since a read that goes through clears
-    /// the line, and then says so; a read that does not go through leaves what it failed with, as for a delete.
-    /// Any other answer of the recorder's is said by the disk the change named (`RecorderDisk.turnedDown`), and
-    /// an error that is no device's as Swift describes it. After a change that went through the line is cleared
-    /// and the list read again; when that read does not go through, the list handed back is the one read before,
-    /// with the row given the mode, the repeat and the disk sent, as a television's change hands back what it
-    /// sent: the change was answered as made.
+    /// The change's line goes up before the read and stays up until the last read after it, the slot's line above
+    /// it while the slot is waited for; the reads on the way have none of their own, as a television's change has
+    /// it. The change is sent once. Silence there may be a change that arrived: nothing is sent after it, the
+    /// recorder is lost, and the line says it may have arrived (`DeviceLink.say`). 804 or 820 has the list read
+    /// again first, since a read that goes through clears the line, and then says so; a read that does not go
+    /// through leaves what it failed with, as for a delete. Any other answer of the recorder's is said by the disk
+    /// the change named (`RecorderDisk.turnedDown`), and an error that is no device's as Swift describes it. After
+    /// a change that went through the line is cleared and the list read again; when that read does not go
+    /// through, the list handed back is the one read before, with the row given the mode, the repeat and the disk
+    /// sent, as a television's change hands back what it sent: the change was answered as made.
     ///
     /// A change not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError` when it
     /// is empty: for one that said nothing -- a mode the tables do not know, a slot given up on -- that is the line
@@ -857,50 +869,50 @@ public final class RecorderDriver: LinkDriver {
             return (notDone(), nil)
         }
         let began = link.generation
-        let read = await reservations(since: began)
-        guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
-        // The read has said why.
-        guard let read else { return (notDone(), nil) }
-        let target: Reservation
-        switch read.target(of: reservation) {
-        case .found(let row):
-            target = row
-        case .gone:
-            owner?.problem = Self.notInList
-            return (notDone(), read)
-        case .changed:
-            owner?.problem = Self.renumbered
-            return (notDone(), read)
-        }
-        guard link.client is RecorderClient else { return (notDone(), read) }
-        guard link.mayBeSent else {
-            sayWhyNotSent(on: link)
-            return (notDone(), read)
-        }
-        guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
-                                               destination: disk)
-        else { return (notDone(), read) }
-        let withheld = await withholds(request.destination)
-        guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
-        if let withheld {
-            if withheld == .noDisk { refuse(reservation, goingTo: request.destination, on: link) }
-            return (notDone(), read)
-        }
-        guard link.mayBeSent else {
-            sayWhyNotSent(on: link)
-            return (notDone(), read)
-        }
-        // The client the link holds now: a connect to the same recorder made while the slot was waited for
-        // has one of its own, and the one before may be at an address the recorder has left.
-        guard let client = link.client as? RecorderClient else { return (notDone(), read) }
         return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
+            let read = await self.reservations(since: began, underALine: false)
+            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
+            // The read has said why.
+            guard let read else { return (notDone(), nil) }
+            let target: Reservation
+            switch read.target(of: reservation) {
+            case .found(let row):
+                target = row
+            case .gone:
+                owner?.problem = Self.notInList
+                return (notDone(), read)
+            case .changed:
+                owner?.problem = Self.renumbered
+                return (notDone(), read)
+            }
+            guard link.client is RecorderClient else { return (notDone(), read) }
+            guard link.mayBeSent else {
+                self.sayWhyNotSent(on: link)
+                return (notDone(), read)
+            }
+            guard let request = ReservationRequest(changing: target, quality: quality, repeating: repeating,
+                                                   destination: disk)
+            else { return (notDone(), read) }
+            let withheld = await self.withholds(request.destination)
+            guard !link.letGo(since: began) else { return (.notDone(Self.anotherAnswered), nil) }
+            if let withheld {
+                if withheld == .noDisk { self.refuse(reservation, goingTo: request.destination, on: link) }
+                return (notDone(), read)
+            }
+            guard link.mayBeSent else {
+                self.sayWhyNotSent(on: link)
+                return (notDone(), read)
+            }
+            // The client the link holds now: a connect to the same recorder made while the slot was waited for
+            // has one of its own, and the one before may be at an address the recorder has left.
+            guard let client = link.client as? RecorderClient else { return (notDone(), read) }
             do {
                 try await client.updateReservation(id: target.id, request)
             } catch let error as any DeviceError where error.failure == .silent {
                 _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived), since: began)
                 return (notDone(), read)
             } catch let error as any DeviceError where error.failure == .unknownItem {
-                let newer = await self.reservations(since: began)
+                let newer = await self.reservations(since: began, underALine: false)
                 if newer != nil { owner?.problem = Self.renumbered }
                 return (notDone(), newer ?? read)
             } catch let error as any DeviceError {
@@ -913,7 +925,9 @@ public final class RecorderDriver: LinkDriver {
                 return (notDone(), read)
             }
             if !link.letGo(since: began) { owner?.problem = nil }
-            if let after = await self.reservations(since: began) { return (.done(saying: nil), after) }
+            if let after = await self.reservations(since: began, underALine: false) {
+                return (.done(saying: nil), after)
+            }
             var sent = target
             sent.qualityCode = request.qualityCode
             sent.repeatCode = request.repeatCode
@@ -1063,7 +1077,7 @@ public final class RecorderDriver: LinkDriver {
     /// let go of while the create was out (`DeviceLink.say(_:since:ofARead:)`). Any other answer of the recorder's is
     /// said by the disk the reservation named (`RecorderDisk.turnedDown`), and an error that is no device's as Swift
     /// describes it. Made: the line of what went wrong is cleared and the list read again, under the reservation's line
-    /// until that read is done, by the count noted as it began.
+    /// with none of its own, by the count noted as it began.
     ///
     /// A reservation not done says whatever the line holds as it ends, whoever wrote it, and `returnedAnError`
     /// when it is empty, as a change does. One that said nothing -- a mode the tables do not know, a slot given
@@ -1137,7 +1151,7 @@ public final class RecorderDriver: LinkDriver {
                 return (notDone(), nil)
             }
             owner?.problem = nil
-            return (.made(saying: nil), await self.reservations(since: began))
+            return (.made(saying: nil), await self.reservations(since: began, underALine: false))
         }
     }
 

@@ -28,8 +28,8 @@ final class ReservationGateTests: XCTestCase {
     /// itself, whose next list still has it, does not bring it back; and a read the recorder turns down takes
     /// nothing back -- the delete is done, and the read's refusal is what is left on screen.
     ///
-    /// Which line is up while the lists are read is to change. The line is looked at only while the write
-    /// itself is out, where it is the same before and after.
+    /// The line is looked at here only while the write itself is out; while the lists are read, by the test
+    /// after this one.
     func testADeleteOrAChangeThatGoesThroughIsReadBack() async throws {
         let (_, recorder, model) = try await connectedHome()
         let rows = try ReservationWrite.rows(of: model, atLeast: 4)
@@ -83,6 +83,51 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.list))
         XCTAssertFalse(model.reservations.contains { $0.id == rows[3].id })
         XCTAssertTrue(model.connected)
+    }
+
+    /// One line for each thing the reader asks of the recorder, up from before its first read to after its last,
+    /// as a television's: the reads a delete, a change and a reservation make on the way have none of their own,
+    /// so 予約一覧を取得中 does not come up in the middle of one, and the recorder in play cannot be changed
+    /// under it. The read before a delete and before a change is held; for a reservation, the read after the
+    /// create, held only once the create has been heard, so that it is that read and no other.
+    func testADeleteAChangeOrAReservationShowsItsOwnLineThroughItsReads() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let rows = try ReservationWrite.rows(of: model, atLeast: 2)
+
+        for (write, row) in zip(ReservationWrite.allCases, rows) {
+            let count = await recorder.heard.count
+            await recorder.holdTheNext(Kind.list)
+            let asking = Task { await write.ask(model, row) }
+            try await until("the list was never read before \(write.name)") {
+                await recorder.heard(since: count).contains(Kind.list)
+            }
+            XCTAssertEqual(model.busy, write.line, "the read before \(write.name) showed a line of its own")
+            XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with \(write.name) under way")
+            await recorder.letGo()
+            expectTrue(await asking.value, "\(write.name): \(model.problem(for: .recorder) ?? "no reason given")")
+            XCTAssertNil(model.busy, write.name)
+        }
+
+        let program = try await programmesNotReserved(model, 1)[0]
+        let count = await recorder.heard.count
+        await recorder.hold(only: Kind.create)
+        let reserving = Task { await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none") }
+        try await until("the reservation never got to the recorder") {
+            await recorder.heard(since: count).contains(Kind.create)
+        }
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.list)
+        await recorder.letGo(only: Kind.create)
+        try await until("the list was never read after the reservation") {
+            await recorder.asked(Kind.list, since: before) == 1
+        }
+        XCTAssertEqual(model.busy, "予約を登録中", "the read after the reservation showed a line of its own, or none")
+        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with the reservation under way")
+        await recorder.letGo()
+        expectTrue(await reserving.value, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertNotNil(model.reservation(for: program), "the programme is not marked as reserved")
+        XCTAssertNil(model.busy)
     }
 
     /// A change the recorder answered as made, whose read after it is turned down: the change is done, the
