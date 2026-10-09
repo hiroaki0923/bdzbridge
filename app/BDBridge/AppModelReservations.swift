@@ -365,9 +365,10 @@ extension AppModel {
     /// Sends one the recorder refused once more, because the reader has asked. A refused reservation is not
     /// sent again by itself (`PendingQueue.flush`), but the reason can go away -- a channel subscribed to
     /// since, an antenna put right -- and only the reader knows when it has. Sent now when the app is
-    /// connected, and otherwise with the rest the next time the recorder answers: the driver's steps
-    /// (`RecorderDriver.resend`). The list read after a sending is kept by the count noted here
-    /// (`keepReservations`), and what the round came to goes on the strip (`tellTheStrip`).
+    /// connected; to a recorder given up on, by the attach of a connect asked for here; and otherwise with the
+    /// rest the next time the recorder answers: the driver's steps (`RecorderDriver.resend`). The list read
+    /// after a sending is kept by the count noted here (`keepReservations`), and what the round came to goes on
+    /// the strip (`tellTheStrip`).
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is

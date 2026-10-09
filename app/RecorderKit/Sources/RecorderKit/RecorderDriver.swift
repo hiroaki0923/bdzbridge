@@ -769,18 +769,20 @@ public final class RecorderDriver: LinkDriver {
     /// same way.
     ///
     /// The row's reason is taken off, so that it goes with the rest from now on, and the host is told, so that
-    /// the screens show it without one before the recorder is made sure of. Then nothing more while the recorder
-    /// is known to be away. Otherwise the sending's line goes up before the check, as a television's row sent
-    /// again has it, and stays up through the sending and the read after it. When the check says no, the row
-    /// goes the next time the recorder answers. There, and nothing can be written to it (`canBeAsked`) -- not
-    /// connected, or connected from an attach before a reconnect it answered without saying which it is -- a
-    /// connect asks it again once the line is down, and its attach sends what waits if it describes itself. A
-    /// check that heard something in place of the recorder saying which it is sends nothing either, and what
-    /// it heard is said here, at the door (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears
-    /// the recorder. Otherwise the row is sent now, and no other, as a television's row sent again is: the
-    /// round is for that row alone (`PendingQueue.flush`'s `only`), and what else waits goes with the next
-    /// sending of what waits. But for a check that wakes the recorder: the waking's attach sends what waits, as
-    /// any attach does, and the row with it, its reason being off by then.
+    /// the screens show it without one before the recorder is made sure of. A recorder known to be away, or
+    /// none in hand, is connected to, as a television that cannot be asked is: the reader asked. That connect's
+    /// attach sends what waits, the row with it, and this ends with the connect. Otherwise the sending's line
+    /// goes up before the check, as a television's row sent again has it, and stays up through the sending and
+    /// the read after it. When the check says no, the row goes the next time the recorder answers. There, and
+    /// nothing can be written to it (`canBeAsked`) -- not connected, or connected from an attach before a
+    /// reconnect it answered without saying which it is -- a connect asks it again once the line is down, and
+    /// its attach sends what waits if it describes itself. A check that heard something in place of the
+    /// recorder saying which it is sends nothing either, and what it heard is said here, at the door
+    /// (`DeviceLink.mayBeSent`): the row goes once a check or an attach hears the recorder. Otherwise the row is
+    /// sent now, and no other, as a television's row sent again is: the round is for that row alone
+    /// (`PendingQueue.flush`'s `only`), and what else waits goes with the next sending of what waits. But for a
+    /// check that wakes the recorder: the waking's attach sends what waits, as any attach does, and the row with
+    /// it, its reason being off by then.
     ///
     /// Nothing is handed back of the row itself, the strip saying what was sent: as it is today; a later change
     /// says what it came to, as the television's driver does.
@@ -791,7 +793,10 @@ public final class RecorderDriver: LinkDriver {
         }
         try? await store.setPendingProblem(waiting.id, nil)
         await link.owner?.queueWritten()
-        guard !link.offline else { return (nil, nil, nil) }
+        guard !link.offline else {
+            await link.connect()
+            return (nil, nil, nil)
+        }
         let sent = await link.underALine(Self.sendingLine) { _ -> (round: PendingQueue.Outcome?,
                                                                   list: [Reservation]?)? in
             guard await link.ensureUp(evenIfRecent: link.checksAgain) else { return (nil, nil) }

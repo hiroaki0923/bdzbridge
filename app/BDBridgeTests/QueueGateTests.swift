@@ -409,9 +409,10 @@ final class QueueGateTests: XCTestCase {
 
     /// With the recorder known to be away. Asking for a waiting reservation to be sent again takes the reason
     /// off its row, on the phone and on screen, so that it goes with the rest the next time the recorder
-    /// answers -- and does nothing more: nothing is asked, and nothing is said on the failure line or the strip.
-    /// Taking one away removes it from the phone, and asks the recorder nothing either.
-    func testAwayFromTheRecorderAWaitingReservationIsAskedForAgainOrTakenAwayWithNothingAsked() async throws {
+    /// answers, and connects, as a television's row sent again does: the reader asked. Here the connect meets
+    /// silence, asking the recorder once, and the failure line says so; nothing is said on the strip. Taking one
+    /// away removes it from the phone, and asks the recorder nothing.
+    func testAwayFromTheRecorderAWaitingReservationAskedForAgainConnectsAndOneTakenAwayAsksNothing() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
         let recorder = SilentRecorder()
@@ -434,14 +435,14 @@ final class QueueGateTests: XCTestCase {
                        "the row on screen still says it was turned down, or the other no longer does")
         expectEqual(reasons(try await store.pendingReservations()), [again.id: "", unwanted.id: reason],
                     "the reason is still on the phone, and the reservation would not go with the rest")
-        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "asking for one again said something")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the connect asked for did not say its silence")
         XCTAssertNil(model.flushReport)
 
         await model.removePending(unwanted)
         XCTAssertEqual(reasons(model.pending), [again.id: ""], "the reservation taken away is still shown")
         expectEqual(reasons(try await store.pendingReservations()), [again.id: ""])
-        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
-        expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
+        expectEqual(await recorder.asked, asked + 1, "the recorder was asked other than by the connect")
         XCTAssertTrue(model.gaveUp)
     }
 
