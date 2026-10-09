@@ -188,12 +188,10 @@ final class QueueGateTests: XCTestCase {
 
     /// Silence at a create while a pull-down sends what waits: the recorder is lost and given up on, nothing
     /// more is sent or read -- the pull-down's read after the sending among it -- and the reservation stays in
-    /// the queue, on screen and on the phone, to go the next time. Nothing is said of it, on the strip or on
-    /// the line: the line left while the create was out is still there, though what was out may have arrived.
-    ///
-    /// As it is today, and to be rewritten: a later change says on the line that the reservation may have
-    /// arrived.
-    func testSilenceAtACreateInAPullDownsSendingLeavesTheLineAsItWas() async throws {
+    /// the queue, on screen and on the phone, held for the reader with a reason that says it may have arrived:
+    /// it is not sent again by itself. The line says so too, over what was left there while the create was
+    /// out. Nothing is said on the strip.
+    func testSilenceAtACreateInAPullDownsSendingHoldsTheRowForTheReaderAndSaysSo() async throws {
         let (bench, recorder, model) = try await connectedHome()
         addTeardownBlock { await recorder.letGo() }
         let store = try GuideStore(path: bench.guidePath)
@@ -215,12 +213,46 @@ final class QueueGateTests: XCTestCase {
         expectEqual(await recorder.heard(since: count), [Kind.create],
                     "something was sent or read after the create met silence")
         XCTAssertTrue(model.gaveUp, "silence at the create did not lose the recorder")
-        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence at the create was said on the line")
-        XCTAssertEqual(reasons(model.pending), [row.id: ""], "the reservation no longer waits on screen")
-        expectEqual(reasons(try await store.pendingReservations()), [row.id: ""],
-                    "the reservation no longer waits on the phone")
+        XCTAssertEqual(model.problem(for: .recorder), Said.heldAfterSilence, "silence at the create was not said")
+        XCTAssertEqual(reasons(model.pending), [row.id: Said.heldAfterSilence],
+                       "the reservation does not wait on screen held for the reader")
+        expectEqual(reasons(try await store.pendingReservations()), [row.id: Said.heldAfterSilence],
+                    "the reservation does not wait on the phone held for the reader")
         XCTAssertNil(model.flushReport, "the strip says something of a sending that sent nothing")
         XCTAssertNil(model.busy)
+    }
+
+    /// The same silence, met once another recorder has answered a connect beside the sending: the silence is the
+    /// recorder let go of's, so nothing is said of it, and the newcomer is neither lost nor given up on. The
+    /// pull-down's read after its sending goes to the newcomer and through, which clears the line. Nothing is
+    /// sent again. The row keeps the reason the newcomer's arrival wrote while the create was out -- held for the
+    /// recorder before, the sentence the strip counts such rows by -- and the reason a create that met silence
+    /// leaves is not written over it.
+    func testSilenceAtACreateOnceAnotherRecorderHasAnsweredSaysNothingAndLosesNobody() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        addTeardownBlock { await recorder.letGo() }
+        let store = try GuideStore(path: bench.guidePath)
+        let row = try waiting(for: try await programmesNotReserved(model, 1)[0])
+        try await store.queue(row)
+        let before = await recorder.asked
+        await recorder.hold(only: Kind.create)
+        let pulling = Task { await model.refreshReservations() }
+        try await until("what waits never got to the recorder") {
+            await recorder.asked(Kind.create, since: before) == 1
+        }
+
+        await recorder.become(2)
+        await model.connect()
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        await recorder.goQuiet(on: Kind.create)
+        await recorder.letGo()
+        await pulling.value
+
+        XCTAssertNil(model.problem(for: .recorder), "the silence was said on the newcomer's line")
+        XCTAssertFalse(model.gaveUp, "silence at the create for the recorder let go of gave the newcomer up")
+        XCTAssertTrue(model.connected)
+        expectEqual(await recorder.asked(Kind.create, since: before), 1, "the row was sent again")
+        expectEqual(reasons(try await store.pendingReservations()), [row.id: Said.heldForAnotherRecorder])
     }
 
     /// A pull-down's sending makes sure of the recorder first, and a check that meets silence, with a MAC kept,

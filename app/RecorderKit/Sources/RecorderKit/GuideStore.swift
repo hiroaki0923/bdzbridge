@@ -669,6 +669,13 @@ public actor GuideStore {
                    [SqlValue(problem), .text(id)])
     }
 
+    /// Writes `problem` on the row only while it has none: a reason written meanwhile -- another recorder's
+    /// arrival, holding every row for the one before -- stands.
+    public func setPendingProblemIfNone(_ id: String, _ problem: String) throws {
+        try db.run("UPDATE pending_reservations SET problem = ? WHERE id = ? AND problem IS NULL",
+                   [.text(problem), .text(id)])
+    }
+
     // MARK: - what a recording is about
 
     /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.

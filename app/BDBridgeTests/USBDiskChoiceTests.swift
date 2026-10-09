@@ -343,6 +343,32 @@ final class USBDiskChoiceTests: XCTestCase {
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
     }
 
+    /// The same silence while a pull-down sends a row that waits for the slot: nothing was sent, which the line
+    /// says as it says a read's silence, over what was left there, and the recorder is lost. The row waits as
+    /// it was, with no reason, to go the next time.
+    func testASendingWhoseSlotFallsSilentSaysTheRecorderDidNotAnswer() async throws {
+        let (bench, recorder, model) = try await connected(times: 1)
+        // The demo's answer from here on, which is none; the read again is half a minute away.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none",
+                                                       destination: "USBHDD"))
+        try await GuideStore(path: bench.guidePath).queue(PendingReservation(request: request,
+                                                                             serviceName: program.serviceName))
+        await recorder.goQuiet(on: "X_GetMediaInfo")
+        leaveALine(on: model)
+        let before = await recorder.asked
+
+        await model.refreshReservations()
+
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the slot's silence was not said")
+        XCTAssertTrue(model.gaveUp, "the recorder was not lost")
+        expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0)
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
+        let row = try XCTUnwrap(model.pending(for: program, on: .recorder), "the row no longer waits")
+        XCTAssertNil(row.problem, "the row was held, and would not go by itself")
+    }
+
     /// The same silence, with a connect made while the slot's read is out, keeps the reservation only while the
     /// recorder it was asked of is still the one in play. Another recorder taken up by that connect, it is not
     /// done and not kept: kept, it would wait as one made for the first, and go to the newcomer at its next

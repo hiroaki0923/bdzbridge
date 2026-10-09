@@ -63,7 +63,8 @@ public enum RowSent: Sendable, Equatable {
 /// them. The recorder's way of sending comes to the first alone.
 public enum SendingStop: Sendable, Equatable {
     /// Nothing answered. `afterSending` when it was the request that makes the reservation that met it: that
-    /// row may have been made all the same, and is not sent again in this round. A device that reads its
+    /// row may have been made all the same, and is not sent again in this round, nor by itself afterwards on a
+    /// device that holds such a row for the reader (`QueueTarget.heldAfterSilence`). A device that reads its
     /// list after a create says the same of silence at that read, when the create was answered as taken:
     /// by that answer the row was made, and it has not been seen.
     case silent(afterSending: Bool)
@@ -100,6 +101,11 @@ public protocol QueueTarget: DeviceEndpoint {
     /// client, and nowhere else: the queue takes its rows by it, so a client cannot be handed the rows that
     /// wait for another device.
     static var slot: DeviceSlot { get }
+    /// The reason written on a row whose create met silence (`SendingStop.silent(afterSending: true)`), which
+    /// holds it for the reader as a refusal does: it may have been made, and the device's way is not to send it
+    /// again by itself. Nil for a device whose row goes again by itself, the round leaving it as it was, as a
+    /// television's does: its next round looks for it on the television first.
+    static var heldAfterSilence: String? { get }
     /// Reads what the device has to be read for before any of `waiting` is sent. Asked once in a round, and
     /// only when the round has a row to send; `waiting` is every row of the round whose programme is not over:
     /// all that wait for the device, or the one row the reader asked to have sent.
@@ -116,6 +122,9 @@ public protocol QueueTarget: DeviceEndpoint {
 }
 
 public extension QueueTarget {
+    /// None: a row whose create met silence is left as it was.
+    static var heldAfterSilence: String? { nil }
+
     func openRound(for waiting: [PendingReservation], keeping store: GuideStore) async -> RoundOpened<Round> {
         await openRound(for: waiting)
     }
@@ -194,6 +203,10 @@ public struct RecorderRound: Sendable {
 extension RecorderClient: QueueTarget {
     /// What waits for the recorder is what a recorder's client is sent.
     public static let slot = DeviceSlot.recorder
+
+    /// The recorder's row whose create met silence waits for the reader to look at the recorder's list
+    /// (`RecorderDriver.heldAfterSilence`): what a create that met silence made is not looked for.
+    public static var heldAfterSilence: String? { RecorderDriver.heldAfterSilence }
 
     /// With nothing the phone keeps to hand, no USB disk is known, and every row is sent as it waits.
     public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<RecorderRound> {

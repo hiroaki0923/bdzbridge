@@ -1004,6 +1004,9 @@ enum Said {
     /// Written on the rows of the phone's queue, and counted by being equal to this.
     static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
         + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
+    /// Written on a row of the phone's queue whose create met silence, which holds it for the reader.
+    static let heldAfterSilence = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "自動では送り直しません。予約一覧で確かめ、届いていなければ「もう一度送る」を選んでください。"
     static func heldBack(_ count: Int) -> String {
         "別のレコーダーに切り替わったため、送信待ちの予約 \(count) 件は送らずに残しています。予約タブから送り直せます"
     }

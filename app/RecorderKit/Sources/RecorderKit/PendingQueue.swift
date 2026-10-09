@@ -48,7 +48,10 @@ public enum PendingQueue {
     /// rather than sent, and nothing is asked of the device for it; one on air is still sent, because the
     /// device records what is left of it. That is what a recorder does: what a television does with a
     /// reservation of a programme on air has not been seen, and it is sent one all the same. A device that
-    /// goes away mid-flush leaves the rest queued.
+    /// goes away mid-flush leaves the rest queued. The row whose create it went away at may have been made: on
+    /// a device that holds such a row for the reader it has the reason that device gives written on it
+    /// (`QueueTarget.heldAfterSilence`), unless a reason was written on it while the create was out, and waits
+    /// as a refused row does; on any other it is left as it was.
     ///
     /// The device is read for the round (`QueueTarget.openRound`, with the cache to hand) at the first row that
     /// is to go, and only then: a queue with nothing to send asks it nothing. A round that cannot be opened ends
@@ -169,6 +172,11 @@ public enum PendingQueue {
             case .passedOver:
                 outcome.deferred.append(pending)
             case .stopped(let stop, let passedOver):
+                // Only on a row with no reason yet: one another recorder's arrival held while the create was
+                // out stays held for the recorder before, and counted so.
+                if stop == .silent(afterSending: true), let held = Target.heldAfterSilence {
+                    try? await store.setPendingProblemIfNone(pending.id, held)
+                }
                 if passedOver { outcome.deferred.append(pending) }
                 outcome.stopped = stop
                 break sending

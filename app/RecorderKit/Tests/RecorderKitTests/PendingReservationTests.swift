@@ -487,7 +487,9 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertTrue(outcome.interrupted)
         let left = try await store.pendingReservations()
         XCTAssertEqual(left.count, 1)
-        XCTAssertNil(left.first?.problem, "not refused: it was never asked")
+        XCTAssertEqual(left.first?.problem, RecorderDriver.heldAfterSilence,
+                       "the row whose create met silence is not held for the reader with the recorder's sentence")
+        XCTAssertTrue(outcome.refused.isEmpty, "not refused: the recorder said nothing of it")
     }
 }
 

@@ -91,10 +91,10 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// Whether the line says that something sent met silence and may have arrived (`mayHaveArrived`,
-    /// `reservationMayHaveArrived`): all the reader has to go by until the recorder answers, which what an attach
-    /// or a waking meets on the way does not write over.
+    /// `reservationMayHaveArrived`, `heldAfterSilence`): all the reader has to go by until the recorder answers,
+    /// which what an attach or a waking meets on the way does not write over.
     private static func saysItMayHaveArrived(_ line: String?) -> Bool {
-        line == mayHaveArrived || line == reservationMayHaveArrived
+        line == mayHaveArrived || line == reservationMayHaveArrived || line == heldAfterSilence
     }
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
@@ -643,6 +643,15 @@ public final class RecorderDriver: LinkDriver {
             : "別のレコーダーに切り替わったため、送信待ちの予約 \(held) 件は送らずに残しています。予約タブから送り直せます"
     }
 
+    /// Written on a waiting row whose create met silence (`PendingQueue.flush`, `QueueTarget.heldAfterSilence`),
+    /// which holds it as a refusal does, and said on the line as that silence. It may have been made: whether
+    /// it was is for the reader to see in the recorder's list, and the row goes again only when they send it
+    /// again. Not looked for on the recorder, as a television's row is: a look at one list of at most 200 rows,
+    /// read just after the create, can miss it. Stored on the phone's rows: a rewording keeps every wording a
+    /// build has written recognised wherever the rows are told by it.
+    public nonisolated static let heldAfterSilence = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "自動では送り直しません。予約一覧で確かめ、届いていなければ「もう一度送る」を選んでください。"
+
     /// Sends what waits in the phone's queue for the recorder, by the rules in `PendingQueue` -- the same ones
     /// the overnight run uses. What the round came to, nil when none ran, and the list read after it, nil when
     /// none was. Asked by the host whenever the recorder has just answered, which means from inside an attach,
@@ -682,12 +691,11 @@ public final class RecorderDriver: LinkDriver {
     /// and nothing is sent when the recorder was let go of meanwhile (`DeviceLink.letGo(since:)`) or may no
     /// longer be sent to. The rows go on the client the link holds once the check has answered, and a list read
     /// after them goes under the sending's line. What had not been sent when the recorder fell silent stays
-    /// queued for the next answer, and the recorder is lost as for any silence, with nothing said: as it is
-    /// today; a later change says on the line that what was out may have arrived. Not lost when it was let go
-    /// of while the round was out: the silence is not the one in play's, and the list read after it is not kept
-    /// for it either. A round that waits for the queue's turn sends on its client when its turn comes, whatever
-    /// became of the recorder meanwhile (`PendingQueue.flush`): as it is today. What became of the round is
-    /// the host's to say.
+    /// queued for the next answer, and the recorder is lost as for any silence and said so, as a television's
+    /// round is (`say(stopped:on:)`). Not when it was let go of while the round was out: the silence is not the
+    /// one in play's, nothing is said and nobody is lost, and the list read after it is not kept for it either.
+    /// A round that waits for the queue's turn sends on its client when its turn comes, whatever became of the
+    /// recorder meanwhile (`PendingQueue.flush`): as it is today. What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
         await sendWhatWaits(forARowSentAgain: false)
     }
@@ -722,12 +730,29 @@ public final class RecorderDriver: LinkDriver {
                 return (nil, nil)
             }
             let round = await PendingQueue.flush(client: client, store: store)
-            if round.interrupted, !link.letGo(since: began) { link.lost() }
+            if !link.letGo(since: began) { self.say(stopped: round.stopped, on: link) }
             await link.owner?.queueWritten()
             let readsAfter = forARowSentAgain || (link.session.waking && !link.session.connecting)
             let list = round.sent.isEmpty || !readsAfter
                 ? nil : await self.reservations(since: began, underALine: false)
             return (round, list)
+        }
+    }
+
+    /// What a round that stopped is said as, through the link, as a television's round is
+    /// (`TVDriver.say(stopped:on:)`). Silence at the create is said in the sentence the round wrote on that
+    /// row (`heldAfterSilence`), and loses the recorder: the reservation may have been made, and it is held for
+    /// the reader to look. Silence before anything was sent -- the USB slot, waited for in the round -- is said as
+    /// a read's is, the recorder lost, while it is not known to be away already (`takesSilenceOnARead`). A
+    /// recorder's round stops for nothing else.
+    private func say(stopped stop: SendingStop?, on link: DeviceLink) {
+        switch stop {
+        case .silent(afterSending: true)?:
+            _ = link.say(.silentAfterSending(sentence: Self.heldAfterSilence))
+        case .silent(afterSending: false)?:
+            _ = link.say(.silentOnARead(sentence: noAnswerLine))
+        case .needsPairing?, .cannotRecord?, .saysNothing?, nil:
+            break
         }
     }
 
