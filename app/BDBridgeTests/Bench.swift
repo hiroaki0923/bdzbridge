@@ -1182,6 +1182,49 @@ func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
     return false
 }
 
+// MARK: - what the tests ask of the recordings and the keyword conditions
+//
+// As the screens ask for it, through the entries they use, and by what each does rather than by the model's name
+// for it: where these operations live can change, and only the bodies here change with it.
+
+/// A recording protected, or its protection taken off, as its sheet and the list's swipe ask for it: whether it
+/// went through.
+@MainActor
+func protectARecording(_ model: AppModel, _ title: RecordedTitle, _ on: Bool) async -> Bool {
+    await model.setProtected(title, on)
+}
+
+/// A recording deleted, as its sheet, the list's swipe and the group's sheet ask for it: whether it went through.
+@MainActor
+func deleteARecording(_ model: AppModel, _ title: RecordedTitle) async -> Bool {
+    await model.delete(title)
+}
+
+/// A recording played, paused or stopped on the television the recorder is attached to, as its sheet asks for
+/// it: `operation` is the recorder's own word for it (`play`, `pause`, `stop`).
+@MainActor
+func playARecording(_ model: AppModel, _ title: RecordedTitle, _ operation: String) async {
+    await model.play(title, operation)
+}
+
+/// The recorder turned on, as a recording's sheet offers once the recorder has said it is in standby.
+@MainActor
+func turnTheRecorderOn(_ model: AppModel) async {
+    await model.powerOn()
+}
+
+/// A keyword condition registered on the recorder, as its sheet asks for it: whether it went through.
+@MainActor
+func addACondition(_ model: AppModel, _ request: RecorderRuleRequest) async -> Bool {
+    await model.addRecorderRule(request)
+}
+
+/// A keyword condition deleted from the recorder, as its screen's swipe asks for it: whether it went through.
+@MainActor
+func removeACondition(_ model: AppModel, _ rule: RecorderRule) async -> Bool {
+    await model.removeRecorderRule(rule)
+}
+
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands
 /// the row back once, and the model keeps nothing of it after. Held weakly, so that a model a test is done with is
 /// not kept, and one made later is never taken for it.

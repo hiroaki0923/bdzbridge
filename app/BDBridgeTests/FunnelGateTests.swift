@@ -97,7 +97,7 @@ final class FunnelGateTests: XCTestCase {
         // The condition just removed, removed again: what the model answers is the demo's doing, which takes a
         // number it does not know for done, and is not looked at.
         let count = await recorder.heard.count
-        _ = await model.removeRecorderRule(subjects.rule)
+        _ = await removeACondition(model, subjects.rule)
         expectEqual(await recorder.heard(since: count), [Kind.removeCondition, Kind.conditions],
                     "a condition the recorder no longer has is sent once, with no read before it")
     }
@@ -156,7 +156,8 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         let before = await recorder.asked
         await recorder.goQuiet(on: Kind.freeSpace)
-        expectTrue(await model.delete(subjects.spare), "silence on the free space failed the delete it followed")
+        expectTrue(await deleteARecording(model, subjects.spare),
+                   "silence on the free space failed the delete it followed")
         XCTAssertFalse(model.titles.contains { $0.id == subjects.spare.id })
         XCTAssertTrue(model.titlesLoaded, "the list is marked unread after a delete that went through")
         XCTAssertNil(model.problem(for: .recorder))
@@ -181,7 +182,7 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertNil(model.recorderRulesFailure)
         await recorder.answer(Kind.removeCondition, with: .fault(402))
         await recorder.goQuiet(on: Kind.conditions)
-        expectFalse(await model.removeRecorderRule(subjects.rule))
+        expectFalse(await removeACondition(model, subjects.rule))
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the refusal was put back over the newer silence")
         XCTAssertTrue(model.gaveUp)
         XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer)
@@ -237,7 +238,7 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         var before = await recorder.asked
         await recorder.beBusy(with: Kind.deleteRecording)
-        expectFalse(await model.delete(subjects.spare))
+        expectFalse(await deleteARecording(model, subjects.spare))
         XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.deleteRecording))
         expectEqual(await recorder.asked(Kind.deleteRecording, since: before), 3)
         XCTAssertTrue(model.connected)
@@ -256,14 +257,15 @@ final class FunnelGateTests: XCTestCase {
         let writing = try XCTUnwrap(model.titles.first { $0.recording }, "the demo was meant to be recording")
         leaveALine(on: model)
         before = await recorder.asked
-        expectFalse(await model.delete(writing))
+        expectFalse(await deleteARecording(model, writing))
         XCTAssertEqual(model.problem(for: .recorder), Said.stillRecording)
         expectEqual(await recorder.asked, before, "a recording being written to was asked to be deleted")
 
         // The free space refused after a delete.
         leaveALine(on: model)
         await recorder.answer(Kind.freeSpace, with: .fault(402))
-        expectTrue(await model.delete(subjects.spare), "a refusal of the free space failed the delete it followed")
+        expectTrue(await deleteARecording(model, subjects.spare),
+                   "a refusal of the free space failed the delete it followed")
         XCTAssertTrue(model.connected)
         XCTAssertNil(model.problem(for: .recorder))
         XCTAssertNil(model.storage, "room is shown that the recorder would not give")
@@ -458,7 +460,7 @@ final class FunnelGateTests: XCTestCase {
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
         await recorder.hold(only: Kind.deleteRecording)
         before = await recorder.asked
-        let deleting = Task { await model.delete(title) }
+        let deleting = Task { await deleteARecording(model, title) }
         try await until("the delete never got to the recorder") {
             await recorder.asked(Kind.deleteRecording, since: before) == 1
         }
@@ -503,7 +505,7 @@ final class FunnelGateTests: XCTestCase {
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
         await recorder.hold(only: Kind.deleteRecording)
         before = await recorder.asked
-        let deleting = Task { await model.delete(title) }
+        let deleting = Task { await deleteARecording(model, title) }
         try await until("the delete never got to the recorder") {
             await recorder.asked(Kind.deleteRecording, since: before) == 1
         }
@@ -535,22 +537,22 @@ final class FunnelGateTests: XCTestCase {
         let before = await recorder.asked
 
         await recorder.answer(Kind.playback, with: .fault(880))
-        await model.play(subjects.title, "pause")
+        await playARecording(model, subjects.title, "pause")
         XCTAssertTrue(model.needsPower, "nothing offers to turn the recorder on")
         XCTAssertEqual(model.problem(for: .recorder), Said.fault(880, Kind.playback))
         XCTAssertTrue(model.connected)
         expectEqual(await recorder.asked(Kind.power, since: before), 0, "a pause turned the recorder on")
 
-        await model.powerOn()
+        await turnTheRecorderOn(model)
         expectEqual(await recorder.asked(Kind.power, since: before), 1)
         XCTAssertFalse(model.needsPower)
         XCTAssertNil(model.problem(for: .recorder))
 
         await recorder.answer(Kind.playback, with: .fault(880))
-        await model.play(subjects.title, "stop")
+        await playARecording(model, subjects.title, "stop")
         XCTAssertTrue(model.needsPower)
         await recorder.goQuiet(on: Kind.power)
-        await model.powerOn()
+        await turnTheRecorderOn(model)
         XCTAssertTrue(model.gaveUp)
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
         XCTAssertTrue(model.needsPower, "the offer went with a power request that never arrived")
@@ -558,7 +560,7 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertTrue(model.needsPower, "the offer went with the reconnect")
 
         await recorder.answer(Kind.playback, with: .fault(402))
-        await model.play(subjects.title, "stop")
+        await playARecording(model, subjects.title, "stop")
         XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.playback))
         XCTAssertFalse(model.needsPower, "the offer outlived the next thing asked of playback")
     }
@@ -672,31 +674,34 @@ private struct Funnelled {
                                       ask: { model, _ in await model.loadRecorderRules(); return nil })
     static let protect = Funnelled(
         name: "the protect", kind: Kind.changeRecording, line: "保護中", sends: true,
-        ask: { model, subjects in await model.setProtected(subjects.title, true) },
+        ask: { model, subjects in await protectARecording(model, subjects.title, true) },
         holds: { model, subjects in model.titles.first { $0.id == subjects.title.id }?.protected == true })
     static let unprotect = Funnelled(
         name: "the unprotect", kind: Kind.changeRecording, line: "保護を解除中", sends: true,
-        ask: { model, subjects in await model.setProtected(subjects.title, false) },
+        ask: { model, subjects in await protectARecording(model, subjects.title, false) },
         holds: { model, subjects in model.titles.first { $0.id == subjects.title.id }?.protected == false })
     static let delete = Funnelled(
         name: "the delete", kind: Kind.deleteRecording, line: "削除中", sends: true,
-        ask: { model, subjects in await model.delete(subjects.spare) },
+        ask: { model, subjects in await deleteARecording(model, subjects.spare) },
         holds: { model, subjects in !model.titles.contains { $0.id == subjects.spare.id } })
     static let play = Funnelled(name: "the play", kind: Kind.playback, line: "再生を指示中",
-                                ask: { model, subjects in await model.play(subjects.title, "play"); return nil })
+                                ask: { model, subjects in
+                                    await playARecording(model, subjects.title, "play"); return nil })
     static let pause = Funnelled(name: "the pause", kind: Kind.playback, line: "再生を指示中",
-                                 ask: { model, subjects in await model.play(subjects.title, "pause"); return nil })
+                                 ask: { model, subjects in
+                                     await playARecording(model, subjects.title, "pause"); return nil })
     static let stop = Funnelled(name: "the stop", kind: Kind.playback, line: "停止中",
-                                ask: { model, subjects in await model.play(subjects.title, "stop"); return nil })
+                                ask: { model, subjects in
+                                    await playARecording(model, subjects.title, "stop"); return nil })
     static let power = Funnelled(name: "the power", kind: Kind.power, line: "電源を入れています",
-                                 ask: { model, _ in await model.powerOn(); return nil })
+                                 ask: { model, _ in await turnTheRecorderOn(model); return nil })
     static let add = Funnelled(
         name: "the condition added", kind: Kind.addCondition, line: "レコーダーに登録中", sends: true,
-        ask: { model, subjects in await model.addRecorderRule(subjects.request) },
+        ask: { model, subjects in await addACondition(model, subjects.request) },
         holds: { model, subjects in model.recorderRules.contains { $0.keywords == subjects.request.keywords } })
     static let remove = Funnelled(
         name: "the condition removed", kind: Kind.removeCondition, line: "レコーダーから削除中", sends: true,
-        ask: { model, subjects in await model.removeRecorderRule(subjects.rule) },
+        ask: { model, subjects in await removeACondition(model, subjects.rule) },
         holds: { model, subjects in !model.recorderRules.contains { $0.id == subjects.rule.id } })
     static let guide = Funnelled(name: "the guide", kind: Kind.guide[0], line: "番組表を取得中 (地上デジタル)",
                                  reads: true, ask: { model, _ in await model.refreshGuide(); return nil })

@@ -261,7 +261,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let before = await recorder.asked
         leaveALine(on: model)
 
-        expectFalse(await model.addRecorderRule(Self.condition(to: "USBHDD")),
+        expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                     "a condition to a disk the slot did not answer was sent")
 
         XCTAssertEqual(model.problem, Self.diskNotHad)
@@ -578,7 +578,7 @@ final class USBDiskChoiceTests: XCTestCase {
         try await until("the recorder was never made sure of") { isMakingSure(model) }
         let before = await recorder.asked
 
-        let adding = Task { await model.addRecorderRule(Self.condition(to: "USBHDD")) }
+        let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
         try await until("the press put up no line while the recorder was made sure of", within: 5) {
             model.busy != nil
         }
@@ -614,7 +614,7 @@ final class USBDiskChoiceTests: XCTestCase {
             let made = try XCTUnwrap(model.reservation(for: program), what)
             expectTrue(await changeOnTheRecorder(model, made, quality: "ER", repeating: "none"),
                        model.problem ?? "no reason given")
-            expectTrue(await model.addRecorderRule(Self.condition(to: disk)), model.problem ?? "no reason given")
+            expectTrue(await addACondition(model, Self.condition(to: disk)), model.problem ?? "no reason given")
 
             expectEqual(await transport.heard(since: before), sent, what)
         }
@@ -640,7 +640,7 @@ final class USBDiskChoiceTests: XCTestCase {
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
         XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
-        expectFalse(await model.addRecorderRule(Self.condition(to: "USBHDD")),
+        expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                     "a condition to a disk no longer offered was made")
         XCTAssertEqual(model.problem, Self.slotGone)
 
@@ -870,7 +870,7 @@ final class USBDiskChoiceTests: XCTestCase {
     func testAConditionToTheUSBDiskIsMadeThereAndNamed() async throws {
         let (_, recorder, model) = try await connected()
 
-        expectTrue(await model.addRecorderRule(Self.condition(to: "USBHDD")), model.problem ?? "no reason given")
+        expectTrue(await addACondition(model, Self.condition(to: "USBHDD")), model.problem ?? "no reason given")
 
         expectEqual(await recorder.elements(of: "X_CreatePrefRecSetting"),
                     XsrsElements.recorderRule(Self.condition(to: "USBHDD")))
@@ -1100,7 +1100,7 @@ final class USBDiskChoiceTests: XCTestCase {
             ("a clash check", { await model.conflicts(for: programs[1], quality: "DR", repeating: "none") != nil }),
             ("a reservation", { await reserveOnTheRecorder(model, programs[1], quality: "DR", repeating: "none") }),
             ("a change", { await changeOnTheRecorder(model, made, quality: "ER", repeating: "none") }),
-            ("a keyword condition", { await model.addRecorderRule(Self.condition(to: RecorderDisk.internalID)) }),
+            ("a keyword condition", { await addACondition(model, Self.condition(to: RecorderDisk.internalID)) }),
         ]
 
         for (what, ask) in requests {

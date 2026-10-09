@@ -267,7 +267,7 @@ final class SessionRuleTests: XCTestCase {
         await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered was taken for gone")
         XCTAssertFalse(model.offline)
-        expectTrue(await model.delete(title), model.problem ?? "no reason given")
+        expectTrue(await deleteARecording(model, title), model.problem ?? "no reason given")
     }
 
     // MARK: - waking
@@ -487,7 +487,7 @@ final class SessionRuleTests: XCTestCase {
         // one of the copies: deleting the one ticked would take the set, and its tick, away before the choice.
         let copies = Set(model.duplicates.flatMap { $0.items.map(\.id) })
         let gone = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected && !copies.contains($0.id) })
-        expectTrue(await model.delete(gone), model.problem ?? "no reason given")
+        expectTrue(await deleteARecording(model, gone), model.problem ?? "no reason given")
         XCTAssertFalse(model.duplicatePicks.isEmpty)
         let attached = model.timesAttached
 

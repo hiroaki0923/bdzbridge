@@ -64,7 +64,7 @@ final class USBDiskTests: XCTestCase {
             let before = await recorder.asked
             await model.loadTitles(force: true)
             let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected }, what)
-            expectTrue(await model.delete(title), model.problem ?? "no reason given")
+            expectTrue(await deleteARecording(model, title), model.problem ?? "no reason given")
             expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 0,
                         "the slot was read again by a list or a delete: \(what)")
         }

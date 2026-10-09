@@ -65,7 +65,9 @@ extension WhichRecorderTests {
         let (bench, recorder, model) = try await atHome(wakeable: true)
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
 
-        let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) { await model.delete(title) }
+        let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) {
+            await deleteARecording(model, title)
+        }
 
         XCTAssertFalse(deleted)
         XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why it was not deleted")
