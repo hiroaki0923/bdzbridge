@@ -208,6 +208,18 @@ final class RecorderRecordingsTests: XCTestCase {
         }
     }
 
+    // MARK: - a run over many recordings
+
+    /// What a run of each kind does, in the letters its job shows while it runs (「削除中 3 / 12」). The app's
+    /// tests read the three that change recordings in what a job says once it has stopped; the scan's is shown
+    /// by a view alone.
+    func testWhatARunOfEachKindDoesInTheLettersItsJobShows() {
+        XCTAssertEqual(RecorderDriver.verb(of: .delete), "削除")
+        XCTAssertEqual(RecorderDriver.verb(of: .protecting(true)), "保護")
+        XCTAssertEqual(RecorderDriver.verb(of: .protecting(false)), "保護解除")
+        XCTAssertEqual(RecorderDriver.verb(of: .scanning), "重複の検出")
+    }
+
     // MARK: - what the tests start from
 
     /// A link of the test's own to a recorder at the bench's address that says who it is and answers each

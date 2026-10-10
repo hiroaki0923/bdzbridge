@@ -11,12 +11,8 @@ extension AppModel {
     /// take. It lives here rather than in a screen so that closing the sheet that started it neither stops it
     /// nor takes away the way to stop it.
     struct BulkJob: Equatable {
-        enum Kind: Equatable {
-            case delete
-            case protecting(Bool)
-            /// Asking the recorder what each candidate is about. It changes nothing.
-            case scanning
-        }
+        /// What the run does to each recording, in the recorder's own terms (`RunKind`).
+        typealias Kind = RunKind
 
         struct Skip: Equatable, Identifiable {
             var id: String
@@ -33,28 +29,14 @@ extension AppModel {
         var lostRecorder = false
         var finished = false
 
-        var verb: String {
-            switch kind {
-            case .delete: "削除"
-            case .protecting(true): "保護"
-            case .protecting(false): "保護解除"
-            case .scanning: "重複の検出"
-            }
-        }
+        var verb: String { RecorderDriver.verb(of: kind) }
 
         var progress: Double { total == 0 ? 0 : Double(done) / Double(total) }
 
-        /// What to tell the reader once it has stopped, in the shape the web app settled on.
+        /// What to tell the reader once it has stopped, in the recorder's words (`RecorderDriver.outcome`).
         var outcome: String {
-            if case .scanning = kind {
-                let head = lostRecorder ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
-                    : cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
-                return skipped.isEmpty ? head : head + "（\(skipped.count) 件は番組内容を取得できず、比べていません）"
-            }
-            let count = changed.count
-            let head = lostRecorder ? "\(count) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
-                : cancelled ? "\(count) 件を\(verb)したところで中止しました" : "\(count) 件を\(verb)しました"
-            return skipped.isEmpty ? head : head + "（\(skipped.count) 件はスキップ）"
+            RecorderDriver.outcome(of: kind, done: done, changed: changed.count, passedOver: skipped.count,
+                                   cancelled: cancelled, lost: lostRecorder)
         }
     }
 
@@ -250,7 +232,7 @@ extension AppModel {
     /// Throws only silence, which ends the job: see `runBulk`.
     private func deleteOne(_ id: String, _ client: RecorderClient) async throws {
         guard let title = titles.first(where: { $0.id == id }) else {
-            job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
+            job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return
         }
         let outcome = try await client.deleteIfPresent(title)
@@ -269,7 +251,7 @@ extension AppModel {
 
     private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async throws {
         guard let title = titles.first(where: { $0.id == id }) else {
-            job?.skipped.append(.init(id: id, reason: "一覧に見つかりません"))
+            job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return
         }
         let outcome = try await client.setProtected(title, on)
