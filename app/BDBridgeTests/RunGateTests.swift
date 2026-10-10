@@ -47,6 +47,12 @@ final class RunGateTests: XCTestCase {
         try await untilTheRunEnds(model)
     }
 
+    /// A scan for duplicates as its screen starts one, and waited for until it is over.
+    private func scan(_ model: AppModel) async throws {
+        model.startDuplicateScan()
+        try await untilTheRunEnds(model, "the scan never ended")
+    }
+
     /// A recording a run passed over, and why, as its job lists it.
     private func skip(_ title: RecordedTitle, _ reason: String) -> AppModel.BulkJob.Skip {
         AppModel.BulkJob.Skip(id: title.id, reason: reason)
@@ -667,6 +673,92 @@ final class RunGateTests: XCTestCase {
                     "the run did not go on once the recorder being woken had answered")
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
         XCTAssertNil(model.problem(for: .recorder), "the line is not as the waking left it")
+    }
+
+    // MARK: - the list under a run
+
+    /// A run looks each recording up in the list as it is when the run comes to it, not as it was when the run
+    /// began, and puts a change on the row of that number in the list as it is when the recorder has answered.
+    ///
+    /// A recording deleted from its own sheet, that delete out as the run begins and answered before the run
+    /// comes to the recording, is passed over as not in the list, with nothing asked. One protected so is passed
+    /// over with nothing asked: held here by its number among those passed over, not by the letters of why.
+    /// And the list read again while a bulk protect's request waits behind the read -- a list that has lost a
+    /// row above the recording, deleted on the recorder's own screen, so that every row below has moved up one --
+    /// leaves the flag on the recording protected and on no other.
+    func testARunLooksEachRecordingUpInTheListAsItIsWhenItComesToIt() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        let guarded = Set(model.titles.filter(\.protected).map(\.id))
+
+        // Deleted from its sheet meanwhile.
+        var before = await recorder.asked
+        await recorder.holdTheNext(Ask.deleteRecording)
+        let deleting = Task { await deleteARecording(model, idle[1]) }
+        try await until("the single delete never got to the recorder") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        await recorder.letGo()
+        expectTrue(await deleting.value, model.problem(for: .recorder) ?? "no reason given")
+        try await untilTheRunEnds(model)
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+        XCTAssertEqual(model.job?.skipped, [skip(idle[1], "一覧に見つかりません")])
+        expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                    "the run asked about a recording that had left the list")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 2,
+                    "the single delete and the run's first, and no other")
+
+        // Protected from its sheet meanwhile.
+        before = await recorder.asked
+        await recorder.holdTheNext(Ask.changeRecording)
+        let protecting = Task { await protectARecording(model, idle[3], true) }
+        try await until("the single protect never got to the recorder") {
+            await recorder.asked(Ask.changeRecording, since: before) == 1
+        }
+        model.startBulk(.delete, ids: [idle[2].id, idle[3].id])
+        await recorder.letGo()
+        expectTrue(await protecting.value, model.problem(for: .recorder) ?? "no reason given")
+        try await untilTheRunEnds(model)
+        XCTAssertEqual(model.job?.changed, [idle[2].id])
+        XCTAssertEqual(model.job?.skipped.map(\.id), [idle[3].id])
+        expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                    "the run asked about a recording protected since it began")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1)
+
+        // The list read again under a protect, one row shorter above the recording.
+        let (above, subject) = (idle[4], idle[5])
+        XCTAssertNotEqual(model.titles.last?.id, subject.id, "the recording was meant to have a row below it")
+        try await aClient(of: recorder).deleteTitle(id: above.id)
+        before = await recorder.asked
+        await recorder.holdTheNext(Ask.recordings)
+        let reading = Task { await model.loadTitles(force: true) }
+        try await until("the recordings were never asked for again") {
+            await recorder.asked(Ask.recordings, since: before) == 1
+        }
+        model.startBulk(.protecting(true), ids: [subject.id])
+        try await until("the run never began its step") { model.stepTask != .invalid }
+        await recorder.letGo()
+        await reading.value
+        try await untilTheRunEnds(model)
+        XCTAssertFalse(model.titles.contains { $0.id == above.id }, "the list read again was meant to be a row shorter")
+        XCTAssertEqual(model.job?.changed, [subject.id])
+        XCTAssertEqual(Set(model.titles.filter(\.protected).map(\.id)), guarded.union([idle[3].id, subject.id]),
+                       "the flag is on another row than the recording protected")
+    }
+
+    /// The sets of copies on screen were worked out from recordings that a bulk delete may have taken away, so
+    /// they are worked out again when one has ended: the copy ticked, deleted by a run, leaves its set with one
+    /// recording, which is no set, and nothing is left ticked.
+    func testTheSetsOfCopiesAreWorkedOutAgainOnceABulkDeleteHasEnded() async throws {
+        let (_, _, model, _) = try await settled(withACopy: true)
+        try await scan(model)
+        XCTAssertEqual(model.duplicates.count, 1, "the two copies were not found as one set")
+        let ticked = try XCTUnwrap(model.duplicatePicks.first, "neither copy came up ticked")
+
+        try await run(model, .delete, [ticked])
+        XCTAssertEqual(model.job?.changed, [ticked])
+        XCTAssertTrue(model.duplicates.isEmpty, "a set of one copy is still shown")
+        XCTAssertTrue(model.duplicatePicks.isEmpty)
     }
 }
 
