@@ -309,4 +309,93 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(BackgroundWork.nextNightlyRun(after: two), nextTwo)
         XCTAssertEqual(BackgroundWork.nextNightlyRun(after: try at("2026-10-10T02:00:01+09:00")), nextTwo)
     }
+
+    // MARK: - the Shortcuts action
+
+    /// The Shortcuts action as the app's entry hands it on, with a client of its own and no MAC: what it came
+    /// to, and what it asked of the recorder, in order.
+    private func action(on recorder: NamedRecorder, _ store: GuideStore) async
+        -> (sending: BackgroundWork.Sending, heard: [String]) {
+        let count = await recorder.heard.count
+        let sending = await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil)
+        return (sending, await recorder.heard(since: count))
+    }
+
+    /// The action reads the queue before it asks anything of the recorder, which it would otherwise wake at every
+    /// arrival home. A queue that holds only a reservation the recorder refused before, or only one whose
+    /// programme is over, has nothing to send: nothing is asked, the row is neither sent nor dropped, and the
+    /// action says there is nothing waiting.
+    ///
+    /// With a reservation to send and a cache that does not say whose it is -- the owner cannot be read --
+    /// nothing is sent, and the action says that another recorder answered, though none did, as it is today: a
+    /// later change takes that for a recorder not reached, with that sentence, and rewrites the row.
+    ///
+    /// And each end of the recorder's sending in the action's own words, letter for letter.
+    func testTheActionAsksNothingWithNothingToSendAndSaysEachEndInItsOwnWords() async throws {
+        let (recorder, store, path) = try await home()
+        let refused = waiting("昼の番組", startingIn: 150, programme: 4322, problem: "前に断られた理由")
+        let over = waiting("終わった番組", startingIn: -120, programme: 4323)
+        for (row, asItWas) in [(refused, "昼の番組: 前に断られた理由"), (over, "終わった番組")] {
+            try await store.queue(row)
+            let came = await action(on: recorder, store)
+            XCTAssertEqual(came.sending, .nothingWaiting, asItWas)
+            XCTAssertEqual(came.heard, [], "the recorder was asked with nothing to send it: \(asItWas)")
+            expectEqual(try await rows(in: store), [asItWas], "the row was sent or dropped")
+            try await store.removePending(row.id)
+        }
+
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+        let meta = MetaOutOfReach(in: path)
+        let unread = await action(on: recorder, store)
+        meta.putBack()
+        XCTAssertEqual(unread.sending, .anotherRecorder)
+        XCTAssertEqual(unread.heard, [Ask.description], "something was sent with the cache's owner out of reach")
+        XCTAssertEqual(SendWaitingIntent.saying(unread.sending), Said.anotherAnsweredWithNoScreen)
+        expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
+
+        let sent = await action(on: recorder, store).sending
+        let nothingToSay = BackgroundWork.Sending.sent(await PendingQueue.flush(client: aClient(of: recorder),
+                                                                                 store: store))
+        let nothing = "送信待ちの予約はありません。"
+        let words: [(BackgroundWork.Sending, alone: String, withATelevision: String)] = [
+            (.demo, "サンプルデータの表示中は送りません。", "サンプルデータの表示中は送りません。"),
+            (.noRecorder, "レコーダーが設定されていません。", "レコーダーが設定されていません。"),
+            (.nothingWaiting, nothing, nothing),
+            (.unreachable, "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。",
+             "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"),
+            (.anotherRecorder, Said.anotherAnsweredWithNoScreen, Said.anotherAnsweredWithNoScreen),
+            (sent, Said.sent("朝の番組"), Said.sent("朝の番組", naming: "レコーダー")),
+            (nothingToSay, nothing, nothing),
+        ]
+        for (sending, alone, withATelevision) in words {
+            XCTAssertEqual(SendWaitingIntent.saying(sending), alone, "\(sending)")
+            XCTAssertEqual(SendWaitingIntent.saying(sending, televisionSaved: true), withATelevision, "\(sending)")
+        }
+    }
+
+    /// The action's round meets silence. At the read of the recorder's list that opens it, nothing was sent: the
+    /// action says the recorder stopped answering part-way and that what waits is left as it is, and the row is
+    /// as it was. At a reservation's create the row is held for the reader with its reason, which says it may
+    /// have arrived and is not sent again by itself -- and the action says the same sentence, that it is left as
+    /// it is, as it does today. A later change has the action say of such a row that it is held, and rewrites
+    /// that.
+    func testTheActionWhoseRoundMeetsSilenceSaysWhatWaitsIsLeftAtTheReadAndAtACreateAlike() async throws {
+        let (recorder, store, _) = try await home()
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+        let left = "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。"
+
+        await recorder.goQuiet(on: Ask.reservations)
+        var came = await action(on: recorder, store)
+        XCTAssertEqual(came.heard, [Ask.description, Ask.reservations])
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), left, "silence at the read that opens the round")
+        expectEqual(try await rows(in: store), ["朝の番組"], "the row is not as it was")
+
+        await recorder.goQuiet(on: Ask.create)
+        came = await action(on: recorder, store)
+        XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), left, "silence at the create")
+        expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
+    }
 }
