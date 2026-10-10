@@ -249,30 +249,6 @@ public actor RecorderClient {
                            [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
     }
 
-    /// Plays a recording on the television, turning the recorder on first if it is in network standby -- as it
-    /// usually is, since it keeps answering the LAN in standby and is only switched on to be watched.
-    ///
-    /// Only an 880 turns it on. The power state is not asked first: that would be one request more on every
-    /// play of a recorder that is already on, and the demo's recorder does not report one. Once it is told to
-    /// come on, `X_GetPlayStatus` is asked every `interval` until `powerstatus` says `PowerOn`, and the play is
-    /// sent again; after `limit` it is sent regardless, and the 880 of a recorder still in standby is thrown to
-    /// the caller. `waiting` is told the seconds waited so far, each time round, for the screen to say.
-    public func play(titleID: String, limit: TimeInterval = RecorderClient.powerOnLimit,
-                     interval: Duration = .seconds(1), waiting: @Sendable (Int) async -> Void) async throws {
-        do {
-            try await playControl(titleID: titleID, operation: "play")
-            return
-        } catch let error as RecorderError where error.failure == .needsPower {}
-        try await powerOn()
-        let started = Date()
-        while Date().timeIntervalSince(started) < limit {
-            await waiting(Int(Date().timeIntervalSince(started)))
-            try await Task.sleep(for: interval)
-            if try await playStatus()["powerstatus"] == "PowerOn" { break }
-        }
-        try await playControl(titleID: titleID, operation: "play")
-    }
-
     /// How long `play` waits for a recorder in standby to come on. How long a BDZ-FBT4100 takes has not been
     /// timed, so this is as generous as the wait for a magic packet; the wait ends as soon as it says it is on.
     public static let powerOnLimit: TimeInterval = 30

@@ -543,13 +543,10 @@ final class FunnelGateTests: XCTestCase {
 
     /// The same with the connect answered by another recorder, whose arrival empties the lists in that turn. A
     /// list read out at the arrival is the last recorder's, and is not put over the newcomer's: the newcomer's
-    /// connect reads its own, the read out having said that the reader was about to see the list. Nothing
-    /// before it asks whether the recorder a write began with was let go of, so a write's silence is taken for
-    /// the newcomer's: the app gives up on a recorder that has just answered, under a sentence about a write it
-    /// was never sent.
-    ///
-    /// As it is today, and to be rewritten in part: a later change takes the write's silence as one across a
-    /// let-go, and keeps the newcomer; the sentence stays.
+    /// connect reads its own, the read out having said that the reader was about to see the list. A write's
+    /// silence across the arrival is the last recorder's: it still says that the write may have arrived, but the
+    /// newcomer, which has just answered, is not given up on, and its recordings, read by its connect, are not
+    /// marked unread.
     func testAnotherRecorderDescribingItselfBesideAnOperationThatIsOut() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
 
@@ -590,8 +587,8 @@ final class FunnelGateTests: XCTestCase {
         await recorder.letGo()
         expectFalse(await deleting.value)
         XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived)
-        XCTAssertTrue(model.gaveUp)
-        XCTAssertFalse(model.titlesLoaded)
+        XCTAssertFalse(model.gaveUp, "the newcomer was given up on for the last recorder's silence")
+        XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were marked unread")
     }
 
     /// A list of the recordings with one recording, none of the demo's.
@@ -607,8 +604,9 @@ final class FunnelGateTests: XCTestCase {
     /// reconnect as well.
     ///
     /// Playing itself, which turns the recorder on and waits for it under a line that counts the seconds, is
-    /// not here: the model hands the client no interval, so a test of it waits a real second. The sequence is
-    /// held in the package (`RecorderClientTests`), and the app's part of it goes with the recordings' own gates.
+    /// not here: the model hands the driver no interval, so a test of it waits a real second. The sequence is
+    /// held in the package (`RecorderRecordingsTests`), and the app's part of it goes with the recordings' own
+    /// gates.
     /// The sentence a power request's silence leaves is to change.
     func testStandbyIsSaidAndPowerIsOfferedUntilItIsPutOnOrPlaybackIsAskedForAgain() async throws {
         let (_, recorder, model, subjects) = try await settled()
@@ -1002,16 +1000,12 @@ final class FunnelGateTests: XCTestCase {
 
     /// A write answered once another recorder has taken the place of the one it was asked of, which emptied the
     /// lists in that turn: queued on the last recorder's client behind a list read that was out when the
-    /// newcomer described itself, it goes to the address once that read is back, and so to the newcomer; asked
-    /// and held at its own request, it is answered by the newcomer. Either way it is taken to have gone
-    /// through, and its success clears the newcomer's line. A protect, a delete, a condition added and one
-    /// removed.
-    ///
-    /// As it is today, and to be rewritten in part: a later change takes such an answer as one across a let-go,
-    /// as a reservation's delete takes it -- still sent, since what is in a client's queue goes, but not the
-    /// newcomer's success, and the newcomer's line left alone. Not sending what is in a client's queue is not
-    /// that change's, and the first half of this goes on holding it.
-    func testAWriteAnsweredAfterAnotherRecorderDescribedItselfIsTakenToHaveGoneThrough() async throws {
+    /// newcomer described itself, it goes to the address once that read is back, and so to the newcomer -- what
+    /// is in a client's queue goes; asked and held at its own request, it is answered by the newcomer. Either
+    /// way its answer is taken as one across a let-go, as a reservation's delete takes it: done, but the
+    /// newcomer's line is left alone, and nothing of it is put on the newcomer's lists, which its connect read.
+    /// A protect, a delete, a condition added and one removed (whose list is read after it, as ever).
+    func testAWriteAnsweredAfterAnotherRecorderDescribedItselfIsTakenAsAcrossALetGo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         var newcomer = 1
         for row in [Funnelled.protect, .delete, .add, .remove] {
@@ -1050,14 +1044,22 @@ final class FunnelGateTests: XCTestCase {
                                 "\(how) was sent before the read it queued behind came back")
                 }
                 leaveALine(on: model)
+                let newcomers = Lists(model)
                 await recorder.letGo()
                 await reading?.value
                 let answer = await asking.value
 
                 XCTAssertEqual(answer, true, "\(how): \(model.problem(for: .recorder) ?? "no reason given")")
-                XCTAssertNil(model.problem(for: .recorder), "\(how) left the newcomer's line")
                 XCTAssertFalse(model.gaveUp, how)
                 expectEqual(await recorder.asked(row.kind, since: before), 1, how)
+                if row.kind == Kind.removeCondition {
+                    // The list read after a condition removed, as after every one, is the newcomer's, and its
+                    // going through clears the newcomer's line.
+                    XCTAssertNil(model.problem(for: .recorder), how)
+                } else {
+                    XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(how) cleared the newcomer's line")
+                    XCTAssertTrue(Lists(model) == newcomers, "\(how) was put on the newcomer's lists")
+                }
             }
         }
     }
@@ -1091,6 +1093,109 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.recorderRules, newcomers, "the last recorder's list was put over the newcomer's")
         XCTAssertTrue(model.recorderRulesLoaded)
         XCTAssertNil(model.recorderRulesFailure)
+    }
+
+    /// A play that has turned the recorder on and waits for it, while another recorder describes itself on a
+    /// connect: once the wait is over the play is not sent again, to the newcomer, which would play a recording
+    /// of its own of that number. It says that another recorder answered; the offer to turn the recorder on is
+    /// left as the newcomer has it. This waits a real second, the poll's.
+    func testAPlayWaitingForThePowerIsNotSentToAnotherRecorderThatAnswersMeanwhile() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        let before = await recorder.asked
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await recorder.answer(Kind.playStatus, with: .result("<status><powerstatus>PowerOn</powerstatus></status>"))
+        await recorder.holdTheNext(Kind.playStatus)
+        let playing = Task { await playARecording(model, subjects.title, "play") }
+        try await until("the recorder was never asked whether it is on") {
+            await recorder.asked(Kind.playStatus, since: before) == 1
+        }
+        await recorder.become(2)
+        await model.connect()
+        // What this stands on: the newcomer described itself, and was connected to, during the power wait.
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertTrue(model.connected)
+        await recorder.letGo()
+        await playing.value
+
+        expectEqual(await recorder.asked(Kind.playback, since: before), 1, "the play was sent again, to the newcomer")
+        expectEqual(await recorder.asked(Kind.power, since: before), 1)
+        XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
+        XCTAssertFalse(model.needsPower)
+        XCTAssertFalse(model.gaveUp)
+    }
+
+    /// A play whose first request is answered 880 once another recorder has described itself on a connect --
+    /// the request held across the arrival -- turns nobody on: the power-on is for the recorder the play began
+    /// with, and the newcomer is sent nothing, neither the power-on nor the play after it. It says that another
+    /// recorder answered, and puts up no offer to turn the newcomer on.
+    func testAPlayAnsweredStandbyAcrossAnotherRecordersArrivalTurnsNobodyOn() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        let before = await recorder.asked
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await recorder.answer(Kind.playStatus, with: .result("<status><powerstatus>PowerOn</powerstatus></status>"))
+        await recorder.holdTheNext(Kind.playback)
+        let playing = Task { await playARecording(model, subjects.title, "play") }
+        try await until("the play never got to the recorder") {
+            await recorder.asked(Kind.playback, since: before) == 1
+        }
+        await recorder.become(2)
+        await model.connect()
+        // What this stands on: the newcomer described itself, and was connected to, with the play out.
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertTrue(model.connected)
+        await recorder.letGo()
+        await playing.value
+
+        expectEqual(await recorder.asked(Kind.power, since: before), 0, "the newcomer was turned on")
+        expectEqual(await recorder.asked(Kind.playback, since: before), 1, "the play was sent again, to the newcomer")
+        expectEqual(await recorder.asked(Kind.playStatus, since: before), 0)
+        XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
+        XCTAssertFalse(model.needsPower)
+        XCTAssertFalse(model.gaveUp)
+    }
+
+    /// A write whose check is out as the recorder is let go of -- another address chosen, and a connect to it
+    /// under way, before the check meets silence -- says that another recorder answered, as a reservation asked
+    /// in that moment does, rather than that the app is not connected: what the check met was the recorder let
+    /// go of. Nothing is sent to either. No screen gets here, the choice of a recorder being held while a check
+    /// is out; the model's own entry is asked.
+    func testAWriteWhoseCheckEndsAcrossALetGoSaysAnotherRecorderAnswered() async throws {
+        let bench = try aBench()
+        let (first, second) = (NamedRecorder(1), NamedRecorder(2))
+        let model = bench.model(recorders: [Bench.host: first, Bench.otherHost: second])
+        addTeardownBlock {
+            await first.letGo()
+            await second.letGo()
+        }
+        await model.start()
+        try await untilConnected(model)
+        await model.loadTitles()
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+
+        let asked = await first.asked(Kind.description)
+        await first.hold(only: Kind.description)
+        let checking = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { await first.asked(Kind.description) > asked }
+        let protecting = Task { await protectARecording(model, title, true) }
+        try await until("the protect was never begun") { model.busy == Funnelled.protect.line }
+        model.forgetTheRecorder()
+        model.host = Bench.otherHost
+        await second.hold(only: Kind.description)
+        let connecting = Task { await model.connect() }
+        try await until("the other address was never asked") { await second.asked(Kind.description) == 1 }
+        await first.goQuiet(on: Kind.description)
+        await first.letGo()
+        _ = await checking.value
+        let protected = try await within(10, "the protect never ended") { await protecting.value }
+        await second.letGo()
+        await connecting.value
+
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2),
+                       "the connect to the other address was meant to go through")
+        XCTAssertFalse(protected)
+        XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
+        expectEqual(await first.asked(Kind.changeRecording), 0, "protected on the recorder let go of")
+        expectEqual(await second.asked(Kind.changeRecording), 0, "protected on the recorder at the other address")
     }
 
     // MARK: - the keyword conditions' reason and lines

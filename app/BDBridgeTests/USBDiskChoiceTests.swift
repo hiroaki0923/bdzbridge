@@ -647,6 +647,29 @@ final class USBDiskChoiceTests: XCTestCase {
         await recorder.comeFree()
     }
 
+    /// A condition to the USB disk whose slot is waited for while another recorder describes itself on a connect
+    /// is sent to neither: what the slot answered is about the recorder let go of, and the condition is for the
+    /// recorder it was asked of. It says that another recorder answered.
+    func testAConditionWaitingForTheSlotIsNotSentAcrossAnotherRecordersArrival() async throws {
+        let (_, recorder, model) = try await connected(times: 1)
+        // The demo's answer from here on, which is none; the read again is half a minute away.
+        await reconnect(model)
+        let before = await recorder.asked
+        await recorder.holdTheNext("X_GetMediaInfo")
+        let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
+        try await until("the slot was never read") { await recorder.asked("X_GetMediaInfo", since: before) == 1 }
+        await recorder.become(2)
+        await model.connect()
+        // What this stands on: the newcomer described itself, and was connected to, while the slot was waited for.
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+        await recorder.letGo()
+
+        expectFalse(await adding.value, "a condition was made across another recorder's arrival")
+        XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
+        expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
+        XCTAssertFalse(model.gaveUp)
+    }
+
     /// The slot answering the disk as not mounted while it is waited for -- registered, and taking no recordings --
     /// is no disk to send to: the reservation is refused as for a disk no longer offered, nothing sent, and the disk
     /// is taken as it answered.

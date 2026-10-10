@@ -32,6 +32,9 @@ public final class RecorderDriver: LinkDriver {
     private let wakingInterval: Duration
     /// How long a client waits before sending again what the recorder answered 503 (`RecorderClient`).
     private let busyRetryDelay: ClosedRange<Double>
+    /// How long a play waits for a recorder it has turned on, and how often it asks meanwhile (`play`).
+    let powerOnLimit: TimeInterval
+    let powerOnInterval: Duration
     /// The read of the reservations that is out, with the count of recorders let go of it was asked under
     /// (`DeviceLink.generation`) and the client the link held then, which whoever asks under the same count, the
     /// link holding the same client, meanwhile waits for; and how many reads have been begun, which tells the
@@ -39,15 +42,19 @@ public final class RecorderDriver: LinkDriver {
     private var reading: (generation: Int, client: ObjectIdentifier, number: Int, list: Task<[Reservation]?, Never>)?
     private var readsBegun = 0
 
-    /// The reason written on the rows held for another recorder, the waking's limit and interval, and the pause
-    /// before a 503 is sent again, are given only by the tests, which have no seconds to wait.
+    /// The reason written on the rows held for another recorder, the waking's limit and interval, the pause
+    /// before a 503 is sent again, and how long and how often a play waits for the recorder's power, are given
+    /// only by the tests, which have no seconds to wait.
     public init(holdingTheQueueWith reason: String = RecorderDriver.heldForAnotherRecorder,
                 wakingLimit: TimeInterval = Waking.screenLimit,
-                wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1) {
+                wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1,
+                powerOnLimit: TimeInterval = RecorderClient.powerOnLimit, powerOnInterval: Duration = .seconds(1)) {
         heldWith = reason
         self.wakingLimit = wakingLimit
         self.wakingInterval = wakingInterval
         self.busyRetryDelay = busyRetryDelay
+        self.powerOnLimit = powerOnLimit
+        self.powerOnInterval = powerOnInterval
     }
 
     /// Short: a recorder that has left the network says nothing rather than refuse, and a patient timeout is
@@ -89,7 +96,7 @@ public final class RecorderDriver: LinkDriver {
     /// With another taken up in its place -- one that described itself on a connect, or the recorder at an
     /// address the reader chose -- the line is the newcomer's, and the result says that another recorder
     /// answered (`anotherAnswered`).
-    private func whyLetGo(on link: DeviceLink) -> String {
+    func whyLetGo(on link: DeviceLink) -> String {
         link.client == nil ? link.owner?.problem ?? Self.anotherAnswered : Self.anotherAnswered
     }
 

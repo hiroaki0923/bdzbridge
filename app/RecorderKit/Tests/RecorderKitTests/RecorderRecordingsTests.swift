@@ -95,7 +95,119 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(link.session.connected)
     }
 
+    // MARK: - playing, and turning the recorder on for it
+
+    /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,
+    /// and the play goes again. It used to stop at the 880 and take a second button and a second go. The line is
+    /// told the seconds waited once for each look at the status, and the play is done.
+    func testPlayingInStandbyTurnsTheRecorderOnWaitsForItAndPlays() async throws {
+        let (world, driver, recorder) = try await Self.playing([
+            "X_PlayControlTitle": [Stub.fault("880"), Stub.soap("X_PlayControlTitle")],
+            "X_PowerControl": [Self.poweredOn],
+            "X_GetPlayStatus": [Stub.soap("X_GetPlayStatus", result: Self.playStatus("PowerInternalOn")),
+                                Stub.soap("X_GetPlayStatus", result: Self.playStatus("PowerOn"))],
+        ])
+        let title = try await Self.titles().idle
+
+        expectEqual(await driver.play(title, "play"), .done(saying: nil))
+
+        expectEqual(await recorder.actions, ["X_PlayControlTitle", "X_PowerControl", "X_GetPlayStatus",
+                                             "X_GetPlayStatus", "X_PlayControlTitle"])
+        let bodies = await recorder.bodies
+        XCTAssertTrue(bodies[1].contains("<Operation>on</Operation>"), bodies[1])
+        XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
+        XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
+        XCTAssertEqual(world.updated, Array(repeating: "レコーダーの電源を入れています（0 秒）", count: 2),
+                       "the line is told once for each look at the status")
+    }
+
+    /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual case,
+    /// and the demo's recorder does not report its power state at all.
+    func testPlayingOnARecorderThatIsOnSendsOnlyThePlay() async throws {
+        let (world, driver, recorder) = try await Self.playing([
+            "X_PlayControlTitle": [Stub.soap("X_PlayControlTitle")],
+        ])
+        let title = try await Self.titles().idle
+
+        expectEqual(await driver.play(title, "play"), .done(saying: nil))
+
+        expectEqual(await recorder.actions, ["X_PlayControlTitle"])
+        XCTAssertEqual(world.updated, [])
+    }
+
+    /// Only standby is worth turning the recorder on for. Anything else it answers -- here a recording it no
+    /// longer has -- is the answer, in the recorder's words.
+    func testPlayingSomethingTheRecorderRefusesDoesNotTurnItOn() async throws {
+        let (world, driver, recorder) = try await Self.playing(["X_PlayControlTitle": [Stub.fault("820")]])
+        let title = try await Self.titles().idle
+
+        let came = await driver.play(title, "play")
+
+        guard case .notDone(let why) = came else { return XCTFail("a refusal was taken for a play: \(came)") }
+        XCTAssertTrue(why.contains("820"), why)
+        XCTAssertEqual(world.problem, why)
+        expectEqual(await recorder.actions, ["X_PlayControlTitle"])
+    }
+
+    /// The wait is bounded. A recorder that never says it is on is sent the play once more all the same, and
+    /// its 880 is the answer, the session keeping it for the sheet to offer to turn the recorder on by hand.
+    func testARecorderThatStaysInStandbyIsGivenUpOnAfterTheLimit() async throws {
+        let (_, driver, recorder) = try await Self.playing([
+            "X_PlayControlTitle": [Stub.fault("880")],
+            "X_PowerControl": [Self.poweredOn],
+            "X_GetPlayStatus": [Stub.soap("X_GetPlayStatus", result: Self.playStatus("PowerInternalOn"))],
+        ], limit: 0.05, interval: .milliseconds(5))
+        let title = try await Self.titles().idle
+
+        let came = await driver.play(title, "play")
+
+        guard case .notDone(let why) = came else { return XCTFail("a recorder still in standby played: \(came)") }
+        XCTAssertTrue(why.contains("880"), why)
+        XCTAssertTrue(driver.link?.session.needsPower == true, "nothing offers to turn the recorder on")
+        let actions = await recorder.actions
+        XCTAssertEqual(actions.first, "X_PlayControlTitle")
+        XCTAssertEqual(actions.last, "X_PlayControlTitle")
+        XCTAssertEqual(actions.filter { $0 == "X_PowerControl" }.count, 1, "turned on once, not on every look")
+        XCTAssertTrue(actions.contains("X_GetPlayStatus"))
+    }
+
     // MARK: - what the tests start from
+
+    /// A link of the test's own to a recorder at the bench's address that says who it is and answers each
+    /// action as `answers` says (`PlayingRecorder`), connected a moment ago, with the world it reaches and an
+    /// earlier failure's line left. The driver asks every `interval` for up to `limit` while a play waits for
+    /// the recorder's power. The recorder has put down nothing yet.
+    private static func playing(_ answers: [String: [HTTPResponse]], limit: TimeInterval = 30,
+                                interval: Duration = .milliseconds(1)) async throws
+        -> (LinkWorld, RecorderDriver, PlayingRecorder) {
+        let world = LinkWorld()
+        let recorder = try PlayingRecorder(answers, udn: DeviceLinkTests.udn)
+        world.devices[Stub.host] = recorder
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0,
+                                    powerOnLimit: limit, powerOnInterval: interval)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        await recorder.forget()
+        world.problem = left
+        // Held by the driver weakly: kept here for as long as the test runs.
+        links.append(link)
+        return (world, driver, recorder)
+    }
+
+    /// The links the tests above made, kept for as long as the tests run, their drivers holding them weakly.
+    private static var links: [DeviceLink] = []
+
+    /// What `X_PowerControl` answers when the recorder takes it.
+    private static let poweredOn = Stub.soap("X_PowerControl",
+                                             result: "<power><powerstatus>PowerOn</powerstatus></power>")
+
+    /// What `X_GetPlayStatus` says, in the shape the recorder says it (docs/xsrs-api.md).
+    private static func playStatus(_ power: String) -> String {
+        "<status><powerstatus>\(power)</powerstatus><playstatus>Stopped</playstatus></status>"
+    }
 
     /// The six writes, asked in turn: a protect, a delete, a play, the power, a condition added and one removed.
     /// What each came to, and the protect's and the delete's word on reading the recordings again.
@@ -156,5 +268,40 @@ final class RecorderRecordingsTests: XCTestCase {
             "X_GetPrefRecSettingList", result: list)))
         let rules = try await client.recorderRules()
         return try XCTUnwrap(rules.first, "the vectors list no condition")
+    }
+}
+
+/// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a
+/// test gives for it, in turn and the last again once they run out; anything else with a 500, as a recorder that
+/// refuses what an attach reads besides its description. It puts down each action it was asked, with its body.
+private actor PlayingRecorder: HTTPTransport {
+    private var answers: [String: [HTTPResponse]]
+    private let description: String
+    private(set) var actions: [String] = []
+    private(set) var bodies: [String] = []
+
+    init(_ answers: [String: [HTTPResponse]], udn: String) throws {
+        self.answers = answers
+        description = try Vectors.descriptionXML(udn: udn)
+    }
+
+    /// Puts down nothing of what was asked before now: what a connect asked.
+    func forget() {
+        actions = []
+        bodies = []
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard request.url.lastPathComponent != "description.xml" else {
+            return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+        }
+        let action = String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        actions.append(action)
+        bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
+        guard var given = answers[action], let answer = given.first else { return HTTPResponse(statusCode: 500) }
+        if given.count > 1 { given.removeFirst() }
+        answers[action] = given
+        return answer
     }
 }

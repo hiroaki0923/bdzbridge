@@ -16,9 +16,9 @@ extension RecorderDriver {
     /// the app's to say. After a check that heard something in place of the recorder saying which it is, nothing
     /// is read, as for the reservations: what it heard is what the read fails as (`asked`).
     public func recorderRules() async -> [RecorderRule]? {
-        guard let link, let client = link.client as? RecorderClient else { return nil }
-        if case .went(let list) = await asked(Self.conditionsLine, .aRead, on: link, { _ in
-            try await client.recorderRules()
+        guard let link, link.client is RecorderClient else { return nil }
+        if case .went(let list) = await asked(Self.conditionsLine, .aRead, on: link, since: link.generation, {
+            _, client in try await client.recorderRules()
         }) { return list }
         return nil
     }
@@ -52,20 +52,26 @@ extension RecorderDriver {
     public func addRule(_ request: RecorderRuleRequest, readAfter: @MainActor () async -> Void) async -> Altered {
         clearTheDiskNotHad()
         guard let link else { return .notDone(Self.notConnected) }
-        guard let client = link.client as? RecorderClient else { return .notDone(whyNotConnected) }
+        guard link.client is RecorderClient else { return .notDone(whyNotConnected) }
         let owner = link.owner
         guard RecorderDisk.offers(request.destination, with: link.session.usbDisk) else {
             return .notDone(RecorderDisk.chooseAnother(than: request.destination, usb: link.session.usbDisk))
         }
         guard !link.session.unreachable, canBeAsked(on: link) else { return .notDone(whyNotConnected) }
+        let began = link.generation
         let toTheSlot = request.destination == RecorderDisk.usbID
         return await link.underALine(toTheSlot ? Self.registeringLine : nil) { _ -> Altered in
             if toTheSlot {
                 guard case .up = await link.check(evenIfRecent: link.checksAgain) else {
+                    guard !link.letGo(since: began) else { return .notDone(self.whyLetGo(on: link)) }
                     return .notDone(owner?.problem ?? self.whyNotConnected)
                 }
                 guard link.mayBeSent else { return .notDone(self.whyNotSent(on: link)) }
-                switch await self.withholds(request.destination) {
+                let withheld = await self.withholds(request.destination)
+                // Let go of while the slot was waited for, whatever it answered: what it answered is about the
+                // recorder let go of.
+                guard !link.letGo(since: began) else { return .notDone(self.whyLetGo(on: link)) }
+                switch withheld {
                 case nil:
                     break
                 case .noDisk?:
@@ -77,12 +83,15 @@ extension RecorderDriver {
                 }
             }
             // Asked again whether it may be sent, after the slot: another operation's check may have heard
-            // something in place of the recorder meanwhile.
-            let came = await self.asked(Self.registeringLine, .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
+            // something in place of the recorder meanwhile. On the client the check is asked with then: a connect
+            // to the same recorder made while the slot was waited for has one of its own.
+            let came = await self.asked(Self.registeringLine, .aWrite(sending: Self.mayHaveArrived), on: link,
+                                        since: began) { _, client in
                 _ = try await client.createRecorderRule(request)
             }
             let altered = self.altered(came, on: link)
-            if came.wentThrough { await readAfter() }
+            // Across a let-go, the list to read is the newcomer's, which its own connect reads.
+            if came.wentThrough, !link.letGo(since: began) { await readAfter() }
             return altered
         }
     }
@@ -96,10 +105,11 @@ extension RecorderDriver {
     /// so the caller reads the list again afterwards either way.
     public func removeRule(_ rule: RecorderRule) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
-        guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
+        guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
-        return altered(await asked(Self.removingConditionLine, .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
+        return altered(await asked(Self.removingConditionLine, .aWrite(sending: Self.mayHaveArrived), on: link,
+                                   since: link.generation) { _, client in
             try await client.deleteRecorderRule(id: rule.id)
         }, on: link)
     }
