@@ -11,6 +11,11 @@ struct TitleSheet: View {
     @State private var confirmingDelete = false
     @State private var failure: String?
     @State private var deleted = false
+    /// Whether one of the sheet's own requests is out -- playback, the power, the protect, the delete -- which
+    /// holds the sheet open until it is answered, so that what it came to is said here rather than lost with a
+    /// closed sheet, and its controls from the press, before the recorder's line is up. Not its details, which
+    /// are asked as it opens and may be left behind.
+    @State private var asking = false
 
     /// The live copy, since protecting it changes the list underneath.
     private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
@@ -19,6 +24,16 @@ struct TitleSheet: View {
     /// nothing was sent.
     private func say(_ came: Altered) {
         if case .notDone(let why) = came { failure = why }
+    }
+
+    /// Asks `operation` with the sheet held until it is answered, and says what it came to.
+    private func ask(_ operation: @escaping @MainActor () async -> Altered) {
+        asking = true
+        Task {
+            let came = await operation()
+            asking = false
+            say(came)
+        }
     }
 
     var body: some View {
@@ -42,12 +57,13 @@ struct TitleSheet: View {
                 }
 
                 Section("テレビで再生") {
-                    // Held off while anything is under way. 一時停止 is one toggle on the recorder, so a second
-                    // tap while the first was still on its way resumed what the reader had meant to pause; and
-                    // turning the recorder on to play takes long enough to invite a second tap too.
+                    // Held off while anything is under way, and from the press until the sheet's own request is
+                    // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
+                    // on its way resumed what the reader had meant to pause; and turning the recorder on to play
+                    // takes long enough to invite a second tap too.
                     Group {
                         Button {
-                            Task { say(await model.play(current, "play")) }
+                            ask { await model.play(current, "play") }
                         } label: {
                             // The recorder cannot be told where to start: `play` begins at the beginning whatever
                             // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
@@ -55,37 +71,37 @@ struct TitleSheet: View {
                             Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                         }
                         Button {
-                            Task { say(await model.play(current, "pause")) }
+                            ask { await model.play(current, "pause") }
                         } label: {
                             Label("一時停止 / 再開", systemImage: "pause.fill")
                         }
                         Button {
-                            Task { say(await model.play(current, "stop")) }
+                            ask { await model.play(current, "stop") }
                         } label: {
                             Label("停止", systemImage: "stop.fill")
                         }
                         if model.needsPower {
                             Button {
-                                Task { say(await model.powerOn()) }
+                                ask { await model.powerOn() }
                             } label: {
                                 Label("レコーダーの電源を入れる", systemImage: "power")
                             }
                             .foregroundStyle(Color.legibleOrange)
                         }
                     }
-                    .disabled(model.busy != nil)
+                    .disabled(model.busy != nil || asking)
                     Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
-                        set: { on in Task { say(await model.setProtected(current, on)) } }))
-                    .disabled(model.busy != nil)
+                        set: { on in ask { await model.setProtected(current, on) } }))
+                    .disabled(model.busy != nil || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
                     let whyNot = RecorderDriver.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(whyNot != nil || model.busy != nil)
+                        .disabled(whyNot != nil || model.busy != nil || asking)
                     if let whyNot {
                         Text(whyNot)
                             .font(.caption)
@@ -110,7 +126,8 @@ struct TitleSheet: View {
             .recorderActivity(inSheet: true)
             .navigationTitle("録画")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { SheetCloseButton() }
+            .toolbar { SheetCloseButton().disabled(asking) }
+            .interactiveDismissDisabled(asking)
             .task { detail = await model.detail(of: title) }
             // One alert does both jobs: two on the same view is not something SwiftUI promises to honour.
             .alert(failure == nil ? "この録画を削除しますか？" : "エラー",
@@ -118,10 +135,11 @@ struct TitleSheet: View {
                                         set: { if !$0 { confirmingDelete = false; failure = nil } })) {
                 if failure == nil {
                     Button("削除する", role: .destructive) {
-                        Task {
-                            let came = await model.delete(current)
+                        let title = current
+                        ask {
+                            let came = await model.delete(title)
                             if case .done = came { deleted = true }
-                            say(came)
+                            return came
                         }
                     }
                     Button("キャンセル", role: .cancel) {}

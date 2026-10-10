@@ -199,18 +199,19 @@ extension View {
     ///
     /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
     /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
-    /// first. `title` is nil where the row should not be swipeable at all.
-    func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
+    /// first. `title` is nil where the row should not be swipeable at all. Both are held while `held` says so: on
+    /// a programme's sheet, while its own request is out.
+    func titleSwipe(_ title: RecordedTitle?, held: Bool = false, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let title {
                 switch RecorderDriver.whyNot(deleting: title) {
                 case nil:
-                    Button("削除") { ask() }.tint(.red)
+                    Button("削除") { ask() }.tint(.red).disabled(held)
                 case RecorderDriver.protectedCannotBeDeleted?:
                     // `role: .destructive` would animate the row away as it is swiped, before there is an
                     // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                    Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
+                    Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
                 default:
                     // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
                     // says 録画中, which is the answer to why there is no button here.
@@ -337,6 +338,10 @@ struct GroupSheet: View {
     /// The row swiped, by id, read back out of the model when the dialog asks.
     @State private var removing: String?
     @State private var failure: String?
+    /// Whether the sheet's own single delete, or a swipe's 保護解除, is out: the sheet is held open until it is
+    /// answered, so that what it came to is said here rather than lost with a closed sheet, and the swipes and
+    /// the delete's confirm are held, so that a second is not sent meanwhile.
+    @State private var asking = false
 
     /// One alert for all three jobs. Two on a view is not something SwiftUI promises to honour, and this
     /// one has a bulk delete, a single delete and a failure to report.
@@ -392,8 +397,9 @@ struct GroupSheet: View {
                     .accessibilityLabel("保護をまとめて変更")
                     .disabled(model.jobRunning || members.isEmpty)
                 }
-                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
+                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
             }
+            .interactiveDismissDisabled(asking)
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .closesWithItsRecorder()
@@ -412,9 +418,8 @@ struct GroupSheet: View {
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
-                    Button("削除する", role: .destructive) {
-                        Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
-                    }
+                    Button("削除する", role: .destructive) { ask { await model.delete(title) } }
+                        .disabled(asking)
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -428,6 +433,16 @@ struct GroupSheet: View {
                 case .failed(let reason): Text(reason)
                 }
             }
+        }
+    }
+
+    /// Asks `operation` with the sheet held until it is answered, and says what it came to in the alert.
+    private func ask(_ operation: @escaping @MainActor () async -> Altered) {
+        asking = true
+        Task {
+            let came = await operation()
+            asking = false
+            if case .notDone(let why) = came { failure = why }
         }
     }
 
@@ -463,8 +478,8 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, ask: { removing = title.id }, unprotect: {
-                Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
+            .titleSwipe(selecting ? nil : title, held: asking, ask: { removing = title.id }, unprotect: {
+                ask { await model.setProtected(title, false) }
             })
         }
         .listStyle(.plain)
