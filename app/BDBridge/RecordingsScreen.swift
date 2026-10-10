@@ -199,21 +199,25 @@ extension View {
     /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
     /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
     ///
-    /// The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has
-    /// to happen first. `title` is nil where the row should not be swipeable at all.
+    /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
+    /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
+    /// first. `title` is nil where the row should not be swipeable at all.
     func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if title?.recording == true {
-                // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
-                // says 録画中, which is the answer to why there is no button here.
-                EmptyView()
-            } else if let title, title.protected {
-                // `role: .destructive` would animate the row away as it is swiped, before there is an
-                // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
-            } else if title != nil {
-                Button("削除") { ask() }.tint(.red)
+            if let title {
+                switch RecorderDriver.whyNot(deleting: title) {
+                case nil:
+                    Button("削除") { ask() }.tint(.red)
+                case RecorderDriver.protectedCannotBeDeleted?:
+                    // `role: .destructive` would animate the row away as it is swiped, before there is an
+                    // answer, and it stays away when the answer is no. The colour is all that is wanted.
+                    Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
+                default:
+                    // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
+                    // says 録画中, which is the answer to why there is no button here.
+                    EmptyView()
+                }
             }
         }
     }

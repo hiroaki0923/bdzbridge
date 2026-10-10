@@ -1023,6 +1023,7 @@ enum Said {
         + "送っていません。少し待ってから、もう一度送ってください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    static let protectedCannotBeDeleted = "保護されているため削除できません。先に保護を解除してください。"
     /// The keyword conditions' screen's reason when its read failed and nothing says why.
     static let conditionsNotAsked = "レコーダーに接続していません"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"

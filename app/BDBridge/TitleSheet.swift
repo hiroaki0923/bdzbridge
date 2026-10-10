@@ -82,14 +82,12 @@ struct TitleSheet: View {
                         get: { current.protected },
                         set: { on in Task { say(await model.setProtected(current, on)) } }))
                     .disabled(model.busy != nil)
+                    // Offered only where the delete's own door would let it through, and why not said from there.
+                    let whyNot = RecorderDriver.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(current.protected || current.recording || model.busy != nil)
-                    if current.recording {
-                        Text("録画中のため削除できません。番組が終わるまでお待ちください。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if current.protected {
-                        Text("保護されているため削除できません。先に保護を解除してください。")
+                        .disabled(whyNot != nil || model.busy != nil)
+                    if let whyNot {
+                        Text(whyNot)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

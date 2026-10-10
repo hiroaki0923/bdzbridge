@@ -74,7 +74,24 @@ extension RecorderDriver {
     static let deletingTitleLine = "削除中"
 
     /// Said when a recording still being recorded is asked to be deleted.
-    static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    nonisolated static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    /// Said when a recording that is protected is asked to be deleted: its protection is to come off first.
+    public nonisolated static let protectedCannotBeDeleted = "保護されているため削除できません。先に保護を解除してください。"
+
+    /// Why a recording cannot be deleted now, or nil when it can, by the row as the phone holds it: one still
+    /// being recorded, by its own flag -- the recorder answers a bare HTTP 500 for a recording it is still
+    /// writing to, which on screen reads as a fault in the app -- and then one protected, which the recorder
+    /// refuses to delete. For the door of `delete`, and for the screens, which offer no delete the door would
+    /// turn away and say why from here: the rule is written once.
+    ///
+    /// A row is as old as the list it was read in. One protected since on the recorder's own screen is not seen
+    /// here, and its delete goes, the recorder's answer being said; one whose protection was taken off there is
+    /// turned away until the list is read again. What the recordings of a USB disk add -- the disk the list was
+    /// read from, and when -- a row does not carry: they come as a parameter of this, not as a rule beside it.
+    public nonisolated static func whyNot(deleting title: RecordedTitle) -> String? {
+        if title.recording { return stillRecording }
+        return title.protected ? protectedCannotBeDeleted : nil
+    }
 
     /// A write: the recorder stops deleting this one to make room. What it came to, with its sentence, and
     /// whether the recordings are to be read again once the recorder answers (`readAgain`); `keep` is how the
@@ -108,15 +125,14 @@ extension RecorderDriver {
     /// called once the recorder has taken it, before the free space is read again under the same line
     /// (`learnTheFreeSpace`), which cannot fail the delete: it has happened whatever that says.
     ///
-    /// The recorder answers a bare HTTP 500 for a recording it is still writing to, which on screen reads as a
-    /// fault in the app. The screens do not offer it, but a row can be a few minutes old: one still being
-    /// recorded is turned away before anything is sent, the result saying why (`stillRecording`) and the line
-    /// left as it was, and the recordings are not to be read again for it. Then as `protect`: its doors, and
-    /// silence saying that the delete may have arrived.
+    /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
+    /// turned away before anything is sent, the result saying why and the line left as it was, and the
+    /// recordings are not to be read again for it. The screens do not offer it, but a row can be a few minutes
+    /// old. Then as `protect`: its doors, and silence saying that the delete may have arrived.
     public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
-        if title.recording { return (.notDone(Self.stillRecording), false) }
+        if let why = Self.whyNot(deleting: title) { return (.notDone(why), false) }
         guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
         let came = await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in

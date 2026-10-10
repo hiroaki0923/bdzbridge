@@ -318,6 +318,27 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.recorderRulesFailure, lineLeft)
     }
 
+    /// A recording the phone holds as protected, asked to be deleted, is turned away before anything is asked: the
+    /// recorder refuses such a delete, and no screen offers one. The delete says why in what it hands back, and
+    /// leaves the line and the list as they were.
+    func testAProtectedRecordingIsTurnedAwayAtTheDeletesDoor() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        expectTrue(await protectARecording(model, subjects.spare, true), model.problem ?? "no reason given")
+        let held = try XCTUnwrap(model.titles.first { $0.id == subjects.spare.id && $0.protected },
+                                 "the recording was meant to be held as protected")
+        let titles = model.titles
+        leaveALine(on: model)
+        let asked = await recorder.asked
+
+        expectFalse(await deleteARecording(model, held), "a protected recording was deleted")
+
+        XCTAssertEqual(whyNotJustNow(model), Said.protectedCannotBeDeleted)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the delete wrote over the line at its door")
+        XCTAssertEqual(model.titles, titles)
+        XCTAssertTrue(model.titlesLoaded)
+        expectEqual(await recorder.asked, asked, "a protected recording was asked to be deleted")
+    }
+
     /// What the recordings' and the conditions' writes turn away at their doors, with nothing sent, each says in
     /// what it hands back, and the line an earlier operation left stays: the recorder known to be away, and no
     /// recorder in hand at all, are that the app is not connected. A play, a pause or a stop turned away so
