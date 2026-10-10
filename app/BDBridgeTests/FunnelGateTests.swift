@@ -667,6 +667,79 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.guideDownloads, 0)
     }
 
+    /// The guide asked for by hand beside a check, and after one. While the recorder is being made sure of, the
+    /// asking waits for that answer under its own line, as a write does. When the check meets silence no file is
+    /// asked for and no probe is sent beside the check's, what is said is the check's, and the count of
+    /// downloads comes back to nought.
+    ///
+    /// After a check that heard the recorder busy with somebody else as it was asked who it is, the guide is
+    /// fetched all the same, as it is today: nobody is asked again who answers, each file is asked for once, and
+    /// going through clears the line. The recordings and the conditions are not read after such a check, and each
+    /// asks again (`testNothingIsSentOrReadAfterACheckThatHeardTheRecorderBusyAndEachAsksAgain`, which leaves the
+    /// guide out). A later change has the guide do as they do, and rewrites this half.
+    func testAGuideAskedForByHandWaitsForTheCheckAndIsFetchedAfterOneThatHeardTheRecorderBusy() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+
+        leaveALine(on: model)
+        let count = await recorder.heard.count
+        let (there, _) = try await duringACheck(by: model, of: recorder, endingIn: .silence, "the guide",
+                                                waitingFor: { model.busy == "番組表を取得中" }) {
+            await refreshTheGuideByHand(model)
+        }
+        XCTAssertFalse(there)
+        expectEqual(await recorder.heard(since: count), [Kind.description],
+                    "a file was asked for, or a probe of the guide's own sent, beside a check that met silence")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertEqual(model.guideDownloads, 0)
+        XCTAssertNil(model.busy)
+        await reconnect(model)
+
+        // Busy with somebody else as it is asked who it is, through both tries after the first.
+        await recorder.busyAtTheDoor()
+        expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+        leaveALine(on: model)
+        let before = await recorder.asked
+        await refreshTheGuideByHand(model)
+        for file in Kind.guide {
+            expectEqual(await recorder.asked(file, since: before), 1, "\(file), after a check that heard busy")
+        }
+        expectEqual(await recorder.asked(Kind.description, since: before), 0, "the guide asked again who answers")
+        XCTAssertNil(model.problem(for: .recorder), "the guide went through and left an earlier failure up")
+        XCTAssertTrue(model.connected)
+        XCTAssertEqual(model.guideDownloads, 0)
+        await recorder.comeFree()
+    }
+
+    /// A reconnect the recorder answered busy with somebody else leaves the app connected from the attach before,
+    /// beside a client that has not heard which recorder answers it. The guide asked for by hand then is fetched
+    /// on that client, as it is today: nothing connects for it, each file is asked for once, and what comes goes
+    /// into the cache, which is the cache of the recorder the app knew. A recording's and a condition's writes are
+    /// turned away there (`testAWriteIsNotSentOnAClientThatHasNotHeardWhichRecorderAnswersIt`). A later change
+    /// has the press connect first and ask for the files of a client that has heard, and rewrites this.
+    func testAGuideAskedForByHandIsFetchedOnAClientThatHasNotHeardWhichRecorderAnswersIt() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        await recorder.busyAtTheDoor()
+        let made = bench.clientsMade
+        await model.connect()
+        XCTAssertEqual(bench.clientsMade, made + 1, "the reconnect was meant to make a client of its own")
+        XCTAssertTrue(model.connected, "the attach before was meant to stand")
+        await recorder.comeFree()
+
+        let before = await recorder.asked
+        await recorder.answer(Kind.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        await refreshTheGuideByHand(model)
+
+        for file in Kind.guide {
+            expectEqual(await recorder.asked(file, since: before), 1, "\(file), on a client that has not heard")
+        }
+        XCTAssertEqual(bench.clientsMade, made + 1, "the guide asked for by hand connected")
+        let cache = try GuideStore(path: bench.guidePath)
+        expectEqual(try await cache.owner(), NamedRecorder.udn(1))
+        expectTrue(try await cache.counts()["td"]?.programs ?? 0 > 0, "what was fetched is not in the cache")
+        XCTAssertGreaterThan(model.counts["td"]?.programs ?? 0, 0, "what was fetched is not on screen")
+    }
+
     // MARK: - a recording's details
 
     /// A recording's details are asked as its sheet opens, before anybody has asked for anything, and have no
