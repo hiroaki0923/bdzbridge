@@ -1,9 +1,9 @@
 import Foundation
 
 /// What is asked of the recorder's recordings, beside its reservations: reading them with the free space, one
-/// recording's details, and protecting and deleting one. The steps, and what each says on the host's screen; what
-/// the app keeps of the list is handed to it as the step that changes it goes through (`keep`), and the screens
-/// are the app's.
+/// recording's details, protecting and deleting one, playing it on the television the recorder is attached to,
+/// and turning the recorder on. The steps, and what each says on the host's screen; what the app keeps of the
+/// list is handed to it as the step that changes it goes through (`keep`), and the screens are the app's.
 extension RecorderDriver {
     // MARK: - the list and the free space
 
@@ -112,6 +112,58 @@ extension RecorderDriver {
             keep()
             await self.learnTheFreeSpace(on: client, link)
         } != nil
+    }
+
+    // MARK: - playback and power
+
+    /// The lines on screen while a recording is played or paused, while it is stopped, and while the recorder is
+    /// turned on.
+    static let playingLine = "再生を指示中"
+    static let stoppingLine = "停止中"
+    static let turningOnLine = "電源を入れています"
+
+    /// The line while a play waits for the recorder it has turned on, with the seconds waited so far.
+    nonisolated static func poweringOnLine(_ seconds: Int) -> String {
+        "レコーダーの電源を入れています（\(seconds) 秒）"
+    }
+
+    /// Playback happens on the television the recorder is attached to, not here. `operation` is the recorder's own
+    /// word: `play`, `pause` or `stop`; `pause` toggles, so the same call resumes.
+    ///
+    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying on
+    /// the line how long it has been (`poweringOnLine`). One still not on by the end of the wait, or a pause or a
+    /// stop sent to one in standby, answers 880, which the session keeps (`SessionState.needsPower`) for the
+    /// sheet to offer to turn it on; the offer goes at the door of each, whatever becomes of it. With no
+    /// recorder's client, nothing is done or said. Otherwise one operation, as `DeviceLink.run` makes one, on the
+    /// client in hand at the door, whose silence is said as a read's.
+    public func play(_ title: RecordedTitle, _ operation: String) async {
+        guard let link, let client = link.client as? RecorderClient else { return }
+        let owner = link.owner
+        link.session.powerNeeded(false)
+        _ = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, on: link) { line in
+            do {
+                if operation == "play" {
+                    try await client.play(titleID: title.id) { @MainActor seconds in
+                        if let line { owner?.updateActivity(line, to: Self.poweringOnLine(seconds)) }
+                    }
+                } else {
+                    try await client.playControl(titleID: title.id, operation: operation)
+                }
+            } catch let error as any DeviceError where error.failure == .needsPower {
+                link.session.powerNeeded(true)
+                throw error
+            }
+        }
+    }
+
+    /// Turns the recorder on, which also turns on the television attached to it, and takes the offer to do so
+    /// away once the recorder has said it is on. As `play` otherwise.
+    public func powerOn() async {
+        guard let link, let client = link.client as? RecorderClient else { return }
+        _ = await asked(Self.turningOnLine, on: link) { _ in
+            _ = try await client.powerOn()
+            link.session.powerNeeded(false)
+        }
     }
 
     // MARK: - one request

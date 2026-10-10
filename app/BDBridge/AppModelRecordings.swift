@@ -107,43 +107,16 @@ extension AppModel {
         return deleted
     }
 
-    /// Playback happens on the television the recorder is attached to, not here. `pause` toggles, so the same
-    /// call resumes.
-    ///
-    /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying on
-    /// the line how long it has been. One still not on by the end of the wait, or a pause or a stop sent to one
-    /// in standby, answers 880, which is what `needsPower` reports and the sheet offers to turn it on for.
+    /// Playback happens on the television the recorder is attached to, not here (`RecorderDriver.play`). A
+    /// recorder in standby is what `needsPower` reports, and the sheet offers to turn it on for.
     func play(_ title: RecordedTitle, _ operation: String) async {
         await start()
-        guard let client else { return }
-        session.powerNeeded(false)
-        await run(operation == "stop" ? "停止中" : "再生を指示中") { activity in
-            do {
-                if operation == "play" {
-                    try await client.play(titleID: title.id) { @MainActor seconds in
-                        self.activities.update(activity, to: Self.poweringOnLine(seconds))
-                    }
-                } else {
-                    try await client.playControl(titleID: title.id, operation: operation)
-                }
-            } catch let error as any DeviceError where error.failure == .needsPower {
-                self.session.powerNeeded(true)
-                throw error
-            }
-        }
+        await recorderDriver?.play(title, operation)
     }
 
-    private static func poweringOnLine(_ seconds: Int) -> String {
-        "レコーダーの電源を入れています（\(seconds) 秒）"
-    }
-
-    /// Turns the recorder on, which also turns on the television attached to it.
+    /// Turns the recorder on, which also turns on the television attached to it (`RecorderDriver.powerOn`).
     func powerOn() async {
         await start()
-        guard let client else { return }
-        await run("電源を入れています") {
-            _ = try await client.powerOn()
-            self.session.powerNeeded(false)
-        }
+        await recorderDriver?.powerOn()
     }
 }
