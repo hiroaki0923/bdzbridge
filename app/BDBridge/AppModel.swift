@@ -10,11 +10,12 @@ import UserNotifications
 /// recorder, which serialises its own requests, and one `GuideStore` on disk, so the guide can be read while
 /// away from home.
 ///
-/// This file holds the state, how the model is made and started, and the one funnel every action runs
-/// through. What it does is in extensions beside it, one file to a concern: `AppModelSession` (the app's side
-/// of the connection: what the link tells it, what the link reaches, coming and going from the foreground),
-/// `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`, `AppModelReservations` (with the
-/// queue), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
+/// This file holds the state, how the model is made and started, and the funnel the guide fetched by hand runs
+/// through; the recorder's other operations are its driver's (`RecorderDriver`). What it does is in extensions
+/// beside it, one file to a concern: `AppModelSession` (the app's side of the connection: what the link tells
+/// it, what the link reaches, coming and going from the foreground), `AppModelSetup` (the demo, the address,
+/// the scan), `AppModelGuide`, `AppModelReservations` (with the queue), `AppModelRecorderRules`,
+/// `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
 ///
 /// An extension in another file cannot reach what is private, so much of the state below is internal and
 /// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
@@ -482,13 +483,8 @@ final class AppModel: LinkHost {
     ///
     /// The check, the clearing and what each failure says and leaves behind are the link's
     /// (`DeviceLink.run`), which a television's operations go through as well. What is the recorder's is
-    /// handed to it: the sentence for a write that met silence.
-    @discardableResult
-    func run(_ what: String, sending: Bool = false, _ work: () async throws -> Void) async -> Bool {
-        await run(what, sending: sending) { (_: Activities.Token) in try await work() }
-    }
-
-    /// The same, handing the work its own line so that it can say how far it has got.
+    /// handed to it: the sentence for a write that met silence. The work is handed its own line, so that it can
+    /// say how far it has got.
     @discardableResult
     func run(_ what: String, sending: Bool = false,
                      _ work: (Activities.Token) async throws -> Void) async -> Bool {

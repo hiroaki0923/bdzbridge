@@ -11,16 +11,18 @@ import Foundation
 /// phone's queue (`sendWhatWaits`, `resend`) and deleting a row of it (`deleteWaiting`), deleting and changing
 /// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
 /// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
-/// keep.
+/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, and its own keyword conditions in
+/// `RecorderConditions.swift`, beside this.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
     /// again, a delete, a change and a reservation, and the slot's settling and what it came to. The clash check
-    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app; the check
-    /// before a reservation is read for its reason (`check`). The recorder's other operations are still the
-    /// app's, and will be asked of this the same way.
+    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
+    /// a recording's details; the check before a reservation is read for its reason (`check`). The recordings',
+    /// playback's, the power's and the keyword conditions' operations go through on the same parts, each as
+    /// `DeviceLink.run` makes one (`asked`). The guide fetched by hand is still the app's.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
