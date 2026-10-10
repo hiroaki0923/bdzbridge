@@ -195,8 +195,11 @@ extension RecorderDriver {
     ///
     /// The recorder answers success for an id it no longer has. So the recording is asked about first: an id the
     /// recorder does not know comes back as UPnP error 820, which means it went away on its own and there is
-    /// nothing to report as an error. Anything else that question comes to, short of silence, is not worth
-    /// giving up on: the delete is sent, and says what went wrong.
+    /// nothing to report as an error. And the delete is sent only once that question has been answered. When the
+    /// recorder turns the question down otherwise -- busy with somebody else through the client's tries, a fault,
+    /// an answer that cannot be read -- nothing is known of whether the recording is still there, and a delete
+    /// sent all the same would come back as done for one already gone and be counted so: the recording is passed
+    /// over with what the recorder said, and the run goes on.
     ///
     /// Silence is a stop and not a recording passed over (`RunStop.silent`): a recorder gone to sleep part way
     /// through would otherwise turn every recording left into one passed over, each after a thirty-second
@@ -207,9 +210,13 @@ extension RecorderDriver {
         if let why = Self.whyNot(deleting: title) { return .passedOver(why) }
 
         switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id) }) {
-        case .went: break
-        case .refused(let error): if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
-        case .stopped(let stop): return .stopped(stop)
+        case .went:
+            break
+        case .refused(let error):
+            if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
+            return .passedOver(Self.inTheRecordersWords(error))
+        case .stopped(let stop):
+            return .stopped(stop)
         }
 
         switch await asked(in: run, sending: true, { try await $0.deleteTitle(id: title.id) }) {

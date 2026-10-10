@@ -393,6 +393,29 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(bodies[1].contains("<TitleID>0x0000010000034d78</TitleID>"), bodies[1])
     }
 
+    /// The delete is sent only once the question asked first has been answered. Turned down otherwise than as a
+    /// recording the recorder no longer has -- with a fault, or busy with somebody else through every try the
+    /// client makes -- nothing is known of whether the recording is still there, and the recorder would answer
+    /// its delete as done either way: the recording is passed over with what the recorder said, and no delete
+    /// is sent.
+    func testARecordingThatCouldNotBeAskedAboutIsPassedOverAndNotSentToBeDeleted() async throws {
+        let faulting = try await Self.running(.delete, [
+            "X_GetTitleDetail": [Stub.fault("402")], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let faulted = await faulting.driver.delete(try await Self.title(), in: faulting.run)
+        XCTAssertEqual(faulted, .passedOver(RecorderError.soap(action: "X_GetTitleDetail", status: 500, code: "402",
+                                                               body: "").explanation))
+        expectEqual(await faulting.recorder.actions, ["X_GetTitleDetail"], "the delete was sent all the same")
+
+        let busy = try await Self.running(.delete, [
+            "X_GetTitleDetail": [HTTPResponse(statusCode: 503)], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let turnedDown = await busy.driver.delete(try await Self.title(), in: busy.run)
+        XCTAssertEqual(turnedDown, .passedOver(RecorderError.busy(action: "X_GetTitleDetail").explanation))
+        expectEqual(await busy.recorder.actions, Array(repeating: "X_GetTitleDetail", count: 3),
+                    "the delete was sent all the same, or the question not asked through its tries")
+    }
+
     func testARefusedDeleteSaysWhyRatherThanStoppingTheRun() async throws {
         let (run, driver, _) = try await Self.running(.delete, [
             "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],

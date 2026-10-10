@@ -79,15 +79,19 @@ final class RunGateTests: XCTestCase {
     /// the recorder refuses, in the recorder's words, which stays. Every recording counts as done, deleted or
     /// not, and the job says how many went and how many did not.
     ///
-    /// Two things are as they are today. A recording the recorder is too busy to be asked about is deleted all
-    /// the same: a later change passes it over. And the free space is read after a run that deleted nothing: a
-    /// later change reads it only after one that deleted something.
+    /// A recording the recorder would not be asked about -- busy with somebody else through every try, or
+    /// answering with a fault that is not "no such recording" -- is not sent to be deleted: whether it is still
+    /// there is not known, and the recorder answers a delete of one it no longer holds as done. It is listed as
+    /// passed over in the recorder's words and stays in the list, and the run goes on to the next.
+    ///
+    /// One thing is as it is today. The free space is read after a run that deleted nothing: a later change
+    /// reads it only after one that deleted something.
     func testABulkDeleteAsksAboutEachRecordingDeletesItAndListsWhatItPassedOver() async throws {
         let (_, recorder, model, idle) = try await settled()
         let writing = try XCTUnwrap(model.titles.first { $0.recording }, "the demo was meant to be recording")
         let guarded = try XCTUnwrap(model.titles.first { $0.protected }, "the demo was meant to protect a recording")
         let room = try XCTUnwrap(model.storage?.free, "the recorder never said how much room it has")
-        let (deleted, gone, refused, lateAsked) = (idle[0], idle[1], idle[2], idle[3])
+        let (deleted, gone, refused, notAsked, after, faulted) = (idle[0], idle[1], idle[2], idle[3], idle[4], idle[5])
 
         // The second recording it is asked about has left it, and the second delete it turns down.
         await recorder.answer(Ask.details, with: .fault(820), after: 1)
@@ -122,12 +126,28 @@ final class RunGateTests: XCTestCase {
         // Busy with somebody else as it is asked about a recording, through both tries after the first.
         await recorder.beBusy(with: Ask.details)
         count = await recorder.heard.count
-        try await run(model, .delete, [lateAsked.id])
+        try await run(model, .delete, [notAsked.id, after.id])
         expectEqual(await recorder.heard(since: count),
-                    [Ask.details, Ask.details, Ask.details, Ask.deleteRecording, Ask.freeSpace],
-                    "a recording the recorder was too busy to be asked about is deleted all the same, today")
-        XCTAssertEqual(model.job?.changed, [lateAsked.id])
-        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+                    [Ask.details, Ask.details, Ask.details, Ask.details, Ask.deleteRecording, Ask.freeSpace],
+                    "a recording the recorder was too busy to be asked about was sent to be deleted, or ended the run")
+        XCTAssertEqual(model.job?.changed, [after.id])
+        XCTAssertEqual(model.job?.skipped, [skip(notAsked, Said.busy(Ask.details))])
+        XCTAssertEqual(model.job?.done, 2)
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました（1 件はスキップ）")
+        XCTAssertTrue(model.titles.contains { $0.id == notAsked.id }, "a recording passed over left the list")
+
+        // Asked about, the recorder answers with a fault that says nothing of whether it holds the recording.
+        await recorder.answer(Ask.details, with: .fault(402))
+        let before = await recorder.asked
+        try await run(model, .delete, [faulted.id])
+        expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                    "a recording the recorder would not be asked about was asked about again")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 0,
+                    "a recording the recorder would not be asked about was sent to be deleted")
+        XCTAssertEqual(model.job?.changed, [])
+        XCTAssertEqual(model.job?.skipped, [skip(faulted, Said.fault(402, Ask.details))])
+        XCTAssertEqual(model.job?.outcome, "0 件を削除しました（1 件はスキップ）")
+        XCTAssertTrue(model.titles.contains { $0.id == faulted.id }, "a recording passed over left the list")
 
         // Nothing to delete.
         count = await recorder.heard.count
