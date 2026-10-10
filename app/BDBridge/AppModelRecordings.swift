@@ -24,16 +24,16 @@ extension AppModel {
         await loadTitlesNow(force: force)
     }
 
-    /// The load itself, without `start()`, for anything `connect()` reaches: see there.
+    /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
+    /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read.
     func loadTitlesNow(force: Bool) async {
-        guard let client, !unreachable, force || !titlesLoaded else { return }
-        await run("録画一覧を取得中") {
-            self.titles = try await client.allTitles()
+        guard client != nil, !unreachable, force || !titlesLoaded else { return }
+        _ = await recorderDriver?.titles { list in
+            self.titles = list
             self.titlesLoaded = true
             // The sets on screen were built from the list as it was. A copy one says it keeps may have gone
             // since, and deleting the others would then leave nothing.
             if !self.duplicates.isEmpty { self.recomputeDuplicates() }
-            await self.refreshStorage(client)
         }
     }
 

@@ -51,9 +51,9 @@ extension AppModel {
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
-    /// The free space read again, after a delete or with the list of recordings. It is only shown, so a
-    /// recorder that will not say is not an error, and the delete it follows is not reported as failed.
-    /// Silence is still silence.
+    /// The free space read again, after a delete. It is only shown, so a recorder that will not say is not an
+    /// error, and the delete it follows is not reported as failed. Silence is still silence. The list reads it
+    /// through the driver, by the same rule.
     func refreshStorage(_ client: RecorderClient) async {
         do {
             session.learned(storage: try await RecorderDriver.storage(of: client))
