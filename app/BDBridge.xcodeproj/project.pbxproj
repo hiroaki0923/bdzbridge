@@ -57,10 +57,12 @@
 		CBF3D19F448EFF4D7DE9C8C5 /* USBDiskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACE549E88DF216FC29FE673 /* USBDiskTests.swift */; };
 		D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E965F5A7D72F5934B73195 /* DemoData.swift */; };
 		D215463557C8F257EF86EA36 /* ScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */; };
+		D3B33B4E2C6E5A31E87AB925 /* RunGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C523A26F0F4FF43E75C690 /* RunGateTests.swift */; };
 		D73EC4A7B36EE5C05DC54AB9 /* USBDiskChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5EF5658BC9A7BC0F2A77D8 /* USBDiskChoiceTests.swift */; };
 		E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126A76C55A44B1C1314D806C /* ChannelsScreen.swift */; };
 		E3F9192F7D274CF1D3EA7E36 /* AppModelReservations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0971BFEA2A678DBC73C09018 /* AppModelReservations.swift */; };
 		E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6328D6F84094C9B14A5C500 /* GuideGridView.swift */; };
+		EB94E416A703724A30D09314 /* NoScreenGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42587E3AD5955F5BB0F8B7A9 /* NoScreenGateTests.swift */; };
 		EE0A45F94B0B6419C3D312A6 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C50D9578B5D62CFBB300399 /* WelcomeView.swift */; };
 		EF872A1858FCAAE715724FC4 /* AppModelSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2CB9DBB1951F32BC6D89CF6 /* AppModelSession.swift */; };
 		F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */; };
@@ -106,6 +108,8 @@
 		386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWork.swift; sourceTree = "<group>"; };
 		3B58FE91AD3291C2382B2DB8 /* WhichRecorderCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderCheckTests.swift; sourceTree = "<group>"; };
 		3CD87B8AFF4E69F2228DC1A7 /* QueueWithATelevisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueWithATelevisionTests.swift; sourceTree = "<group>"; };
+		40C523A26F0F4FF43E75C690 /* RunGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunGateTests.swift; sourceTree = "<group>"; };
+		42587E3AD5955F5BB0F8B7A9 /* NoScreenGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoScreenGateTests.swift; sourceTree = "<group>"; };
 		4733264672C0A733226AA131 /* KeychainTVCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTVCredentials.swift; sourceTree = "<group>"; };
 		48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotTests.swift; sourceTree = "<group>"; };
 		58160E6F634978F81AD1D797 /* DuplicatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatesView.swift; sourceTree = "<group>"; };
@@ -227,9 +231,11 @@
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
+				42587E3AD5955F5BB0F8B7A9 /* NoScreenGateTests.swift */,
 				29C6866852333929A48A535D /* QueueGateTests.swift */,
 				3CD87B8AFF4E69F2228DC1A7 /* QueueWithATelevisionTests.swift */,
 				817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */,
+				40C523A26F0F4FF43E75C690 /* RunGateTests.swift */,
 				D94D415237BBEBD9D9550062 /* ScanTests.swift */,
 				F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */,
 				123FE92D878D382C67587A78 /* SessionRuleTests.swift */,
@@ -457,9 +463,11 @@
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
+				EB94E416A703724A30D09314 /* NoScreenGateTests.swift in Sources */,
 				0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */,
 				245DF4F2D1A518481C28B063 /* QueueWithATelevisionTests.swift in Sources */,
 				79B51016207881ED3A02D336 /* ReservationGateTests.swift in Sources */,
+				D3B33B4E2C6E5A31E87AB925 /* RunGateTests.swift in Sources */,
 				187887C62A5647A5922774CB /* ScanTests.swift in Sources */,
 				0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */,
 				6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */,
