@@ -285,10 +285,8 @@ final class FunnelGateTests: XCTestCase {
     /// asked and nothing written on the line either.
     ///
     /// The conditions' screen, with no list read, gives as its reason that the app is not connected, said by the
-    /// read itself rather than the line an earlier operation left.
-    ///
-    /// As it is today: a protect and a delete mark the recordings unread although nothing was sent, which costs
-    /// a read of the list after the reconnect.
+    /// read itself rather than the line an earlier operation left. And the recordings stay as read: nothing was
+    /// sent, so there is nothing a read once the recorder answers would have to put right.
     func testNothingIsSentToARecorderTheAppIsNotConnectedTo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         await recorder.goQuiet(for: 1)
@@ -311,7 +309,7 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertNil(model.busy, row.name)
         }
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
-        XCTAssertFalse(model.titlesLoaded)
+        XCTAssertTrue(model.titlesLoaded, "the recordings were marked unread with nothing sent")
 
         await model.adopt(host: "")
         leaveALine(on: model)
@@ -399,12 +397,11 @@ final class FunnelGateTests: XCTestCase {
     /// and says in its result and on the line what was heard, while the question, which has no line, is answered
     /// as before.
     ///
-    /// As it is today: a protect and a delete turned away by a check that met silence mark the recordings unread
-    /// all the same.
+    /// A protect and a delete turned away by a check that met silence leave the recordings as read: nothing was
+    /// sent.
     func testWhatTheCheckFoundDecidesWhetherAWriteIsSent() async throws {
         let (bench, recorder, model, subjects) = try await settled(guide: true)
         let program = try await programmesNotReserved(model, 1)[0]
-        let unread: Set = [Kind.changeRecording, Kind.deleteRecording]
         // The question, and `row` asked for beside it.
         func asking(_ row: Funnelled) -> @MainActor () async -> (clashes: [Reservation]?, done: Bool?) {
             {
@@ -428,7 +425,7 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, row.name)
             XCTAssertTrue(model.gaveUp, row.name)
             XCTAssertNil(model.busy, row.name)
-            XCTAssertEqual(model.titlesLoaded, !unread.contains(row.kind), row.name)
+            XCTAssertTrue(model.titlesLoaded, "\(row.name) marked the recordings unread with nothing sent")
             await reconnect(model)
             await model.loadTitles()
         }

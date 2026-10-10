@@ -30,8 +30,8 @@ final class RecorderRecordingsTests: XCTestCase {
     /// With no link, with a link that holds no recorder's client, and with the recorder known to be away, each
     /// write is turned away at its door: nothing is asked, no line goes up, the line an earlier failure left
     /// stays, and the result says that the app is not connected. The protect and the delete hand back that the
-    /// recordings are to be read again only for the recorder known to be away, as a write that failed there
-    /// always marked them; and a play turned away leaves the offer to turn the recorder on where it was.
+    /// recordings need not be read again, nothing having been sent; and a play turned away leaves the offer to
+    /// turn the recorder on where it was.
     func testEachWriteTurnedAwayAtItsDoorSendsNothingAndSaysWhy() async throws {
         let titles = try await Self.titles()
         let rule = try await Self.rule()
@@ -61,7 +61,7 @@ final class RecorderRecordingsTests: XCTestCase {
         let away = await Self.writes(through: driver, titles.idle, rule, request)
         XCTAssertEqual(away.altered, Array(repeating: .notDone(RecorderDriver.notConnected), count: 6),
                        "known to be away")
-        XCTAssertEqual(away.readAgain, [true, true], "known to be away")
+        XCTAssertEqual(away.readAgain, [false, false], "known to be away")
         XCTAssertEqual(world.events, [], "something was asked, sent or told of a recorder known to be away")
         XCTAssertEqual(Array(world.begun.dropFirst(begun)), [], "a line went up for a recorder known to be away")
         XCTAssertEqual(world.problem, Self.left, "something was said on the line for a recorder known to be away")

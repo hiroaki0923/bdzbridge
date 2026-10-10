@@ -156,15 +156,16 @@ extension RecorderDriver {
     /// on screen is the newcomer's; silence said, since it may have arrived, losing nobody, and the recordings
     /// not to be read again for it; a refusal said.
     ///
-    /// The recordings are to be read again after anything that failed with the recorder known to be away, the
-    /// door that found it so among them: silence may have come after the recorder made the change, and the list
-    /// is read again once it answers rather than guessed at. Not after a door that found no recorder to ask, nor
-    /// one that found it there and not to be written to.
+    /// The recordings are to be read again once the recorder answers only after the protect met silence on its
+    /// way to the recorder in play: it may have arrived, and the list is read again rather than guessed at. Not
+    /// after anything that was never sent -- turned away at a door, by the check, or across a let-go -- which
+    /// changed nothing on the recorder, however the app stands with it; nor after silence across a let-go,
+    /// which is not the recorder in play's.
     public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
         guard link.client is RecorderClient else { return (.notDone(whyNotConnected), false) }
-        guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         let came = await asked(on ? Self.protectingLine : Self.unprotectingLine,
@@ -172,7 +173,7 @@ extension RecorderDriver {
             try await client.updateTitle(id: title.id, protected: on)
             if !link.letGo(since: began) { keep() }
         }
-        return (altered(came, on: link), !came.wentThrough && link.session.unreachable)
+        return (altered(came, on: link), came.silentAfterSending && !link.letGo(since: began))
     }
 
     /// A write, and not one that can be undone: the recording is gone from the recorder. What it came to, and
@@ -190,7 +191,7 @@ extension RecorderDriver {
         guard let link else { return (.notDone(Self.notConnected), false) }
         if let why = Self.whyNot(deleting: title) { return (.notDone(why), false) }
         guard link.client is RecorderClient else { return (.notDone(whyNotConnected), false) }
-        guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         let came = await asked(Self.deletingTitleLine, .aWrite(sending: Self.mayHaveArrived), on: link,
@@ -200,7 +201,7 @@ extension RecorderDriver {
             keep()
             await self.learnTheFreeSpace(on: client, link, since: began)
         }
-        return (altered(came, on: link), !came.wentThrough && link.session.unreachable)
+        return (altered(came, on: link), came.silentAfterSending && !link.letGo(since: began))
     }
 
     // MARK: - playback and power
@@ -334,6 +335,12 @@ extension RecorderDriver {
         /// Whether it went through.
         var wentThrough: Bool {
             if case .went = self { return true }
+            return false
+        }
+
+        /// Whether what was sent met silence: it may have arrived.
+        var silentAfterSending: Bool {
+            if case .failed(.silentAfterSending) = self { return true }
             return false
         }
 
