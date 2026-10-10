@@ -121,6 +121,176 @@ final class BenchRecorderTests: XCTestCase {
         expectEqual(try await client.reservations().map(\.id), first.map(\.id),
                     "the list the first recorder was behind with was given as the second's")
     }
+
+    /// Silence is told as any other answer is: to the requests of one kind, after as many of them as the test
+    /// lets through, and counted among those it was asked. `goQuiet(on:)` is the next of a kind alone.
+    func testSilenceIsGivenToTheRequestsItWasToldAndToNoOther() async throws {
+        let delete = Ask.deleteRecording, list = Ask.recordings
+        let recorder = NamedRecorder(1)
+        let client = aClient(of: recorder)
+
+        await recorder.answer(delete, with: .silence, after: 1)
+        expectNil(await failure { try await client.deleteTitle(id: nothing) }, "the first was to be let through")
+        expectNil(await failure { _ = try await client.allTitles() }, "told of a delete, it said nothing to a read")
+        expectEqual(await failure { try await client.deleteTitle(id: nothing) }, .silent)
+        expectNil(await failure { try await client.deleteTitle(id: nothing) }, "silent to one, it was to the next")
+        expectEqual(await recorder.heard, [delete, list, delete, delete])
+        expectEqual(await recorder.asked(delete), 3, "the one it said nothing to was not counted")
+
+        await recorder.answer(list, with: .silence, times: 2)
+        expectEqual(await failure { _ = try await client.allTitles() }, .silent)
+        expectEqual(await failure { _ = try await client.allTitles() }, .silent)
+        expectNil(await failure { _ = try await client.allTitles() }, "silent to two, it was to a third")
+    }
+
+    /// A test that holds one request of a kind and then the next lets the first go alone. The hold stays as it
+    /// was set, so the next of the kind is held as it arrives; and of the requests held, only the one of that
+    /// kind that has waited longest goes.
+    func testTheRequestHeldLongestIsLetGoAloneAndTheNextOfItsKindIsHeld() async throws {
+        let delete = Ask.deleteRecording, list = Ask.recordings
+        let recorder = NamedRecorder(1)
+        let client = aClient(of: recorder)
+        // A delete asked for and waited for until it has arrived, which is where it is held if anything holds it.
+        func aDelete(by client: RecorderClient, arrivingAs count: Int) async throws -> Task<DeviceFailure?, Never> {
+            let asking = Task { await failure { try await client.deleteTitle(id: nothing) } }
+            try await until("delete \(count) never got to the recorder") { await recorder.asked(delete) == count }
+            return asking
+        }
+        // What a request that has arrived comes to once it is let go says whether it was held: one that was
+        // meets what the recorder was told after it arrived, and one that was not has been answered already.
+        func heldUntilLetGo(_ asking: Task<DeviceFailure?, Never>, _ what: String) async throws {
+            await recorder.answer(delete, with: .fault(820))
+            await recorder.letTheFirstGo(of: delete)
+            let came = try await within(5, what) { await asking.value }
+            XCTAssertEqual(came, .unknownItem, "\(what) was not held: it was answered before it was let go")
+        }
+
+        // Every request of the kind held: the first, then the second, then the third.
+        await recorder.hold(only: delete)
+        try await heldUntilLetGo(try await aDelete(by: client, arrivingAs: 1), "the first delete")
+        try await heldUntilLetGo(try await aDelete(by: client, arrivingAs: 2), "the delete after the one let go")
+        // With none held it lets nothing go, and the hold is still as it was.
+        await recorder.letTheFirstGo(of: delete)
+        try await heldUntilLetGo(try await aDelete(by: client, arrivingAs: 3), "the delete after nothing was let go")
+        await recorder.letGo()
+        expectNil(await failure { try await client.deleteTitle(id: nothing) }, "held after everything was let go")
+
+        // The next of the kind held, and asked for again before the first is let go: the one after it is held too,
+        // and the one after that is not.
+        await recorder.holdTheNext(delete)
+        let next = try await aDelete(by: client, arrivingAs: 5)
+        await recorder.holdTheNext(delete)
+        await recorder.letTheFirstGo(of: delete)
+        expectNil(try await within(5, "the delete held as the next") { await next.value })
+        try await heldUntilLetGo(try await aDelete(by: client, arrivingAs: 6), "the next delete, asked for again")
+        expectNil(await failure { try await client.deleteTitle(id: nothing) }, "a third was held after two nexts")
+
+        // Three held at once, by three clients, as one client asks one thing at a time: the delete that has
+        // waited longest goes, and neither the read nor the later delete goes with it.
+        let (second, third) = (aClient(of: recorder), aClient(of: recorder))
+        await recorder.hold()
+        let earlier = try await aDelete(by: client, arrivingAs: 8)
+        let before = await recorder.asked
+        let read = Task { await failure { _ = try await second.allTitles() } }
+        try await until("the read never got to the recorder") { await recorder.asked(list, since: before) == 1 }
+        let later = try await aDelete(by: third, arrivingAs: 9)
+        let back = Back()
+        for (name, asking) in [("the earlier delete", earlier), ("the read", read), ("the later delete", later)] {
+            Task {
+                _ = await asking.value
+                back.came.append(name)
+            }
+        }
+        await recorder.letTheFirstGo(of: delete)
+        try await until("nothing that was held was let go") { !back.came.isEmpty }
+        guard back.came == ["the earlier delete"] else {
+            await recorder.letGo()
+            return XCTFail("what was let go was not the delete that had waited longest alone: \(back.came)")
+        }
+        expectNil(await earlier.value)
+        await recorder.answer(list, with: .silence)
+        try await heldUntilLetGo(later, "the later delete")
+        await recorder.letGo()
+        expectEqual(await read.value, .silent, "the read went with a delete: it was answered before it was let go")
+    }
+
+    /// A body of the test's own is given as it is. A file of the conformance vectors is a guide a client decodes
+    /// and a refresh stores; a SOAP answer written out with its own element is read as the recorder's, where
+    /// `.result` can only say something in `Result`.
+    func testABodyOfTheTestsOwnIsGivenAsItIs() async throws {
+        let recorder = NamedRecorder(1)
+        let client = aClient(of: recorder)
+
+        let noSize = "<recordDestinationInfo totalCapacity=\"0\" availableCapacity=\"0\" />"
+        await recorder.answer(Ask.freeSpace, with: .text(noSize, in: "RecordDestinationInfo"))
+        let disk = try await client.recordDestinationInfo()
+        XCTAssertEqual(disk.totalBytes, 0)
+        XCTAssertEqual(disk.freeBytes, 0)
+        expectEqual(try await client.recordDestinationInfo().totalBytes, DemoData.totalBytes,
+                    "told to answer once, it answered so twice")
+
+        let guide = try vectorFile("epg-sample.dat")
+        await recorder.answer(Ask.guide[0], with: .body(guide))
+        expectEqual(try await client.epgFile("td"), guide)
+        expectNil(try await client.epgFile("td"), "the demo's own answer is that it has no such file")
+        await recorder.answer(Ask.guide[1], with: .body(guide))
+        expectFalse(try await client.guide("bs")?.flatMap(\.programs).isEmpty ?? true, "the file was not read")
+        await recorder.answer(Ask.logos[0], with: .body(try vectorFile("logo-sample.dat")))
+        expectFalse(try await client.logos("td")?.isEmpty ?? true, "the logos were not read")
+
+        // And into a cache: one type given the file, the rest answered as the demo answers, with no file.
+        await recorder.answer(Ask.guide[0], with: .body(guide))
+        let store = try GuideStore(path: ":memory:")
+        let fetched = try await GuideRefresh.run(client: client, store: store)
+        XCTAssertEqual(fetched.answered, GuideRefresh.broadcastingTypes)
+        XCTAssertTrue(fetched.stored > 0, "nothing of the sample guide was stored")
+        expectTrue(try await store.counts()["td"]?.programs ?? 0 > 0, "the cache holds none of its programmes")
+    }
+
+    /// Told to, it has one broadcast on its disk twice, as `RecorderWithACopy` has, and goes on being held,
+    /// told what to answer and silent as a test has it, which that one cannot be.
+    func testARecorderToldToHaveACopyHasOneAndIsStillToldWhatToAnswer() async throws {
+        let recorder = NamedRecorder(1)
+        let client = aClient(of: recorder)
+        // The numbers of the recordings that share their title with another. Numbers and titles are all that is
+        // compared between one recorder and another, here and below: each of the demo's recorders is recording
+        // something that began twenty minutes before the recorder itself was made, to the second.
+        func copies() async throws -> [String] {
+            let titles = try await client.allTitles()
+            return titles.filter { one in titles.filter { $0.title == one.title }.count > 1 }.map(\.id)
+        }
+        let before = try await client.allTitles()
+        expectEqual(try await copies(), [], "the demo was meant to hold no broadcast twice")
+
+        await recorder.haveACopy()
+        let pair = try await copies()
+        guard pair.count == 2 else {
+            return XCTFail("one broadcast was to be there twice, and nothing else more than once: \(pair)")
+        }
+        expectEqual(try await client.allTitles().map(\.id), before.map(\.id), "the copy changed a number")
+        expectEqual(try await client.allTitles().map(\.title),
+                    try await aClient(of: RecorderWithACopy()).allTitles().map(\.title))
+
+        await recorder.answer(Ask.details, with: .fault(820))
+        expectEqual(await failure { _ = try await client.titleDetail(id: pair[0]) }, .unknownItem)
+        expectNil(await failure { _ = try await client.titleDetail(id: pair[0]) })
+        await recorder.answer(Ask.recordings, with: .silence)
+        expectEqual(await failure { _ = try await client.allTitles() }, .silent)
+        expectEqual(try await copies(), pair, "the copy went with what the recorder was told")
+        // The recorder that takes its place numbers its recordings as the first did, the copy among them.
+        await recorder.become(2)
+        expectEqual(try await copies(), pair)
+    }
+}
+
+/// A number the demo has given to nothing. It takes a delete of it for done, as it takes any.
+private let nothing = "0x00000000000fffff"
+
+/// Which of the requests a test set going have come back, in the order they did, for a test that is not to wait
+/// for one that may never.
+@MainActor
+private final class Back {
+    var came: [String] = []
 }
 
 /// What the recorder's answer to `ask` was read as: nil when it went through.

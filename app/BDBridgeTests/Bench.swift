@@ -451,16 +451,18 @@ actor NotARecorder: HTTPTransport {
 /// `stopSayingWhich` has it go on as itself with no UDN in its description.
 /// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind, or with `holdTheNext`
 /// only the next of one kind -- for a test that looks at the app in between; `letGo(only:)` lets those of one
-/// kind go and keeps the rest. `goQuiet` has it say nothing to a few requests, as a recorder that has left the
-/// network does: the next ones, or the ones after it has answered so many, or the next of one kind. A request
-/// held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is asked who
-/// it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving another -- and
-/// answering everything else: there, and not saying which it is, until `comeFree()`.
+/// kind go and keeps the rest, and `letTheFirstGo(of:)` lets one request go and holds on, for a test that holds
+/// one request of a kind and then the next. `goQuiet` has it say nothing to a few requests, as a recorder that
+/// has left the network does: the next ones, or the ones after it has answered so many, or the next of one kind.
+/// A request held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is
+/// asked who it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving
+/// another -- and answering everything else: there, and not saying which it is, until `comeFree()`.
 ///
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
-/// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
-/// busy, and `beAMomentBehind` has the list after its next delete or change be the one from before it. `heard` is
-/// everything it was asked, in the order it arrived, and `elements(of:)` what the last of one kind carried.
+/// kind -- a fault with a code, a bare status, a `Result`, a whole body, or nothing at all -- `beBusy` is that
+/// for one whole call that fails as busy, and `beAMomentBehind` has the list after its next delete or change be
+/// the one from before it. `haveACopy` puts one broadcast on its disk twice. `heard` is everything it was asked,
+/// in the order it arrived, and `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -488,6 +490,8 @@ actor NamedRecorder: HTTPTransport {
     private var staleList: HTTPResponse?
     /// The `Elements` argument of the last request of each kind that carried one (`elements(of:)`).
     private var lastElements: [String: String] = [:]
+    /// Whether its list of recordings gives one broadcast twice (`haveACopy`).
+    private var hasACopy = false
 
     init(_ last: Int) {
         udn = Self.udn(last)
@@ -505,7 +509,8 @@ actor NamedRecorder: HTTPTransport {
     func become(_ last: Int) {
         udn = Self.udn(last)
         recorder = DemoRecorder()
-        // The list it was behind with was the other recorder's. What a test told it with `answer` stays.
+        // The list it was behind with was the other recorder's. What a test told it with `answer` stays, and so
+        // does a copy on its disk (`haveACopy`), the second recorder numbering its recordings as the first did.
         (behind, lastList, staleList) = (false, nil, nil)
     }
 
@@ -542,6 +547,15 @@ actor NamedRecorder: HTTPTransport {
         held.removeAll { $0.what == what }
     }
 
+    /// Lets the request of one kind that has been held longest go, and nothing else: whatever hold is set stays
+    /// set. With every request of a kind held (`hold(only:)`), the next of that kind is therefore held as it
+    /// arrives, which `letGo(only:)` would let through; with `holdTheNext` asked for again first, likewise. It
+    /// does nothing while none of that kind is held: a test waits for the request to have arrived (`asked`).
+    func letTheFirstGo(of what: String) {
+        guard let first = held.firstIndex(where: { $0.what == what }) else { return }
+        held.remove(at: first).request.resume()
+    }
+
     func goQuiet(for requests: Int, after answering: Int = 0) {
         quiet = requests
         answersBeforeQuiet = answering
@@ -563,6 +577,8 @@ actor NamedRecorder: HTTPTransport {
     /// Answers the next `times` requests of one kind -- a SOAP action, or a file by its name -- with `answer` in
     /// place of the demo's, once it has let `skipping` more of that kind through. One script to a kind. A request
     /// held and then let go meets it; one `goQuiet` took does not count. Counted in `asked` like any other.
+    /// With `.silence` it says nothing to them: to the third of a kind, say, where `goQuiet(on:)` is the next
+    /// alone.
     func answer(_ what: String, with answer: Answer, times: Int = 1, after skipping: Int = 0) {
         told[what] = (answer, times, skipping)
     }
@@ -571,6 +587,14 @@ actor NamedRecorder: HTTPTransport {
     /// makes after it, which is three in `asked`. Fewer than three is a call that goes through late.
     func beBusy(with what: String, after skipping: Int = 0) {
         answer(what, with: .status(503), times: 3, after: skipping)
+    }
+
+    /// One broadcast on its disk twice, from now on: its list gives two of its recordings one title, and what it
+    /// says each is about is the same, as it is for every recording of the demo's (`RecorderWithACopy`, which
+    /// can be told nothing else). A scan for duplicates therefore finds one set, on a recorder whose answers a
+    /// test can still hold, script and silence.
+    func haveACopy() {
+        hasACopy = true
     }
 
     /// A moment behind itself, once: the list it gives after the next reservation it deletes or changes still has
@@ -633,7 +657,7 @@ actor NamedRecorder: HTTPTransport {
             } else {
                 script.times -= 1
                 told[what] = script.times > 0 ? script : nil
-                return script.answer.response
+                return try script.answer.response
             }
         }
         if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
@@ -648,6 +672,10 @@ actor NamedRecorder: HTTPTransport {
         if what == "X_DeleteRecordSchedule" || what == "X_UpdateRecordSchedule", behind {
             behind = false
             staleList = lastList
+        }
+        if hasACopy, what == "X_GetTitleList" {
+            let twice = response.text.replacingOccurrences(of: "第３話", with: "第４話")
+            return HTTPResponse(statusCode: response.statusCode, body: Data(twice.utf8))
         }
         guard request.url.path == "/description.xml" else { return response }
         let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
@@ -664,7 +692,8 @@ extension NamedRecorder {
     /// busy with somebody else, a 500 for a guide file it has not built. The rest stand in for a recorder that
     /// turns something down, or answers oddly, where none has been seen to: 402 to anything but a request of
     /// the wrong shape -- to a read, above all -- a `Result` that is not XML, and the list a moment behind
-    /// (`beAMomentBehind`).
+    /// (`beAMomentBehind`). Silence is a recorder that has left the network, and a body is whatever the test
+    /// hands it: a guide file as a recorder serves one, or an answer a recorder is not known to give.
     enum Answer: Sendable, Equatable {
         /// A SOAP fault as a BDZ gives one: HTTP 500 with the UPnP error code in its body.
         case fault(Int)
@@ -672,26 +701,49 @@ extension NamedRecorder {
         case status(Int)
         /// HTTP 200 and this text as the `Result` of a SOAP answer, escaped as the recorder sends one.
         case result(String)
+        /// HTTP 200 and these bytes, as they are: a guide file, or a SOAP answer the test wrote out (`text`).
+        case body(Data)
+        /// Nothing: the request fails as one does that nobody answered.
+        case silence
+
+        /// HTTP 200 and this text in `element` of a SOAP answer, escaped as the recorder sends one: for what a
+        /// recorder answers in another element than `Result`, as it does the free space
+        /// (`RecordDestinationInfo`).
+        static func text(_ text: String, in element: String) -> Answer {
+            .body(Data(answering("<\(element)>\(Soap.escape(text))</\(element)>").utf8))
+        }
 
         /// The fault's body is the one the package's own tests use (`StubTransport.fault`), and the code in it
         /// has nothing around it: it is compared as text. The `Result` is in the envelope the demo builds.
+        /// Silence is thrown, as a transport throws it.
         var response: HTTPResponse {
-            let open = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
-                + "<s:Body>"
-            let close = "</s:Body></s:Envelope>"
-            switch self {
-            case .status(let status):
-                return HTTPResponse(statusCode: status)
-            case .fault(let code):
-                let fault = "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>"
-                    + "<UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>\(code)</errorCode></UPnPError>"
-                    + "</detail></s:Fault>"
-                return HTTPResponse(statusCode: 500, body: Data((open + fault + close).utf8))
-            case .result(let text):
-                let result = "<u:Response xmlns:u=\"\(Upnp.xsrsService)\"><Result>\(Soap.escape(text))</Result>"
-                    + "</u:Response>"
-                return HTTPResponse(statusCode: 200, body: Data((open + result + close).utf8))
+            get throws {
+                let open = "<?xml version=\"1.0\"?>"
+                    + "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+                let close = "</s:Body></s:Envelope>"
+                switch self {
+                case .status(let status):
+                    return HTTPResponse(statusCode: status)
+                case .fault(let code):
+                    let fault = "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring>"
+                        + "<detail><UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>\(code)</errorCode>"
+                        + "</UPnPError></detail></s:Fault>"
+                    return HTTPResponse(statusCode: 500, body: Data((open + fault + close).utf8))
+                case .result(let text):
+                    return HTTPResponse(statusCode: 200,
+                                        body: Data(Self.answering("<Result>\(Soap.escape(text))</Result>").utf8))
+                case .body(let body):
+                    return HTTPResponse(statusCode: 200, body: body)
+                case .silence:
+                    throw RecorderError.transport("The request timed out.")
+                }
             }
+        }
+
+        /// A SOAP answer with `inner` in it, in the envelope the demo builds.
+        private static func answering(_ inner: String) -> String {
+            "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+                + "<u:Response xmlns:u=\"\(Upnp.xsrsService)\">\(inner)</u:Response></s:Body></s:Envelope>"
         }
     }
 }
@@ -1049,6 +1101,17 @@ enum CheckEnd {
 @MainActor
 func aClient(of recorder: any HTTPTransport) -> RecorderClient {
     RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0)
+}
+
+/// A file of the conformance vectors (docs/port) as a recorder serves one: `epg-sample.dat` is a guide file that
+/// decodes, its programmes of days long past, and `logo-sample.dat` its stations' logos. Read from the
+/// repository by this file's own path, which a test in the simulator can do while it runs on the machine that
+/// built it.
+func vectorFile(_ name: String) throws -> Data {
+    var url = URL(fileURLWithPath: #filePath)
+    // .../app/BDBridgeTests/Bench.swift -> the repository's root
+    for _ in 0..<3 { url.deleteLastPathComponent() }
+    return try Data(contentsOf: url.appendingPathComponent("docs/port").appendingPathComponent(name))
 }
 
 // MARK: - what the recorder is asked
