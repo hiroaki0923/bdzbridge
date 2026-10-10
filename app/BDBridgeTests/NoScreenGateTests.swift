@@ -102,4 +102,62 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
         XCTAssertTrue(ran.stored, "a guide was stored and the night did not say so")
     }
+
+    /// The overnight run as its task is cancelled, which is what the system's expiry does to it, while its next
+    /// request of one kind is held: the request is then let go, and the run waited for. What `night` hands back.
+    private func nightCancelled(of recorder: NamedRecorder, _ store: GuideStore, at kind: String) async throws
+        -> (stored: Bool, told: Tellings, heard: [String]) {
+        let told = Tellings()
+        let tell = telling(told)
+        let client = aClient(of: recorder)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        await recorder.holdTheNext(kind)
+        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
+        run.cancel()
+        await recorder.letGo()
+        return (await run.value, told, await recorder.heard(since: count))
+    }
+
+    /// A night whose time runs out stops between one step and the next: the request under way is waited for,
+    /// and nothing is asked after it. Cancelled as it asks who is there, it sends nothing and tells nothing, and
+    /// the queue is as it was. Cancelled while a reservation is being made, it tells what became of the queue,
+    /// in full, and then nothing: the slot is not read.
+    ///
+    /// Cancelled from outside while the first file of the guide is out, it asks for no further file: the guide is
+    /// fetched in the night's own task, and looks for the cancellation before each type. The slot, which a night
+    /// reads once more after the guide while the disk known does not answer, is not read again. That a guide was
+    /// fetched is told all the same, a type having answered, as it is today: a later change has a night tell
+    /// nothing of the guide once its time is up, and rewrites that.
+    func testANightWhoseTimeIsUpStopsBetweenItsStepsHavingToldWhatBecameOfTheQueue() async throws {
+        let (recorder, store, _) = try await home()
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+
+        var ran = try await nightCancelled(of: recorder, store, at: Ask.description)
+        XCTAssertEqual(ran.heard, [Ask.description], "a night cancelled as it asked who is there went on")
+        XCTAssertEqual(ran.told.names, [])
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
+
+        ran = try await nightCancelled(of: recorder, store, at: Ask.create)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create],
+                       "a night cancelled while a reservation was being made went on")
+        XCTAssertEqual(ran.told.names, ["flushed"])
+        XCTAssertEqual(ran.told.rounds.map { $0.sent.map(\.id) }, [[morning.id]])
+        XCTAssertEqual(ran.told.rounds.first?.summary, Said.sent("朝の番組"),
+                       "what became of the queue was not told in full")
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store), [])
+
+        // A disk known that takes recordings, which the slot does not answer: the slot is read again after the
+        // guide on such a night.
+        try await store.keep(knownUSBDisk: USBDiskTests.disk)
+        ran = try await nightCancelled(of: recorder, store, at: Ask.guide[0])
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0]],
+                       "a further file was asked for, or the slot read again, once the night's time was up")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertFalse(ran.stored)
+    }
 }
