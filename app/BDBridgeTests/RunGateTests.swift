@@ -944,6 +944,40 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(another.job?.done, 1, "a candidate was counted after 中止, its text being in the cache")
         XCTAssertEqual(another.job?.outcome, "1 件まで調べて中止しました")
     }
+
+    /// Another recorder heard by the check before an operation while a scan is in front, a text out: the scan is
+    /// stopped, as 中止 stops one, since it asks by the numbers it began with and those are the last recorder's.
+    /// No further text is asked of the newcomer; what the scan read and what it came to go with the recorder it
+    /// was about, the texts in memory and the job on the screen.
+    ///
+    /// The text that was out is in memory before the check hears who answers: the check's ask is held as well,
+    /// and the text let go alone and waited for.
+    func testAnotherRecorderHeardWhileAScanIsInFrontEndsItAndKeepsNothingOfIt() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        await recorder.hold(only: Ask.details)
+        let before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        await recorder.holdTheNext(Ask.description)
+        bench.network = "away"
+        let check = Task { await lookAtTheNetwork(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.letGo(only: Ask.details)
+        try await until("the text that was out was never kept") { !model.summaries.isEmpty }
+        await recorder.become(2)
+        await recorder.letGo()
+        _ = await check.value
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil && !model.jobRunning
+        }
+
+        expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                    "the scan went on, on the newcomer, by the last recorder's numbers")
+        XCTAssertTrue(model.summaries.isEmpty, "a text read for the last recorder is kept over the newcomer")
+        XCTAssertNil(model.job, "what the scan came to is shown over a recorder it was not about")
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.
