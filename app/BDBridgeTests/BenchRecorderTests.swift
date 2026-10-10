@@ -10,6 +10,9 @@ import XCTest
 /// here: how often, after how many, to which kind, and beside its being held or silent. What a client takes a
 /// fault, a 503 or a missing file for is the package's to say and is tested there (`DeviceFailureTests`,
 /// `RecorderClientTests`); here each is looked at only for being the one the test asked for.
+///
+/// Two more of the bench's own are held here for the same reason, though neither is the recorder: the cache's
+/// table put out of reach, and the record of what a run with no screen told.
 @MainActor
 final class BenchRecorderTests: XCTestCase {
     func testTheRecorderOnTheBenchAnswersAsItIsToldAndIsReadSo() async throws {
@@ -280,6 +283,64 @@ final class BenchRecorderTests: XCTestCase {
         // The recorder that takes its place numbers its recordings as the first did, the copy among them.
         await recorder.become(2)
         expectEqual(try await copies(), pair)
+    }
+
+    /// With the cache's `meta` table out of reach, whose cache it is cannot be read, by a store opened before or
+    /// by the rule the runs with no screen ask (`RecorderDriver.isTheOneKnown`), which takes that for a recorder
+    /// it does not know; the queue is read as ever. Put back, the cache is the recorder's it was.
+    func testWhoseCacheItIsCannotBeReadWhileItsTableIsOutOfReach() async throws {
+        let (bench, recorder, _) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let client = aClient(of: recorder)
+        try await client.describe()
+        expectEqual(try await store.owner(), NamedRecorder.udn(1))
+        expectTrue(await RecorderDriver.isTheOneKnown(client, to: store))
+
+        let meta = MetaOutOfReach(in: bench.guidePath)
+        do {
+            let owner = try await store.owner()
+            XCTFail("the owner was read from a table out of reach: \(owner ?? "none")")
+        } catch {}
+        expectFalse(await RecorderDriver.isTheOneKnown(client, to: store))
+        expectEqual(try await store.pendingReservations(), [], "the queue went out of reach with it")
+
+        meta.putBack()
+        expectEqual(try await store.owner(), NamedRecorder.udn(1))
+        expectTrue(await RecorderDriver.isTheOneKnown(client, to: store))
+    }
+
+    /// What a run with no screen tells is on the bench's record by the time each telling returns, as it was told
+    /// and in that order: the one that is told with no wait as well, which a record kept by a task of its own
+    /// would hold a moment late or out of its place.
+    func testWhatARunWithNoScreenTellsIsOnRecordAsItIsToldAndInItsOrder() async throws {
+        let told = Tellings()
+        let tell = telling(told)
+        XCTAssertEqual(told.said, [])
+        tell.fetched(Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(told.said, [.fetched], "what is told with no wait was not on record when its telling returned")
+        let disk = RecorderDisk(destination: RecorderDisk.usbID, name: "録画用ディスク", mounted: true, freeMB: 1,
+                                totalMB: 2, registered: "2026-01-01T00:00:00+09:00")
+        await tell.heldBack()
+        await tell.freeSpace(1, 2, "HDD")
+        await tell.usbSpace(disk)
+        tell.fetched(Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(told.said, [.fetched, .heldBack, .freeSpace(free: 1, total: 2, naming: "HDD"), .usbSpace(disk),
+                                   .fetched])
+        XCTAssertEqual(told.names, ["fetched", "heldBack", "freeSpace", "usbSpace", "fetched"])
+        XCTAssertEqual(told.rounds, [])
+
+        // A night of the demo's recorder with nothing waiting, which tells of the queue all the same.
+        let (bench, recorder, _) = try await connectedHome()
+        let night = Tellings()
+        _ = await BackgroundWork.refresh(client: aClient(of: recorder), store: try GuideStore(path: bench.guidePath),
+                                         mac: nil, telling: telling(night))
+        XCTAssertEqual(night.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertEqual(night.rounds.map(\.slot), [.recorder])
+        guard case .freeSpace(_, let total, let naming)? = night.said.dropFirst().first else {
+            return XCTFail("the second thing told was not the free space: \(night.said)")
+        }
+        XCTAssertEqual(total, DemoData.totalBytes)
+        XCTAssertNil(naming, "the demo's recorder has no USB disk for its own to be told from")
     }
 }
 

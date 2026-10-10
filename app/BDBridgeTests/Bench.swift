@@ -844,6 +844,29 @@ final class QueueOutOfReach {
     deinit { sqlite3_close(connection) }
 }
 
+/// Another connection that has put the cache's `meta` table out of the app's reach, until it puts it back: whose
+/// cache this is (`GuideStore.owner`) cannot be read meanwhile, nor anything else kept there -- what was fetched
+/// and when, the USB disk known -- each read failing at once, as the queue's does behind `QueueOutOfReach`. The
+/// only way to an owner that cannot be read: a writer's lock stops no read. The queue beside it is read and
+/// written as ever. A store opened meanwhile would make itself an empty table of that name and read no owner
+/// from it, with no failure: the test opens its store first, and `putBack` fails if one was.
+final class MetaOutOfReach {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(run("ALTER TABLE meta RENAME TO meta_out_of_reach"), SQLITE_OK)
+    }
+
+    func putBack() {
+        XCTAssertEqual(run("ALTER TABLE meta_out_of_reach RENAME TO meta"), SQLITE_OK)
+    }
+
+    private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
+
+    deinit { sqlite3_close(connection) }
+}
+
 /// Another connection that has put the queue's table behind a view of the same name, until it puts it back: a
 /// row the app writes to the queue meanwhile goes into the table, and every read of the queue that comes upon a
 /// row fails at once. (A read of an empty queue works nothing out, and goes through.) A write that went through
@@ -1112,6 +1135,62 @@ func vectorFile(_ name: String) throws -> Data {
     // .../app/BDBridgeTests/Bench.swift -> the repository's root
     for _ in 0..<3 { url.deleteLastPathComponent() }
     return try Data(contentsOf: url.appendingPathComponent("docs/port").appendingPathComponent(name))
+}
+
+// MARK: - what a run with no screen tells
+
+/// What a run with no screen told the reader and kept for the screens (`BackgroundWork.Telling`), each telling
+/// as it was told and in the order it was. Written under a lock by the telling itself, with no task in between
+/// -- `fetched` too, which is not `async` -- so that everything told is here by the time its telling returns:
+/// a test can say what was not told, and in which order the rest was.
+final class Tellings: @unchecked Sendable {
+    enum Told: Equatable, Sendable {
+        case heldBack
+        case flushed(PendingQueue.Outcome)
+        case freeSpace(free: Int, total: Int, naming: String?)
+        case usbSpace(RecorderDisk)
+        /// Without its time, which is the moment it was told.
+        case fetched
+
+        /// The member of `BackgroundWork.Telling` it was told through.
+        var name: String {
+            switch self {
+            case .heldBack: "heldBack"
+            case .flushed: "flushed"
+            case .freeSpace: "freeSpace"
+            case .usbSpace: "usbSpace"
+            case .fetched: "fetched"
+            }
+        }
+    }
+
+    private let lock = NSLock()
+    private var told: [Told] = []
+
+    /// Everything told so far, in order.
+    var said: [Told] { lock.withLock { told } }
+
+    /// The same by name alone, for a test that looks at what was told and in which order.
+    var names: [String] { said.map(\.name) }
+
+    /// What became of the queue, as each round was told.
+    var rounds: [PendingQueue.Outcome] {
+        said.compactMap { if case .flushed(let outcome) = $0 { outcome } else { nil } }
+    }
+
+    fileprivate func say(_ what: Told) {
+        lock.withLock { told.append(what) }
+    }
+}
+
+/// What a run with no screen is handed to tell with (`BackgroundWork.refresh`): each telling goes on `told`'s
+/// record, and nowhere else.
+func telling(_ told: Tellings) -> BackgroundWork.Telling {
+    BackgroundWork.Telling(heldBack: { told.say(.heldBack) },
+                           flushed: { told.say(.flushed($0)) },
+                           freeSpace: { told.say(.freeSpace(free: $0, total: $1, naming: $2)) },
+                           usbSpace: { told.say(.usbSpace($0)) },
+                           fetched: { _ in told.say(.fetched) })
 }
 
 // MARK: - what the recorder is asked
