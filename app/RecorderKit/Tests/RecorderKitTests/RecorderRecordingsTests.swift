@@ -255,6 +255,69 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertNil(RunStop.silent(afterSending: false).said)
     }
 
+    /// A run that deletes or protects does not begin with the recorder known to be away, as a single protect is
+    /// turned away at its door: nothing is asked, no line goes up, the line an earlier failure left stays, and
+    /// why is that the app is not connected. A scan begins all the same, on the client still in hand: one that
+    /// has every text in the cache asks the recorder nothing.
+    func testARunThatDeletesOrProtectsDoesNotBeginWithTheRecorderKnownToBeAwayAndAScanDoes() async throws {
+        func whyNot(_ begun: Result<Run, RunStop>) -> RunStop? {
+            if case .failure(let stop) = begun { stop } else { nil }
+        }
+        let (world, driver, recorder) = try await Self.playing([:])
+        driver.link?.lost()
+        world.events = []
+        let putUp = world.begun.count
+
+        XCTAssertEqual([RunKind.delete, .protecting(true), .protecting(false)].map { whyNot(driver.beginRun($0)) },
+                       Array(repeating: .said(RecorderDriver.notConnected), count: 3))
+        XCTAssertNil(whyNot(driver.beginRun(.scanning)), "a scan was turned away for a recorder known to be away")
+        expectEqual(await recorder.actions, [], "something was asked of a recorder known to be away")
+        XCTAssertEqual(world.events, [], "something was sent or told as a run was begun")
+        XCTAssertEqual(world.begun.count, putUp, "a line went up as a run was begun")
+        XCTAssertEqual(world.problem, Self.left, "something was said on the line as a run was begun")
+        XCTAssertTrue(driver.link?.client != nil, "the client went with the recorder: not that door alone")
+    }
+
+    /// What a run stopped before a recording hands back, for its job to show as why: whatever stands on the line
+    /// of what went wrong, and that the app is not connected where nothing stands there. Before a recording after
+    /// the first, with the recorder known to be away and no check out, the run writes nothing on the line and asks
+    /// nothing: so what it hands back is what a check that met silence said there, when that is what lost the
+    /// recorder -- and what an earlier operation left there, when the recorder was lost by something that said
+    /// nothing, which need not be about the run at all. Before its first recording the run makes sure of the
+    /// recorder itself, and of one known to be away that check says that the app is not connected, on the line
+    /// and so in what is handed back.
+    func testARunStoppedBeforeARecordingHandsBackWhatStandsOnTheLine() async throws {
+        // Lost by something that said nothing, the line as an earlier failure left it.
+        let (world, driver, recorder) = try await Self.playing([:])
+        let run = try driver.beginRun(.delete).get()
+        driver.link?.lost()
+        world.events = []
+        expectEqual(await driver.mayGoOn(run, .next), .said(Self.left))
+        XCTAssertEqual(world.problem, Self.left, "the run wrote on the line before a later recording")
+        world.problem = nil
+        expectEqual(await driver.mayGoOn(run, .next), .said(RecorderDriver.notConnected))
+        XCTAssertNil(world.problem, "the run wrote on the line before a later recording")
+        expectEqual(await recorder.actions, [], "a recorder known to be away was asked")
+
+        // Before the first recording: the run's own check, of a recorder known to be away.
+        expectEqual(await driver.mayGoOn(run, .first), .said(LinkWorld.notConnected))
+        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        expectEqual(await recorder.actions, [], "a recorder known to be away was asked")
+        XCTAssertEqual(world.events, [], "something was sent or told for a recorder known to be away")
+
+        // Lost by a check that met silence, which said so.
+        let (dark, ofTheSilent, silent) = try await Self.playing([:])
+        let stopped = try ofTheSilent.beginRun(.delete).get()
+        await silent.sayNothingOfWhoItIs()
+        let there = await ofTheSilent.link?.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(there, false, "the check was meant to meet silence")
+        XCTAssertEqual(dark.problem, ofTheSilent.noAnswerLine, "the check was meant to say that nothing answered")
+        await silent.forget()
+        expectEqual(await ofTheSilent.mayGoOn(stopped, .next), .said(ofTheSilent.noAnswerLine))
+        XCTAssertEqual(dark.problem, ofTheSilent.noAnswerLine)
+        expectEqual(await silent.actions, [], "a recorder known to be away was asked")
+    }
+
     // MARK: - one recording of a run
 
     // The decisions a run makes about each recording. The recorder's traps are the point: it refuses a protected
@@ -622,6 +685,7 @@ private actor PlayingRecorder: HTTPTransport {
     private let description: String
     private(set) var actions: [String] = []
     private(set) var bodies: [String] = []
+    private var saysWhoItIs = true
 
     init(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [], udn: String) throws {
         self.answers = answers
@@ -635,10 +699,16 @@ private actor PlayingRecorder: HTTPTransport {
         bodies = []
     }
 
+    /// Says nothing from now on when asked who it is, as a recorder that has left the network.
+    func sayNothingOfWhoItIs() {
+        saysWhoItIs = false
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.lastPathComponent != "description.xml" else {
             actions.append("description.xml")
             bodies.append("")
+            guard saysWhoItIs else { throw RecorderError.transport("timed out") }
             return HTTPResponse(statusCode: 200, body: Data(description.utf8))
         }
         let action = String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")

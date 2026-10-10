@@ -17,8 +17,9 @@ public struct Run: Sendable {
     let client: RecorderClient
 }
 
-/// Why a run stopped before its end, or did not begin, on the recorder's account. An `Error` only so that it can
-/// be the failure of `RecorderDriver.beginRun`'s `Result`, which asks that of it; nothing throws it.
+/// Why a run stopped before its end, or did not begin, on the recorder's account: what its job keeps once it
+/// has stopped, for what it says then (`RecorderDriver.outcome`) and for the line under that. An `Error` only so
+/// that it can be the failure of `RecorderDriver.beginRun`'s `Result`, which asks that of it; nothing throws it.
 public enum RunStop: Error, Sendable, Equatable {
     /// Turned away, with a sentence. For a run that did not begin, that the app is not connected
     /// (`RecorderDriver.beginRun`). For one stopped before a recording (`RecorderDriver.mayGoOn`), whatever
@@ -29,8 +30,9 @@ public enum RunStop: Error, Sendable, Equatable {
     /// changes the recorder: it may have arrived all the same.
     case silent(afterSending: Bool)
 
-    /// The sentence handed back with a run turned away, as `.said` has it. Nil for silence, which what the job
-    /// says once it has stopped says itself (`RecorderDriver.outcome`).
+    /// The sentence handed back with a run turned away, as `.said` has it, for the job to show under what it
+    /// says once it has stopped. Nil for silence, which what the job says then says itself
+    /// (`RecorderDriver.outcome`).
     public var said: String? {
         if case .said(let why) = self { why } else { nil }
     }
@@ -99,19 +101,23 @@ extension RecorderDriver {
     }
 
     /// What to tell the reader once a run has stopped, in the shape the web app settled on: how many recordings
-    /// it changed -- a scan, how many it looked at (`done`) -- whether it came to its end, was stopped by 中止
-    /// (`cancelled`) or lost the recorder (`lost`), which is said whether or not 中止 was tapped as well, and how
-    /// many it passed over.
+    /// it changed -- a scan, how many it looked at (`done`) -- whether it came to its end or was stopped before
+    /// it, and how many it passed over. A run the recorder's silence stopped (`RunStop.silent`) says that the
+    /// recorder stopped answering, whether or not 中止 was tapped as well. One stopped for anything else
+    /// (`RunStop.said`) says only that it was stopped, as one stopped by 中止 (`cancelled`) does: why is the
+    /// stop's own sentence, which the job shows under this one.
     public nonisolated static func outcome(of kind: RunKind, done: Int, changed: Int, passedOver: Int,
-                                           cancelled: Bool, lost: Bool) -> String {
+                                           cancelled: Bool, stopped: RunStop?) -> String {
+        let silent = if case .silent = stopped { true } else { false }
+        let cut = cancelled || stopped != nil
         if case .scanning = kind {
-            let head = lost ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
-                : cancelled ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
+            let head = silent ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
+                : cut ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
             return passedOver == 0 ? head : head + "（\(passedOver) 件は番組内容を取得できず、比べていません）"
         }
         let verb = verb(of: kind)
-        let head = lost ? "\(changed) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
-            : cancelled ? "\(changed) 件を\(verb)したところで中止しました" : "\(changed) 件を\(verb)しました"
+        let head = silent ? "\(changed) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
+            : cut ? "\(changed) 件を\(verb)したところで中止しました" : "\(changed) 件を\(verb)しました"
         return passedOver == 0 ? head : head + "（\(passedOver) 件はスキップ）"
     }
 
@@ -120,13 +126,22 @@ extension RecorderDriver {
 
     // MARK: - a run's recorder
 
-    /// Begins a run of `kind`: the run, for its steps to be handed back with, or why none begins. The one door
-    /// is a recorder's client in hand, the client the run's requests then go on. A run begins beside a connect
-    /// under way, on a client that has not heard which recorder answers it, and with the recorder known to be
-    /// away: whether its first recording may go is `mayGoOn`'s to say. Nothing is asked, and nothing said.
+    /// Begins a run of `kind`: the run, for its steps to be handed back with, or why none begins, for its job to
+    /// say. Nothing is asked, and nothing is said on the line, which keeps what an earlier operation left there
+    /// (`Reserved`).
+    ///
+    /// A run that deletes or protects has the doors of a single protect (`protect(_:_:keep:)`), as far as they
+    /// go here: the link gone, no recorder's client in hand, or the recorder known to be away, each that the
+    /// app is not connected (`whyNotConnected`). It still begins beside a connect under way, and on a client
+    /// that has not heard which recorder answers it.
+    ///
+    /// A scan has the one door, a recorder's client in hand, the client its requests then go on: one whose
+    /// texts are all in the cache asks the recorder nothing, and comes to its end with the recorder known to be
+    /// away. Whether a text may be read is `mayGoOn`'s to say, asked before the first that is to be.
     public func beginRun(_ kind: RunKind) -> Result<Run, RunStop> {
         guard let link else { return .failure(.said(Self.notConnected)) }
         guard let client = link.client as? RecorderClient else { return .failure(.said(whyNotConnected)) }
+        if kind != .scanning, link.session.unreachable { return .failure(.said(whyNotConnected)) }
         return .success(Run(kind: kind, began: link.generation, client: client))
     }
 
@@ -146,7 +161,8 @@ extension RecorderDriver {
     ///   -- then the recorder, which has had all that time to fall asleep, is made sure of, and then as `.next`.
     ///
     /// A no hands back whatever stands on the host's line of what went wrong, or that the app is not connected
-    /// where the line is empty. That is what a check wrote there, when one did. A no to `.next` with the recorder
+    /// where the line is empty, as a write's result says a check's no again (`altered`): the run's job shows it
+    /// as why the run stopped. That is what a check wrote there, when one did. A no to `.next` with the recorder
     /// known to be away and no check out hands back what an earlier operation left, which need not be about the
     /// run. Nothing is written on the line here.
     public func mayGoOn(_ run: Run, _ moment: RunMoment) async -> RunStop? {

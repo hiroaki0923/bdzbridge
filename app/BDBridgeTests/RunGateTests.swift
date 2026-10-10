@@ -169,45 +169,75 @@ final class RunGateTests: XCTestCase {
     }
 
     /// What a job says once it has stopped, letter for letter: how many recordings it changed, or a scan how many
-    /// it looked at, whether it came to its end, was stopped by 中止 or lost the recorder, and how many it passed
-    /// over. One that lost the recorder says so whether or not 中止 was tapped as well.
-    ///
-    /// The sentences of a run that lost the recorder are today's, and so is the one field of the job this test
-    /// sets to have them said: a later change gives a run its reason for stopping, and these rows go with it.
+    /// it looked at, whether it came to its end or was stopped before it, and how many it passed over. One the
+    /// recorder's silence stopped says that the recorder stopped answering, whether the silence met something
+    /// sent or something asked, and whether or not 中止 was tapped as well. One stopped for anything else on the
+    /// recorder's account -- a door, a check that said no -- says only that it was stopped, in the letters of one
+    /// stopped by 中止, and has the stop's own sentence for the line under that; silence has none, and nor has
+    /// a run nothing stopped.
     func testWhatAJobSaysOnceItHasStoppedLetterForLetter() {
         typealias Job = AppModel.BulkJob
-        func said(_ kind: Job.Kind, cancelled: Bool = false, lost: Bool = false, skipped: Int = 0) -> String {
+        func job(_ kind: Job.Kind, cancelled: Bool = false, stopped: RunStop? = nil, skipped: Int = 0) -> Job {
             var job = Job(kind: kind, total: 5)
             job.done = 3
             job.changed = ["a", "b"]
             job.skipped = (0..<skipped).map { Job.Skip(id: "\($0)", reason: "") }
             job.cancelled = cancelled
-            job.lostRecorder = lost
+            job.stopped = stopped
             job.finished = true
-            return job.outcome
+            return job
         }
+        func said(_ kind: Job.Kind, cancelled: Bool = false, stopped: RunStop? = nil, skipped: Int = 0) -> String {
+            job(kind, cancelled: cancelled, stopped: stopped, skipped: skipped).outcome
+        }
+        let silences = [RunStop.silent(afterSending: true), .silent(afterSending: false)]
+        let turnedAway = [RunStop.said(Said.notConnected), .said(Said.noAnswer), .said(Said.busy(Ask.description)),
+                          .said(lineLeft)]
 
         for (kind, verb) in [(Job.Kind.delete, "削除"), (.protecting(true), "保護"), (.protecting(false), "保護解除")] {
             XCTAssertEqual(said(kind), "2 件を\(verb)しました")
             XCTAssertEqual(said(kind, skipped: 1), "2 件を\(verb)しました（1 件はスキップ）")
             XCTAssertEqual(said(kind, cancelled: true), "2 件を\(verb)したところで中止しました")
             XCTAssertEqual(said(kind, cancelled: true, skipped: 2), "2 件を\(verb)したところで中止しました（2 件はスキップ）")
-            XCTAssertEqual(said(kind, lost: true), "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました")
-            XCTAssertEqual(said(kind, lost: true, skipped: 1),
-                           "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました（1 件はスキップ）")
-            XCTAssertEqual(said(kind, cancelled: true, lost: true),
-                           "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました")
+            for silence in silences {
+                XCTAssertEqual(said(kind, stopped: silence), "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました")
+                XCTAssertEqual(said(kind, stopped: silence, skipped: 1),
+                               "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました（1 件はスキップ）")
+                XCTAssertEqual(said(kind, cancelled: true, stopped: silence),
+                               "2 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました")
+            }
+            for stop in turnedAway {
+                XCTAssertEqual(said(kind, stopped: stop), "2 件を\(verb)したところで中止しました", "\(stop)")
+                XCTAssertEqual(said(kind, stopped: stop, skipped: 1), "2 件を\(verb)したところで中止しました（1 件はスキップ）",
+                               "\(stop)")
+                XCTAssertEqual(said(kind, cancelled: true, stopped: stop), "2 件を\(verb)したところで中止しました", "\(stop)")
+            }
         }
         XCTAssertEqual(said(.scanning), "3 件の確認が完了しました")
         XCTAssertEqual(said(.scanning, skipped: 1), "3 件の確認が完了しました（1 件は番組内容を取得できず、比べていません）")
         XCTAssertEqual(said(.scanning, cancelled: true), "3 件まで調べて中止しました")
         XCTAssertEqual(said(.scanning, cancelled: true, skipped: 2),
                        "3 件まで調べて中止しました（2 件は番組内容を取得できず、比べていません）")
-        XCTAssertEqual(said(.scanning, lost: true), "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました")
-        XCTAssertEqual(said(.scanning, lost: true, skipped: 1),
-                       "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました（1 件は番組内容を取得できず、比べていません）")
-        XCTAssertEqual(said(.scanning, cancelled: true, lost: true),
-                       "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました")
+        for silence in silences {
+            XCTAssertEqual(said(.scanning, stopped: silence), "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました")
+            XCTAssertEqual(said(.scanning, stopped: silence, skipped: 1),
+                           "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました（1 件は番組内容を取得できず、比べていません）")
+            XCTAssertEqual(said(.scanning, cancelled: true, stopped: silence),
+                           "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました")
+        }
+        for stop in turnedAway {
+            XCTAssertEqual(said(.scanning, stopped: stop), "3 件まで調べて中止しました", "\(stop)")
+            XCTAssertEqual(said(.scanning, stopped: stop, skipped: 1),
+                           "3 件まで調べて中止しました（1 件は番組内容を取得できず、比べていません）", "\(stop)")
+            XCTAssertEqual(said(.scanning, cancelled: true, stopped: stop), "3 件まで調べて中止しました", "\(stop)")
+        }
+
+        // The line under it.
+        XCTAssertEqual(turnedAway.map { job(.delete, stopped: $0).stopped?.said },
+                       [Said.notConnected, Said.noAnswer, Said.busy(Ask.description), lineLeft])
+        XCTAssertEqual(silences.map { job(.delete, stopped: $0).stopped?.said }, [nil, nil],
+                       "silence has a sentence of its own under what the job says of it")
+        XCTAssertNil(job(.delete, cancelled: true).stopped?.said)
     }
 
     // MARK: - a job from the turn it is asked for
@@ -367,17 +397,18 @@ final class RunGateTests: XCTestCase {
     /// A run makes sure of the recorder before its first recording, as anything the reader asks for does, and
     /// one started while a check is out waits for that check's answer in place of a probe of its own.
     ///
-    /// With the recorder known to be away nothing is asked, and with a check that meets silence nothing but the
-    /// check's own ask: the run ends with nothing sent. After a check the recorder answered, the recordings go.
+    /// With the recorder known to be away the run does not begin, at a door, as a single delete does not:
+    /// nothing is asked, the line of what went wrong is left as it was, and the job says that it was stopped and,
+    /// under that, that the app is not connected. With a check that meets silence nothing is asked but the
+    /// check's own ask: the run ends with nothing sent, and the job says under what it came to what the check
+    /// said on the line. After a check the recorder answered, the recordings go.
     ///
-    /// Three things are as they are today. A run that could not begin says that the recorder stopped answering,
-    /// whatever the reason was, and with the recorder known to be away the check writes on the line that the
-    /// app is not connected: a later change has the job say the reason, and leaves the line at that door. And
-    /// after a check that heard the recorder busy with somebody else as it was asked who it is -- which says
-    /// nothing of which recorder answered -- the run's recordings are sent: a later change stops the run there.
+    /// One thing is as it is today. After a check that heard the recorder busy with somebody else as it was
+    /// asked who it is -- which says nothing of which recorder answered -- the run's recordings are sent: a later
+    /// change stops the run there.
     func testARunMakesSureOfTheRecorderBeforeItsFirstRecordingAndWaitsForACheckThatIsOut() async throws {
         let (_, recorder, model, idle) = try await settled()
-        let notBegun = "0 件を削除したところで、レコーダーの応答がなくなったため中止しました"
+        let notBegun = "0 件を削除したところで中止しました"
 
         // The recorder known to be away.
         await recorder.goQuiet(for: 1)
@@ -387,8 +418,9 @@ final class RunGateTests: XCTestCase {
         var count = await recorder.heard.count
         try await run(model, .delete, [idle[0].id])
         expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked")
-        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a run turned away at its door wrote on the line")
         XCTAssertEqual(model.job?.outcome, notBegun)
+        XCTAssertEqual(model.job?.stopped, .said(Said.notConnected))
         await reconnect(model)
 
         // Beside a check that meets silence.
@@ -404,6 +436,7 @@ final class RunGateTests: XCTestCase {
                     "a recording was sent, or a probe of the run's own, beside a check that met silence")
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
         XCTAssertEqual(model.job?.outcome, notBegun)
+        XCTAssertEqual(model.job?.stopped, .said(Said.noAnswer))
         await reconnect(model)
 
         // Beside a check that hears it busy with somebody else, through both tries after the first.
@@ -426,10 +459,12 @@ final class RunGateTests: XCTestCase {
     /// ask, answering the waking, and busy with somebody else as the waking's attach asks who it is -- sends none
     /// of its recordings: the recorder is there, and the app is not connected to it.
     ///
-    /// Two things are as they are today. The job says that the recorder stopped answering, which it did not: a
-    /// later change has it say the check's reason. And the free space is read once the run has stopped, of a
-    /// recorder that has not said which it is: a later change reads it only after a run that deleted something
-    /// and that the recorder did not stop.
+    /// The job says that it was stopped and, under that, what the waking's attach left on the line: that the
+    /// recorder is busy with somebody else.
+    ///
+    /// One thing is as it is today. The free space is read once the run has stopped, of a recorder that has not
+    /// said which it is: a later change reads it only after a run that deleted something and that the recorder
+    /// did not stop.
     func testARunBesideACheckTurnedAwayAfterAWakingSendsNoRecording() async throws {
         let (_, recorder, model, idle) = try await settled(wakeable: true)
         let count = await recorder.heard.count
@@ -441,7 +476,10 @@ final class RunGateTests: XCTestCase {
         expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [Ask.freeSpace],
                     "a recording was sent to a recorder that turned the attach away; the free space is read, today")
         XCTAssertEqual(model.job?.changed, [])
-        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで、レコーダーの応答がなくなったため中止しました")
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(Said.busy(Ask.description)))
+        XCTAssertEqual(model.problem(for: .recorder), Said.busy(Ask.description),
+                       "the job says another reason than the waking left on the line")
     }
 
     /// A run in front, between two recordings, hears out a check that is waking the recorder. The check's own ask
@@ -557,6 +595,117 @@ final class RunGateTests: XCTestCase {
         XCTAssertTrue(model.connected)
     }
 
+    // MARK: - why a run stopped
+
+    /// A run that cannot begin is a job all the same, one that has ended in the turn it was asked for: nothing is
+    /// asked of the recorder, the line of what went wrong is left as it was, and the job says that it was stopped
+    /// with nothing done and, under that, that the app is not connected; it can be taken off the screen at once.
+    /// So it is for a bulk delete and a bulk protect with the recorder known to be away, and with no recorder in
+    /// hand at all.
+    ///
+    /// A scan is not turned away for a recorder known to be away, since one that has every text needs none. It
+    /// begins, and with a text to read it stops before that text, nothing asked, with the same two sentences.
+    func testARunThatCannotBeginIsAJobThatHasEndedAndSaysWhy() async throws {
+        let (_, recorder, model, idle) = try await settled(withACopy: true)
+        let two = [idle[0].id, idle[1].id]
+        let kinds: [(kind: AppModel.BulkJob.Kind, outcome: String)] = [
+            (.delete, "0 件を削除したところで中止しました"), (.protecting(true), "0 件を保護したところで中止しました"),
+            (.protecting(false), "0 件を保護解除したところで中止しました"),
+        ]
+        /// Asks for a run of each kind, which is to have ended by the time it has been asked for.
+        func askForEach(_ what: String) {
+            for row in kinds {
+                leaveALine(on: model)
+                model.startBulk(row.kind, ids: two)
+                XCTAssertNotNil(model.job, "\(what): nothing says that the run did not begin")
+                XCTAssertFalse(model.jobRunning, "\(what): the job did not end in the turn it was asked for")
+                XCTAssertEqual(model.job?.kind, row.kind, what)
+                XCTAssertEqual(model.job?.total, 2, what)
+                XCTAssertEqual(model.job?.done, 0, what)
+                XCTAssertEqual(model.job?.outcome, row.outcome, what)
+                XCTAssertEqual(model.job?.stopped, .said(Said.notConnected), what)
+                XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(what): a run turned away wrote on the line")
+                model.clearJob()
+                XCTAssertNil(model.job, "\(what): a job that never ran could not be taken off the screen")
+            }
+        }
+
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to be known to be away")
+        let count = await recorder.heard.count
+        askForEach("known to be away")
+
+        model.startDuplicateScan()
+        XCTAssertTrue(model.jobRunning, "a scan was turned away at a door for a recorder known to be away")
+        try await untilTheRunEnds(model, "the scan never ended")
+        XCTAssertEqual(model.job?.done, 0)
+        XCTAssertEqual(model.job?.outcome, "0 件まで調べて中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(Said.notConnected))
+        XCTAssertTrue(model.summaries.isEmpty)
+
+        await model.adopt(host: "")
+        askForEach("with no recorder")
+        expectEqual(await recorder.heard(since: count), [], "a recorder the app could not ask was asked")
+    }
+
+    /// What stopped a run is kept with its job, silence apart from everything else. A run stopped before its next
+    /// recording because something else lost the recorder and said so -- a look at the network that met silence,
+    /// taken while the first recording's delete was out -- says that it was stopped and, under that, the look's
+    /// own sentence, as it stands on the line. A run stopped by silence at a request of its own has no sentence
+    /// under what it says, which says it; what its job keeps is whether that request was one that changes the
+    /// recorder -- a delete, a protect -- or one that only asks.
+    func testWhatStoppedARunIsKeptWithItsJobAndSilenceHasNoSentenceUnderIt() async throws {
+        let (bench, recorder, model, idle) = try await settled(withACopy: true)
+        // Not the two copies, which the scan below is to find still there.
+        let copies = try copies(model)
+        let spare = idle.map(\.id).filter { $0 != copies.first && $0 != copies.second }
+        guard spare.count >= 3 else { return XCTFail("the demo was meant to hold three recordings beside the copies") }
+
+        // Before its next recording, the recorder lost by a look at the network.
+        await recorder.hold(only: Ask.deleteRecording)
+        let before = await recorder.asked
+        model.startBulk(.delete, ids: [spare[0], spare[1]])
+        try await until("the run never came to its first delete") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        bench.network = "away"
+        let check = Task { await lookAtTheNetwork(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.goQuiet(on: Ask.description)
+        await recorder.letGo()
+        _ = await check.value
+        try await untilTheRunEnds(model)
+        XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(Said.noAnswer))
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer,
+                       "the job says another reason than the look left on the line")
+        await reconnect(model)
+        await model.loadTitles()
+
+        // Silence at a request of the run's own.
+        let lost = "したところで、レコーダーの応答がなくなったため中止しました"
+        let rows: [(name: String, kind: AppModel.BulkJob.Kind?, silent: String, afterSending: Bool, outcome: String)] = [
+            ("a delete", .delete, Ask.deleteRecording, true, "0 件を削除" + lost),
+            ("the question a delete asks first", .delete, Ask.details, false, "0 件を削除" + lost),
+            ("a protect", .protecting(true), Ask.changeRecording, true, "0 件を保護" + lost),
+            ("a text of a scan", nil, Ask.details, false, "0 件まで調べたところで、レコーダーの応答がなくなったため中止しました"),
+        ]
+        for row in rows {
+            await recorder.answer(row.silent, with: .silence)
+            if let kind = row.kind {
+                try await run(model, kind, [spare[2]])
+            } else {
+                try await scan(model)
+            }
+            XCTAssertEqual(model.job?.stopped, .silent(afterSending: row.afterSending), "silence at \(row.name)")
+            XCTAssertNil(model.job?.stopped?.said, "silence at \(row.name) has a sentence under what the job says")
+            XCTAssertEqual(model.job?.outcome, row.outcome, "silence at \(row.name)")
+            await reconnect(model)
+            await model.loadTitles()
+        }
+    }
+
     // MARK: - 中止, and leaving the app
 
     /// 中止 stops a run before its next recording. Tapped while a recording's request is out, that recording is
@@ -631,8 +780,8 @@ final class RunGateTests: XCTestCase {
 
     /// A run waiting for the app to come back makes sure of the recorder itself once it is, and sends nothing
     /// more to one that was lost meanwhile -- here by a look at the network, taken while the app was away, that
-    /// met silence. The job says that the recorder stopped answering, today; a later change has it say why the
-    /// check turned it away.
+    /// met silence. The job says that it was stopped and, under that, why the run's own check turned it away:
+    /// the app is not connected.
     func testARunWaitingForTheAppToComeBackSendsNothingToARecorderLostMeanwhile() async throws {
         let (bench, recorder, model, idle) = try await settled()
         model.wentToBackground()
@@ -647,7 +796,8 @@ final class RunGateTests: XCTestCase {
         await model.returnedToForeground()
         try await untilTheRunEnds(model)
         expectEqual(await recorder.heard(since: count), [], "a recorder lost while the run waited was asked")
-        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで、レコーダーの応答がなくなったため中止しました")
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(Said.notConnected))
     }
 
     /// A run waiting for the app to come back, beside a check that is waking the recorder: back in front, it
