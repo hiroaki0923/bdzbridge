@@ -453,8 +453,9 @@ final class AppModel: LinkHost {
     /// `anotherDeviceDescribedItself`.
     var listsToReadAgain = (recordings: false, rules: false)
     /// How many reads of the recordings, and of the keyword conditions, are out (`loadTitlesNow`,
-    /// `loadRecorderRulesNow`, and a pull-down across its connect): one out when another recorder answers is a
-    /// list the reader was about to see, which is not put on that one's screens and is read from it instead.
+    /// `loadRecorderRulesNow`, a pull-down across its connect, and a condition's add or delete, which reads the
+    /// list after it): one out when another recorder answers is a list the reader was about to see, which is not
+    /// put on that one's screens and is read from it instead.
     var titleReads = 0
     var conditionReads = 0
 

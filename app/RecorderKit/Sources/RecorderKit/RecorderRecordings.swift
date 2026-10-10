@@ -353,7 +353,8 @@ extension RecorderDriver {
     }
 
     /// One thing the reader asked of the recorder, as `DeviceLink.run` makes it, written out so that what is asked
-    /// in it can be the operation's own: under `line`, the recorder made sure of first (`DeviceLink.check`),
+    /// in it can be the operation's own: under `line` -- nil for a step of an operation that has put up its own
+    /// --, the recorder made sure of first (`DeviceLink.check`),
     /// then `work`, handed the line's token and the client the check was asked with. What `work` returned, or
     /// why not: the check said no -- it has said why -- or `work` was turned away part way (`TurnedAway`), or
     /// failed, which is said (`DeviceLink.say`), silence on something sent in the sentence `asking` gives. Going
@@ -376,7 +377,7 @@ extension RecorderDriver {
     /// failure is said by that count (`DeviceLink.say(_:since:ofARead:)`), silence on something sent losing
     /// nobody. `work` reads the count too, for what it keeps. A client made anew for the same recorder meanwhile
     /// lets go of nothing.
-    func asked<T>(_ line: String, _ asking: Asking, on link: DeviceLink, since began: Int,
+    func asked<T>(_ line: String?, _ asking: Asking, on link: DeviceLink, since began: Int,
                   _ work: @MainActor (Activities.Token?, RecorderClient) async throws -> T) async -> Asked<T> {
         let owner = link.owner
         let read: Bool

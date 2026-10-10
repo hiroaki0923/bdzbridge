@@ -65,30 +65,30 @@ extension AppModel {
         RecorderDisk.shown(rule.destination, on: .recorder, usb: usbDisk)
     }
 
-    /// Registers a condition on the recorder itself (`RecorderDriver.addRule`), and reads the list again once it
-    /// has. What it came to, for the sheet to say.
+    /// Registers a condition on the recorder itself (`RecorderDriver.addRule`), which reads the list again once it
+    /// has, kept by the count noted as the entry began (`keepRecorderRules`). What it came to, for the sheet to say.
+    /// Counted as a read of the list while it is out (`conditionReads`), the read after among it: another recorder
+    /// answering meanwhile has its own conditions read by its connect, as for any read of them out.
     func addRecorderRule(_ request: RecorderRuleRequest) async -> Altered {
+        let forgotten = timesForgotten
         await start()
         guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        return await recorderDriver.addRule(request) { await self.loadRecorderRules() }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.addRule(request) { self.keepRecorderRules($0, since: forgotten) }
     }
 
-    /// Delete only, never edit (`RecorderDriver.removeRule`). The list is read again afterwards either way,
-    /// because the recorder renumbers a condition whenever its screen edits one, so a refusal may be of a number
-    /// it no longer has -- but for no recorder's client in hand, with nothing to read from. What it came to, for
-    /// the screen to say: a refusal is said there, and the read after it clears the line when it goes through,
-    /// as the read after a reservation's delete refused so does, or says its own failure when it does not.
+    /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list again after any answer, kept
+    /// as a condition added has its list kept: a refusal may be of a number the recorder no longer has. What it
+    /// came to, for the screen to say: a refusal is said there, and the read after it clears the line when it
+    /// goes through, as the read after a reservation's delete refused so does, or says its own failure when it
+    /// does not. Counted while it is out, as a condition added is.
     func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
+        let forgotten = timesForgotten
         await start()
         guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        let removed = await recorderDriver.removeRule(rule)
-        guard client != nil else { return removed.altered }
-        // A delete the recorder did not answer -- turned away, or stopped by its check -- leaves on the line what
-        // was there or what the check said, which the read after it is not to clear: put back over the read's
-        // success. The recorder's refusal is not: the result says it.
-        let reason = problem
-        await loadRecorderRules()
-        if !removed.answered, problem == nil { problem = reason }
-        return removed.altered
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.removeRule(rule) { self.keepRecorderRules($0, since: forgotten) }
     }
 }
