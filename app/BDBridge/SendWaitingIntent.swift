@@ -55,24 +55,29 @@ struct SendWaitingIntent: AppIntent {
     /// `televisionSaved`: the reader has a television beside the recorder, and what became of the queue then
     /// says which device it went to (`PendingQueue.Outcome.said`). Handed in, since nothing here has a model
     /// to ask; left out, it is a home with a recorder alone, whose sentences are as they have always been.
+    ///
+    /// What the recorder's sending came to is said in the driver's sentences (`RecorderDriver.says`), and
+    /// 「送信待ちの予約はありません。」 where those have nothing to say; the demo and a home with no recorder are
+    /// the app's to say.
     static func saying(_ sending: BackgroundWork.Sending, televisionSaved: Bool = false) -> String {
+        let recorders: NoScreenSending
+        var device: String?
         switch sending {
         case .demo:
-            "サンプルデータの表示中は送りません。"
+            return "サンプルデータの表示中は送りません。"
         case .noRecorder:
-            "レコーダーが設定されていません。"
+            return "レコーダーが設定されていません。"
         case .nothingWaiting:
-            "送信待ちの予約はありません。"
+            recorders = .nothingWaiting
         case .unreachable:
-            "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"
+            recorders = .unreachable
         case .anotherRecorder:
-            Notify.anotherRecorderAnswered
+            recorders = .anotherAnswered
         case .sent(let outcome):
-            outcome.said(withATelevisionSaved: televisionSaved)
-                ?? (outcome.interrupted
-                    ? "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。"
-                    : "送信待ちの予約はありません。")
+            recorders = .sent(outcome)
+            if televisionSaved { device = outcome.slot.label }
         }
+        return RecorderDriver.says(recorders, naming: device) ?? "送信待ちの予約はありません。"
     }
 }
 

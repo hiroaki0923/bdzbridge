@@ -118,10 +118,8 @@ enum Notify {
     static let televisionQueue = "tv-queue-flushed"
     static let televisionNotYet = "tv-not-yet-sent"
 
-    /// What that notification says, and the Shortcuts action when it is run by hand. The state the reader
-    /// will find, in the words used when the recorder could not be reached.
-    static let anotherRecorderAnswered = "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。"
-        + "アプリを開いて確かめてください。"
+    /// What the notification of a queue held back says (`queueHeldBack`): the sentence the driver keeps for it.
+    static let anotherRecorderAnswered = RecorderDriver.anotherAnsweredWithNoScreen
 
     /// The line the low-space warning is given at, which the settings name as well.
     static let lowSpaceGB: Double = 50

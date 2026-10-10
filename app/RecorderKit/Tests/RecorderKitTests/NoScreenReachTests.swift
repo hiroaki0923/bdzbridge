@@ -76,4 +76,73 @@ final class NoScreenReachTests: XCTestCase {
         XCTAssertFalse(answered)
         XCTAssertEqual(events.all, ["packet"], "asked, or waited for, at an address that is not one")
     }
+
+    /// A night's packet goes once, before the recorder is asked who it is, and no other follows a recorder that
+    /// answers that first ask: the rest of the night -- the slot, the free space, the guide's files, each
+    /// refused here -- sends none. The packet is put down in the same list as what the recorder is asked.
+    func testANightSendsItsPacketOnceBeforeItAsksWhoIsThere() async throws {
+        let events = Events()
+        let description = try Vectors.descriptionXML()
+        let transport = StubTransport { request, _ in
+            guard request.url.lastPathComponent == "description.xml" else {
+                events.put("ask")
+                return HTTPResponse(statusCode: 500, body: Data())
+            }
+            events.put("description.xml")
+            return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+        }
+
+        let stored = await RecorderDriver.refreshWithNoScreen(
+            RecorderClient(host: Stub.host, transport: transport), store: try temporaryStore(),
+            sendPacket: {
+                events.put("packet")
+                return true
+            }, found: { _ in })
+
+        XCTAssertFalse(stored)
+        XCTAssertEqual(Array(events.all.prefix(2)), ["packet", "description.xml"])
+        XCTAssertEqual(events.all.filter { $0 == "packet" }.count, 1, "another packet went out")
+        XCTAssertEqual(events.all.filter { $0 == "description.xml" }.count, 1, "the recorder was waited for")
+        XCTAssertTrue(events.all.contains("ask"), "the night ended as it reached the recorder")
+    }
+
+    /// The Shortcuts action's packet. With nothing waiting that could be sent none goes and nothing is asked: the
+    /// queue is read first, so that no recorder is woken for nothing. With a reservation waiting the packet goes
+    /// once, before the recorder is asked who it is, and no other follows a recorder that answers that first
+    /// ask; the round is then run, its read of the recorder's list refused here. The action is asked at the
+    /// moment the reservation's programme starts, a moment of the test's own.
+    func testTheActionSendsItsPacketOnceBeforeItAsksWhoIsThereAndNoneWithNothingWaiting() async throws {
+        let events = Events()
+        let description = try Vectors.descriptionXML()
+        let transport = StubTransport { request, _ in
+            guard request.url.lastPathComponent == "description.xml" else {
+                events.put("ask")
+                return HTTPResponse(statusCode: 500, body: Data())
+            }
+            events.put("description.xml")
+            return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+        }
+        let store = try temporaryStore()
+        let row = pending()
+        func action() async -> NoScreenSending {
+            await RecorderDriver.sendWithNoScreen(
+                RecorderClient(host: Stub.host, transport: transport), store: store, now: row.request.start,
+                sendPacket: {
+                    events.put("packet")
+                    return true
+                })
+        }
+
+        let withNothing = await action()
+        XCTAssertEqual(withNothing, .nothingWaiting)
+        XCTAssertEqual(events.all, [], "a packet went out, or the recorder was asked, with nothing waiting")
+
+        try await store.queue(row)
+        let sending = await action()
+        guard case .sent = sending else { return XCTFail("the round was not run: \(sending)") }
+        XCTAssertEqual(Array(events.all.prefix(2)), ["packet", "description.xml"])
+        XCTAssertEqual(events.all.filter { $0 == "packet" }.count, 1, "another packet went out")
+        XCTAssertEqual(events.all.filter { $0 == "description.xml" }.count, 1, "the recorder was waited for")
+        XCTAssertTrue(events.all.contains("ask"), "the action ended as it reached the recorder")
+    }
 }

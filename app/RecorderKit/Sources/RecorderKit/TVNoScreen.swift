@@ -2,6 +2,11 @@ import Foundation
 
 /// What sending what waits for the television came to in a run with no screen -- the overnight run, the
 /// Shortcuts action -- which has no link: it asks once, as far as it can, and the app says what it found.
+///
+/// What the recorder's sending with no screen came to is the same four (`RecorderDriver.sendWithNoScreen`),
+/// read for a recorder: nothing waits that it could be sent, it was not reached, another recorder than the one
+/// the cache is of answered, or the round ran. What is said of each is the device's own: the recorder's is
+/// `RecorderDriver.says`, and `stop` and `inTheWay` below are the television's.
 public enum NoScreenSending: Sendable, Equatable {
     /// Nothing waits that the television could be sent: no row of its, or only rows with a reason on them, or
     /// only rows whose programme is over. It was not asked, and nothing was dropped.
