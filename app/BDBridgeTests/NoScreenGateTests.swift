@@ -160,4 +160,94 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
         XCTAssertFalse(ran.stored)
     }
+
+    /// Silence part-way through a night ends it at the USB slot and in the guide, and nowhere else, as it is
+    /// today.
+    ///
+    /// At a reservation's create alone, the recorder answering again after it: the row is held for the reader
+    /// with its reason, what became of the queue is told, and the night goes on -- the slot is read, the free
+    /// space told, the guide fetched. From the create on: the round is told, the slot is asked, and its silence
+    /// ends the night. On the free space alone: nothing is told of it, and the guide is still asked for. In the
+    /// guide: the night ends there, hands back that nothing was stored and does not tell that a guide was
+    /// fetched, though a type answered before the silence; and the slot is not read again after it.
+    ///
+    /// A later change ends a night at its first silence, which rewrites the first three; another tells of the
+    /// types that answered before a silence in the guide, which rewrites the last but for the slot.
+    func testSilencePartWayThroughANightEndsItAtTheSlotAndInTheGuideAndNowhereElse() async throws {
+        let (recorder, store, _) = try await home()
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+        await recorder.goQuiet(on: Ask.create)
+        var ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot, Ask.freeSpace,
+                                   Ask.portOfTheGuide] + Ask.guide, "silence at the create alone")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"], "silence at the create alone")
+        XCTAssertEqual(ran.told.rounds.map(\.interrupted), [true])
+        expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
+
+        // The row above is held now, and is not sent again: another, and silence from its create on.
+        let noon = waiting("昼の番組", startingIn: 150, programme: 4322)
+        try await store.queue(noon)
+        await recorder.answer(Ask.create, with: .silence)
+        await recorder.answer(Ask.slot, with: .silence)
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot],
+                       "silence from the create on")
+        XCTAssertEqual(ran.told.names, ["flushed"], "silence from the create on")
+        XCTAssertEqual(ran.told.rounds.map(\.interrupted), [true])
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store),
+                    ["朝の番組: " + Said.heldAfterSilence, "昼の番組: " + Said.heldAfterSilence])
+
+        // Both rows are held, so nothing is read or sent for the queue from here on.
+        await recorder.goQuiet(on: Ask.freeSpace)
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + Ask.guide, "silence on the free space alone")
+        XCTAssertEqual(ran.told.names, ["flushed", "fetched"], "silence on the free space alone")
+
+        // With a disk known that the slot does not answer, the slot is read again after a guide that ends.
+        try await store.keep(knownUSBDisk: USBDiskTests.disk)
+        await recorder.goQuiet(on: Ask.guide[1])
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0], Ask.guide[1]], "silence in the guide")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"], "silence in the guide")
+        XCTAssertFalse(ran.stored)
+    }
+
+    /// A night tells what is free as the free space and what the disk holds as its size, each as the recorder
+    /// answered it and neither for the other: here a disk that holds two terabytes with thirty gigabytes of them
+    /// free. The notice the app makes of the two, where no test sees, reads the first against its line: told
+    /// the other way round, a disk nearly full would be taken for one with all its room.
+    func testANightTellsWhatIsFreeAsFreeAndWhatTheDiskHoldsAsItsSize() async throws {
+        let (recorder, store, _) = try await home()
+        await recorder.answer(Ask.freeSpace,
+                              with: .text("<recordDestinationInfo totalCapacity=\"2000000000000\" "
+                                          + "availableCapacity=\"30000000000\" />", in: "RecordDestinationInfo"))
+        let ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertEqual(ran.told.said.dropFirst().first,
+                       .freeSpace(free: 30_000_000_000, total: 2_000_000_000_000, naming: nil),
+                       "what is free and what the disk holds were not each told as the recorder answered them")
+    }
+
+    /// A recorder that will not say how much room it has: refused, nothing is told of the free space and the
+    /// guide is fetched as ever. A disk of no size is told as it was answered, a total of nought and nought free,
+    /// as it is today: the notice the app makes of it drops it, where no test sees. A later change reads the
+    /// night's free space through the rule the screens use, by which a disk of no size has not said, and
+    /// rewrites that half.
+    func testANightTellsNothingOfSpaceTheRecorderWillNotSayAndTellsADiskOfNoSizeAsItIs() async throws {
+        let (recorder, store, _) = try await home()
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        var ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.names, ["flushed", "fetched"])
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + Ask.guide)
+
+        await recorder.answer(Ask.freeSpace,
+                              with: .text("<recordDestinationInfo totalCapacity=\"0\" availableCapacity=\"0\" />",
+                                          in: "RecordDestinationInfo"))
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertEqual(ran.told.said.dropFirst().first, .freeSpace(free: 0, total: 0, naming: nil),
+                       "a disk of no size was not told as the recorder answered it")
+    }
 }
