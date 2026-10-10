@@ -3,16 +3,17 @@ import RecorderKit
 import XCTest
 @testable import BDBridge
 
-/// The one funnel the recorder's operations run through (`AppModel.run`), and the operations themselves, each
-/// asked for as a screen asks for it: what is on screen while one is out, what silence, a refusal and not being
-/// connected each leave behind, and what a check, a connect or another recorder beside one does to it.
+/// The recorder's operations, each asked for as a screen asks for it -- its recordings and its keyword
+/// conditions, which are the driver's steps (`RecorderDriver`), and the guide fetched by hand, which still goes
+/// through the app's funnel (`AppModel.run`): what is on screen while one is out, what silence, a refusal and not
+/// being connected each leave behind, and what a check, a connect or another recorder beside one does to it.
 ///
-/// These are gates rather than rules. The recorder's operations are to move out of the model and into
-/// RecorderKit with the app behaving as it did, and each test here pins what the app does today, so that it can
-/// be shown to do the same afterwards with the test's body unchanged. That includes behaviour nobody would
-/// choose. Where a test holds something that is to be changed on purpose, it says so, and that change rewrites
-/// it. So a test asks only what a screen asks and reads only what a screen reads, with the bench's own words
-/// for the rest (`Said`, `leaveALine`, `makeSure`): where an operation lives can change under it.
+/// They were written as gates: each pinned what the app did, so that the operations could be moved out of the
+/// model and into RecorderKit with the test's body unchanged, and each change made on purpose afterwards
+/// rewrote the tests it changed. Where a test holds something that is still to be changed on purpose, it says
+/// so, and that change rewrites it. So a test asks only what a screen asks and reads only what a screen reads,
+/// with the bench's own words for the rest (`Said`, `leaveALine`, `makeSure`): where an operation lives can
+/// change under it, as the guide's is still to.
 ///
 /// The recorder is the bench's (`NamedRecorder`), told what to answer a request at a time. It is told just
 /// before the operation that is to meet it, since a connect asks for some of the same things.
@@ -388,9 +389,9 @@ final class FunnelGateTests: XCTestCase {
     /// recorder answers the check, if only to say it is busy with somebody else, it is there and is not given up
     /// on; what is sent then depends on what it said (below).
     ///
-    /// That is so of a write through the funnel, and of the two things that ask the check for themselves: the
-    /// question of what a reservation would clash with, asked as a programme's sheet opens, and a waiting
-    /// reservation the reader asks to be sent again. The question has no line and nothing to wait for, so it is
+    /// That is so of a write to a recording or a condition, and of the two things that ask the check for
+    /// themselves: the question of what a reservation would clash with, asked as a programme's sheet opens, and a
+    /// waiting reservation the reader asks to be sent again. The question has no line and nothing to wait for, so it is
     /// asked beside each write here, whose line says that both have been asked. (After a check answered busy the
     /// order it goes in says nothing: the client sends one request at a time whoever asks.)
     ///
@@ -1599,7 +1600,7 @@ private struct Lists: Equatable {
     }
 }
 
-/// One of the operations that go through the funnel, as a screen asks for it.
+/// One of the recorder's operations, as a screen asks for it.
 @MainActor
 private struct Funnelled {
     let name: String
