@@ -182,9 +182,10 @@ public enum Duplicates {
     }
 
     /// Whether the recorder would delete it at all: it refuses a protected recording, and one it is still
-    /// writing to.
+    /// writing to. The rule is the delete's own door's (`RecorderDriver.whyNot(deleting:)`), asked here and not
+    /// written again: which copy to keep and which to suggest deleting go by it too.
     public static func deletable(_ title: RecordedTitle) -> Bool {
-        !title.protected && !title.recording
+        RecorderDriver.whyNot(deleting: title) == nil
     }
 
     /// Which copy to keep: one the recorder will not part with (protected, or still being recorded), then
@@ -193,8 +194,7 @@ public enum Duplicates {
         let members = stableSorted(members) { $0.start < $1.start }
 
         func rank(_ title: RecordedTitle) -> (Int, Int, Int, Date) {
-            (title.protected || title.recording ? 0 : 1, (title.resumeSec ?? 0) > 0 ? 0 : 1,
-             quality(title), title.start)
+            (deletable(title) ? 1 : 0, (title.resumeSec ?? 0) > 0 ? 0 : 1, quality(title), title.start)
         }
         let keep = members.min { rank($0) < rank($1) } ?? members[0]
         let others = members.filter { $0.id != keep.id }
@@ -231,9 +231,7 @@ public enum Duplicates {
         return DuplicateSet(title: members[0].title, confidence: confidence,
                             sizeMB: members.reduce(0) { $0 + ($1.sizeMB ?? 0) }, items: members,
                             keep: keep.id,
-                            suggestDelete: members.filter {
-                                $0.id != keep.id && !$0.protected && !$0.recording
-                            }.map(\.id),
+                            suggestDelete: members.filter { $0.id != keep.id && deletable($0) }.map(\.id),
                             reasons: reasons)
     }
 

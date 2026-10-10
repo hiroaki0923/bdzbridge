@@ -329,7 +329,7 @@ final class RecorderRecordingsTests: XCTestCase {
 
         let came = await driver.delete(try await Self.title(recording: true), in: run)
 
-        XCTAssertEqual(came, .passedOver("録画中です"))
+        XCTAssertEqual(came, .passedOver("録画中のため削除できません。番組が終わるまでお待ちください。"))
         let sent = await recorder.actions.count
         XCTAssertEqual(sent, 0, "a recording in progress should not be sent to the recorder at all")
     }
@@ -340,8 +340,27 @@ final class RecorderRecordingsTests: XCTestCase {
         let came = await driver.delete(try await Self.title(protected: true), in: run)
 
         let sent = await recorder.actions.count
-        XCTAssertEqual(came, .passedOver("保護されています"))
+        XCTAssertEqual(came, .passedOver("保護されているため削除できません。先に保護を解除してください。"))
         XCTAssertEqual(sent, 0, "nothing should have been sent")
+    }
+
+    /// Whether a recording can be deleted is asked of one rule, wherever it is asked: over the four kinds of row
+    /// -- neither flag, protected, still being recorded, both -- the sets of copies offer a recording for
+    /// deleting exactly where a delete's door has nothing to say against it, and a run passes over each of the
+    /// other three with that door's sentence, nothing asked. One both protected and being recorded is passed
+    /// over as being recorded, which the door looks at first.
+    func testTheSetsOfCopiesAndARunAskTheDeletesOwnDoorWhetherARecordingCanBeDeleted() async throws {
+        let titles = try await Self.titles()
+        let rows = [titles.idle, titles.protected, titles.recording, titles.protectedAndRecording]
+        XCTAssertEqual(rows.map { Duplicates.deletable($0) }, [true, false, false, false])
+        XCTAssertEqual(rows.map { Duplicates.deletable($0) }, rows.map { RecorderDriver.whyNot(deleting: $0) == nil })
+
+        let (run, driver, recorder) = try await Self.running(.delete, ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]])
+        var came: [ItemCame] = []
+        for title in rows.dropFirst() { came.append(await driver.delete(title, in: run)) }
+        XCTAssertEqual(came, rows.dropFirst().map { .passedOver(RecorderDriver.whyNot(deleting: $0) ?? "") })
+        XCTAssertEqual(came.last, .passedOver("録画中のため削除できません。番組が終わるまでお待ちください。"))
+        expectEqual(await recorder.actions, [], "a recording the door turns away was asked about, or sent")
     }
 
     func testARecordingTheRecorderNoLongerHasIsNotAnError() async throws {

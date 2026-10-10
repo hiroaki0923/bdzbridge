@@ -188,11 +188,15 @@ extension RecorderDriver {
 
     // MARK: - one recording of a run
 
-    /// Deletes one recording of a run, and says what that came to. The recorder refuses a protected recording,
-    /// and answers success for an id it no longer has. So the recording is asked about first: an id the recorder
-    /// does not know comes back as UPnP error 820, which means it went away on its own and there is nothing to
-    /// report as an error. Anything else that question comes to, short of silence, is not worth giving up on:
-    /// the delete is sent, and says what went wrong.
+    /// Deletes one recording of a run, and says what that came to. A recording that cannot be deleted now, by
+    /// the rule a single delete's door and the screens ask (`whyNot(deleting:)`) -- still being recorded, or
+    /// protected -- is passed over with that rule's sentence and nothing asked: the screens offer neither to a
+    /// run, but a row can have changed since it was chosen.
+    ///
+    /// The recorder answers success for an id it no longer has. So the recording is asked about first: an id the
+    /// recorder does not know comes back as UPnP error 820, which means it went away on its own and there is
+    /// nothing to report as an error. Anything else that question comes to, short of silence, is not worth
+    /// giving up on: the delete is sent, and says what went wrong.
     ///
     /// Silence is a stop and not a recording passed over (`RunStop.silent`): a recorder gone to sleep part way
     /// through would otherwise turn every recording left into one passed over, each after a thirty-second
@@ -200,10 +204,7 @@ extension RecorderDriver {
     /// have arrived all the same. Silence to the question asked first stops the run as well, the delete not
     /// sent: nothing has been deleted yet, but the delete would only wait out the same silence.
     public func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame {
-        if title.protected { return .passedOver("保護されています") }
-        // The recorder answers a bare HTTP 500 for one it is still writing to, which reads as a fault in the
-        // app rather than as the one thing it is: wait until the programme has finished.
-        if title.recording { return .passedOver("録画中です") }
+        if let why = Self.whyNot(deleting: title) { return .passedOver(why) }
 
         switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id) }) {
         case .went: break

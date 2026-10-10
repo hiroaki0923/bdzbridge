@@ -414,7 +414,7 @@ struct GroupSheet: View {
                 case .bulk:
                     Button("\(chosen.count) 件を削除する", role: .destructive) {
                         model.startBulk(.delete,
-                                        ids: chosen.filter { !$0.protected && !$0.recording }.map(\.id))
+                                        ids: chosen.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
                         selecting = false
                         selected = []
                     }
@@ -489,7 +489,7 @@ struct GroupSheet: View {
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
-                selected = Set(members.filter { !$0.protected && !$0.recording }.map(\.id))
+                selected = Set(members.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
             }
             Button("選択解除") { selected = [] }
             Spacer()

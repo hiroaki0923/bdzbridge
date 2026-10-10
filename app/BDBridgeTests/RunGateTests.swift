@@ -74,15 +74,14 @@ final class RunGateTests: XCTestCase {
     /// A bulk delete asks the recorder about each recording and then deletes it, one request at a time and each
     /// once, with nothing on the strip, and reads the free space once when it has ended. What it does not delete
     /// it lists with why: a recording still being recorded and a protected one, neither of which the recorder
-    /// is asked about; one the recorder says it no longer holds as it is asked about it (820), which leaves the
-    /// list and is not sent for; one whose delete the recorder refuses, in the recorder's words, which stays.
-    /// Every recording counts as done, deleted or not, and the job says how many went and how many did not.
+    /// is asked about, each in the sentence a single delete's door says of it; one the recorder says it no
+    /// longer holds as it is asked about it (820), which leaves the list and is not sent for; one whose delete
+    /// the recorder refuses, in the recorder's words, which stays. Every recording counts as done, deleted or
+    /// not, and the job says how many went and how many did not.
     ///
-    /// Three things are as they are today. The two it does not ask about are listed as 「録画中です」 and
-    /// 「保護されています」, where a single delete's door has a sentence for each; a later change says the door's.
-    /// A recording the recorder is too busy to be asked about is deleted all the same: a later change passes it
-    /// over. And the free space is read after a run that deleted nothing: a later change reads it only after one
-    /// that deleted something.
+    /// Two things are as they are today. A recording the recorder is too busy to be asked about is deleted all
+    /// the same: a later change passes it over. And the free space is read after a run that deleted nothing: a
+    /// later change reads it only after one that deleted something.
     func testABulkDeleteAsksAboutEachRecordingDeletesItAndListsWhatItPassedOver() async throws {
         let (_, recorder, model, idle) = try await settled()
         let writing = try XCTUnwrap(model.titles.first { $0.recording }, "the demo was meant to be recording")
@@ -106,7 +105,8 @@ final class RunGateTests: XCTestCase {
                     [Ask.details, Ask.deleteRecording, Ask.details, Ask.details, Ask.deleteRecording, Ask.freeSpace],
                     "each recording asked about and then deleted, once, and the free space once after")
         XCTAssertEqual(model.job?.changed, [deleted.id])
-        XCTAssertEqual(model.job?.skipped, [skip(writing, "録画中です"), skip(guarded, "保護されています"),
+        XCTAssertEqual(model.job?.skipped, [skip(writing, Said.stillRecording),
+                                            skip(guarded, Said.protectedCannotBeDeleted),
                                             skip(gone, "すでに削除されています"),
                                             skip(refused, Said.fault(402, Ask.deleteRecording))])
         XCTAssertEqual(model.job?.done, 5)
