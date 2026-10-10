@@ -41,6 +41,10 @@ public final class RecorderDriver: LinkDriver {
     /// one out from one begun after it.
     private var reading: (generation: Int, client: ObjectIdentifier, number: Int, list: Task<[Reservation]?, Never>)?
     private var readsBegun = 0
+    /// The reads of the recordings and of the keyword conditions that are out, in the same way (`ReadOut`).
+    var titlesReading: ReadOut<Bool>?
+    var conditionsReading: ReadOut<ConditionsRead>?
+    var listReadsBegun = 0
 
     /// The reason written on the rows held for another recorder, the waking's limit and interval, the pause
     /// before a 503 is sent again, and how long and how often a play waits for the recorder's power, are given

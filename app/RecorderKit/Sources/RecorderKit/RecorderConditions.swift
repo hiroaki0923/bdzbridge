@@ -19,12 +19,21 @@ extension RecorderDriver {
     /// not connected (`whyNotConnected`); whether to ask at all is the app's to say. After a check that heard
     /// something in place of the recorder saying which it is, nothing is read, as for the reservations: what it
     /// heard is what the read fails as (`asked`), and why is said as `conditionsRead` says it.
+    ///
+    /// One read at a time, as for the recordings (`titles`, `folded`): whoever asks while one is out for the same
+    /// recorder, on the same client, is handed what it came to, and one out otherwise is waited for first. The
+    /// list read after a condition added or deleted is one of them (`readAfter`).
     public func recorderRules() async -> ConditionsRead {
         guard let link else { return (nil, Self.notConnected) }
-        guard link.client is RecorderClient, !link.session.unreachable else { return (nil, whyNotConnected) }
-        return conditionsRead(await asked(Self.conditionsLine, .aRead, on: link, since: link.generation) {
-            _, client in try await client.recorderRules()
-        }, on: link)
+        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+            return (nil, whyNotConnected)
+        }
+        return await folded(\.conditionsReading, on: link, client) {
+            let began = link.generation
+            return self.conditionsRead(await self.asked(Self.conditionsLine, .aRead, on: link, since: began) {
+                _, client in try await client.recorderRules()
+            }, on: link)
+        }
     }
 
     /// What a read of the conditions asked through `asked` came to: the list, or why there is none -- a refusal
@@ -147,10 +156,21 @@ extension RecorderDriver {
     /// (`recorderRules`), with why when it could not be read. Not across a let-go: the list to read is the
     /// newcomer's, which its own connect reads, and one that comes back once the recorder has been let go of is
     /// neither handed over nor said.
+    ///
+    /// One of the conditions' reads (`folded`), but one that takes no other's answer: a read out as it begins was
+    /// asked before the write was answered, and its list may not show the write, so it is waited for, and the
+    /// list read after it. Whoever asks for the conditions while this read is out is handed what it comes to, and
+    /// a newcomer's connect, which reads them, waits for it as for any read of them out for a recorder let go of.
     private func readAfter(on link: DeviceLink, since began: Int, keep: @MainActor (ConditionsRead) -> Void) async {
+        if let out = conditionsReading { _ = await out.value.value }
+        // The client is gone only once the recorder has been let go of (`DeviceLink.forgetTheDevice`).
+        guard !link.letGo(since: began), let client = link.client as? RecorderClient else { return }
+        let read = await folded(\.conditionsReading, on: link, client) {
+            self.conditionsRead(await self.asked(nil, .aRead, on: link, since: began) { _, client in
+                try await client.recorderRules()
+            }, on: link)
+        }
         guard !link.letGo(since: began) else { return }
-        let came = await asked(nil, .aRead, on: link, since: began) { _, client in try await client.recorderRules() }
-        guard !link.letGo(since: began) else { return }
-        keep(conditionsRead(came, on: link))
+        keep(read)
     }
 }

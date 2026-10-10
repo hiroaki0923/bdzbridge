@@ -30,8 +30,20 @@ extension RecorderDriver {
     /// address was chosen -- is not handed to `keep`, nor is the free space read after it, and the line is left
     /// as it is: it is about the recorder let go of. Its silence is neither said nor taken for the recorder in
     /// play (`asked`).
-    public func titles(keep: @MainActor ([RecordedTitle]) -> Void) async -> Bool {
-        guard let link, link.client is RecorderClient else { return false }
+    ///
+    /// One read at a time, as for the reservations (`folded`): the tab, a pull-down, the search and a connect ask
+    /// for the list, and these come together. Whoever asks while a read is out for the same recorder, on the same
+    /// client, gets whether it was read, and the list the first handed to its `keep` is the one kept; no second
+    /// request is sent. One out for a recorder let go of, or on a client a connect has since put another in
+    /// place of, is waited for before the list is read again, so that two clients do not ask the recorder at
+    /// once: the newcomer's list, which its connect reads (`LinkHost.reached`), is read once that one is back.
+    public func titles(keep: @escaping @MainActor ([RecordedTitle]) -> Void) async -> Bool {
+        guard let link, let client = link.client as? RecorderClient else { return false }
+        return await folded(\.titlesReading, on: link, client) { await self.readTitles(on: link, keep: keep) }
+    }
+
+    /// The read itself, and the free space after it.
+    private func readTitles(on link: DeviceLink, keep: @MainActor ([RecordedTitle]) -> Void) async -> Bool {
         let began = link.generation
         return await link.underALine(Self.titlesLine) { _ in
             let came = await self.asked(nil, .aRead, on: link, since: began) { _, client -> RecorderClient? in
@@ -430,6 +442,46 @@ extension RecorderDriver {
                 }
             }
         }
+    }
+
+    /// A read of a list that is out, for whoever asks for the same list meanwhile (`folded`): under which count of
+    /// recorders let go of (`DeviceLink.generation`) and on which client it went out, for which disk -- nil for
+    /// the one every read so far is of, so that a read of one disk is never taken for a read of another -- and
+    /// which read it is, by the count of those begun, which tells the one out from one begun after it.
+    struct ReadOut<T: Sendable> {
+        let generation: Int
+        let client: ObjectIdentifier
+        let destination: String?
+        let number: Int
+        let value: Task<T, Never>
+    }
+
+    /// One read of a list at a time, kept at `out`, as the reservations' read is kept (`reading`): whoever asks
+    /// while one is out under the same count, on the same client and for the same disk, is handed what it came
+    /// to, and nothing is sent again. One that is out otherwise -- for a recorder let go of, or on a client a
+    /// connect has since put another in place of -- is waited for first, whatever it comes to, its answer being
+    /// another's: two clients do not ask the recorder at once, and the read asked now goes once the last is
+    /// back. A read begun is let go of as it ends.
+    func folded<T: Sendable>(_ out: ReferenceWritableKeyPath<RecorderDriver, ReadOut<T>?>, on link: DeviceLink,
+                   _ client: RecorderClient, destination: String? = nil,
+                   _ read: @escaping @MainActor () async -> T) async -> T {
+        while let reading = self[keyPath: out] {
+            if reading.generation == link.generation, reading.client == ObjectIdentifier(client),
+               reading.destination == destination {
+                return await reading.value.value
+            }
+            _ = await reading.value.value
+            if self[keyPath: out]?.number == reading.number { self[keyPath: out] = nil }
+        }
+        listReadsBegun += 1
+        let number = listReadsBegun
+        let value = Task { () -> T in
+            defer { if self[keyPath: out]?.number == number { self[keyPath: out] = nil } }
+            return await read()
+        }
+        self[keyPath: out] = ReadOut(generation: link.generation, client: ObjectIdentifier(client),
+                                      destination: destination, number: number, value: value)
+        return await value.value
     }
 
     /// What a write asked through `asked` came to, for its result: done, or not, saying why. What was sent and

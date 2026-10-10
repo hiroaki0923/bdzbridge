@@ -548,7 +548,8 @@ final class FunnelGateTests: XCTestCase {
 
     /// The same with the connect answered by another recorder, whose arrival empties the lists in that turn. A
     /// list read out at the arrival is the last recorder's, and is not put over the newcomer's: the newcomer's
-    /// connect reads its own, the read out having said that the reader was about to see the list. A write's
+    /// connect reads its own, the read out having said that the reader was about to see the list -- once the
+    /// read out is back, so that the last recorder's client and the newcomer's do not ask at once. A write's
     /// silence across the arrival is the last recorder's: it still says that the write may have arrived, but the
     /// newcomer, which has just answered, is not given up on, and its recordings, read by its connect, are not
     /// marked unread.
@@ -563,19 +564,27 @@ final class FunnelGateTests: XCTestCase {
             await recorder.asked(Kind.recordings, since: before) == 1
         }
         await recorder.become(2)
-        await model.connect()
+        let connecting = Task { await model.connect() }
+        // Waiting for the read out, or sent beside it, which the assertion after says is wrong.
+        try await until("the newcomer's connect never asked for its recordings") {
+            if model.titleReads == 2 { return true }
+            return await recorder.asked(Kind.recordings, since: before) > 1
+        }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertGreaterThan(model.timesForgotten, forgotten, "the lists were meant to go as the newcomer arrived")
-        XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were not read by its connect")
-        let newcomers = model.titles
-        XCTAssertFalse(newcomers.isEmpty)
-        expectEqual(await recorder.asked(Kind.recordings, since: before), 2)
+        // Time enough for a read sent beside the one out to have reached the recorder.
+        try await Task.sleep(for: .milliseconds(300))
+        expectEqual(await recorder.asked(Kind.recordings, since: before), 1,
+                    "the newcomer's recordings were asked for while the last recorder's read was out")
+        XCTAssertTrue(isConnecting(model), "the newcomer's connect did not wait for the read out")
         // The read out comes back with a list of its own, to be told from the newcomer's.
         await recorder.answer(Kind.recordings, with: .result(Self.aListOfOne))
         await recorder.letGo()
         await reading.value
-        XCTAssertEqual(model.titles, newcomers, "the last recorder's list was put over the newcomer's")
-        XCTAssertTrue(model.titlesLoaded)
+        await connecting.value
+        XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were not read by its connect")
+        XCTAssertGreaterThan(model.titles.count, 1, "the last recorder's list was put over the newcomer's")
+        expectEqual(await recorder.asked(Kind.recordings, since: before), 2)
 
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
         await recorder.hold(only: Kind.deleteRecording)
@@ -1009,6 +1018,10 @@ final class FunnelGateTests: XCTestCase {
     /// newcomer's line is left alone, and nothing of it is put on the newcomer's lists, which its connect read --
     /// nor is the list read after a condition added or removed, which would be the newcomer's. A protect, a
     /// delete, a condition added and one removed.
+    ///
+    /// Queued behind a read, the write is answered as the newcomer's connect reads its own list, which waits for
+    /// that read to be back and clears the line as it goes through: there the write is held to having gone once
+    /// and answered, the newcomer kept; what the line and the lists come to is the held write's to show.
     func testAWriteAnsweredAfterAnotherRecorderDescribedItselfIsTakenAsAcrossALetGo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         var newcomer = 1
@@ -1038,7 +1051,17 @@ final class FunnelGateTests: XCTestCase {
                 }
 
                 await recorder.become(newcomer)
-                await model.connect()
+                let reads = model.titleReads
+                let connecting = Task { await model.connect() }
+                if queued {
+                    // The newcomer's connect waits to read its recordings until the read out is back.
+                    try await until("the newcomer's connect never asked for its recordings, \(how)") {
+                        if model.titleReads == reads + 1 { return true }
+                        return await recorder.asked(Kind.recordings, since: before) > 1
+                    }
+                } else {
+                    await connecting.value
+                }
                 XCTAssertEqual(model.info?.udn, NamedRecorder.udn(newcomer),
                                model.problem(for: .recorder) ?? "no reason given")
                 if queued {
@@ -1046,18 +1069,23 @@ final class FunnelGateTests: XCTestCase {
                     // read, asked of nobody yet, as the newcomer has arrived.
                     expectEqual(await recorder.asked(row.kind, since: before), 0,
                                 "\(how) was sent before the read it queued behind came back")
+                    expectEqual(await recorder.asked(Kind.recordings, since: before), 1,
+                                "the newcomer's recordings were asked for beside the read out, \(how)")
                 }
                 leaveALine(on: model)
                 let newcomers = Lists(model)
                 await recorder.letGo()
                 await reading?.value
                 let answer = await asking.value
+                await connecting.value
 
                 XCTAssertEqual(answer, true, "\(how): \(model.problem(for: .recorder) ?? "no reason given")")
                 XCTAssertFalse(model.gaveUp, how)
                 expectEqual(await recorder.asked(row.kind, since: before), 1, how)
-                XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(how) cleared the newcomer's line")
-                XCTAssertTrue(Lists(model) == newcomers, "\(how) was put on the newcomer's lists")
+                if !queued {
+                    XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(how) cleared the newcomer's line")
+                    XCTAssertTrue(Lists(model) == newcomers, "\(how) was put on the newcomer's lists")
+                }
             }
         }
     }
@@ -1066,7 +1094,7 @@ final class FunnelGateTests: XCTestCase {
     /// itself on a connect, whose arrival empties the lists in that turn: as the recordings are, the list that
     /// comes back afterwards is the last recorder's and is not put over the newcomer's, and the newcomer's
     /// connect reads its own, the read out having said that the reader was about to see the list, though none
-    /// had been read when it arrived.
+    /// had been read when it arrived -- once the read out is back, as for the recordings.
     func testTheConditionsReadAcrossAnotherRecordersArrivalAreNotPutOverTheNewcomersList() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
         XCTAssertFalse(model.recorderRulesLoaded, "the conditions were meant not to have been read yet")
@@ -1077,20 +1105,88 @@ final class FunnelGateTests: XCTestCase {
             await recorder.asked(Kind.conditions, since: before) == 1
         }
         await recorder.become(2)
-        await model.connect()
+        let connecting = Task { await model.connect() }
+        // Waiting for the read out, or sent beside it, which the assertion after says is wrong.
+        try await until("the newcomer's connect never asked for its conditions") {
+            if model.conditionReads == 2 { return true }
+            return await recorder.asked(Kind.conditions, since: before) > 1
+        }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
-        XCTAssertTrue(model.recorderRulesLoaded, "the newcomer's conditions were not read by its connect")
-        let newcomers = model.recorderRules
-        XCTAssertFalse(newcomers.isEmpty)
-        expectEqual(await recorder.asked(Kind.conditions, since: before), 2)
+        // Time enough for a read sent beside the one out to have reached the recorder.
+        try await Task.sleep(for: .milliseconds(300))
+        expectEqual(await recorder.asked(Kind.conditions, since: before), 1,
+                    "the newcomer's conditions were asked for while the last recorder's read was out")
         // The read out comes back with none, to be told from the newcomer's list.
         await recorder.answer(Kind.conditions, with: .result("<xsrs></xsrs>"))
         await recorder.letGo()
         await reading.value
+        await connecting.value
 
-        XCTAssertEqual(model.recorderRules, newcomers, "the last recorder's list was put over the newcomer's")
-        XCTAssertTrue(model.recorderRulesLoaded)
+        XCTAssertTrue(model.recorderRulesLoaded, "the newcomer's conditions were not read by its connect")
+        XCTAssertFalse(model.recorderRules.isEmpty, "the last recorder's list was put over the newcomer's")
+        expectEqual(await recorder.asked(Kind.conditions, since: before), 2)
         XCTAssertNil(model.recorderRulesFailure)
+    }
+
+    /// The recordings, and the keyword conditions, asked for a second time while a read of them is out -- the
+    /// tab, a pull-down and the search come together -- are read once: the second is handed what the first came
+    /// to, as for the reservations, and the list is the one read.
+    func testTwoReadsOfAListAskedTogetherSendOne() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        for row in [Funnelled.recordings, .conditions] {
+            let before = await recorder.asked
+            await recorder.holdTheNext(row.kind)
+            let first = Task { _ = await row.ask(model, subjects) }
+            try await until("\(row.name) were never asked for") {
+                await recorder.asked(row.kind, since: before) == 1
+            }
+            let second = Task { _ = await row.ask(model, subjects) }
+            try await until("\(row.name) were never asked for a second time") {
+                (row.kind == Kind.recordings ? model.titleReads : model.conditionReads) == 2
+            }
+            await recorder.letGo()
+            await first.value
+            await second.value
+
+            expectEqual(await recorder.asked(row.kind, since: before), 1, "\(row.name) were read twice")
+            XCTAssertTrue(row.kind == Kind.recordings ? !model.titles.isEmpty : !model.recorderRules.isEmpty)
+            XCTAssertNil(model.problem(for: .recorder), row.name)
+            XCTAssertNil(model.busy, row.name)
+        }
+    }
+
+    /// The list read after a keyword condition added or removed is one of the conditions' reads: asked for while
+    /// it is out, the conditions are read once, the read after handing over what it came to. It takes no read out
+    /// as it begins, though: that one was asked before the write was answered, so it is waited for, and the list
+    /// is read again after it. Either way the list kept shows the write.
+    func testTheListReadAfterAConditionAddedOrRemovedIsOneOfItsReadsAndTakesNoEarlierOne() async throws {
+        for row in [Funnelled.add, .remove] {
+            for readOutFirst in [false, true] {
+                let how = "\(row.name), \(readOutFirst ? "a read asked while it was out" : "a read asked after it")"
+                let (_, recorder, model, subjects) = try await settled()
+                let before = await recorder.asked
+                // The read asked for while the write is out queues behind it on the client; the one asked for
+                // after it, behind the list read after it.
+                await recorder.holdTheNext(readOutFirst ? row.kind : Kind.conditions)
+                let writing = Task { await row.ask(model, subjects) }
+                try await until("\(readOutFirst ? "the write" : "the list after it") was never asked for, \(how)") {
+                    await recorder.asked(readOutFirst ? row.kind : Kind.conditions, since: before) == 1
+                }
+                let reading = Task { await model.loadRecorderRules() }
+                try await until("the conditions were never asked for, \(how)") { model.conditionReads == 2 }
+                await recorder.letGo()
+                let answer = await writing.value
+                await reading.value
+
+                XCTAssertEqual(answer, true, "\(how): \(model.problem(for: .recorder) ?? "no reason given")")
+                expectEqual(await recorder.asked(Kind.conditions, since: before), readOutFirst ? 2 : 1,
+                            readOutFirst ? "the list after the write was taken from a read asked before it, \(how)"
+                                : "the conditions were read beside the list after the write, \(how)")
+                XCTAssertTrue(row.holds(model, subjects), "the list kept does not show the write, \(how)")
+                XCTAssertNil(model.problem(for: .recorder), how)
+                XCTAssertNil(model.busy, how)
+            }
+        }
     }
 
     /// A play that has turned the recorder on and waits for it, while another recorder describes itself on a
@@ -1315,7 +1411,8 @@ final class FunnelGateTests: XCTestCase {
     /// the reader pressed + all the same -- while another recorder describes itself on a connect, with the
     /// registration out or the list read after it: the add is a list the reader is about to see, so the
     /// newcomer's connect reads the newcomer's conditions, and what the last recorder answers is not put over
-    /// them.
+    /// them. With the list read after it out, the newcomer's connect reads them once that read is back, as for
+    /// any read of them out at the arrival, so that the two clients do not ask at once.
     func testAConditionAddedAsAnotherRecorderArrivesHasTheNewcomersConditionsRead() async throws {
         let request = RecorderRuleRequest(keywords: ["みほん"], qualityCode: 220)
         for held in [Kind.addCondition, Kind.conditions] {
@@ -1329,12 +1426,27 @@ final class FunnelGateTests: XCTestCase {
                 await recorder.asked(held, since: before) == 1
             }
             await recorder.become(2)
-            await model.connect()
+            let connecting = Task { await model.connect() }
+            if held == Kind.conditions {
+                // Waiting for the read out, or sent beside it, which the assertion after says is wrong.
+                try await until("the newcomer's connect never asked for its conditions, \(how)") {
+                    if model.conditionReads == 2 { return true }
+                    return await recorder.asked(Kind.conditions, since: before) > 1
+                }
+                // Time enough for a read sent beside the one out to have reached the recorder.
+                try await Task.sleep(for: .milliseconds(300))
+                expectEqual(await recorder.asked(Kind.conditions, since: before), 1,
+                            "the newcomer's conditions were asked for while the list after the add was out")
+                XCTAssertTrue(isConnecting(model), "the newcomer's connect did not wait for the list after the add")
+                // The last recorder answers with none, to be told from the newcomer's list.
+                await recorder.answer(Kind.conditions, with: .result("<xsrs></xsrs>"))
+            } else {
+                await connecting.value
+            }
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
-            // The last recorder answers with none, to be told from the newcomer's list.
-            if held == Kind.conditions { await recorder.answer(Kind.conditions, with: .result("<xsrs></xsrs>")) }
             await recorder.letGo()
             _ = await asking.value
+            await connecting.value
 
             XCTAssertTrue(model.recorderRulesLoaded, "the newcomer's conditions were not read by its connect, \(how)")
             XCTAssertFalse(model.recorderRules.isEmpty, "the last recorder's list was put over the newcomer's, \(how)")
