@@ -42,11 +42,49 @@ public enum RunMoment: Sendable {
     case first, next, afterAReturn
 }
 
+/// What deleting or protecting one recording of a run came to (`RecorderDriver.delete(_:in:)`,
+/// `protect(_:_:in:)`).
+public enum ItemCame: Sendable, Equatable {
+    /// The recorder took it.
+    case done
+    /// The recorder no longer had it: deleted there since the list was read. Nothing went wrong, and the
+    /// caller's list should stop showing it. A case of its own so that the caller need not tell it from the
+    /// other reasons by the words of the sentence.
+    case gone
+    /// Nothing was changed, and why. The run goes on.
+    case passedOver(String)
+    /// The run stops at this recording, and why (`RunStop`).
+    case stopped(RunStop)
+
+    /// Why nothing was changed, for the run's list of what it passed over. Nil when something was, and when the
+    /// run stopped.
+    public var reason: String? {
+        switch self {
+        case .done, .stopped: nil
+        case .gone: "すでに削除されています"
+        case .passedOver(let reason): reason
+        }
+    }
+}
+
+/// What asking the recorder for one recording's programme text came to, for the duplicate scan
+/// (`RecorderDriver.text(of:in:)`).
+public enum TextCame: Sendable, Equatable {
+    /// What the recorder holds. An empty text is an answer too: some recordings come with none.
+    case read(String)
+    /// UPnP error 820: the recorder no longer has the recording.
+    case gone
+    /// The recorder answered, but not with the text, and this is why.
+    case failed(String)
+    /// The scan stops at this recording, and why (`RunStop`).
+    case stopped(RunStop)
+}
+
 /// The recorder's work over many recordings, one request at a time because that is all the recorder will take:
 /// the bulk delete, the bulk protect and the scan for duplicates. What is here is the recorder's side of a run:
-/// its words, and when it may begin, go on and what it reads as it ends. The loop around the recordings, its job
-/// with the progress and the stop button, the wait while the app is away, one recording's requests and the lists
-/// are the app's.
+/// its words, when it may begin and go on, what is asked for one recording and decided about it, including the
+/// recorder's two traps, and what it reads as it ends. The loop around the recordings belongs to the app, which
+/// is what gives it the progress and the stop button, with the wait while the app is away and the lists.
 extension RecorderDriver {
     // MARK: - a run's words
 
@@ -131,6 +169,79 @@ extension RecorderDriver {
     private func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
         .said(link.owner?.problem ?? whyNotConnected)
     }
+
+    // MARK: - one recording of a run
+
+    /// Deletes one recording of a run, and says what that came to. The recorder refuses a protected recording,
+    /// and answers success for an id it no longer has. So the recording is asked about first: an id the recorder
+    /// does not know comes back as UPnP error 820, which means it went away on its own and there is nothing to
+    /// report as an error. Anything else that question comes to, short of silence, is not worth giving up on:
+    /// the delete is sent, and says what went wrong.
+    ///
+    /// Silence is a stop and not a recording passed over (`RunStop.silent`): a recorder gone to sleep part way
+    /// through would otherwise turn every recording left into one passed over, each after a thirty-second
+    /// timeout. The run stops at the first, and does not send that recording again: a write that met silence may
+    /// have arrived all the same. Silence to the question asked first stops the run as well, the delete not
+    /// sent: nothing has been deleted yet, but the delete would only wait out the same silence.
+    public func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame {
+        if title.protected { return .passedOver("保護されています") }
+        // The recorder answers a bare HTTP 500 for one it is still writing to, which reads as a fault in the
+        // app rather than as the one thing it is: wait until the programme has finished.
+        if title.recording { return .passedOver("録画中です") }
+
+        switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id) }) {
+        case .went: break
+        case .refused(let error): if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
+        case .stopped(let stop): return .stopped(stop)
+        }
+
+        switch await asked(in: run, sending: true, { try await $0.deleteTitle(id: title.id) }) {
+        case .went: return .done
+        case .refused(let error): return .passedOver(Self.inTheRecordersWords(error))
+        case .stopped(let stop): return .stopped(stop)
+        }
+    }
+
+    /// Why a recording is not sent to be protected, or to have its protection taken off (`on` false): it is
+    /// already the way it should be. Nil when it is not.
+    public nonisolated static func whyNot(protecting title: RecordedTitle, _ on: Bool) -> String? {
+        guard title.protected == on else { return nil }
+        return on ? "すでに保護されています" : "保護されていません"
+    }
+
+    /// Protects one recording of a run, or takes its protection off, and says what that came to. Nothing is
+    /// sent when the recording is already the way it should be (`whyNot(protecting:_:)`). Silence stops the run,
+    /// as for `delete(_:in:)`.
+    public func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame {
+        if let why = Self.whyNot(protecting: title, on) { return .passedOver(why) }
+        switch await asked(in: run, sending: true, { try await $0.updateTitle(id: title.id, protected: on) }) {
+        case .went: return .done
+        case .refused(let error): return .passedOver(Self.inTheRecordersWords(error))
+        case .stopped(let stop): return .stopped(stop)
+        }
+    }
+
+    /// The text the duplicate scan compares, and caches for good, so only what the recorder actually said counts
+    /// as read: two failures kept as empty texts would agree with each other and come up as copies. Silence
+    /// stops the scan, as for `delete(_:in:)`.
+    public func text(of title: RecordedTitle, in run: Run) async -> TextCame {
+        switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id).summary }) {
+        case .went(let text):
+            return .read(text)
+        case .refused(let error):
+            if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
+            return .failed(Self.inTheRecordersWords(error))
+        case .stopped(let stop):
+            return .stopped(stop)
+        }
+    }
+
+    /// What the recorder said as it turned a request down, or what else went wrong with its answer.
+    private nonisolated static func inTheRecordersWords(_ error: any Error) -> String {
+        (error as? any DeviceError)?.explanation ?? String(describing: error)
+    }
+
+    // MARK: - a run's end
 
     /// Ends a run. After one that deletes, the free space is read again, on the run's client, and kept in the
     /// session for the screens -- unless the recorder is known to be away, which would cost the read its

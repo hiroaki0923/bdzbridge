@@ -444,6 +444,35 @@ extension RecorderDriver {
         }
     }
 
+    /// What one request of a run over many recordings came to (`asked(in:sending:_:)`).
+    enum AskedInARun<T> {
+        /// The recorder answered, and what it brought back.
+        case went(T)
+        /// The recorder answered and turned the request down, or with something that cannot be read: handed
+        /// back for the run to say of that recording, and said nowhere else.
+        case refused(any Error)
+        /// Silence: the recorder is lost, and the run stops (`RunStop.silent`).
+        case stopped(RunStop)
+    }
+
+    /// One request of a run over many recordings (`beginRun`), in the outline of `asked` with the rules a run
+    /// keeps: `work`, on the client the run began with, under no line and with no check of its own -- a run
+    /// makes sure of the recorder between its recordings (`mayGoOn`). What `work` returned, or why not. A refusal
+    /// is handed back as a value and not said, and the line of what went wrong is neither written nor cleared.
+    /// Silence loses the recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run,
+    /// `sending` saying whether the request is one that changes the recorder.
+    func asked<T: Sendable>(in run: Run, sending: Bool,
+                            _ work: @MainActor (RecorderClient) async throws -> T) async -> AskedInARun<T> {
+        do {
+            return .went(try await work(run.client))
+        } catch let error as any DeviceError where error.failure == .silent {
+            link?.lost()
+            return .stopped(.silent(afterSending: sending))
+        } catch {
+            return .refused(error)
+        }
+    }
+
     /// A read of a list that is out, for whoever asks for the same list meanwhile (`folded`): under which count of
     /// recorders let go of (`DeviceLink.generation`) and on which client it went out, for which disk -- nil for
     /// the one every read so far is of, so that a read of one disk is never taken for a read of another -- and

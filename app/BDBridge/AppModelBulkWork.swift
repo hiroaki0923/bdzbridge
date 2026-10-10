@@ -43,11 +43,11 @@ extension AppModel {
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
 
     func startBulk(_ kind: BulkJob.Kind, ids: [String]) {
-        guard jobTask == nil, !ids.isEmpty, let client, let driver = recorderDriver,
+        guard jobTask == nil, !ids.isEmpty, let driver = recorderDriver,
               case .success(let run) = driver.beginRun(kind) else { return }
         job = BulkJob(kind: kind, total: ids.count)
         jobTask = Task { [weak self] in
-            await self?.runBulk(kind, ids: ids, client: client, run, driver)
+            await self?.runBulk(kind, ids: ids, run, driver)
         }
     }
 
@@ -61,11 +61,11 @@ extension AppModel {
         job = nil
     }
 
-    /// The loop of a bulk delete or protect. When the recorder is made sure of, what stops the run on its
-    /// account and the free space read as it ends are the driver's (`RecorderDriver.mayGoOn`, `end`), on the run
-    /// begun as the job was set up; whatever stops it there is told here as the recorder lost.
-    private func runBulk(_ kind: BulkJob.Kind, ids: [String], client: RecorderClient, _ run: Run,
-                         _ driver: RecorderDriver) async {
+    /// The loop of a bulk delete or protect. When the recorder is made sure of, what is asked of it for one
+    /// recording, what stops the run on its account and the free space read as it ends are the driver's
+    /// (`RecorderDriver.mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `end`), on the run begun as the job was set
+    /// up; whatever stops it there is told here as the recorder lost.
+    private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ run: Run, _ driver: RecorderDriver) async {
         var stopped = await driver.mayGoOn(run, .first)
         if stopped == nil {
             for id in ids {
@@ -76,23 +76,20 @@ extension AppModel {
                 }
                 // after the wait, so that 中止 tapped while the recorder was being woken is heeded
                 if job?.cancelled == true { break }
-                do {
-                    try await keepingAlive {
-                        switch kind {
-                        case .delete: try await deleteOne(id, client)
-                        case .protecting(let on): try await protectOne(id, on, client)
-                        case .scanning: break
-                        }
+                stopped = await keepingAlive { () -> RunStop? in
+                    switch kind {
+                    case .delete: return await deleteOne(id, in: run, driver)
+                    case .protecting(let on): return await protectOne(id, on, in: run, driver)
+                    case .scanning: return nil
                     }
-                } catch {
-                    // Silence. Stop at the first, since every recording after it would wait out the same
-                    // timeout, and do not send this one again: it may have gone through. The list is read
-                    // again once the recorder answers, which settles what became of it. Which of a
-                    // recording's requests met it is not told here, so it is taken for one that was sent.
-                    lostTheRecorder()
+                }
+                if stopped != nil {
+                    // Silence, which has lost the recorder. Stop at the first, since every recording after it
+                    // would wait out the same timeout, and do not send this one again: it may have gone
+                    // through. The list is read again once the recorder answers, which settles what became of
+                    // it.
                     titlesLoaded = false
                     job?.lostRecorder = true
-                    stopped = .silent(afterSending: true)
                     break
                 }
                 job?.done += 1
@@ -148,16 +145,16 @@ extension AppModel {
     /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
     /// reader gave it. Ticking waits until it has finished.
     func startDuplicateScan() {
-        guard jobTask == nil, let client, let store, let driver = recorderDriver,
+        guard jobTask == nil, let store, let driver = recorderDriver,
               case .success(let run) = driver.beginRun(.scanning) else { return }
         let candidates = Duplicates.candidates(titles)
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         jobTask = Task { [weak self] in
-            await self?.runScan(candidates, client: client, store: store, run, driver)
+            await self?.runScan(candidates, store: store, run, driver)
         }
     }
 
-    private func runScan(_ candidates: [[RecordedTitle]], client: RecorderClient, store: GuideStore, _ run: Run,
+    private func runScan(_ candidates: [[RecordedTitle]], store: GuideStore, _ run: Run,
                          _ driver: RecorderDriver) async {
         let ids = candidates.flatMap { $0.map(\.id) }
         if let known = try? await store.titleSummaries(ids) {
@@ -177,19 +174,7 @@ extension AppModel {
                     }
                     // after the wait, as in `runBulk`: a check heard out meanwhile may have stopped the scan
                     if job?.cancelled == true { break scan }
-                    let read: SummaryRead
-                    do {
-                        read = try await keepingAlive { try await client.summary(of: title.id) }
-                    } catch let error as any DeviceError where error.failure == .silent {
-                        // Stop at the first silence rather than wait it out once for every recording left,
-                        // and keep nothing for this one: silence says nothing about what it is.
-                        lostTheRecorder()
-                        answering = false
-                        break scan
-                    } catch {
-                        read = .failed(reason: String(describing: error))
-                    }
-                    switch read {
+                    switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):
                         summaries[title.id] = summary
                         try? await store.setTitleSummary(title.id, summary)
@@ -199,6 +184,12 @@ extension AppModel {
                     case .failed(let reason):
                         // Nothing is kept, so it is left out of the sets and asked about again next time.
                         job?.skipped.append(.init(id: title.id, reason: reason))
+                    case .stopped:
+                        // Silence, which has lost the recorder. Stop at the first rather than wait it out once
+                        // for every recording left, and keep nothing for this one: silence says nothing about
+                        // what it is.
+                        answering = false
+                        break scan
                     }
                 }
                 job?.done += 1
@@ -230,41 +221,50 @@ extension AppModel {
         duplicates = sets
     }
 
-    /// Throws only silence, which ends the job: see `runBulk`.
-    private func deleteOne(_ id: String, _ client: RecorderClient) async throws {
+    /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and
+    /// the job brought into step with what that came to. What stopped the run at it, which only silence does,
+    /// or nil: see `runBulk`.
+    private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
         guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
-            return
+            return nil
         }
-        let outcome = try await client.deleteIfPresent(title)
-        switch outcome {
-        case .changed:
+        let came = await driver.delete(title, in: run)
+        switch came {
+        case .done:
             titles.removeAll { $0.id == id }
             job?.changed.append(id)
         case .gone:
             // the recorder had already lost it, so the list should not keep showing it either
             titles.removeAll { $0.id == id }
-            job?.skipped.append(.init(id: id, reason: outcome.reason ?? ""))
-        case .skipped(let reason):
+            job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
+        case .passedOver(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
+        case .stopped(let stop):
+            return stop
         }
+        return nil
     }
 
-    private func protectOne(_ id: String, _ on: Bool, _ client: RecorderClient) async throws {
+    /// One recording of a bulk protect, as `deleteOne`.
+    private func protectOne(_ id: String, _ on: Bool, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
         guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
-            return
+            return nil
         }
-        let outcome = try await client.setProtected(title, on)
-        switch outcome {
-        case .changed:
+        let came = await driver.protect(title, on, in: run)
+        switch came {
+        case .done:
             // Found again rather than by the place it had before the request: the list can change while the
             // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
             // may then be another recording's, which would be marked protected instead, or past the end.
             if let index = titles.firstIndex(where: { $0.id == id }) { titles[index].protected = on }
             job?.changed.append(id)
-        case .gone, .skipped:
-            job?.skipped.append(.init(id: id, reason: outcome.reason ?? ""))
+        case .gone, .passedOver:
+            job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
+        case .stopped(let stop):
+            return stop
         }
+        return nil
     }
 }

@@ -51,14 +51,6 @@ extension AppModel {
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
-    /// Leaves the app where a connect that got no answer leaves it (`DeviceLink.lost`). A request the model
-    /// sends by hand comes here when it meets silence; one through the funnel is lost by the link as it says
-    /// the failure (`DeviceLink.say`), which comes to the same. Nothing is sent again from here, nor by the
-    /// callers once the recorder is back: a write that met silence may have arrived all the same.
-    func lostTheRecorder() {
-        recorder.lost()
-    }
-
     /// True once a MAC is known, which is what a magic packet needs.
     var canWake: Bool { session.canWake }
 

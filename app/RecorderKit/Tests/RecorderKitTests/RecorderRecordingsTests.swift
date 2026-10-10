@@ -255,17 +255,215 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertNil(RunStop.silent(afterSending: false).said)
     }
 
+    // MARK: - one recording of a run
+
+    // The decisions a run makes about each recording. The recorder's traps are the point: it refuses a protected
+    // recording, it refuses one it is still writing to, and it answers success for one it no longer has.
+
+    /// A recording in progress: the recorder answers a bare HTTP 500, so nothing is sent at all.
+    func testARecordingInProgressIsPassedOverWithoutAskingTheRecorder() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]])
+
+        let came = await driver.delete(try await Self.title(recording: true), in: run)
+
+        XCTAssertEqual(came, .passedOver("録画中です"))
+        let sent = await recorder.actions.count
+        XCTAssertEqual(sent, 0, "a recording in progress should not be sent to the recorder at all")
+    }
+
+    func testAProtectedRecordingIsPassedOverWithoutAskingTheRecorder() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]])
+
+        let came = await driver.delete(try await Self.title(protected: true), in: run)
+
+        let sent = await recorder.actions.count
+        XCTAssertEqual(came, .passedOver("保護されています"))
+        XCTAssertEqual(sent, 0, "nothing should have been sent")
+    }
+
+    func testARecordingTheRecorderNoLongerHasIsNotAnError() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, [
+            "X_GetTitleDetail": [Stub.fault("820")], "X_DeleteTitle": [Stub.fault("820")],
+        ])
+
+        let came = await driver.delete(try await Self.title(), in: run)
+
+        XCTAssertEqual(came, .gone)
+        XCTAssertEqual(came.reason, "すでに削除されています", "the run's list of what was passed over says why")
+        let bodies = await recorder.bodies
+        guard bodies.count == 1 else {
+            return XCTFail("it asked, and then knew better than to delete: \(bodies.count) requests")
+        }
+        XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])
+    }
+
+    func testDeletingAsksFirstAndThenDeletes() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")],
+            "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+
+        let came = await driver.delete(try await Self.title(id: "0x0000010000034d78"), in: run)
+
+        XCTAssertEqual(came, .done)
+        let bodies = await recorder.bodies
+        guard bodies.count == 2 else { return XCTFail("the question and the delete: \(bodies.count) requests") }
+        XCTAssertTrue(bodies[1].contains("<TitleID>0x0000010000034d78</TitleID>"), bodies[1])
+    }
+
+    func testARefusedDeleteSaysWhyRatherThanStoppingTheRun() async throws {
+        let (run, driver, _) = try await Self.running(.delete, [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],
+            "X_DeleteTitle": [Stub.fault("402")],
+        ])
+
+        let came = await driver.delete(try await Self.title(), in: run)
+
+        XCTAssertEqual(came.reason?.contains("402"), true, came.reason ?? "-")
+    }
+
+    func testProtectingSendsOnlyWhenItWouldChangeSomething() async throws {
+        let (run, driver, recorder) = try await Self.running(.protecting(true),
+                                                             ["X_UpdateTitle": [Stub.soap("X_UpdateTitle")]])
+
+        let already = await driver.protect(try await Self.title(protected: true), true, in: run)
+        XCTAssertEqual(already, .passedOver("すでに保護されています"))
+        let notProtected = await driver.protect(try await Self.title(protected: false), false, in: run)
+        XCTAssertEqual(notProtected, .passedOver("保護されていません"))
+        expectEqual(await recorder.actions.count, 0)
+
+        expectEqual(await driver.protect(try await Self.title(id: "0x2", protected: false), true, in: run), .done)
+        let bodies = await recorder.bodies
+        guard bodies.count == 1 else { return XCTFail("the one protect: \(bodies.count) requests") }
+        // the payload travels as a SOAP argument, so it arrives escaped
+        XCTAssertTrue(bodies[0].contains("&lt;item id=&quot;0x2&quot;&gt;&lt;titleProtectFlag&gt;1&lt;"), bodies[0])
+    }
+
+    /// A recorder that has gone to sleep says nothing to the question asked first, and the delete is then
+    /// not sent at all: it would only wait out the same silence, and the run has to stop rather than pass the
+    /// recording over.
+    func testSilenceBeforeTheDeleteStopsTheRunWithoutDeleting() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, [:],
+                                                             silentTo: ["X_GetTitleDetail", "X_DeleteTitle"])
+
+        let came = await driver.delete(try await Self.title(), in: run)
+
+        guard case .stopped(let stop) = came else {
+            return XCTFail("silence should stop the run, not be turned into a recording passed over")
+        }
+        XCTAssertEqual(stop, .silent(afterSending: false))
+        let bodies = await recorder.bodies
+        guard bodies.count == 1 else { return XCTFail("the question alone: \(bodies.count) requests") }
+        XCTAssertTrue(bodies[0].contains("X_GetTitleDetail"), bodies[0])
+    }
+
+    /// Silence on the delete itself stops the run too. Whether it arrived is unknown, which is why it must not
+    /// come back as a recording passed over that the caller could take for "not deleted" -- or send again.
+    func testSilenceOnTheDeleteStopsTheRunRatherThanPassingTheRecordingOver() async throws {
+        let (run, driver, recorder) = try await Self.running(.delete, [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],
+        ], silentTo: ["X_DeleteTitle"])
+
+        let came = await driver.delete(try await Self.title(), in: run)
+
+        guard case .stopped(let stop) = came else {
+            return XCTFail("silence should stop the run, not be turned into a recording passed over")
+        }
+        XCTAssertEqual(stop, .silent(afterSending: true))
+        let sent = await recorder.actions.count
+        XCTAssertEqual(sent, 2, "asked once and deleted once, and nothing sent again")
+    }
+
+    /// The duplicate scan keeps what it reads for good, so only an answer counts as read -- an empty text
+    /// included, since some recordings come with none.
+    func testTheTextIsReadAndAnEmptyOneIsAnAnswer() async throws {
+        let described = try await Self.running(.scanning, [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")],
+        ])
+        expectEqual(await described.driver.text(of: try await Self.title(), in: described.run), .read("あらすじ"))
+
+        let bare = try await Self.running(.scanning, [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],
+        ])
+        expectEqual(await bare.driver.text(of: try await Self.title(), in: bare.run), .read(""))
+    }
+
+    func testARecordingTheRecorderNoLongerHasIsGoneRatherThanRead() async throws {
+        let (run, driver, _) = try await Self.running(.scanning, ["X_GetTitleDetail": [Stub.fault("820")]])
+        expectEqual(await driver.text(of: try await Self.title(), in: run), .gone)
+    }
+
+    /// A refusal is not a text. Kept as an empty one, it would be the same as every other failure's and make
+    /// copies of recordings that are nothing alike.
+    func testARefusedReadIsAFailureRatherThanAnEmptyText() async throws {
+        let (run, driver, _) = try await Self.running(.scanning, ["X_GetTitleDetail": [Stub.fault("402")]])
+        let came = await driver.text(of: try await Self.title(), in: run)
+        guard case .failed(let reason) = came else { return XCTFail("\(came)") }
+        XCTAssertTrue(reason.contains("402"), reason)
+    }
+
+    func testSilenceWhileReadingStopsTheScan() async throws {
+        let (run, driver, _) = try await Self.running(.scanning, [:], silentTo: ["X_GetTitleDetail"])
+        let came = await driver.text(of: try await Self.title(), in: run)
+        guard case .stopped(let stop) = came else {
+            return XCTFail("silence should stop the scan, not be turned into a failure to read")
+        }
+        XCTAssertEqual(stop, .silent(afterSending: false))
+    }
+
+    func testSilenceOnProtectingStopsTheRun() async throws {
+        let (run, driver, recorder) = try await Self.running(.protecting(true), [:], silentTo: ["X_UpdateTitle"])
+
+        let came = await driver.protect(try await Self.title(protected: false), true, in: run)
+
+        guard case .stopped(let stop) = came else {
+            return XCTFail("silence should stop the run, not be turned into a recording passed over")
+        }
+        XCTAssertEqual(stop, .silent(afterSending: true))
+        expectEqual(await recorder.actions.count, 1)
+    }
+
     // MARK: - what the tests start from
 
+    /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
+    /// `answers` says and says nothing at all to those of `silentTo`. The recorder has put down nothing yet.
+    private static func running(_ kind: RunKind, _ answers: [String: [HTTPResponse]],
+                                silentTo silent: Set<String> = []) async throws
+        -> (run: Run, driver: RecorderDriver, recorder: PlayingRecorder) {
+        let (_, driver, recorder) = try await playing(answers, silentTo: silent)
+        return (try driver.beginRun(kind).get(), driver, recorder)
+    }
+
+    /// One recording as a client reads it from what a recorder lists, with its number and its two flags.
+    private static func title(id: String = "0x1", protected: Bool = false,
+                              recording: Bool = false) async throws -> RecordedTitle {
+        let list = "<xsrs>" + listed(id, protected: protected, recording: recording) + "</xsrs>"
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.soap(
+            "X_GetTitleList", result: list, totalMatches: 1)))
+        guard let title = try await client.allTitles().first else {
+            throw RecorderError.unexpectedAnswer(action: "X_GetTitleList")
+        }
+        return title
+    }
+
+    /// A recording as a recorder lists it.
+    private static func listed(_ id: String, protected: Bool, recording: Bool) -> String {
+        "<item id=\"\(id)\"><title>サンプル</title>"
+            + "<scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
+            + "<scheduledDuration>1800</scheduledDuration>"
+            + "<titleProtectFlag>\(protected ? 1 : 0)</titleProtectFlag>"
+            + "<recordingFlag>\(recording ? 1 : 0)</recordingFlag></item>"
+    }
+
     /// A link of the test's own to a recorder at the bench's address that says who it is and answers each
-    /// action as `answers` says (`PlayingRecorder`), connected a moment ago, with the world it reaches and an
-    /// earlier failure's line left. The driver asks every `interval` for up to `limit` while a play waits for
-    /// the recorder's power. The recorder has put down nothing yet.
-    private static func playing(_ answers: [String: [HTTPResponse]], limit: TimeInterval = 30,
-                                interval: Duration = .milliseconds(1)) async throws
+    /// action as `answers` says, and those of `silentTo` not at all (`PlayingRecorder`), connected a moment ago,
+    /// with the world it reaches and an earlier failure's line left. The driver asks every `interval` for up to
+    /// `limit` while a play waits for the recorder's power. The recorder has put down nothing yet.
+    private static func playing(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [],
+                                limit: TimeInterval = 30, interval: Duration = .milliseconds(1)) async throws
         -> (LinkWorld, RecorderDriver, PlayingRecorder) {
         let world = LinkWorld()
-        let recorder = try PlayingRecorder(answers, udn: DeviceLinkTests.udn)
+        let recorder = try PlayingRecorder(answers, silentTo: silent, udn: DeviceLinkTests.udn)
         world.devices[Stub.host] = recorder
         let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0,
                                     powerOnLimit: limit, powerOnInterval: interval)
@@ -326,16 +524,9 @@ final class RecorderRecordingsTests: XCTestCase {
     private static func titles() async throws
         -> (idle: RecordedTitle, protected: RecordedTitle, recording: RecordedTitle,
             protectedAndRecording: RecordedTitle) {
-        func item(_ id: String, protected: Bool, recording: Bool) -> String {
-            "<item id=\"\(id)\"><title>サンプル</title>"
-                + "<scheduledStartDateTime>2026-09-13T21:00:00+0900</scheduledStartDateTime>"
-                + "<scheduledDuration>1800</scheduledDuration>"
-                + "<titleProtectFlag>\(protected ? 1 : 0)</titleProtectFlag>"
-                + "<recordingFlag>\(recording ? 1 : 0)</recordingFlag></item>"
-        }
-        let list = "<xsrs>" + item("0x1", protected: false, recording: false)
-            + item("0x2", protected: true, recording: false) + item("0x3", protected: false, recording: true)
-            + item("0x4", protected: true, recording: true) + "</xsrs>"
+        let list = "<xsrs>" + listed("0x1", protected: false, recording: false)
+            + listed("0x2", protected: true, recording: false) + listed("0x3", protected: false, recording: true)
+            + listed("0x4", protected: true, recording: true) + "</xsrs>"
         let client = RecorderClient(host: Stub.host, transport: StubTransport(always: Stub.soap(
             "X_GetTitleList", result: list, totalMatches: 4)))
         let titles = try await client.allTitles()
@@ -356,16 +547,21 @@ final class RecorderRecordingsTests: XCTestCase {
 }
 
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a
-/// test gives for it, in turn and the last again once they run out; anything else with a 500, as a recorder that
-/// refuses what an attach reads besides its description. It puts down each action it was asked, with its body.
+/// test gives for it, in turn and the last again once they run out; an action the test names as met by silence
+/// with nothing at all; anything else with a 500, as a recorder that refuses what an attach reads besides its
+/// description. It puts down everything it was asked, answered or not: each action with its body, and an ask of
+/// who it is by its file's name with an empty body, so that a test that counts what was asked, or finds nothing
+/// asked, counts a look at who is there as well.
 private actor PlayingRecorder: HTTPTransport {
     private var answers: [String: [HTTPResponse]]
+    private let silent: Set<String>
     private let description: String
     private(set) var actions: [String] = []
     private(set) var bodies: [String] = []
 
-    init(_ answers: [String: [HTTPResponse]], udn: String) throws {
+    init(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [], udn: String) throws {
         self.answers = answers
+        self.silent = silent
         description = try Vectors.descriptionXML(udn: udn)
     }
 
@@ -377,12 +573,15 @@ private actor PlayingRecorder: HTTPTransport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.lastPathComponent != "description.xml" else {
+            actions.append("description.xml")
+            bodies.append("")
             return HTTPResponse(statusCode: 200, body: Data(description.utf8))
         }
         let action = String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         actions.append(action)
         bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
+        guard !silent.contains(action) else { throw RecorderError.transport("timed out") }
         guard var given = answers[action], let answer = given.first else { return HTTPResponse(statusCode: 500) }
         if given.count > 1 { given.removeFirst() }
         answers[action] = given
