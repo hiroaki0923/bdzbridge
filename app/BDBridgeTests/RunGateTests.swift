@@ -862,6 +862,88 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a scan that needed no recorder wrote on the line")
     }
+
+    /// Silence at a candidate of a scan stops the scan there: no candidate after it is asked about, the app is
+    /// left given up on the recorder, and nothing is kept for that candidate -- silence says nothing of what it
+    /// is about. What was read before it stays, and the job says how far it got and that the recorder stopped
+    /// answering. The recordings stay as read: a scan changes nothing on the recorder.
+    ///
+    /// The line of what went wrong is left as it was, today: a later change has the silence said there, as any
+    /// read's is.
+    func testSilenceAtAScansCandidateStopsItAndKeepsNothingForThatRecording() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        let cache = try GuideStore(path: bench.guidePath)
+        let lost = "調べたところで、レコーダーの応答がなくなったため中止しました"
+
+        // At the first of the two, and then, once the recorder is back, at the second.
+        for (silent, read) in [(1, [String]()), (2, [first])] {
+            leaveALine(on: model)
+            await recorder.answer(Ask.details, with: .silence, after: silent - 1)
+            let before = await recorder.asked
+            try await scan(model)
+
+            expectEqual(await recorder.asked(Ask.details, since: before), silent,
+                        "silence at candidate \(silent): asked again, or the scan went on")
+            XCTAssertTrue(model.gaveUp, "silence at candidate \(silent) did not leave the app given up")
+            XCTAssertEqual(model.summaries.keys.sorted(), read, "candidate \(silent)")
+            expectEqual(try await cache.titleSummaries([first, second]).keys.sorted(), read, "candidate \(silent)")
+            XCTAssertEqual(model.job?.outcome, "\(silent - 1) 件まで" + lost)
+            XCTAssertTrue(model.titlesLoaded, "silence in a scan marked the recordings unread")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence in a scan is said on the line, today not")
+            await reconnect(model)
+        }
+    }
+
+    /// 中止 stops a scan before its next candidate, and what it has read stays read. Tapped while a text is out,
+    /// that text is kept and counted, the next candidate is not asked about, and the job says how far the scan got
+    /// and that it was stopped. Nor is a candidate counted after 中止 whose text the cache already holds: with the
+    /// second candidate's text there beforehand, a scan stopped at the first says one, not two. And a scan
+    /// stopped while it waits for the app to come back asks about nothing once it is back.
+    func testStoppingAScanKeepsWhatWasReadAndLooksAtNoMore() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        await recorder.hold(only: Ask.details)
+        var before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        model.cancelBulk()
+        await recorder.letGo()
+        try await untilTheRunEnds(model, "the scan never ended")
+        expectEqual(await recorder.asked(Ask.details, since: before), 1, "a candidate after 中止 was asked about")
+        XCTAssertEqual(Array(model.summaries.keys), [first], "the text that was out as 中止 was tapped is not kept")
+        expectEqual(try await GuideStore(path: bench.guidePath).titleSummaries([first, second]), model.summaries)
+        XCTAssertEqual(model.job?.outcome, "1 件まで調べて中止しました")
+
+        // Waiting for the app to come back, before the candidate still unread.
+        model.wentToBackground()
+        before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never waited for the app to come back") { model.backInFront != nil }
+        model.cancelBulk()
+        await model.returnedToForeground()
+        try await untilTheRunEnds(model, "the scan never ended")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0,
+                    "a scan stopped while the app was away asked about a candidate once it was back")
+        XCTAssertEqual(model.job?.outcome, "1 件まで調べて中止しました")
+
+        // On another phone, whose cache holds the second candidate's text already.
+        let (other, holding, another, _) = try await settled(withACopy: true)
+        try await GuideStore(path: other.guidePath).setTitleSummary(second, "前に読んだ番組内容")
+        await holding.hold(only: Ask.details)
+        before = await holding.asked
+        another.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await holding.asked(Ask.details, since: before) == 1
+        }
+        another.cancelBulk()
+        await holding.letGo()
+        try await untilTheRunEnds(another, "the scan never ended")
+        XCTAssertEqual(another.job?.done, 1, "a candidate was counted after 中止, its text being in the cache")
+        XCTAssertEqual(another.job?.outcome, "1 件まで調べて中止しました")
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.
