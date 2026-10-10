@@ -28,6 +28,20 @@ final class GuideStalenessTests: XCTestCase {
                        try time("2026-10-01T01:00:00+09:00"))
     }
 
+    /// The night's hour is two o'clock by a calendar set to Japan's time, not by the calendar the process
+    /// would give: with another zone as the process's default for as long as the assertions take, the next night
+    /// is still Japan's. What is held is that the calendar's zone is set; on a machine in Japan, one set to the
+    /// phone's own zone would pass.
+    func testTheNextNightIsJapansTwoOClockWithAnotherZoneAsTheDefault() throws {
+        let was = NSTimeZone.default
+        NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        defer { NSTimeZone.default = was }
+        XCTAssertEqual(GuideRefresh.nextNightlyRun(after: try time("2026-10-10T01:59:59+09:00")),
+                       try time("2026-10-10T02:00:00+09:00"))
+        XCTAssertEqual(GuideRefresh.nextNightlyRun(after: try time("2026-10-10T02:00:00+09:00")),
+                       try time("2026-10-11T02:00:00+09:00"))
+    }
+
     /// Each type by its own time: one answered since the rebuild is fresh whatever the others are.
     func testATypeIsStaleByItsOwnTime() throws {
         let now = try time("2026-10-01T08:00:00+09:00")

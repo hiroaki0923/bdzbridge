@@ -88,6 +88,16 @@ public enum GuideRefresh {
         return previous ?? now.addingTimeInterval(-24 * 3600)
     }
 
+    /// The next 02:00 in the recorder's own time zone, which the overnight run is asked for. The box rebuilds
+    /// its guide files around 00:49.
+    public static func nextNightlyRun(after now: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let next = calendar.nextDate(after: now, matching: DateComponents(hour: 2, minute: 0),
+                                     matchingPolicy: .nextTime)
+        return next ?? now.addingTimeInterval(6 * 3600)
+    }
+
     /// The broadcasting types the recorder has not been asked for since that rebuild, or never: the ones
     /// worth fetching again. Each type by its own time: by the newest, a type that failed while the others
     /// came in would count as fresh; by the oldest, one the recorder cannot give would have every connect

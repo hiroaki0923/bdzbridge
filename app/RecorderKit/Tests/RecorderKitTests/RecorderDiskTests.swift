@@ -145,6 +145,28 @@ final class RecorderDiskTests: XCTestCase {
                        "100%ディスクの残りが 7 GB です。古い録画を整理するか、録画モードを見直してください。")
     }
 
+    /// The internal disk's low-space notice, against whether it has been warned about since it last had room:
+    /// warned once per fall below the line, the warning forgotten once the disk has room again, which at the
+    /// line it has. A disk of no size is a recorder that has not said how full it is: nothing is said of it
+    /// whatever it gives as free, and whether it was warned about is left as it was.
+    func testTheInternalDiskIsWarnedAboutOncePerFallAndADiskOfNoSizeSaysNothing() {
+        func notice(free: Int, total: Int = 2_000_000_000_000, warned: Bool) -> RecorderDisk.SpaceNotice {
+            RecorderDisk.internalSpace(freeBytes: free, totalBytes: total, warned: warned, warnBelowGB: 50)
+        }
+        let low = 42_000_000_000, atTheLine = 50_000_000_000, justUnder = 49_999_999_999
+        XCTAssertEqual(notice(free: low, warned: false), .warn(freeGB: 42, mark: RecorderDisk.internalID))
+        XCTAssertEqual(notice(free: low, warned: true), .nothing, "warned twice in one fall")
+        XCTAssertEqual(notice(free: justUnder, warned: false),
+                       .warn(freeGB: Double(justUnder) / 1e9, mark: RecorderDisk.internalID))
+        XCTAssertEqual(notice(free: atTheLine, warned: true), .roomAgain)
+        XCTAssertEqual(notice(free: atTheLine, warned: false), .nothing)
+
+        XCTAssertEqual(notice(free: 0, total: 0, warned: false), .nothing, "a disk of no size was warned about")
+        XCTAssertEqual(notice(free: 0, total: 0, warned: true), .nothing)
+        XCTAssertEqual(notice(free: atTheLine, total: 0, warned: true), .nothing,
+                       "the warning of a disk of no size was forgotten")
+    }
+
     // MARK: - what is offered, what is sent and what is named
 
     /// Nothing to choose without a USB disk that takes recordings -- none known, one not mounted, one of no size --

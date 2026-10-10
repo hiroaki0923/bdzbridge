@@ -140,13 +140,10 @@ enum BackgroundWork {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    /// The next 02:00 in the recorder's own time zone. The box rebuilds its guide files around 00:49.
+    /// The next 02:00 in the recorder's own time zone (`GuideRefresh.nextNightlyRun`). The box rebuilds its guide
+    /// files around 00:49.
     static func nextNightlyRun(after now: Date = Date()) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = RecorderTime.timeZone
-        let next = calendar.nextDate(after: now, matching: DateComponents(hour: 2, minute: 0),
-                                     matchingPolicy: .nextTime)
-        return next ?? now.addingTimeInterval(6 * 3600)
+        GuideRefresh.nextNightlyRun(after: now)
     }
 
     /// The work itself, with no screen behind it -- the television's part beside the recorder's. The
