@@ -52,8 +52,9 @@ extension AppModel {
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
     /// The free space read again, after a bulk delete. It is only shown, so a recorder that will not say is not
-    /// an error, and the delete it follows is not reported as failed. Silence is still silence. A single delete
-    /// and the list read it through the driver, by the same rule.
+    /// an error, and the delete it follows is not reported as failed. Silence is still silence, and loses the
+    /// recorder here without a word on the line until the bulk work goes to the driver: a single delete and the
+    /// list read it through the driver, which says that silence on the line as any read's.
     func refreshStorage(_ client: RecorderClient) async {
         do {
             session.learned(storage: try await RecorderDriver.storage(of: client))

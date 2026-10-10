@@ -18,9 +18,10 @@ extension RecorderDriver {
     /// what the read fails as, and the next check asks again (`asked`).
     ///
     /// The list is handed to `keep` as it comes back, before the free space is asked, so that what the app holds
-    /// is the list from the moment it is read. The free space is only shown, and cannot fail the list: a
-    /// recorder that will not say leaves it unknown (`storage(of:)`), and silence loses the recorder, saying
-    /// nothing (`learnTheFreeSpace`). The line of what went wrong is cleared once both are over.
+    /// is the list from the moment it is read; the line of what went wrong is cleared then. The free space is a
+    /// step after it, under the same line, and is only shown: it cannot fail the list, a recorder that will not
+    /// say leaves it unknown (`storage(of:)`), and its silence is said as any read's (`learnTheFreeSpace`), on
+    /// the line the list cleared, where it stays.
     ///
     /// Nothing is asked when there is no recorder's client; whether to ask at all -- the recorder known to be
     /// away, the list read already -- is the app's to say.
@@ -32,26 +33,32 @@ extension RecorderDriver {
     public func titles(keep: @MainActor ([RecordedTitle]) -> Void) async -> Bool {
         guard let link, link.client is RecorderClient else { return false }
         let began = link.generation
-        return await asked(Self.titlesLine, .aRead, on: link, since: began) { _, client in
-            let list = try await client.allTitles()
-            guard !link.letGo(since: began) else { return }
-            keep(list)
+        return await link.underALine(Self.titlesLine) { _ in
+            let came = await self.asked(nil, .aRead, on: link, since: began) { _, client -> RecorderClient? in
+                let list = try await client.allTitles()
+                guard !link.letGo(since: began) else { return nil }
+                keep(list)
+                return client
+            }
+            guard case .went(let read) = came, let client = read else { return false }
             await self.learnTheFreeSpace(on: client, link, since: began)
-        }.wentThrough
+            return true
+        }
     }
 
     /// The free space read again, after a delete or with the list of recordings, and kept in the session for
-    /// the screens. It is only shown, so a recorder that will not say is not an error. Silence is still silence,
-    /// and loses the recorder, with nothing said. What comes back once the recorder has been let go of since
-    /// `began` is about that one: nothing is learned of it, and its silence loses nobody.
+    /// the screens: a step of that operation, after its own clear of the line. It is only shown, so a recorder
+    /// that will not say is not an error. Silence is still silence, and is said as any read's is, once
+    /// (`DeviceLink.say`, `takesSilenceOnARead`): the recorder lost, and the line saying that it did not answer,
+    /// where nothing clears it after. What comes back once the recorder has been let go of since `began` is about
+    /// that one: nothing is learned of it, and its silence is neither said nor taken.
     func learnTheFreeSpace(on client: RecorderClient, _ link: DeviceLink, since began: Int) async {
         do {
             let storage = try await Self.storage(of: client)
             guard !link.letGo(since: began) else { return }
             link.session.learned(storage: storage)
         } catch {
-            guard !link.letGo(since: began) else { return }
-            link.lost()
+            _ = link.say(OperationFailure(error, sending: nil), since: began, ofARead: true)
         }
     }
 
@@ -178,8 +185,9 @@ extension RecorderDriver {
 
     /// A write, and not one that can be undone: the recording is gone from the recorder. What it came to, and
     /// whether the recordings are to be read again, as for `protect`; `keep` takes the row out of the app's list,
-    /// called once the recorder has taken it, before the free space is read again under the same line
-    /// (`learnTheFreeSpace`), which cannot fail the delete: it has happened whatever that says.
+    /// called once the recorder has taken it, and the line of what went wrong is cleared then, before the free
+    /// space is read again under the same line (`learnTheFreeSpace`), which cannot fail the delete: it has
+    /// happened whatever that says, and silence on it is said on the line, where it stays.
     ///
     /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
     /// turned away before anything is sent, the result saying why and the line left as it was, and the
@@ -194,14 +202,19 @@ extension RecorderDriver {
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
-        let came = await asked(Self.deletingTitleLine, .aWrite(sending: Self.mayHaveArrived), on: link,
-                               since: began) { _, client in
-            try await client.deleteTitle(id: title.id)
-            guard !link.letGo(since: began) else { return }
-            keep()
-            await self.learnTheFreeSpace(on: client, link, since: began)
+        return await link.underALine(Self.deletingTitleLine) { _ in
+            let came = await self.asked(nil, .aWrite(sending: Self.mayHaveArrived), on: link,
+                                        since: began) { _, client -> RecorderClient? in
+                try await client.deleteTitle(id: title.id)
+                guard !link.letGo(since: began) else { return nil }
+                keep()
+                return client
+            }
+            if case .went(let deleted) = came, let client = deleted {
+                await self.learnTheFreeSpace(on: client, link, since: began)
+            }
+            return (self.altered(came, on: link), came.silentAfterSending && !link.letGo(since: began))
         }
-        return (altered(came, on: link), came.silentAfterSending && !link.letGo(since: began))
     }
 
     // MARK: - playback and power

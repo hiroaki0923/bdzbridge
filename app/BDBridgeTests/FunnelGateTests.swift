@@ -110,7 +110,8 @@ final class FunnelGateTests: XCTestCase {
     /// that has just gone silent.
     ///
     /// The free space is read after a delete and with the list, and is only shown: silence on it loses the
-    /// recorder like any other and fails neither. And a condition's delete that was turned down is followed by
+    /// recorder like any other and fails neither, and is said as a read's silence is, on the line the delete or
+    /// the list cleared, where it stays. And a condition's delete that was turned down is followed by
     /// a read, whose silence is the newer thing to say.
     ///
     /// Playing, pausing, stopping and powering on say the read's sentence today, though each asks the recorder to
@@ -160,7 +161,7 @@ final class FunnelGateTests: XCTestCase {
                    "silence on the free space failed the delete it followed")
         XCTAssertFalse(model.titles.contains { $0.id == subjects.spare.id })
         XCTAssertTrue(model.titlesLoaded, "the list is marked unread after a delete that went through")
-        XCTAssertNil(model.problem(for: .recorder))
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence on the free space was not said")
         XCTAssertTrue(model.gaveUp, "silence on the free space was not taken for silence")
         XCTAssertEqual(model.storage?.free, storage?.free)
         XCTAssertEqual(model.storage?.total, storage?.total)
@@ -173,7 +174,7 @@ final class FunnelGateTests: XCTestCase {
         await model.loadTitles(force: true)
         XCTAssertTrue(model.titlesLoaded)
         XCTAssertFalse(model.titles.isEmpty)
-        XCTAssertNil(model.problem(for: .recorder), "silence on the free space failed the read it followed")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence on the free space was not said")
         XCTAssertTrue(model.gaveUp)
 
         // A condition's delete turned down, and silence on the read that follows it.
