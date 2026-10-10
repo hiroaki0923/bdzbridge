@@ -538,6 +538,35 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
         XCTAssertTrue(model.connected)
     }
+
+    // MARK: - 中止, and leaving the app
+
+    /// 中止 stops a run before its next recording. Tapped while a recording's request is out, that recording is
+    /// finished and counted, the next is not asked about, and the job says it was stopped and how far it got;
+    /// the free space is still read, something having been deleted. Until the run has stopped its job cannot be
+    /// taken off the screen, and afterwards it can.
+    func testStoppingARunCountsTheRecordingThatIsOutAndSendsNoOther() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.deleteRecording)
+        let count = await recorder.heard.count
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never came to its first delete") { await recorder.heard.count == count + 2 }
+
+        model.cancelBulk()
+        model.clearJob()
+        XCTAssertNotNil(model.job, "a job still running was taken off the screen")
+        XCTAssertTrue(model.jobRunning)
+        await recorder.letGo()
+        try await untilTheRunEnds(model)
+
+        expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording, Ask.freeSpace],
+                    "a recording after 中止 was asked about, or the free space was not read")
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+        XCTAssertEqual(model.job?.done, 1)
+        XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+        model.clearJob()
+        XCTAssertNil(model.job, "a job that has stopped could not be taken off the screen")
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.
