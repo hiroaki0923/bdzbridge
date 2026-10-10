@@ -979,6 +979,69 @@ extension XCTestCase {
         let why = model.problem(for: .recorder) ?? "no reason given"
         XCTAssertTrue(model.connected, "the recorder did not come back: \(why)", file: file, line: line)
     }
+
+    /// Asks `something` of the model while the check before an operation is out, and then has that check end as
+    /// `end` says. The recorder is made sure of, and that ask is held; `something` is asked meanwhile, and has
+    /// got as far as the check once `begun` says so; then the ask is let go, into silence or into a recorder busy
+    /// as it is asked who it is. What the check found, and what `something` came to.
+    @MainActor
+    func duringACheck<T: Sendable>(by model: AppModel, of recorder: NamedRecorder, endingIn end: CheckEnd,
+                                   _ what: String, waitingFor begun: @MainActor () -> Bool,
+                                   _ something: @escaping @MainActor () async -> T) async throws
+        -> (there: Bool, came: T) {
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        let asking = Task { await something() }
+        try await until("\(what) was never begun") { begun() }
+        switch end {
+        case .silence: await recorder.goQuiet(on: Ask.description)
+        case .busy: await recorder.busyAtTheDoor()
+        }
+        await recorder.letGo()
+        return (await check.value, await asking.value)
+    }
+
+    /// Asks `something` of the model while the check before an operation is out, and has that check end the one
+    /// way that leaves the recorder there and not connected to: silent to the check's own ask, answering the
+    /// first ask of the waking that follows -- so that nothing waits a second for it to come up -- and then busy
+    /// with somebody else, through both tries after the first, as the waking's attach asks who it is.
+    /// `something` has got as far as the check once the strip has a line, or once `begun` says so, for what
+    /// puts no line up. What `something` came to, and what the recorder was asked from the check on besides who
+    /// it is.
+    @MainActor
+    func duringACheckTurnedAwayAfterAWaking<T: Sendable>(by model: AppModel, of recorder: NamedRecorder,
+                                                         waitingFor begun: (@MainActor () -> Bool)? = nil,
+                                                         _ something: @escaping @MainActor () async -> T)
+        async throws -> (came: T, heard: [String]) {
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        let asking = Task { await something() }
+        try await until("what was asked for was never begun") { begun?() ?? (model.busy != nil) }
+        await recorder.goQuiet(on: Ask.description)
+        await recorder.answer(Ask.description, with: .status(503), times: 3, after: 1)
+        await recorder.letGo()
+        let there = await check.value
+        let came = await asking.value
+
+        XCTAssertFalse(there, "a recorder that turned the attach away was taken for one to ask")
+        XCTAssertFalse(model.connected, "the recorder was meant not to have said which it is")
+        XCTAssertFalse(model.offline, "the recorder was meant to have answered, if only as busy")
+        return (came, await recorder.heard(since: count).filter { $0 != Ask.description })
+    }
+}
+
+/// How the check before an operation ends: the recorder says nothing, or says it is busy with somebody else.
+enum CheckEnd {
+    case silence, busy
 }
 
 /// A client of the test's own asking `recorder`, with no pause before a 503 is sent again: the recorder's own
@@ -986,6 +1049,33 @@ extension XCTestCase {
 @MainActor
 func aClient(of recorder: any HTTPTransport) -> RecorderClient {
     RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0)
+}
+
+// MARK: - what the recorder is asked
+
+/// What the recorder is asked, as its fake on the bench names a kind of request: a SOAP action, or a file by its
+/// name. Named once, for the bench's own helpers and for the tests that keep no list of their own: a name
+/// misspelt in a test that looks for nothing having been asked would pass.
+enum Ask {
+    /// What a connect asks first, and the check before an operation.
+    static let description = "description.xml"
+    static let reservations = "X_GetRecordScheduleList"
+    static let create = "X_CreateRecordSchedule"
+    static let recordings = "X_GetTitleList"
+    /// What is asked of one recording before it is deleted, and the text a scan for duplicates reads.
+    static let details = "X_GetTitleDetail"
+    static let deleteRecording = "X_DeleteTitle"
+    static let changeRecording = "X_UpdateTitle"
+    static let freeSpace = "X_HDLnkGetRecordDestinationInfo"
+    /// The USB slot.
+    static let slot = "X_GetMediaInfo"
+    /// What a client asks, once, to find the port of the guide's files before its first.
+    static let portOfTheGuide = "Browse"
+    /// The guide's files in the order they are fetched: 地上デジタル, BS, CS, BS4K.
+    static let guide = ["EPG_TRDEPG_FILE.dat", "EPG_BSEPG_FILE.dat", "EPG_CSEPG_FILE.dat", "EPG_ADVBSDEPG_FILE.dat"]
+    /// The stations' logos, each asked for after its type's guide was stored, in the same order.
+    static let logos = ["EPG_TRDLOGO_FILE.dat", "EPG_BSLOGO_FILE.dat", "EPG_CSLOGO_FILE.dat",
+                        "EPG_ADVBSDLOGO_FILE.dat"]
 }
 
 // MARK: - what the app says
@@ -1091,7 +1181,7 @@ func clearTheLine(on model: AppModel) { model.problem = nil }
 /// last answered. Whether it is there to ask.
 @MainActor
 func makeSure(_ model: AppModel) async -> Bool {
-    await model.wakeIfDozing(evenIfRecent: true)
+    await model.recorder.ensureUp(evenIfRecent: true)
 }
 
 /// One look at the network, of the kind the app takes after a change is reported. Whether it led to an attempt
@@ -1239,6 +1329,14 @@ private func noted(_ altered: Altered, of model: AppModel) -> Bool {
     note(why, of: model)
     if case .done = altered { return true }
     return false
+}
+
+// MARK: - what the tests ask of the guide
+
+/// The guide fetched as 番組表を更新 asks for it, on the guide's tab and in Settings: every broadcasting type.
+@MainActor
+func refreshTheGuideByHand(_ model: AppModel) async {
+    await model.refreshGuide()
 }
 
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands

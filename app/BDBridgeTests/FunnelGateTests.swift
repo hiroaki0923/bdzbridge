@@ -474,35 +474,6 @@ final class FunnelGateTests: XCTestCase {
         await recorder.comeFree()
     }
 
-    /// How the check before an operation ends: the recorder says nothing, or says it is busy with somebody else.
-    private enum CheckEnd {
-        case silence, busy
-    }
-
-    /// Asks `something` of the model while the check before an operation is out, and then has that check end as
-    /// `end` says. The recorder is made sure of, and that ask is held; `something` is asked meanwhile, and has
-    /// got as far as the check once `begun` says so; then the ask is let go, into silence or into a recorder busy
-    /// as it is asked who it is. What the check found, and what `something` came to.
-    private func duringACheck<T: Sendable>(by model: AppModel, of recorder: NamedRecorder, endingIn end: CheckEnd,
-                                           _ what: String, waitingFor begun: @MainActor () -> Bool,
-                                           _ something: @escaping @MainActor () async -> T) async throws
-        -> (there: Bool, came: T) {
-        await recorder.hold(only: Kind.description)
-        let before = await recorder.asked
-        let check = Task { await makeSure(model) }
-        try await until("the recorder was never made sure of") {
-            await recorder.asked(Kind.description, since: before) == 1
-        }
-        let asking = Task { await something() }
-        try await until("\(what) was never begun") { begun() }
-        switch end {
-        case .silence: await recorder.goQuiet(on: Kind.description)
-        case .busy: await recorder.busyAtTheDoor()
-        }
-        await recorder.letGo()
-        return (await check.value, await asking.value)
-    }
-
     /// A connect to the same recorder, made while an operation's request is out, makes a client of its own and
     /// takes nothing from the operation, which ends as it would have: a read that comes back is put in place,
     /// and a write that meets silence says it may have arrived, loses the recorder and marks its list unread.
@@ -672,7 +643,7 @@ final class FunnelGateTests: XCTestCase {
         await recorder.answer(Kind.guide[0], with: .status(500))
         await recorder.answer(Kind.guide[1], with: .status(500))
         await recorder.hold(only: Kind.guide[0])
-        let asking = Task { await model.refreshGuide() }
+        let asking = Task { await refreshTheGuideByHand(model) }
         try await until("the guide was never asked for") { await recorder.asked(Kind.guide[0], since: before) == 1 }
         XCTAssertEqual(model.guideDownloads, 1)
         asking.cancel()
@@ -688,7 +659,7 @@ final class FunnelGateTests: XCTestCase {
         before = await recorder.asked
         await recorder.answer(Kind.guide[0], with: .status(500))
         await recorder.goQuiet(on: Kind.guide[2])
-        await model.refreshGuide()
+        await refreshTheGuideByHand(model)
         for file in Kind.guide.prefix(3) { expectEqual(await recorder.asked(file, since: before), 1, file) }
         expectEqual(await recorder.asked(Kind.guide[3], since: before), 0, "a silent recorder was asked for more")
         XCTAssertTrue(model.gaveUp)
@@ -1657,7 +1628,7 @@ private struct Funnelled {
         ask: { model, subjects in await removeACondition(model, subjects.rule) },
         holds: { model, subjects in !model.recorderRules.contains { $0.id == subjects.rule.id } })
     static let guide = Funnelled(name: "the guide", kind: Kind.guide[0], line: "番組表を取得中 (地上デジタル)",
-                                 reads: true, ask: { model, _ in await model.refreshGuide(); return nil })
+                                 reads: true, ask: { model, _ in await refreshTheGuideByHand(model); return nil })
 
     /// Every one, in an order in which each can follow the one before it on one recorder.
     static let all = [reservations, recordings, conditions, protect, unprotect, delete, play, pause, stop, power,
