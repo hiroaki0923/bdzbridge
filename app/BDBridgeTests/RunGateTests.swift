@@ -239,6 +239,110 @@ final class RunGateTests: XCTestCase {
         expectEqual(await recorder.asked(Ask.description, since: before), 0)
         XCTAssertEqual(model.job?.changed, [idle[0].id])
     }
+
+    // MARK: - silence
+
+    /// Silence at a recording of a run stops the run there: the request is not sent again -- a write that met
+    /// silence may have arrived all the same -- nothing after it is asked, the free space is not read, and the
+    /// app is left given up on the recorder. The job says how far it got and that the recorder stopped
+    /// answering. So it is at a delete, at the question a delete asks first, and at a protect.
+    ///
+    /// Two things are as they are today. The line of what went wrong is left as it was: a later change has
+    /// the silence said there, as a single delete says it. And the recordings are marked unread in every row,
+    /// the one where nothing had been sent for the recording among them: a later change marks them only after
+    /// silence on something sent.
+    func testSilenceAtARecordingStopsTheRunThereAndMarksTheRecordingsUnread() async throws {
+        let (_, recorder, model, _) = try await settled()
+        let lost = "したところで、レコーダーの応答がなくなったため中止しました"
+        let rows: [(name: String, kind: AppModel.BulkJob.Kind, silent: String, heard: [String], outcome: String)] = [
+            ("the second delete", .delete, Ask.deleteRecording,
+             [Ask.details, Ask.deleteRecording, Ask.details, Ask.deleteRecording], "1 件を削除" + lost),
+            ("the second recording asked about", .delete, Ask.details,
+             [Ask.details, Ask.deleteRecording, Ask.details], "1 件を削除" + lost),
+            ("the second protect", .protecting(true), Ask.changeRecording,
+             [Ask.changeRecording, Ask.changeRecording], "1 件を保護" + lost),
+        ]
+        for row in rows {
+            let three = model.titles.filter { !$0.recording && !$0.protected }.prefix(3).map(\.id)
+            guard three.count == 3 else {
+                return XCTFail("the demo was meant to hold three recordings to write to before \(row.name)")
+            }
+            XCTAssertTrue(model.titlesLoaded, row.name)
+            leaveALine(on: model)
+            await recorder.answer(row.silent, with: .silence, after: 1)
+            let count = await recorder.heard.count
+            try await run(model, row.kind, three)
+
+            expectEqual(await recorder.heard(since: count), row.heard,
+                        "silence at \(row.name): sent again, or something asked after it")
+            XCTAssertTrue(model.gaveUp, "silence at \(row.name) did not leave the app given up")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft,
+                           "silence at \(row.name) is said on the line, today not")
+            XCTAssertFalse(model.titlesLoaded, "silence at \(row.name) left the recordings as read")
+            XCTAssertEqual(model.job?.changed, [three[0]], row.name)
+            XCTAssertEqual(model.job?.done, 1, row.name)
+            XCTAssertEqual(model.job?.outcome, row.outcome, row.name)
+            await reconnect(model)
+            await model.loadTitles()
+        }
+    }
+
+    /// Silence at a recording whose request is out as the reader leaves the app ends the run there and then, as
+    /// it does in front. The run does not go round to wait for the app to come back, its job still running and
+    /// the recorder kept to it all the while: it is over in the turn of the silence, the app left given up on
+    /// the recorder, with nothing asked after the request that met it.
+    func testSilenceAtARecordingThatIsOutAsTheAppLeavesEndsTheRunAndDoesNotWaitForItsReturn() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.details)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never asked about its first recording") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        model.wentToBackground()
+        await recorder.answer(Ask.deleteRecording, with: .silence)
+        await recorder.letGo()
+        try await until("the run neither ended nor waited for the app to come back") {
+            !model.jobRunning || model.backInFront != nil
+        }
+
+        XCTAssertFalse(model.jobRunning, "a run that met silence while the app was away waits for its return")
+        XCTAssertNil(model.backInFront, "a run that met silence while the app was away waits for its return")
+        XCTAssertTrue(model.gaveUp, "silence at a delete while the app was away did not leave the app given up")
+        expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording],
+                    "something was asked after the silence")
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで、レコーダーの応答がなくなったため中止しました")
+    }
+
+    /// The free space read after a bulk delete is only shown, and cannot fail the run it follows. A recorder that
+    /// will not say leaves it unknown and the app connected. Silence on it loses the recorder like any other,
+    /// and the job still says what it deleted.
+    ///
+    /// That silence is said nowhere today: the line of what went wrong is left with nothing on it. A later
+    /// change says it there, as the free space read after a single delete does.
+    func testTheFreeSpaceAfterABulkDeleteIsOnlyShownAndItsSilenceIsSaidNowhere() async throws {
+        let (_, recorder, model, idle) = try await settled()
+
+        clearTheLine(on: model)
+        await recorder.goQuiet(on: Ask.freeSpace)
+        let count = await recorder.heard.count
+        try await run(model, .delete, [idle[0].id])
+        expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording, Ask.freeSpace])
+        XCTAssertTrue(model.gaveUp, "silence on the free space did not leave the app given up")
+        XCTAssertNil(model.problem(for: .recorder), "silence on the free space after a run is said, today not")
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+
+        await reconnect(model)
+        XCTAssertNotNil(model.storage, "the connect was meant to read the free space")
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        try await run(model, .delete, [idle[1].id])
+        XCTAssertNil(model.storage, "the free space the recorder would not say is still shown as it was")
+        XCTAssertTrue(model.connected, "a recorder that would not say its free space was let go of")
+        XCTAssertFalse(model.gaveUp)
+        XCTAssertNil(model.problem(for: .recorder))
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.
