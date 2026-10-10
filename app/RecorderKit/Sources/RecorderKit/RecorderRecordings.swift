@@ -336,6 +336,14 @@ extension RecorderDriver {
             if case .went = self { return true }
             return false
         }
+
+        /// Whether the recorder answered what was sent: it went through, or was refused.
+        var answered: Bool {
+            switch self {
+            case .went, .failed(.refused): true
+            default: false
+            }
+        }
     }
 
     /// Thrown by a step of an operation that turns the rest of it away before a later request, with the sentence

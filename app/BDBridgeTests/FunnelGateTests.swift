@@ -193,8 +193,9 @@ final class FunnelGateTests: XCTestCase {
     /// first is said as busy. An answer that cannot be read is said too, and loses nothing.
     ///
     /// A condition's delete that is refused has the list read again all the same -- the recorder renumbers a
-    /// condition whenever its own screen edits one -- and its reason put back over the read's success, since
-    /// the reason is what the screen shows; an add that is refused reads nothing. A recording still being
+    /// condition whenever its own screen edits one, so the refusal may be of a number it no longer has -- and its
+    /// reason is said in what it hands back, while the read, going through, clears the line, as the read after
+    /// a reservation's delete refused for such a number does; an add that is refused reads nothing. A recording still being
     /// written is turned down before anything is sent, which the delete says in what it hands back, the line
     /// left as it was. And a recorder that will not say how much room it has,
     /// after a delete, leaves the delete done and the room unknown.
@@ -215,7 +216,12 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertTrue(model.connected, "a refusal of \(row.name) was taken for the recorder going")
             XCTAssertFalse(model.gaveUp, row.name)
             XCTAssertNil(model.busy, row.name)
-            XCTAssertEqual(model.problem(for: .recorder), refusal, row.name)
+            if row.kind == Kind.removeCondition {
+                XCTAssertNil(model.problem(for: .recorder), "the refusal was put back over the read after it")
+                XCTAssertEqual(whyNotJustNow(model), refusal, row.name)
+            } else {
+                XCTAssertEqual(model.problem(for: .recorder), refusal, row.name)
+            }
             expectEqual(await recorder.asked(row.kind, since: before), 1, "\(row.name) was sent again")
             XCTAssertTrue(Lists(model) == lists, "\(row.name) was refused and a list changed")
             XCTAssertTrue(model.titlesLoaded, row.name)

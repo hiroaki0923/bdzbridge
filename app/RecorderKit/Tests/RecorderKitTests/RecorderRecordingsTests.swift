@@ -219,7 +219,7 @@ final class RecorderRecordingsTests: XCTestCase {
         let poweredOn = await driver.powerOn()
         let added = await driver.addRule(request) {}
         let removed = await driver.removeRule(rule)
-        return ([protected.altered, deleted.altered, played, poweredOn, added, removed],
+        return ([protected.altered, deleted.altered, played, poweredOn, added, removed.altered],
                 [protected.readAgain, deleted.readAgain])
     }
 

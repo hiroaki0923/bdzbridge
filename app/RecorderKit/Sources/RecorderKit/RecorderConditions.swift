@@ -102,15 +102,17 @@ extension RecorderDriver {
     /// line left as it was. Otherwise one operation, as `DeviceLink.run` makes one, on the client in hand at the
     /// door: silence says that the delete may have arrived, and what the check or a failure said is in the result
     /// as well as on the line (`altered`). The recorder renumbers a condition whenever its own screen edits one,
-    /// so the caller reads the list again afterwards either way.
-    public func removeRule(_ rule: RecorderRule) async -> Altered {
-        guard let link else { return .notDone(Self.notConnected) }
+    /// so the caller reads the list again afterwards either way; whether the recorder answered the delete -- it
+    /// went through, or was refused, which is said in the result -- is handed back for that read (`answered`).
+    public func removeRule(_ rule: RecorderRule) async -> (altered: Altered, answered: Bool) {
+        guard let link else { return (.notDone(Self.notConnected), false) }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
-            return .notDone(whyNotConnected)
+            return (.notDone(whyNotConnected), false)
         }
-        return altered(await asked(Self.removingConditionLine, .aWrite(sending: Self.mayHaveArrived), on: link,
-                                   since: link.generation) { _, client in
+        let came = await asked(Self.removingConditionLine, .aWrite(sending: Self.mayHaveArrived), on: link,
+                               since: link.generation) { _, client in
             try await client.deleteRecorderRule(id: rule.id)
-        }, on: link)
+        }
+        return (altered(came, on: link), came.answered)
     }
 }

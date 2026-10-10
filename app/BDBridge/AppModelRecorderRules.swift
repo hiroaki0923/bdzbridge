@@ -74,19 +74,21 @@ extension AppModel {
     }
 
     /// Delete only, never edit (`RecorderDriver.removeRule`). The list is read again afterwards either way,
-    /// because the recorder renumbers a condition whenever its screen edits one -- but for no recorder's client
-    /// in hand, with nothing to read from. What it came to, for the screen to say.
+    /// because the recorder renumbers a condition whenever its screen edits one, so a refusal may be of a number
+    /// it no longer has -- but for no recorder's client in hand, with nothing to read from. What it came to, for
+    /// the screen to say: a refusal is said there, and the read after it clears the line when it goes through,
+    /// as the read after a reservation's delete refused so does, or says its own failure when it does not.
     func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
         await start()
         guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
         let removed = await recorderDriver.removeRule(rule)
-        guard client != nil else { return removed }
-        // The read that follows clears the message when it works, and for a delete that failed the message is
-        // the reason the screen shows. Put back only over nothing: a read that failed has said something newer,
-        // such as the recorder no longer answering, and that is what is true now.
+        guard client != nil else { return removed.altered }
+        // A delete the recorder did not answer -- turned away, or stopped by its check -- leaves on the line what
+        // was there or what the check said, which the read after it is not to clear: put back over the read's
+        // success. The recorder's refusal is not: the result says it.
         let reason = problem
         await loadRecorderRules()
-        if case .notDone = removed, problem == nil { problem = reason }
-        return removed
+        if !removed.answered, problem == nil { problem = reason }
+        return removed.altered
     }
 }
