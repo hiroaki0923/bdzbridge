@@ -1,5 +1,6 @@
 import Foundation
 import RecorderKit
+import UIKit
 import XCTest
 @testable import BDBridge
 
@@ -566,6 +567,106 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
         model.clearJob()
         XCTAssertNil(model.job, "a job that has stopped could not be taken off the screen")
+    }
+
+    /// A run takes no new step while the app is away: iOS suspends it soon after, and a request frozen with it
+    /// comes back as a failure. The step that is out as the reader leaves is finished, under a background task
+    /// of its own, and counted; the run then waits between two recordings, under no background task, and goes on
+    /// when the app is back. A bulk delete, and a scan for duplicates.
+    func testARunFinishesTheStepThatIsOutAsTheAppLeavesAndWaitsForItsReturnBeforeTheNext() async throws {
+        /// Leaves while the first question of a run is out, held, and comes back once the run is waiting.
+        func leaveAndComeBack(_ model: AppModel, _ recorder: NamedRecorder, _ what: String,
+                              since before: [String: Int]) async throws {
+            try await until("\(what) never asked its first question") {
+                await recorder.asked(Ask.details, since: before) == 1
+            }
+            XCTAssertNotEqual(model.stepTask, .invalid, "\(what): the step that is out is under no background task")
+            model.wentToBackground()
+            await recorder.letGo()
+            try await until("\(what) never counted the recording that was out") { (model.job?.done ?? 0) > 0 }
+            XCTAssertNotNil(model.backInFront, "\(what) did not wait for the app to come back")
+            XCTAssertEqual(model.job?.done, 1, "\(what) counted more than the recording that was out")
+            XCTAssertEqual(model.stepTask, .invalid, "\(what) kept a background task while it waited")
+            expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                        "\(what) went on to its next recording while the app was away")
+            await model.returnedToForeground()
+            try await untilTheRunEnds(model, "\(what) never ended once the app was back")
+            expectEqual(await recorder.asked(Ask.details, since: before), 2,
+                        "\(what) did not go on to its next recording once the app was back")
+        }
+
+        let (_, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.details)
+        var before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await leaveAndComeBack(model, recorder, "the bulk delete", since: before)
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 2)
+        XCTAssertEqual(model.job?.outcome, "2 件を削除しました")
+
+        let (_, withACopy, scanning, _) = try await settled(withACopy: true)
+        await withACopy.hold(only: Ask.details)
+        before = await withACopy.asked
+        scanning.startDuplicateScan()
+        try await leaveAndComeBack(scanning, withACopy, "the scan", since: before)
+        XCTAssertEqual(scanning.summaries.count, 2)
+        XCTAssertEqual(scanning.job?.outcome, "2 件の確認が完了しました")
+    }
+
+    /// A run waiting for the app to come back makes sure of the recorder itself once it is, and sends nothing
+    /// more to one that was lost meanwhile -- here by a look at the network, taken while the app was away, that
+    /// met silence. The job says that the recorder stopped answering, today; a later change has it say why the
+    /// check turned it away.
+    func testARunWaitingForTheAppToComeBackSendsNothingToARecorderLostMeanwhile() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+        model.wentToBackground()
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        bench.network = "away"
+        await recorder.goQuiet(for: 1)
+        await lookAtTheNetwork(model)
+        XCTAssertTrue(model.gaveUp, "the look at the network was meant to lose the recorder")
+        let count = await recorder.heard.count
+
+        await model.returnedToForeground()
+        try await untilTheRunEnds(model)
+        expectEqual(await recorder.heard(since: count), [], "a recorder lost while the run waited was asked")
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで、レコーダーの応答がなくなったため中止しました")
+    }
+
+    /// A run waiting for the app to come back, beside a check that is waking the recorder: back in front, it
+    /// hears that check out before it makes sure of the recorder itself -- until the waking is over the app
+    /// counts the recorder as not answering. The recorder answers after the return, the run's recording goes,
+    /// and the line of what went wrong is as the waking left it, with nothing on it.
+    func testARunWaitingForTheAppToComeBackHearsOutACheckThatIsWakingTheRecorder() async throws {
+        let (_, recorder, model, idle) = try await settled(wakeable: true)
+        model.wentToBackground()
+        model.startBulk(.delete, ids: [idle[0].id])
+        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        // A check whose own ask meets silence, and the first ask of its waking held.
+        leaveALine(on: model)
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        let check = Task { await makeSure(model) }
+        try await until("the check never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        await recorder.goQuiet(on: Ask.description)
+        await recorder.letTheFirstGo(of: Ask.description)
+        try await until("the recorder was never being woken") {
+            await recorder.asked(Ask.description, since: before) == 2
+        }
+        XCTAssertTrue(model.waking, "the recorder was meant to be being woken")
+
+        await model.returnedToForeground()
+        expectEqual(await recorder.asked(Ask.details, since: before), 0)
+        await recorder.letGo()
+        expectTrue(await check.value, "the recorder was meant to answer once woken")
+        try await untilTheRunEnds(model)
+
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1,
+                    "the run did not go on once the recorder being woken had answered")
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+        XCTAssertNil(model.problem(for: .recorder), "the line is not as the waking left it")
     }
 }
 
