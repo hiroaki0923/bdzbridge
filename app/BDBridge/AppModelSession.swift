@@ -51,31 +51,12 @@ extension AppModel {
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
-    /// The free space read again, after a bulk delete. It is only shown, so a recorder that will not say is not
-    /// an error, and the delete it follows is not reported as failed. Silence is still silence, and loses the
-    /// recorder here without a word on the line until the bulk work goes to the driver: a single delete and the
-    /// list read it through the driver, which says that silence on the line as any read's.
-    func refreshStorage(_ client: RecorderClient) async {
-        do {
-            session.learned(storage: try await RecorderDriver.storage(of: client))
-        } catch {
-            lostTheRecorder()
-        }
-    }
-
     /// Leaves the app where a connect that got no answer leaves it (`DeviceLink.lost`). A request the model
     /// sends by hand comes here when it meets silence; one through the funnel is lost by the link as it says
     /// the failure (`DeviceLink.say`), which comes to the same. Nothing is sent again from here, nor by the
     /// callers once the recorder is back: a write that met silence may have arrived all the same.
     func lostTheRecorder() {
         recorder.lost()
-    }
-
-    /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
-    /// is not (`DeviceLink.ensureUp`). When it is not, nothing has been sent, and the app has been left offline
-    /// with `problem` saying why, or waiting for the local network permission (`connectBlocked`).
-    func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
-        await recorder.ensureUp(evenIfRecent: evenIfRecent)
     }
 
     /// True once a MAC is known, which is what a magic packet needs.

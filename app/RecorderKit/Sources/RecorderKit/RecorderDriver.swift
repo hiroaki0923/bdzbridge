@@ -11,8 +11,8 @@ import Foundation
 /// phone's queue (`sendWhatWaits`, `resend`) and deleting a row of it (`deleteWaiting`), deleting and changing
 /// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
 /// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
-/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, and its own keyword conditions in
-/// `RecorderConditions.swift`, beside this.
+/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, its own keyword conditions in
+/// `RecorderConditions.swift`, and its side of a run over many recordings in `RecorderRuns.swift`, beside this.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the

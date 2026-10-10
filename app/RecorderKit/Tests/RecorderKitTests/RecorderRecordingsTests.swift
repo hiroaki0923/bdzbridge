@@ -220,6 +220,41 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(RecorderDriver.verb(of: .scanning), "重複の検出")
     }
 
+    /// A run begins only with a recorder's client in hand. With no link, and with a link that has made no
+    /// client yet, none begins, whatever its kind: nothing is asked, the line an earlier failure left stays, and
+    /// why is that the app is not connected. With a client in hand one begins, and beginning it asks and says
+    /// nothing either. And what stopped a run says its sentence when the run was turned away, and nothing for
+    /// silence, which what the job says once it has stopped says itself.
+    func testARunBeginsOnlyWithARecordersClientInHandAndAStopSaysItsSentenceUnlessItIsSilence() async throws {
+        func whyNot(_ begun: Result<Run, RunStop>) -> RunStop? {
+            if case .failure(let stop) = begun { stop } else { nil }
+        }
+        let kinds = [RunKind.delete, .protecting(true), .protecting(false), .scanning]
+
+        let alone = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        XCTAssertEqual(kinds.map { whyNot(alone.beginRun($0)) },
+                       Array(repeating: .said(RecorderDriver.notConnected), count: 4))
+
+        let (world, driver, link) = try Self.linked()
+        XCTAssertEqual(kinds.map { whyNot(driver.beginRun($0)) },
+                       Array(repeating: .said(RecorderDriver.notConnected), count: 4), "with no client")
+        XCTAssertEqual(world.events, [], "something was asked, sent or told with no client")
+        XCTAssertEqual(world.problem, Self.left, "something was said on the line with no client")
+
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        world.events = []
+        world.problem = Self.left
+        XCTAssertEqual(kinds.map { whyNot(driver.beginRun($0)) }, Array(repeating: nil, count: 4),
+                       "no run began with a client in hand")
+        XCTAssertEqual(world.events, [], "beginning a run asked, sent or told something")
+        XCTAssertEqual(world.problem, Self.left, "beginning a run said something on the line")
+
+        XCTAssertEqual(RunStop.said(Self.left).said, Self.left)
+        XCTAssertNil(RunStop.silent(afterSending: true).said)
+        XCTAssertNil(RunStop.silent(afterSending: false).said)
+    }
+
     // MARK: - what the tests start from
 
     /// A link of the test's own to a recorder at the bench's address that says who it is and answers each
