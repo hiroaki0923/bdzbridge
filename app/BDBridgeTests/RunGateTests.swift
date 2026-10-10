@@ -497,6 +497,47 @@ final class RunGateTests: XCTestCase {
         expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1)
         XCTAssertEqual(model.job?.changed, [idle[0].id])
     }
+
+    /// A connect under way has a client of its own that has not yet heard which recorder answers it, and a
+    /// reconnect the recorder answered busy with somebody else leaves the app connected from the attach before,
+    /// beside such a client. A single delete is turned away at its door in both moments. A run is not, today:
+    /// started then, it takes that client and its recording is sent on it -- beside the connect, queued behind
+    /// the connect's own ask. A later change starts no run on a client that has not heard which recorder
+    /// answers.
+    func testARunStartedOnAClientThatHasNotHeardWhichRecorderAnswersSendsItsRecording() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+
+        // After a reconnect answered busy.
+        await recorder.busyAtTheDoor()
+        let made = bench.clientsMade
+        await model.connect()
+        XCTAssertEqual(bench.clientsMade, made + 1, "the reconnect was meant to make a client of its own")
+        XCTAssertTrue(model.connected, "the attach before was meant to stand")
+        await recorder.comeFree()
+        var before = await recorder.asked
+        try await run(model, .delete, [idle[0].id])
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1,
+                    "the recording goes on a client that never heard which recorder answers, today")
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+        await reconnect(model)
+
+        // During a connect, with its ask of who answers held.
+        await recorder.hold(only: Ask.description)
+        before = await recorder.asked
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        model.startBulk(.delete, ids: [idle[1].id])
+        XCTAssertTrue(model.jobRunning, "no run was started beside a connect under way, where today one is")
+        await recorder.letGo()
+        await connecting.value
+        try await untilTheRunEnds(model)
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1,
+                    "the recording goes beside a connect under way, today")
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+        XCTAssertTrue(model.connected)
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.
