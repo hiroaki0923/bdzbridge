@@ -451,22 +451,25 @@ extension RecorderDriver {
         /// The recorder answered and turned the request down, or with something that cannot be read: handed
         /// back for the run to say of that recording, and said nowhere else.
         case refused(any Error)
-        /// Silence: the recorder is lost, and the run stops (`RunStop.silent`).
+        /// The run stops: silence, which has lost the recorder (`RunStop.silent`), or no client in hand to ask.
         case stopped(RunStop)
     }
 
     /// One request of a run over many recordings (`beginRun`), in the outline of `asked` with the rules a run
-    /// keeps: `work`, on the client the run began with, under no line and with no check of its own -- a run
-    /// makes sure of the recorder between its recordings (`mayGoOn`). What `work` returned, or why not. A refusal
-    /// is handed back as a value and not said, and the line of what went wrong is neither written nor cleared.
-    /// Silence loses the recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run,
-    /// `sending` saying whether the request is one that changes the recorder.
+    /// keeps: `work`, on the client the link has in hand, under no line and with no check of its own -- a run
+    /// makes sure of the recorder between its recordings (`mayGoOn`), and the client in hand once that has
+    /// answered is the one whose attach went through. What `work` returned, or why not. A refusal is handed back
+    /// as a value and not said, and the line of what went wrong is neither written nor cleared. Silence loses the
+    /// recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run, `sending` saying
+    /// whether the request is one that changes the recorder. With no client in hand nothing is sent, and the run
+    /// stops as not connected.
     func asked<T: Sendable>(in run: Run, sending: Bool,
                             _ work: @MainActor (RecorderClient) async throws -> T) async -> AskedInARun<T> {
+        guard let link, let client = link.client as? RecorderClient else { return .stopped(.said(whyNotConnected)) }
         do {
-            return .went(try await work(run.client))
+            return .went(try await work(client))
         } catch let error as any DeviceError where error.failure == .silent {
-            link?.lost()
+            link.lost()
             return .stopped(.silent(afterSending: sending))
         } catch {
             return .refused(error)

@@ -8,13 +8,13 @@ public enum RunKind: Sendable, Equatable {
     case scanning
 }
 
-/// What the recorder's driver knows of a run between two of its recordings: what the run does, the count of
-/// recorders let go of as it began (`DeviceLink.generation`), and the client in hand then, which the run's
-/// requests go on. Made as the run begins (`RecorderDriver.beginRun`) and handed back with each of its steps.
+/// What the recorder's driver knows of a run between two of its recordings: what the run does, and the count of
+/// recorders let go of as it began (`DeviceLink.generation`). Made as the run begins (`RecorderDriver.beginRun`)
+/// and handed back with each of its steps. It holds no client: each request of a run goes on the client the link
+/// has in hand as it is sent.
 public struct Run: Sendable {
     let kind: RunKind
     let began: Int
-    let client: RecorderClient
 }
 
 /// Why a run stopped before its end, or did not begin, on the recorder's account: what its job keeps once it
@@ -22,9 +22,11 @@ public struct Run: Sendable {
 /// that it can be the failure of `RecorderDriver.beginRun`'s `Result`, which asks that of it; nothing throws it.
 public enum RunStop: Error, Sendable, Equatable {
     /// Turned away, with a sentence. For a run that did not begin, that the app is not connected
-    /// (`RecorderDriver.beginRun`). For one stopped before a recording (`RecorderDriver.mayGoOn`), whatever
-    /// stands on the host's line of what went wrong, or that the app is not connected where the line is empty:
-    /// what a check wrote there if one wrote, and if none did, what an earlier operation left.
+    /// (`RecorderDriver.beginRun`). For one stopped before a recording (`RecorderDriver.mayGoOn`): after a check
+    /// that said no, or with the recorder known to be away, whatever stands on the host's line of what went
+    /// wrong, or that the app is not connected where the line is empty -- what a check wrote there if one
+    /// wrote, and if none did, what an earlier operation left; and with a recorder that has not said which it
+    /// is, that the app is not connected.
     case said(String)
     /// The recorder said nothing to a request of the run. `afterSending` says whether that request was one that
     /// changes the recorder: it may have arrived all the same.
@@ -130,19 +132,21 @@ extension RecorderDriver {
     /// say. Nothing is asked, and nothing is said on the line, which keeps what an earlier operation left there
     /// (`Reserved`).
     ///
-    /// A run that deletes or protects has the doors of a single protect (`protect(_:_:keep:)`), as far as they
-    /// go here: the link gone, no recorder's client in hand, or the recorder known to be away, each that the
-    /// app is not connected (`whyNotConnected`). It still begins beside a connect under way, and on a client
-    /// that has not heard which recorder answers it.
+    /// A run that deletes or protects has the doors of a single protect (`protect(_:_:keep:)`): the link gone,
+    /// no recorder's client in hand, the recorder known to be away, or nothing that can be written to it
+    /// (`canBeAsked`) -- a connect being under way, or the recorder not having said which it is, as after a
+    /// reconnect it answered busy with somebody else -- each that the app is not connected (`whyNotConnected`).
     ///
-    /// A scan has the one door, a recorder's client in hand, the client its requests then go on: one whose
-    /// texts are all in the cache asks the recorder nothing, and comes to its end with the recorder known to be
-    /// away. Whether a text may be read is `mayGoOn`'s to say, asked before the first that is to be.
+    /// A scan has the one door, a recorder's client in hand: one whose texts are all in the cache asks the
+    /// recorder nothing, and comes to its end with the recorder known to be away. Whether a text may be read is
+    /// `mayGoOn`'s to say, asked before the first that is to be.
     public func beginRun(_ kind: RunKind) -> Result<Run, RunStop> {
         guard let link else { return .failure(.said(Self.notConnected)) }
-        guard let client = link.client as? RecorderClient else { return .failure(.said(whyNotConnected)) }
-        if kind != .scanning, link.session.unreachable { return .failure(.said(whyNotConnected)) }
-        return .success(Run(kind: kind, began: link.generation, client: client))
+        guard link.client is RecorderClient else { return .failure(.said(whyNotConnected)) }
+        if kind != .scanning {
+            guard !link.session.unreachable, canBeAsked(on: link) else { return .failure(.said(whyNotConnected)) }
+        }
+        return .success(Run(kind: kind, began: link.generation))
     }
 
     /// Whether a run may go on to a recording: nil when it may, or why it stops there, with nothing sent. Asked
@@ -150,38 +154,57 @@ extension RecorderDriver {
     ///
     /// - `.first`, before its first recording: the recorder is made sure of, like anything else the reader asks
     ///   for (`DeviceLink.ensureUp`) -- one asleep since the list was read would otherwise cost the first
-    ///   recording a timeout, and every one after it another. A check that is out is waited for in place of a
-    ///   probe of the run's own.
-    /// - `.next`, before each recording after it: a check of the recorder that is out is heard first. It may be
-    ///   waking the recorder, which counts as not answering until the waking is over, and its verdict may be
-    ///   that another recorder answers here now. Then the run goes on unless the recorder is known to be away:
+    ///   recording a timeout, and every one after it another.
+    /// - `.next`, before each recording after it: the run goes on unless the recorder is known to be away:
     ///   silence met by anything stops a run, not only silence met by the run.
-    /// - `.afterAReturn`, before a recording the run waited for while the app was away: a check that is out is
-    ///   heard -- a screen coming back may be waking the recorder already, and its outcome is the one to go by
-    ///   -- then the recorder, which has had all that time to fall asleep, is made sure of, and then as `.next`.
+    /// - `.afterAReturn`, before a recording the run waited for while the app was away: the recorder, which has
+    ///   had all that time to fall asleep, is made sure of, and then as `.next`.
     ///
-    /// A no hands back whatever stands on the host's line of what went wrong, or that the app is not connected
-    /// where the line is empty, as a write's result says a check's no again (`altered`): the run's job shows it
-    /// as why the run stopped. That is what a check wrote there, when one did. A no to `.next` with the recorder
-    /// known to be away and no check out hands back what an earlier operation left, which need not be about the
-    /// run. Nothing is written on the line here.
+    /// A check of the recorder that is out is heard first, at each of these (`heardOut`): it may be waking the
+    /// recorder, which counts as not answering until the waking is over, and a run waits for it and goes on by
+    /// what it found, where a single operation pressed meanwhile is turned away at its door. What it found is
+    /// the run's answer too: a check that said no -- silence, a waking the recorder turned away, another recorder
+    /// answering, the recorder let go of -- stops the run.
+    ///
+    /// Then the door of a write (`canBeAsked`), whatever the run does: the next recording goes only to a
+    /// recorder that has said which it is, on the client whose attach heard it. A scan only reads, and a read of
+    /// a list has no such door; but what a scan reads is kept in the cache for good, under a number each
+    /// recorder gives out for itself, and a text read from the wrong recorder is not put right by the next
+    /// connect as a list is.
+    ///
+    /// A no from a check, or for a recorder known to be away, hands back whatever stands on the host's line of
+    /// what went wrong, or that the app is not connected where the line is empty, as a write's result says a
+    /// check's no again (`altered`): the run's job shows it as why the run stopped. That is what a check wrote
+    /// there, when one did. A no to `.next` with the recorder known to be away and no check out hands back what
+    /// an earlier operation left, which need not be about the run. A no at the door is that the app is not
+    /// connected (`whyNotConnected`). Nothing is written on the line here.
     public func mayGoOn(_ run: Run, _ moment: RunMoment) async -> RunStop? {
         guard let link else { return .said(Self.notConnected) }
         switch moment {
         case .first:
-            return await link.ensureUp() ? nil : whatTheLinkSaid(on: link)
+            if let no = await heardOut(on: link) { return no }
+            guard await link.ensureUp() else { return whatTheLinkSaid(on: link) }
         case .afterAReturn:
-            if let check = link.wakeCheck { _ = await check.value }
+            if let no = await heardOut(on: link) { return no }
             guard await link.ensureUp() else { return whatTheLinkSaid(on: link) }
             fallthrough
         case .next:
-            if let check = link.wakeCheck { _ = await check.value }
-            return link.session.unreachable ? whatTheLinkSaid(on: link) : nil
+            if let no = await heardOut(on: link) { return no }
+            if link.session.unreachable { return whatTheLinkSaid(on: link) }
         }
+        return canBeAsked(on: link) ? nil : .said(whyNotConnected)
     }
 
-    /// What a no of `mayGoOn` hands back: whatever stands on the host's line of what went wrong, or that the app
-    /// is not connected where the line is empty.
+    /// Waits for a check of the recorder that is out, and hands back its no as what stops the run
+    /// (`whatTheLinkSaid`): nil when none is out, and when the one that was found the recorder up.
+    private func heardOut(on link: DeviceLink) async -> RunStop? {
+        guard let check = link.wakeCheck, await check.value != nil else { return nil }
+        return whatTheLinkSaid(on: link)
+    }
+
+    /// What a no of `mayGoOn` hands back after a check that said no, or for a recorder known to be away:
+    /// whatever stands on the host's line of what went wrong, or that the app is not connected where the line is
+    /// empty.
     private func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
         .said(link.owner?.problem ?? whyNotConnected)
     }
@@ -267,17 +290,19 @@ extension RecorderDriver {
 
     // MARK: - a run's end
 
-    /// Ends a run. After one that deletes, the free space is read again, on the run's client, and kept in the
-    /// session for the screens -- unless the recorder is known to be away, which would cost the read its
-    /// timeout. It is only shown, so a recorder that will not say leaves it unknown (`storage(of:)`) and the run
-    /// it follows is not said to have failed. Silence is still silence: it loses the recorder, with nothing
-    /// said on the line. Whatever `deleted`, the number of recordings the run deleted, and `stopped`, what
-    /// stopped it if anything did: the free space is read after a run that deleted nothing, and after one the
-    /// recorder stopped while it is not known to be away.
+    /// Ends a run. After one that deletes, the free space is read again, on the client the link has in hand,
+    /// and kept in the session for the screens -- unless the recorder is known to be away, which would cost the
+    /// read its timeout, or no client is in hand, the recorder having been let go of. It is only shown, so a
+    /// recorder that will not say leaves it unknown (`storage(of:)`) and the run it follows is not said to have
+    /// failed. Silence is still silence: it loses the recorder, with nothing said on the line. Whatever
+    /// `deleted`, the number of recordings the run deleted, and `stopped`, what stopped it if anything did: the
+    /// free space is read after a run that deleted nothing, and after one the recorder stopped while it is not
+    /// known to be away.
     public func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
-        guard case .delete = run.kind, let link, !link.session.unreachable else { return }
+        guard case .delete = run.kind, let link, !link.session.unreachable,
+              let client = link.client as? RecorderClient else { return }
         do {
-            link.session.learned(storage: try await Self.storage(of: run.client))
+            link.session.learned(storage: try await Self.storage(of: client))
         } catch {
             link.lost()
         }

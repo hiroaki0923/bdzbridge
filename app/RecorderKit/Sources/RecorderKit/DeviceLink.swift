@@ -77,7 +77,8 @@ public protocol LinkHost: AnyObject, Sendable {
     func endActivity(_ token: Activities.Token)
     /// Something is under way that a second client would only get in the way of.
     var isBusy: Bool { get }
-    /// A bulk job holds the client it started with: no connect starts beside it.
+    /// A bulk job is under way, its requests going on the client in hand: no connect starts beside it, which
+    /// would put a client that has yet to hear which device answers in that one's place.
     var holdsOffConnect: Bool { get }
     /// The invented device of the demo is in play.
     var isDemo: Bool { get }

@@ -278,6 +278,44 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(driver.link?.client != nil, "the client went with the recorder: not that door alone")
     }
 
+    /// A run that deletes or protects begins only on a client that has heard which recorder answers it. After a
+    /// reconnect the recorder answered busy with somebody else as it was asked who it is, the app is connected
+    /// from the attach before, beside a client that never heard: no such run begins, nothing is asked, the line
+    /// an earlier failure left stays, and why is that the app is not connected. A scan begins all the same, as
+    /// with the recorder known to be away.
+    ///
+    /// And a run holds no client of its own. Ended once the link has let go of the recorder, and with it of the
+    /// client, a run that deleted something reads no free space: there is nobody in hand to ask, and whoever
+    /// answers at the address now is not the recorder the run was about.
+    func testARunBeginsOnlyOnAClientThatHasHeardWhichRecorderAnswersAndHoldsNoneOfItsOwn() async throws {
+        func whyNot(_ begun: Result<Run, RunStop>) -> RunStop? {
+            if case .failure(let stop) = begun { stop } else { nil }
+        }
+        let (world, driver, recorder) = try await Self.playing([:])
+        let link = try XCTUnwrap(driver.link)
+        let begun = try driver.beginRun(.delete).get()
+
+        await recorder.beBusyWhenAskedWhoItIs()
+        await link.connect()
+        XCTAssertTrue(link.session.connected, "the attach before was meant to stand")
+        XCTAssertFalse(link.clientIsAttached, "the reconnect's client was meant not to have heard who answers")
+        await recorder.forget()
+        world.events = []
+        world.problem = Self.left
+        let putUp = world.begun.count
+        XCTAssertEqual([RunKind.delete, .protecting(true), .protecting(false)].map { whyNot(driver.beginRun($0)) },
+                       Array(repeating: .said(RecorderDriver.notConnected), count: 3))
+        XCTAssertNil(whyNot(driver.beginRun(.scanning)), "a scan was turned away at a door of a write")
+        expectEqual(await recorder.actions, [], "something was asked as a run was begun")
+        XCTAssertEqual(world.events, [], "something was sent or told as a run was begun")
+        XCTAssertEqual(world.begun.count, putUp, "a line went up as a run was begun")
+        XCTAssertEqual(world.problem, Self.left, "something was said on the line as a run was begun")
+
+        link.forgetTheDevice()
+        await driver.end(begun, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [], "the free space was asked for a run whose recorder was let go of")
+    }
+
     /// What a run stopped before a recording hands back, for its job to show as why: whatever stands on the line
     /// of what went wrong, and that the app is not connected where nothing stands there. Before a recording after
     /// the first, with the recorder known to be away and no check out, the run writes nothing on the line and asks
@@ -718,9 +756,10 @@ final class RecorderRecordingsTests: XCTestCase {
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a
 /// test gives for it, in turn and the last again once they run out; an action the test names as met by silence
 /// with nothing at all; anything else with a 500, as a recorder that refuses what an attach reads besides its
-/// description. It puts down everything it was asked, answered or not: each action with its body, and an ask of
-/// who it is by its file's name with an empty body, so that a test that counts what was asked, or finds nothing
-/// asked, counts a look at who is there as well.
+/// description. It can be told to say nothing when asked who it is, or that it is busy with somebody else. It
+/// puts down everything it was asked, answered or not: each action with its body, and an ask of who it is by its
+/// file's name with an empty body, so that a test that counts what was asked, or finds nothing asked, counts a
+/// look at who is there as well.
 private actor PlayingRecorder: HTTPTransport {
     private var answers: [String: [HTTPResponse]]
     private let silent: Set<String>
@@ -728,6 +767,7 @@ private actor PlayingRecorder: HTTPTransport {
     private(set) var actions: [String] = []
     private(set) var bodies: [String] = []
     private var saysWhoItIs = true
+    private var busyWhenAsked = false
 
     init(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [], udn: String) throws {
         self.answers = answers
@@ -746,11 +786,17 @@ private actor PlayingRecorder: HTTPTransport {
         saysWhoItIs = false
     }
 
+    /// Busy with somebody else from now on whenever it is asked who it is: a 503, through every try.
+    func beBusyWhenAskedWhoItIs() {
+        busyWhenAsked = true
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.lastPathComponent != "description.xml" else {
             actions.append("description.xml")
             bodies.append("")
             guard saysWhoItIs else { throw RecorderError.transport("timed out") }
+            guard !busyWhenAsked else { return HTTPResponse(statusCode: 503) }
             return HTTPResponse(statusCode: 200, body: Data(description.utf8))
         }
         let action = String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
