@@ -20,30 +20,48 @@ extension AppModel {
     }
 
     func loadTitles(force: Bool = false) async {
+        let forgotten = timesForgotten
         await start()
-        await loadTitlesNow(force: force)
+        await loadTitlesNow(force: force, since: forgotten)
     }
 
     /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
-    /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read.
-    func loadTitlesNow(force: Bool) async {
+    /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read, and
+    /// the list is kept by the count noted as the entry began (`keepTitles`), now when `forgotten` is nil. While
+    /// it is out it is counted (`titleReads`).
+    func loadTitlesNow(force: Bool, since forgotten: Int? = nil) async {
+        let forgotten = forgotten ?? timesForgotten
         guard client != nil, !unreachable, force || !titlesLoaded else { return }
-        _ = await recorderDriver?.titles { list in
-            self.titles = list
-            self.titlesLoaded = true
-            // The sets on screen were built from the list as it was. A copy one says it keeps may have gone
-            // since, and deleting the others would then leave nothing.
-            if !self.duplicates.isEmpty { self.recomputeDuplicates() }
-        }
+        titleReads += 1
+        defer { titleReads -= 1 }
+        _ = await recorderDriver?.titles { self.keepTitles($0, since: forgotten) }
+    }
+
+    /// Puts a list of the recordings on the screens, one read on behalf of an entry that noted `timesForgotten`
+    /// as `forgotten` when it began: only while the count is still that, as for the reservations
+    /// (`keepReservations`). A list read for a recorder let go of meanwhile is not put on the screens of the one
+    /// after it, whose own connect reads its list (`anotherDeviceDescribedItself`).
+    func keepTitles(_ list: [RecordedTitle], since forgotten: Int) {
+        guard timesForgotten == forgotten else { return }
+        titles = list
+        titlesLoaded = true
+        // The sets on screen were built from the list as it was. A copy one says it keeps may have gone since,
+        // and deleting the others would then leave nothing.
+        if !duplicates.isEmpty { recomputeDuplicates() }
     }
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
     /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
-    /// Not while a bulk job is walking the list.
+    /// Not while a bulk job is walking the list. Counted as a read of the list across the connect it may make
+    /// (`titleReads`): one that takes another recorder up has the newcomer's connect read the list, read before
+    /// or not, and the pull-down reads nothing after it.
     func refreshTitles() async {
+        let forgotten = timesForgotten
         await start()
         guard !jobRunning else { return }
-        await recorderDriver?.refresh { await self.loadTitlesNow(force: true) }
+        titleReads += 1
+        defer { titleReads -= 1 }
+        await recorderDriver?.refresh { await self.loadTitlesNow(force: true, since: forgotten) }
     }
 
     /// The recordings the screen is showing: filtered, then sorted.

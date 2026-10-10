@@ -250,9 +250,11 @@ extension AppModel {
 
     /// Another recorder's lists go in the turn its description arrives, and the strip says so: nobody chose it,
     /// or the last one would have been forgotten at the choice. The screens read their lists when the app
-    /// becomes connected, and it never stopped being, so what they had read is read again by this connect.
+    /// becomes connected, and it never stopped being, so what they had read is read again by this connect --
+    /// and what they were reading: a read out now is the last recorder's, and is not kept (`keepTitles`,
+    /// `keepRecorderRules`).
     func anotherDeviceDescribedItself(wasConnected: Bool) {
-        let had = (recordings: titlesLoaded, rules: recorderRulesLoaded)
+        let had = (recordings: titlesLoaded || titleReads > 0, rules: recorderRulesLoaded || conditionReads > 0)
         forgetWhatTheRecorderSaid()
         anotherTookOver = true
         if wasConnected { listsToReadAgain = had }

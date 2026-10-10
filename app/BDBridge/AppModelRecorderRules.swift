@@ -5,20 +5,35 @@ import SwiftUI
 /// The recorder's own keyword conditions (おまかせ・まる録): read, added and removed, never changed.
 extension AppModel {
     func loadRecorderRules() async {
+        let forgotten = timesForgotten
         await start()
-        await loadRecorderRulesNow()
+        await loadRecorderRulesNow(since: forgotten)
     }
 
     /// The read itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
-    /// (`RecorderDriver.recorderRules`); what the screen says of it is the app's.
-    func loadRecorderRulesNow() async {
+    /// (`RecorderDriver.recorderRules`); what the screen says of it is the app's, kept by the count noted as the
+    /// entry began (`keepRecorderRules`), now when `forgotten` is nil. While it is out it is counted
+    /// (`conditionReads`).
+    func loadRecorderRulesNow(since forgotten: Int? = nil) async {
+        let forgotten = forgotten ?? timesForgotten
         guard client != nil, !unreachable else {
             // A list read before stays on screen under the strip that says the recorder is not there; with
             // none, the screen says why there is nothing rather than waiting for a read that is not coming.
             if !recorderRulesLoaded { recorderRulesFailure = problem ?? Self.rulesNotAsked }
             return
         }
-        if let read = await recorderDriver?.recorderRules() {
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        keepRecorderRules(await recorderDriver?.recorderRules(), since: forgotten)
+    }
+
+    /// Puts what a read of the conditions came to on the screen, one read on behalf of an entry that noted
+    /// `timesForgotten` as `forgotten` when it began: the list, or why there is none. Only while the count is
+    /// still that, as for the recordings (`keepTitles`): a read for a recorder let go of meanwhile says nothing
+    /// on the screen of the one after it, whose own connect reads its list.
+    func keepRecorderRules(_ read: [RecorderRule]?, since forgotten: Int) {
+        guard timesForgotten == forgotten else { return }
+        if let read {
             recorderRules = read
             recorderRulesLoaded = true
             recorderRulesFailure = nil
@@ -34,9 +49,14 @@ extension AppModel {
 
     /// What pulling the conditions down asks for: the list read again, or a connect when nothing can be written
     /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    /// Counted as a read of the list across the connect it may make, as the recordings' pull-down is
+    /// (`conditionReads`).
     func refreshRecorderRules() async {
+        let forgotten = timesForgotten
         await start()
-        await recorderDriver?.refresh { await self.loadRecorderRulesNow() }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        await recorderDriver?.refresh { await self.loadRecorderRulesNow(since: forgotten) }
     }
 
     /// The disk a condition's row names, or nil for none: only one off the internal disk, by the one rule the

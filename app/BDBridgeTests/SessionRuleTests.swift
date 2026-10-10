@@ -1005,23 +1005,27 @@ final class SessionRuleTests: XCTestCase {
     }
 
     /// Pulled down after a reconnect answered busy, with another recorder at the address by then: the
-    /// pull-down's connect hears the newcomer describe itself, and that connect reads the list the reader had
-    /// read, from the newcomer. The pull-down reads nothing more after it: the list is read once.
+    /// pull-down's connect hears the newcomer describe itself, and that connect reads the list from the newcomer,
+    /// whether the reader had read it or not -- the pull-down is a read of it across its connect, and a busy line
+    /// over a list never read is a reason to pull it down. The pull-down reads nothing more after it: the list is
+    /// read once.
     func testPullingAListDownWhoseConnectFindsAnotherRecorderReadsTheListOnce() async throws {
-        for what in ["the recordings", "the conditions"] {
+        for (what, readBefore) in [("the recordings", true), ("the conditions", true), ("the recordings", false),
+                                   ("the conditions", false)] {
+            let how = "\(what), \(readBefore ? "read before" : "never read")"
             let list = what == "the recordings" ? "X_GetTitleList" : "X_GetPrefRecSettingList"
             let bench = try aBench()
             let recorder = NamedRecorder(1)
             let model = try await started(bench, recorder: recorder)
-            if what == "the recordings" {
+            if readBefore, what == "the recordings" {
                 await model.loadTitles()
-            } else {
+            } else if readBefore {
                 await model.loadRecorderRules()
             }
-            XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, what)
+            XCTAssertEqual(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, readBefore, how)
             await recorder.busyAtTheDoor()
             await model.connect()
-            XCTAssertTrue(model.connected, "the attach before was meant to stand, \(what)")
+            XCTAssertTrue(model.connected, "the attach before was meant to stand, \(how)")
             await recorder.comeFree()
             await recorder.become(2)
 
@@ -1033,8 +1037,8 @@ final class SessionRuleTests: XCTestCase {
             }
 
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
-            expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(what)")
-            XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, what)
+            expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
+            XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, how)
         }
     }
 

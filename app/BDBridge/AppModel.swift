@@ -448,9 +448,15 @@ final class AppModel: LinkHost {
     /// the lists.
     var anotherTookOver = false
 
-    /// The lists the reader had read when another recorder answered a connect made while the app was
-    /// connected, for that connect to read again from the one that answered. See `anotherDeviceDescribedItself`.
+    /// The lists the reader had read, or was reading, when another recorder answered a connect made while the
+    /// app was connected, for that connect to read again from the one that answered. See
+    /// `anotherDeviceDescribedItself`.
     var listsToReadAgain = (recordings: false, rules: false)
+    /// How many reads of the recordings, and of the keyword conditions, are out (`loadTitlesNow`,
+    /// `loadRecorderRulesNow`, and a pull-down across its connect): one out when another recorder answers is a
+    /// list the reader was about to see, which is not put on that one's screens and is read from it instead.
+    var titleReads = 0
+    var conditionReads = 0
 
     var job: BulkJob?
     var duplicates: [DuplicateSet] = []
