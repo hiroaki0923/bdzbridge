@@ -11,13 +11,18 @@
   model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What an operation is made of,
   whichever device it is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why
   a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
-  kind of failure says and leaves behind. The one funnel the recorder's actions run through (`AppModel.run`)
-  stands on it, and so does each device's read of its reservations, which is its driver's. The recorder's
-  driver sends what waits for it in the phone's queue and deletes a row of it, makes, changes and deletes its
-  reservations, and asks what a new one would clash with, as well (`RecorderDriver.reservations`,
+  kind of failure says and leaves behind. The funnel the guide fetched by hand still runs through
+  (`AppModel.run`) stands on it, and so does each device's read of its reservations, which is its driver's.
+  The recorder's driver sends what waits for it in the phone's queue and deletes a row of it, makes, changes
+  and deletes its reservations, and asks what a new one would clash with, as well (`RecorderDriver.reservations`,
   `refreshReservations`, `sendWhatWaits`, `resend`, `deleteWaiting`, `reserve`, `update`, `cancel`,
   `conflicts`), each by the rules a television's driver keeps, and `AppModelReservations` keeps what comes
-  back. A television, once added in the settings, has a link of its own beside the recorder's,
+  back. So are its recordings -- the list with the free space, a recording's details, protect, delete,
+  playback and power -- and its own keyword conditions, read, added and deleted (`RecorderDriver.titles`,
+  `detail`, `protect`, `delete`, `play`, `powerOn`, `recorderRules`, `addRule`, `removeRule`, and `refresh`
+  for a pull-down; in `RecorderRecordings.swift` and `RecorderConditions.swift`), by the same rules, and
+  `AppModelRecordings` and `AppModelRecorderRules` keep what comes back. A television, once added in the
+  settings, has a link of its own beside the recorder's,
   with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's silence,
   trouble or work is the other's. What the television said --
   its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
@@ -213,6 +218,16 @@ the code before could fail them; the views' holds (a sheet held while its reques
 while the recorder works) are reached by no test. The bench's recorders answer as the test says in more ways
 for them: a list a moment behind after a change as after a delete, a recorder held and let go of one kind of
 request at a time (`letGo(only:)`), and a queue that is saved to and cannot be read back (`QueueUnreadable`).
+
+The recordings', playback's, the power's and the keyword conditions' operations went the same way: gates first
+(`FunnelGateTests` above all, beside `SessionRuleTests`, `USBDiskChoiceTests` and `WhichRecorderCheckTests`),
+then the moves into the driver with no test's body changed, then the rules a commit at a time. The bench asks
+these writes through helpers named by what they do (`protectARecording`, `deleteARecording`,
+`playARecording`, `turnTheRecorderOn`, `addACondition`, `removeACondition`), which note why one was not done
+for `whyNotJustNow`, as the reservations' do. What the driver turns away at its doors, with no app around it,
+is tried in RecorderKit (`RecorderRecordingsTests`), and so is playing a recording in standby, whose steps
+moved from the client to the driver. The views' holds -- a recording's and a condition's sheet held while its
+own request is out, the recorder's buttons held while the recorder works -- are reached by no test.
 
 `QueueWithATelevisionTests` holds what a television being saved changes about the queue. Its words: each
 sentence then says which device the reservations went to, on the strip and in the Shortcuts action's answer.
@@ -1086,7 +1101,10 @@ the list the recorder gives leaves out the channels its own screen can narrow a 
 condition back erases them. A condition on every wave carries the chosen mode for the 4K waves as well,
 where the recorder otherwise records at DR, and its row shows that mode. The screen says 読み込み中 while the
 list is on its way and 条件を読み込めませんでした with the reason when it could not be read, rather than that
-there are none.
+there are none; with nothing read and the recorder not to be asked, the reason is that the app is not
+connected. A condition's add or delete keeps its line up until the list read after it is in, and a delete the
+recorder refused has the list read after it all the same, since the recorder renumbers a condition its own
+screen edits; the refusal is said in the alert.
 
 At the larger text sizes every row wraps as lines of text do, rather than squeezing its small print into
 columns: the station's logo is set inside the line, and at the accessibility sizes the guide's list puts the

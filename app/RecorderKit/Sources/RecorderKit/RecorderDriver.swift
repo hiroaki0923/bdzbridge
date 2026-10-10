@@ -11,16 +11,18 @@ import Foundation
 /// phone's queue (`sendWhatWaits`, `resend`) and deleting a row of it (`deleteWaiting`), deleting and changing
 /// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
 /// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
-/// keep.
+/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, and its own keyword conditions in
+/// `RecorderConditions.swift`, beside this.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
     /// driver goes through on it, written on the parts of an operation the link carries (`DeviceLink.run`,
     /// `underALine`, `say`): the reads of the reservations, the sending of what waits and a waiting row sent
     /// again, a delete, a change and a reservation, and the slot's settling and what it came to. The clash check
-    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app; the check
-    /// before a reservation is read for its reason (`check`). The recorder's other operations are still the
-    /// app's, and will be asked of this the same way.
+    /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
+    /// a recording's details; the check before a reservation is read for its reason (`check`). The recordings',
+    /// playback's, the power's and the keyword conditions' operations go through on the same parts, each as
+    /// `DeviceLink.run` makes one (`asked`). The guide fetched by hand is still the app's.
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
@@ -30,22 +32,33 @@ public final class RecorderDriver: LinkDriver {
     private let wakingInterval: Duration
     /// How long a client waits before sending again what the recorder answered 503 (`RecorderClient`).
     private let busyRetryDelay: ClosedRange<Double>
+    /// How long a play waits for a recorder it has turned on, and how often it asks meanwhile (`play`).
+    let powerOnLimit: TimeInterval
+    let powerOnInterval: Duration
     /// The read of the reservations that is out, with the count of recorders let go of it was asked under
     /// (`DeviceLink.generation`) and the client the link held then, which whoever asks under the same count, the
     /// link holding the same client, meanwhile waits for; and how many reads have been begun, which tells the
     /// one out from one begun after it.
     private var reading: (generation: Int, client: ObjectIdentifier, number: Int, list: Task<[Reservation]?, Never>)?
     private var readsBegun = 0
+    /// The reads of the recordings and of the keyword conditions that are out, in the same way (`ReadOut`).
+    var titlesReading: ReadOut<Bool>?
+    var conditionsReading: ReadOut<ConditionsRead>?
+    var listReadsBegun = 0
 
-    /// The reason written on the rows held for another recorder, the waking's limit and interval, and the pause
-    /// before a 503 is sent again, are given only by the tests, which have no seconds to wait.
+    /// The reason written on the rows held for another recorder, the waking's limit and interval, the pause
+    /// before a 503 is sent again, and how long and how often a play waits for the recorder's power, are given
+    /// only by the tests, which have no seconds to wait.
     public init(holdingTheQueueWith reason: String = RecorderDriver.heldForAnotherRecorder,
                 wakingLimit: TimeInterval = Waking.screenLimit,
-                wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1) {
+                wakingInterval: Duration = .seconds(1), busyRetryDelay: ClosedRange<Double> = 0.5...1,
+                powerOnLimit: TimeInterval = RecorderClient.powerOnLimit, powerOnInterval: Duration = .seconds(1)) {
         heldWith = reason
         self.wakingLimit = wakingLimit
         self.wakingInterval = wakingInterval
         self.busyRetryDelay = busyRetryDelay
+        self.powerOnLimit = powerOnLimit
+        self.powerOnInterval = powerOnInterval
     }
 
     /// Short: a recorder that has left the network says nothing rather than refuse, and a patient timeout is
@@ -87,7 +100,7 @@ public final class RecorderDriver: LinkDriver {
     /// With another taken up in its place -- one that described itself on a connect, or the recorder at an
     /// address the reader chose -- the line is the newcomer's, and the result says that another recorder
     /// answered (`anotherAnswered`).
-    private func whyLetGo(on link: DeviceLink) -> String {
+    func whyLetGo(on link: DeviceLink) -> String {
         link.client == nil ? link.owner?.problem ?? Self.anotherAnswered : Self.anotherAnswered
     }
 
@@ -531,7 +544,7 @@ public final class RecorderDriver: LinkDriver {
     /// a check has heard it (`DeviceLink.mayBeSent`).
     public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
 
-    private func canBeAsked(on link: DeviceLink) -> Bool {
+    func canBeAsked(on link: DeviceLink) -> Bool {
         link.clientIsAttached && link.session.connected
     }
 
@@ -1829,7 +1842,7 @@ public final class RecorderDriver: LinkDriver {
     /// The same for an operation whose result says it, handed back for the result. What the check heard is the
     /// recorder's own answer and goes on the line as well, as a television's check puts it there; that the app
     /// is not connected is said in the result alone.
-    private func whyNotSent(on link: DeviceLink) -> String {
+    func whyNotSent(on link: DeviceLink) -> String {
         guard let heard = link.heardInstead else { return whyNotConnected }
         link.owner?.problem = heard.explanation
         return heard.explanation
@@ -1891,7 +1904,7 @@ public final class RecorderDriver: LinkDriver {
     }
 }
 
-private extension OperationFailure {
+extension OperationFailure {
     /// What the link said of it on the line, for a result to say again; nil for what the link says nothing of
     /// there, a check's no and a device let go of.
     var sentence: String? {

@@ -5,31 +5,56 @@ import SwiftUI
 /// The recorder's own keyword conditions (おまかせ・まる録): read, added and removed, never changed.
 extension AppModel {
     func loadRecorderRules() async {
+        let forgotten = timesForgotten
         await start()
-        await loadRecorderRulesNow()
+        await loadRecorderRulesNow(since: forgotten)
     }
 
-    /// The read itself, without `start()`, for anything `connect()` reaches: see there.
-    func loadRecorderRulesNow() async {
-        guard let client, !unreachable else {
+    /// The read itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
+    /// (`RecorderDriver.recorderRules`), and so is why it could not be made; what the screen holds of it is the
+    /// app's, kept by the count noted as the entry began (`keepRecorderRules`), now when `forgotten` is nil. While
+    /// it is out it is counted (`conditionReads`).
+    func loadRecorderRulesNow(since forgotten: Int? = nil) async {
+        let forgotten = forgotten ?? timesForgotten
+        guard let recorderDriver, client != nil, !unreachable else {
             // A list read before stays on screen under the strip that says the recorder is not there; with
             // none, the screen says why there is nothing rather than waiting for a read that is not coming.
-            if !recorderRulesLoaded { recorderRulesFailure = problem ?? Self.rulesNotAsked }
+            if !recorderRulesLoaded {
+                recorderRulesFailure = recorderDriver?.whyNotConnected ?? RecorderDriver.notConnected
+            }
             return
         }
-        let read = await run("おまかせ・まる録の設定を取得中") { self.recorderRules = try await client.recorderRules() }
-        if read {
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        keepRecorderRules(await recorderDriver.recorderRules(), since: forgotten)
+    }
+
+    /// Puts what a read of the conditions came to on the screen, one read on behalf of an entry that noted
+    /// `timesForgotten` as `forgotten` when it began: the list, or why there is none. Only while the count is
+    /// still that, as for the recordings (`keepTitles`): a read for a recorder let go of meanwhile says nothing
+    /// on the screen of the one after it, whose own connect reads its list.
+    func keepRecorderRules(_ read: RecorderDriver.ConditionsRead, since forgotten: Int) {
+        guard timesForgotten == forgotten else { return }
+        if let list = read.list {
+            recorderRules = list
             recorderRulesLoaded = true
             recorderRulesFailure = nil
         } else {
-            // With no message the recorder was never asked: the check before the read found the local network
-            // permission missing, which the strip explains. Saying the recorder returned an error would be
-            // saying something it did not do.
-            recorderRulesFailure = problem ?? Self.rulesNotAsked
+            recorderRulesFailure = read.why
         }
     }
 
-    private static let rulesNotAsked = "レコーダーに接続していません"
+    /// What pulling the conditions down asks for: the list read again, or a connect when nothing can be written
+    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    /// Counted as a read of the list across the connect it may make, as the recordings' pull-down is
+    /// (`conditionReads`).
+    func refreshRecorderRules() async {
+        let forgotten = timesForgotten
+        await start()
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        await recorderDriver?.refresh { await self.loadRecorderRulesNow(since: forgotten) }
+    }
 
     /// The disk a condition's row names, or nil for none: only one off the internal disk, by the one rule the
     /// reservations' rows go by (`RecorderDisk.shown`).
@@ -37,63 +62,30 @@ extension AppModel {
         RecorderDisk.shown(rule.destination, on: .recorder, usb: usbDisk)
     }
 
-    /// Registers a condition on the recorder itself, which then records by it with nothing else running.
-    ///
-    /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
-    /// refused before anything is sent, as a reservation's is (`reserve`), and so is one the slot has not answered
-    /// since the recorder last answered and does not answer while it is waited for (`RecorderDriver.withholds`).
-    /// A condition is never changed, so one made to a disk the reader did not pick could only be deleted and made
-    /// again.
-    ///
-    /// To the slot, the recorder is made sure of, and the slot waited for, before the registration goes out --
-    /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press, as
-    /// `run` puts its line up before its own check: the sheet holds its button while a line is up, so a second
-    /// press cannot make a second condition meanwhile.
-    func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
+    /// Registers a condition on the recorder itself (`RecorderDriver.addRule`), which reads the list again once it
+    /// has, kept by the count noted as the entry began (`keepRecorderRules`). What it came to, for the sheet to say.
+    /// Counted as a read of the list while it is out (`conditionReads`), the read after among it: another recorder
+    /// answering meanwhile has its own conditions read by its connect, as for any read of them out.
+    func addRecorderRule(_ request: RecorderRuleRequest) async -> Altered {
+        let forgotten = timesForgotten
         await start()
-        recorderDriver?.clearTheDiskNotHad()
-        guard let client else { return false }
-        guard RecorderDisk.offers(request.destination, with: usbDisk) else {
-            problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
-            return false
-        }
-        let toTheSlot = request.destination == RecorderDisk.usbID
-        let line = toTheSlot ? activities.begin(Self.registering) : nil
-        defer { if let line { activities.end(line) } }
-        if toTheSlot {
-            guard await wakeIfDozing() else { return false }
-            if let withheld = await recorderDriver?.withholds(request.destination) {
-                if withheld == .noDisk {
-                    problem = RecorderDisk.chooseAnother(than: request.destination, usb: usbDisk)
-                }
-                return false
-            }
-        }
-        let made = await run(Self.registering, sending: true) {
-            _ = try await client.createRecorderRule(request)
-        }
-        if made { await loadRecorderRules() }
-        return made
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.addRule(request) { self.keepRecorderRules($0, since: forgotten) }
     }
 
-    /// The line while a condition is registered.
-    private static let registering = "レコーダーに登録中"
-
-    /// Delete only, never edit: a condition read over the LAN lacks the channel narrowing the recorder's own
-    /// screen can set, and writing it back would erase that. The list is read again afterwards either way,
-    /// because the recorder renumbers a condition whenever its screen edits one.
-    func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
+    /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list again after any answer, kept
+    /// as a condition added has its list kept: a refusal may be of a number the recorder no longer has. What it
+    /// came to, for the screen to say: a refusal is said there, and the read after it clears the line when it
+    /// goes through, as the read after a reservation's delete refused so does, or says its own failure when it
+    /// does not. Counted while it is out, as a condition added is.
+    func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
+        let forgotten = timesForgotten
         await start()
-        guard let client else { return false }
-        let removed = await run("レコーダーから削除中", sending: true) {
-            try await client.deleteRecorderRule(id: rule.id)
-        }
-        // The read that follows clears the message when it works, and for a delete that failed the message is
-        // the reason the screen shows. Put back only over nothing: a read that failed has said something newer,
-        // such as the recorder no longer answering, and that is what is true now.
-        let reason = problem
-        await loadRecorderRules()
-        if !removed, problem == nil { problem = reason }
-        return removed
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.removeRule(rule) { self.keepRecorderRules($0, since: forgotten) }
     }
 }

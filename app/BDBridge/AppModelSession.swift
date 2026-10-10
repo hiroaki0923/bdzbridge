@@ -51,9 +51,10 @@ extension AppModel {
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
-    /// The free space read again, after a delete or with the list of recordings. It is only shown, so a
-    /// recorder that will not say is not an error, and the delete it follows is not reported as failed.
-    /// Silence is still silence.
+    /// The free space read again, after a bulk delete. It is only shown, so a recorder that will not say is not
+    /// an error, and the delete it follows is not reported as failed. Silence is still silence, and loses the
+    /// recorder here without a word on the line until the bulk work goes to the driver: a single delete and the
+    /// list read it through the driver, which says that silence on the line as any read's.
     func refreshStorage(_ client: RecorderClient) async {
         do {
             session.learned(storage: try await RecorderDriver.storage(of: client))
@@ -250,9 +251,11 @@ extension AppModel {
 
     /// Another recorder's lists go in the turn its description arrives, and the strip says so: nobody chose it,
     /// or the last one would have been forgotten at the choice. The screens read their lists when the app
-    /// becomes connected, and it never stopped being, so what they had read is read again by this connect.
+    /// becomes connected, and it never stopped being, so what they had read is read again by this connect --
+    /// and what they were reading: a read out now is the last recorder's, and is not kept (`keepTitles`,
+    /// `keepRecorderRules`).
     func anotherDeviceDescribedItself(wasConnected: Bool) {
-        let had = (recordings: titlesLoaded, rules: recorderRulesLoaded)
+        let had = (recordings: titlesLoaded || titleReads > 0, rules: recorderRulesLoaded || conditionReads > 0)
         forgetWhatTheRecorderSaid()
         anotherTookOver = true
         if wasConnected { listsToReadAgain = had }

@@ -1023,6 +1023,7 @@ enum Said {
         + "送っていません。少し待ってから、もう一度送ってください。"
     static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+    static let protectedCannotBeDeleted = "保護されているため削除できません。先に保護を解除してください。"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
     static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
     static let changeRecording = "録画中の予約は変更できません。"
@@ -1076,6 +1077,10 @@ let lineLeft = "前の操作が残した文"
 /// Leaves it on the recorder's line of what went wrong.
 @MainActor
 func leaveALine(on model: AppModel) { model.problem = lineLeft }
+
+/// Leaves nothing there, for a test that looks at what is said over an empty line.
+@MainActor
+func clearTheLine(on model: AppModel) { model.problem = nil }
 
 // MARK: - what the tests do to the connection
 //
@@ -1161,7 +1166,8 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
 }
 
 /// Why the last reservation or change on the recorder asked through the two above was not done, as its result
-/// said it; nil when it was made, kept or done.
+/// said it, or the last of the recordings' and the keyword conditions' writes asked through the helpers below;
+/// nil when it was made, kept or done.
 @MainActor
 func whyNotJustNow(_ model: AppModel) -> String? {
     reasons.first { $0.model === model }?.why
@@ -1179,6 +1185,59 @@ func deleteAReservation(_ model: AppModel, _ row: Reservation) async -> Bool {
 @MainActor
 func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
     if case .done? = await host.cancel(row) { return true }
+    return false
+}
+
+// MARK: - what the tests ask of the recordings and the keyword conditions
+//
+// As the screens ask for it, through the entries they use, and by what each does rather than by the model's name
+// for it: where these operations live can change, and only the bodies here change with it.
+
+/// A recording protected, or its protection taken off, as its sheet and the list's swipe ask for it: whether it
+/// went through. Why not, as its result said it, is noted for `whyNotJustNow`, as for each of the five below.
+@MainActor
+func protectARecording(_ model: AppModel, _ title: RecordedTitle, _ on: Bool) async -> Bool {
+    noted(await model.setProtected(title, on), of: model)
+}
+
+/// A recording deleted, as its sheet, the list's swipe and the group's sheet ask for it: whether it went through.
+@MainActor
+func deleteARecording(_ model: AppModel, _ title: RecordedTitle) async -> Bool {
+    noted(await model.delete(title), of: model)
+}
+
+/// A recording played, paused or stopped on the television the recorder is attached to, as its sheet asks for
+/// it: `operation` is the recorder's own word for it (`play`, `pause`, `stop`).
+@MainActor
+func playARecording(_ model: AppModel, _ title: RecordedTitle, _ operation: String) async {
+    _ = noted(await model.play(title, operation), of: model)
+}
+
+/// The recorder turned on, as a recording's sheet offers once the recorder has said it is in standby.
+@MainActor
+func turnTheRecorderOn(_ model: AppModel) async {
+    _ = noted(await model.powerOn(), of: model)
+}
+
+/// A keyword condition registered on the recorder, as its sheet asks for it: whether it went through.
+@MainActor
+func addACondition(_ model: AppModel, _ request: RecorderRuleRequest) async -> Bool {
+    noted(await model.addRecorderRule(request), of: model)
+}
+
+/// A keyword condition deleted from the recorder, as its screen's swipe asks for it: whether it went through.
+@MainActor
+func removeACondition(_ model: AppModel, _ rule: RecorderRule) async -> Bool {
+    noted(await model.removeRecorderRule(rule), of: model)
+}
+
+/// Whether `altered` was done, with why not noted for `whyNotJustNow`.
+@MainActor
+private func noted(_ altered: Altered, of model: AppModel) -> Bool {
+    var why: String?
+    if case .notDone(let said) = altered { why = said }
+    note(why, of: model)
+    if case .done = altered { return true }
     return false
 }
 

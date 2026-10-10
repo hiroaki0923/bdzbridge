@@ -89,12 +89,17 @@ final class LinkWorld: LinkHost {
     /// Every line that was put up, in the order it was asked for: `line` says only what is up now. Beside
     /// `events` and not among them, which tests compare whole.
     private(set) var begun: [String] = []
+    /// Every line a line was changed to, in the order it was asked for, beside `begun`.
+    private(set) var updated: [String] = []
 
     func beginActivity(_ text: String) -> Activities.Token {
         begun.append(text)
         return lines.begin(text)
     }
-    func updateActivity(_ token: Activities.Token, to text: String) { lines.update(token, to: text) }
+    func updateActivity(_ token: Activities.Token, to text: String) {
+        updated.append(text)
+        lines.update(token, to: text)
+    }
     func endActivity(_ token: Activities.Token) { lines.end(token) }
     var isBusy: Bool { false }
     var holdsOffConnect: Bool { false }

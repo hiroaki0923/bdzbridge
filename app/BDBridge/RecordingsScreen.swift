@@ -98,11 +98,9 @@ struct RecordingsScreen: View {
             // from before, and a load set going by it alone finds nothing to ask and is not tried again.
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
             // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
-            // With the recorder given up on, it is the reader asking for another go, as the strip's 再接続 is.
-            .refreshable {
-                guard !model.jobRunning else { return }
-                if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
-            }
+            // With nothing that can be written to the recorder, it is the reader asking for another go, as the
+            // strip's 再接続 is.
+            .refreshable { await model.refreshTitles() }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
@@ -115,12 +113,9 @@ struct RecordingsScreen: View {
                 switch shown {
                 case .confirm(let title):
                     Button("削除する", role: .destructive) {
-                        Task {
-                            if await !model.delete(title) {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
-                            }
-                        }
+                        Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
                     }
+                    .disabled(model.isBusy(for: .recorder))
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -189,8 +184,9 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, ask: { removing = title.id },
-                            unprotect: { Task { await model.setProtected(title, false) } })
+                .titleSwipe(title, held: model.isBusy(for: .recorder), ask: { removing = title.id }, unprotect: {
+                    Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
+                })
             }
             .listStyle(.plain)
             .overlay { if listed.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
@@ -202,21 +198,27 @@ extension View {
     /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
     /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
     ///
-    /// The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has
-    /// to happen first. `title` is nil where the row should not be swipeable at all.
-    func titleSwipe(_ title: RecordedTitle?, ask: @escaping () -> Void,
+    /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
+    /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
+    /// first. `title` is nil where the row should not be swipeable at all. Both are held while the recorder works
+    /// (`held`), and on a programme's sheet while its own request is out: a second delete or protect of a row
+    /// while one is out, and nothing held by the television's work.
+    func titleSwipe(_ title: RecordedTitle?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if title?.recording == true {
-                // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
-                // says 録画中, which is the answer to why there is no button here.
-                EmptyView()
-            } else if let title, title.protected {
-                // `role: .destructive` would animate the row away as it is swiped, before there is an
-                // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(Color.legibleOrange)
-            } else if title != nil {
-                Button("削除") { ask() }.tint(.red)
+            if let title {
+                switch RecorderDriver.whyNot(deleting: title) {
+                case nil:
+                    Button("削除") { ask() }.tint(.red).disabled(held)
+                case RecorderDriver.protectedCannotBeDeleted?:
+                    // `role: .destructive` would animate the row away as it is swiped, before there is an
+                    // answer, and it stays away when the answer is no. The colour is all that is wanted.
+                    Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
+                default:
+                    // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
+                    // says 録画中, which is the answer to why there is no button here.
+                    EmptyView()
+                }
             }
         }
     }
@@ -338,6 +340,10 @@ struct GroupSheet: View {
     /// The row swiped, by id, read back out of the model when the dialog asks.
     @State private var removing: String?
     @State private var failure: String?
+    /// Whether the sheet's own single delete, or a swipe's 保護解除, is out: the sheet is held open until it is
+    /// answered, so that what it came to is said here rather than lost with a closed sheet, and the swipes and
+    /// the delete's confirm are held, so that a second is not sent meanwhile.
+    @State private var asking = false
 
     /// One alert for all three jobs. Two on a view is not something SwiftUI promises to honour, and this
     /// one has a bulk delete, a single delete and a failure to report.
@@ -393,8 +399,9 @@ struct GroupSheet: View {
                     .accessibilityLabel("保護をまとめて変更")
                     .disabled(model.jobRunning || members.isEmpty)
                 }
-                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
+                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
             }
+            .interactiveDismissDisabled(asking)
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .closesWithItsRecorder()
@@ -413,13 +420,8 @@ struct GroupSheet: View {
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
-                    Button("削除する", role: .destructive) {
-                        Task {
-                            if await !model.delete(title) {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
-                            }
-                        }
-                    }
+                    Button("削除する", role: .destructive) { ask { await model.delete(title) } }
+                        .disabled(model.isBusy(for: .recorder) || asking)
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -433,6 +435,16 @@ struct GroupSheet: View {
                 case .failed(let reason): Text(reason)
                 }
             }
+        }
+    }
+
+    /// Asks `operation` with the sheet held until it is answered, and says what it came to in the alert.
+    private func ask(_ operation: @escaping @MainActor () async -> Altered) {
+        asking = true
+        Task {
+            let came = await operation()
+            asking = false
+            if case .notDone(let why) = came { failure = why }
         }
     }
 
@@ -468,8 +480,8 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, ask: { removing = title.id },
-                        unprotect: { Task { await model.setProtected(title, false) } })
+            .titleSwipe(selecting ? nil : title, held: model.isBusy(for: .recorder) || asking,
+                        ask: { removing = title.id }, unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
     }

@@ -65,13 +65,38 @@ extension WhichRecorderTests {
         let (bench, recorder, model) = try await atHome(wakeable: true)
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
 
-        let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) { await model.delete(title) }
+        let deleted = try await asking(model, on: bench, of: recorder, heard: .onTheProbe) {
+            await deleteARecording(model, title)
+        }
 
         XCTAssertFalse(deleted)
         XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why it was not deleted")
         try await untilTakenUp(model, 2, "the newcomer was never taken up")
         expectEqual(await recorder.asked("X_DeleteTitle"), 0,
                     "the second recorder was asked to delete its recording of that number")
+    }
+
+    /// What else is asked of a recording or a keyword condition while the check is out, which then hears another
+    /// recorder: a protect, a condition added or removed, playback, the power, a recording's details. The
+    /// newcomer numbers its recordings and conditions from the same start as the first, and is sent none of
+    /// these; what hands back an answer says that nothing was done, and the line says why, as for a delete.
+    func testWhatElseIsAskedOfWhatTurnsOutToBeAnotherRecorderIsNotSent() async throws {
+        for asked in Asked.allCases {
+            let (bench, recorder, model) = try await atHome()
+            let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+            let rule = try XCTUnwrap(model.recorderRules.first)
+
+            let came = try await asking(model, on: bench, of: recorder, heard: .onTheProbe,
+                                        begun: asked == .details ? .aMoment : .itsLine) {
+                await asked.ask(model, title, rule)
+            }
+
+            XCTAssertNotEqual(came, true, "\(asked.name) is said to have been done")
+            XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why \(asked.name) was not done")
+            try await untilTakenUp(model, 2, "the newcomer was never taken up, after \(asked.name)")
+            expectEqual(await recorder.asked(asked.rawValue), 0,
+                        "\(asked.name) went to the second recorder, for its own of that number")
+        }
     }
 
     /// A reservation asked for while the check is out, which then hears another recorder -- answering its
@@ -259,6 +284,71 @@ extension WhichRecorderTests {
         try await until("the recorder was never made sure of") { await recorder.asked("description.xml") > asked }
         let answer = Task { await something() }
         try await until("what was asked for was never begun") { model.busy != nil }
+        await recorder.become(2)
+        if heard == .afterAWaking { await recorder.goQuiet(for: 1) }
+        await recorder.letGo()
+        _ = await check.value
+        return await answer.value
+    }
+
+    /// Asked of a recording or a keyword condition, besides the delete, while the check before it is out: each
+    /// by the request it sends.
+    private enum Asked: String, CaseIterable {
+        case protect = "X_UpdateTitle", add = "X_CreatePrefRecSetting", remove = "X_DeletePrefRecSetting"
+        case play = "X_PlayControlTitle", power = "X_PowerControl", details = "X_GetTitleDetail"
+
+        var name: String {
+            switch self {
+            case .protect: "the protect"
+            case .add: "the condition added"
+            case .remove: "the condition removed"
+            case .play: "the play"
+            case .power: "the power"
+            case .details: "the details"
+            }
+        }
+
+        /// Asks it as a screen does. Whether it went through, for what says; whether details came back, for the
+        /// details; nil for playback and the power, which say nothing.
+        @MainActor
+        func ask(_ model: AppModel, _ title: RecordedTitle, _ rule: RecorderRule) async -> Bool? {
+            switch self {
+            case .protect: return await protectARecording(model, title, true)
+            case .add: return await addACondition(model, RecorderRuleRequest(keywords: ["みほん"], qualityCode: 220))
+            case .remove: return await removeACondition(model, rule)
+            case .play:
+                await playARecording(model, title, "play")
+                return nil
+            case .power:
+                await turnTheRecorderOn(model)
+                return nil
+            case .details: return await model.detail(of: title) != nil
+            }
+        }
+    }
+
+    /// How `asking` knows that what it asks has got as far as waiting for the check: its line is up, or, for
+    /// what puts up none, a moment has gone by -- a fifth of a second, nothing public saying that it waits, so
+    /// there is no better sign to wait for. The moment is a guess: on a loaded machine what is asked can reach
+    /// the check only after it has heard the newcomer, and go to the newcomer once the connect that follows has
+    /// made a client of its own, and the test then fails though nothing is wrong.
+    private enum Begun {
+        case itsLine, aMoment
+    }
+
+    /// `asking`, for what may put up no line of its own: the same steps, waiting for `begun`.
+    private func asking<T: Sendable>(_ model: AppModel, on bench: Bench, of recorder: NamedRecorder, heard: Heard,
+                                     begun: Begun, _ something: @escaping @MainActor () async -> T) async throws -> T {
+        bench.network = "away"
+        await recorder.hold()
+        let asked = await recorder.asked("description.xml")
+        let check = Task { await lookAtTheNetwork(model) }
+        try await until("the recorder was never made sure of") { await recorder.asked("description.xml") > asked }
+        let answer = Task { await something() }
+        switch begun {
+        case .itsLine: try await until("what was asked for never put its line up") { model.busy != nil }
+        case .aMoment: try await Task.sleep(for: .milliseconds(200))
+        }
         await recorder.become(2)
         if heard == .afterAWaking { await recorder.goQuiet(for: 1) }
         await recorder.letGo()

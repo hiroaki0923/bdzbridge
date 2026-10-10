@@ -34,7 +34,7 @@ struct RecorderRulesScreen: View {
                 ForEach(model.recorderRules) { rule in
                     RecorderRuleRow(rule: rule, disk: model.diskShown(rule))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("削除") { removing = rule }.tint(.red)
+                            Button("削除") { removing = rule }.tint(.red).disabled(model.isBusy(for: .recorder))
                         }
                 }
             } footer: {
@@ -50,10 +50,11 @@ struct RecorderRulesScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel("条件を追加")
-                    .disabled(!model.connected || model.busy != nil)
+                    .disabled(!model.connected || model.isBusy(for: .recorder))
             }
         }
-        .refreshable { await model.loadRecorderRules() }
+        // As the recordings' pull-down: the list read again, or a connect.
+        .refreshable { await model.refreshRecorderRules() }
         // Keyed on `connected`, and on what the read itself checks, since `connected` turns true while the
         // recorder is still marked silent: see `RecordingsScreen`.
         .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }
@@ -68,12 +69,9 @@ struct RecorderRulesScreen: View {
             switch shown {
             case .confirm(let rule):
                 Button("削除する", role: .destructive) {
-                    Task {
-                        if await !model.removeRecorderRule(rule) {
-                            failure = model.problem ?? "レコーダーがエラーを返しました"
-                        }
-                    }
+                    Task { if case .notDone(let why) = await model.removeRecorderRule(rule) { failure = why } }
                 }
+                .disabled(model.isBusy(for: .recorder))
                 Button("キャンセル", role: .cancel) {}
             case .failed:
                 Button("OK", role: .cancel) {}
@@ -159,6 +157,11 @@ struct RecorderRuleSheet: View {
     /// being no longer offered.
     @State private var chosenDisk: String?
     @State private var failure: String?
+    /// Whether the registration is out: the sheet is held open until it is answered -- the wait for the recorder
+    /// and for the USB slot among it -- so that what it came to is said here rather than lost with a closed sheet;
+    /// and レコーダーに登録 is held from the press, before the recorder's line is up, so that a second press makes
+    /// no second condition.
+    @State private var asking = false
 
     /// A row of the list needs an identity of its own; the text alone would reorder rows as it is typed.
     struct Word: Identifiable {
@@ -191,9 +194,6 @@ struct RecorderRuleSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // The wait for the USB slot before a condition to it is sent, which the screen's strip under the
-                // sheet cannot be seen to say.
-                WakingSection(saysTheWaking: false)
                 Section {
                     ForEach($keywords) { $word in
                         WordRow(placeholder: "キーワード", text: $word.text,
@@ -274,23 +274,32 @@ struct RecorderRuleSheet: View {
             }
             // a genre's sub-genres are its own, so the choice cannot survive a change of genre
             .onChange(of: genreLevel1) { genreLevel2 = -1 }
+            .disabled(asking)
+            // The strip, as on a recording's sheet: the registration's line from the press, the waking and the
+            // wait for the USB slot, which the screen's strip under the sheet cannot be seen to say.
+            .recorderActivity(inSheet: true)
             .navigationTitle("条件を追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }.disabled(asking)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("レコーダーに登録") {
+                        asking = true
                         Task {
+                            defer { asking = false }
                             let request = RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic,
                                                               genreLevel1: genreLevel1 < 0 ? nil : genreLevel1,
                                                               genreLevel2: genreLevel2 < 0 ? nil : genreLevel2,
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
                                                               qualityCode: Codes.quality[quality] ?? 240,
                                                               destination: chosenDisk ?? RecorderDisk.internalID)
-                            if await model.addRecorderRule(request) {
+                            switch await model.addRecorderRule(request) {
+                            case .done:
                                 dismiss()
-                            } else {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
+                            case .notDone(let why):
+                                failure = why
                                 // Refused for a disk that cannot be had -- no longer offered, or not answered by
                                 // the slot while it was waited for: the sheet goes back to the internal disk,
                                 // named, for the reader to send again or leave.
@@ -300,9 +309,10 @@ struct RecorderRuleSheet: View {
                             }
                         }
                     }
-                    .disabled(problem != nil || model.busy != nil)
+                    .disabled(problem != nil || model.isBusy(for: .recorder) || asking)
                 }
             }
+            .interactiveDismissDisabled(asking)
             .alert("エラー",
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("OK", role: .cancel) {}

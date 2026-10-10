@@ -254,9 +254,11 @@ final class SessionRuleTests: XCTestCase {
 
     // MARK: - the check before an operation
 
-    /// A recorder that answers the check -- if only to say it is busy with somebody else -- is there: what the
-    /// reader asked for goes ahead, and says for itself what is wrong, if anything is.
-    func testARecorderThatAnswersTheCheckBusyLetsTheOperationGoAhead() async throws {
+    /// A recorder that answers the check -- if only to say it is busy with somebody else -- is there: the app is
+    /// not given up on. But busy says nothing of which recorder answered, so what the reader asks next to be
+    /// written to it is not sent: it asks again who answers, hears busy again, and says so, as the reservations'
+    /// writes do.
+    func testARecorderThatAnswersTheCheckBusyIsThereAndIsWrittenNothing() async throws {
         let bench = try aBench()
         let recorder = NamedRecorder(1)
         let model = try await started(bench, recorder: recorder)
@@ -267,7 +269,12 @@ final class SessionRuleTests: XCTestCase {
         await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered was taken for gone")
         XCTAssertFalse(model.offline)
-        expectTrue(await model.delete(title), model.problem ?? "no reason given")
+        let before = await recorder.asked
+        expectFalse(await deleteARecording(model, title), "a delete went out after a check that heard busy")
+        XCTAssertEqual(whyNotJustNow(model), Said.busy("description.xml"))
+        XCTAssertEqual(model.problem, Said.busy("description.xml"))
+        expectEqual(await recorder.asked("X_DeleteTitle", since: before), 0)
+        XCTAssertFalse(model.offline)
     }
 
     // MARK: - waking
@@ -487,7 +494,7 @@ final class SessionRuleTests: XCTestCase {
         // one of the copies: deleting the one ticked would take the set, and its tick, away before the choice.
         let copies = Set(model.duplicates.flatMap { $0.items.map(\.id) })
         let gone = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected && !copies.contains($0.id) })
-        expectTrue(await model.delete(gone), model.problem ?? "no reason given")
+        expectTrue(await deleteARecording(model, gone), model.problem ?? "no reason given")
         XCTAssertFalse(model.duplicatePicks.isEmpty)
         let attached = model.timesAttached
 
@@ -501,6 +508,51 @@ final class SessionRuleTests: XCTestCase {
         await model.loadTitles()   // what the recordings tab does when it is shown
         XCTAssertTrue(model.titles.contains { $0.id == gone.id }, "the recordings are not the chosen recorder's")
         XCTAssertTrue(model.duplicatePicks.isEmpty)
+    }
+
+    /// The sets of copies on screen are worked out again whenever the recordings they were found among change
+    /// under them: the copy ticked, protected, is said to be protected and is no longer ticked, the recorder
+    /// refusing to delete it; deleted, it leaves its set with one, which is no set; and the list read again,
+    /// which a copy deleted on the recorder's own screen has left, has no set either.
+    func testTheSetsOfCopiesFollowAProtectADeleteAndTheListReadAgain() async throws {
+        // A model whose recorder has one broadcast twice, its recordings read and scanned for copies.
+        @MainActor func scanned() async throws -> (model: AppModel, recorder: RecorderWithACopy) {
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            let recorder = RecorderWithACopy()
+            let model = bench.model(recorder: recorder)
+            await model.start()
+            try await until("the first connect never finished", within: 20) {
+                model.connected && !isConnecting(model)
+            }
+            await model.loadTitles()
+            model.startDuplicateScan()
+            try await until("the scan never finished", within: 20) { model.job?.finished == true }
+            XCTAssertEqual(model.duplicates.count, 1, "the two copies were not found as one set")
+            return (model, recorder)
+        }
+
+        // The copy ticked, protected, its protection taken off again, and deleted.
+        let (model, _) = try await scanned()
+        let ticked = try XCTUnwrap(model.duplicatePicks.first, "neither copy came up ticked")
+        let copy = try XCTUnwrap(model.titles.first { $0.id == ticked })
+        XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中")
+        expectTrue(await protectARecording(model, copy, true), model.problem ?? "no reason given")
+        XCTAssertEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set does not say the copy is protected")
+        XCTAssertTrue(model.duplicatePicks.isEmpty, "a copy the recorder will not delete is still ticked")
+        expectTrue(await protectARecording(model, copy, false), model.problem ?? "no reason given")
+        XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set says the copy is still protected")
+        expectTrue(await deleteARecording(model, copy), model.problem ?? "no reason given")
+        XCTAssertTrue(model.duplicates.isEmpty, "a set of one copy is still shown")
+
+        // A copy deleted on the recorder's own screen, and the list read again.
+        let (again, recorder) = try await scanned()
+        let gone = try XCTUnwrap(again.duplicates.first?.items.first)
+        try await aClient(of: recorder).deleteTitle(id: gone.id)
+        XCTAssertFalse(again.duplicates.isEmpty)
+        await again.loadTitles(force: true)
+        XCTAssertFalse(again.titles.contains { $0.id == gone.id }, "the list was not read again")
+        XCTAssertTrue(again.duplicates.isEmpty, "the set of the list before is still shown")
     }
 
     /// The address already in use, chosen again -- its own row in a scan's list, or typed once more -- is the
@@ -816,6 +868,180 @@ final class SessionRuleTests: XCTestCase {
         }
     }
 
+    /// A recorder busy with somebody else when the first connect asked who it is is there, and what is read of it
+    /// is read. Silence on it is silence like any other: on a read of the recordings or of the conditions the app
+    /// gives up on it and says the recorder did not answer. Not connected to is not known to be away.
+    ///
+    /// A protect is not sent to it at all: nothing is written to a recorder that has not said which it is. The
+    /// protect says in what it hands back that the app is not connected, and nothing is given up on.
+    func testSilenceFromARecorderThatAnsweredTheFirstConnectBusyIsSilence() async throws {
+        for what in ["the recordings", "the conditions", "the protect"] {
+            let bench = try aBench()
+            let (model, recorder, _, _) = try await leftAtTheDoor(bench)
+            let before = await recorder.asked
+            switch what {
+            case "the recordings":
+                await recorder.goQuiet(on: "X_GetTitleList")
+                await model.loadTitles()
+                expectEqual(await recorder.asked("X_GetTitleList", since: before), 1, what)
+                XCTAssertEqual(model.problem, Said.noAnswer, what)
+            case "the conditions":
+                await recorder.goQuiet(on: "X_GetPrefRecSettingList")
+                await model.loadRecorderRules()
+                expectEqual(await recorder.asked("X_GetPrefRecSettingList", since: before), 1, what)
+                XCTAssertEqual(model.problem, Said.noAnswer, what)
+                XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer, what)
+            default:
+                await model.loadTitles()
+                let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+                await recorder.goQuiet(on: "X_UpdateTitle")
+                expectFalse(await protectARecording(model, title, true), what)
+                expectEqual(await recorder.asked("X_UpdateTitle", since: before), 0, what)
+                XCTAssertEqual(whyNotJustNow(model), Said.notConnected, what)
+                XCTAssertFalse(model.gaveUp, "\(what) was sent")
+                continue
+            }
+            XCTAssertTrue(model.gaveUp, "silence on \(what) did not lose the recorder")
+            XCTAssertFalse(model.connected, what)
+        }
+    }
+
+    /// Pulling the recordings or the keyword conditions down, after a reconnect the recorder answered busy with
+    /// somebody else, connects, as pulling the reservations down does: nothing can be written on the client that
+    /// never heard which recorder answers it, and the reader has asked for another go. So does pulling the
+    /// conditions down with the recorder given up on, as the recordings' pull-down always did.
+    func testPullingTheRecordingsOrTheConditionsDownConnectsWhenNothingCanBeWritten() async throws {
+        for (what, given) in [("the recordings", false), ("the conditions", false), ("the conditions", true)] {
+            let how = "\(what), \(given ? "given up" : "after a reconnect answered busy")"
+            let bench = try aBench()
+            let recorder = NamedRecorder(1)
+            let model = try await started(bench, recorder: recorder)
+            XCTAssertTrue(model.connected)
+            if given {
+                await recorder.goQuiet(for: 1)
+                expectFalse(await makeSure(model))
+                XCTAssertTrue(model.gaveUp, how)
+            } else {
+                await recorder.busyAtTheDoor()
+                await model.connect()
+                XCTAssertTrue(model.connected, "the attach before was meant to stand, \(how)")
+                XCTAssertFalse(model.offline, how)
+                await recorder.comeFree()
+            }
+            let made = bench.clientsMade
+            let before = await recorder.asked
+
+            if what == "the recordings" {
+                await model.refreshTitles()
+            } else {
+                await model.refreshRecorderRules()
+            }
+
+            XCTAssertEqual(bench.clientsMade, made + 1, "\(how): pulling down did not connect")
+            expectEqual(await recorder.asked("description.xml", since: before), 1, how)
+            XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+            XCTAssertFalse(model.gaveUp, how)
+        }
+    }
+
+    /// Pulling the recordings or the keyword conditions down while a reconnect of an app that stays connected is
+    /// under way -- as it comes back from the background, or the network changes -- brings the list, once. The
+    /// screens read their lists as the app becomes connected, and it never stopped being, so nothing else reads
+    /// it; and the connect's end reads only the reservations. And after a reconnect answered busy, the
+    /// pull-down's own connect is followed by the list, the app having stayed connected through that one too.
+    func testPullingTheRecordingsOrTheConditionsDownDuringAReconnectBringsTheListOnce() async throws {
+        for what in ["the recordings", "the conditions"] {
+            for busy in [false, true] {
+                let how = "\(what), \(busy ? "after a reconnect answered busy" : "during a reconnect")"
+                let (list, line) = what == "the recordings" ? ("X_GetTitleList", "録画一覧を取得中")
+                    : ("X_GetPrefRecSettingList", "おまかせ・まる録の設定を取得中")
+                let bench = try aBench()
+                let recorder = NamedRecorder(1)
+                let model = try await started(bench, recorder: recorder)
+                XCTAssertTrue(model.connected, how)
+                @MainActor func pullDown() async {
+                    if what == "the recordings" {
+                        await model.refreshTitles()
+                    } else {
+                        await model.refreshRecorderRules()
+                    }
+                }
+
+                if busy {
+                    await recorder.busyAtTheDoor()
+                    await model.connect()
+                    XCTAssertTrue(model.connected, "the attach before was meant to stand, \(how)")
+                    await recorder.comeFree()
+                    let before = await recorder.asked
+                    await pullDown()
+                    expectEqual(await recorder.asked("description.xml", since: before), 1, "no connect, \(how)")
+                    expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
+                } else {
+                    await recorder.hold(only: "description.xml")
+                    let before = await recorder.asked
+                    let connecting = Task { await model.connect() }
+                    try await until("the reconnect never asked who answers, \(how)") {
+                        await recorder.asked("description.xml", since: before) == 1
+                    }
+                    XCTAssertTrue(model.connected, how)
+                    let pulled = PulledDown()
+                    let pulling = Task {
+                        await pullDown()
+                        pulled.back = true
+                    }
+                    // Back at once, or its read out on the connect's client, behind the ask held there.
+                    try await until("the pull-down neither came back nor read, \(how)") {
+                        pulled.back || model.busy == line
+                    }
+                    await recorder.letGo()
+                    await connecting.value
+                    await pulling.value
+                    expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
+                }
+                XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, how)
+                XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+            }
+        }
+    }
+
+    /// Pulled down after a reconnect answered busy, with another recorder at the address by then: the
+    /// pull-down's connect hears the newcomer describe itself, and that connect reads the list from the newcomer,
+    /// whether the reader had read it or not -- the pull-down is a read of it across its connect, and a busy line
+    /// over a list never read is a reason to pull it down. The pull-down reads nothing more after it: the list is
+    /// read once.
+    func testPullingAListDownWhoseConnectFindsAnotherRecorderReadsTheListOnce() async throws {
+        for (what, readBefore) in [("the recordings", true), ("the conditions", true), ("the recordings", false),
+                                   ("the conditions", false)] {
+            let how = "\(what), \(readBefore ? "read before" : "never read")"
+            let list = what == "the recordings" ? "X_GetTitleList" : "X_GetPrefRecSettingList"
+            let bench = try aBench()
+            let recorder = NamedRecorder(1)
+            let model = try await started(bench, recorder: recorder)
+            if readBefore, what == "the recordings" {
+                await model.loadTitles()
+            } else if readBefore {
+                await model.loadRecorderRules()
+            }
+            XCTAssertEqual(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, readBefore, how)
+            await recorder.busyAtTheDoor()
+            await model.connect()
+            XCTAssertTrue(model.connected, "the attach before was meant to stand, \(how)")
+            await recorder.comeFree()
+            await recorder.become(2)
+
+            let before = await recorder.asked
+            if what == "the recordings" {
+                await model.refreshTitles()
+            } else {
+                await model.refreshRecorderRules()
+            }
+
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+            expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
+            XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, how)
+        }
+    }
+
     // MARK: - when it asks again
 
     /// Given up stays given up until the network changes or the reader asks. 再接続 and pulling down are the
@@ -892,4 +1118,10 @@ final class SessionRuleTests: XCTestCase {
         expectEqual(await recorder.asked, asked, "the recorder was asked again a moment after it had answered")
         XCTAssertTrue(model.connected)
     }
+}
+
+/// Whether a pull-down a test set going has come back, for a test that does not wait for it to.
+@MainActor
+private final class PulledDown {
+    var back = false
 }
