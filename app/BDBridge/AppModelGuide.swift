@@ -64,38 +64,21 @@ extension AppModel {
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
         let stale = staleBroadcastingTypes
         guard !stale.isEmpty else { return }
-        await refreshGuide(only: stale)
+        await refreshGuide(.only(stale))
     }
 
     /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
-    /// the cache holds for each.
+    /// the cache holds for each: the driver's step (`RecorderDriver.refreshGuide`), counted while it is out
+    /// (`guideDownloads`).
     ///
     /// Each type goes on screen as soon as it is stored, so that the first run does not wait for BS, CS and
     /// BS4K behind the terrestrial programmes it opens on. A type that fails is passed over (see
     /// `GuideRefresh.run`), said on screen a line per type, and fetched again at the next connect.
-    func refreshGuide(only types: [String] = GuideRefresh.broadcastingTypes) async {
-        guard let client, let store, !unreachable else { return }
+    func refreshGuide(_ which: GuideAsked = .all) async {
+        guard let recorderDriver, client != nil, store != nil, !unreachable else { return }
         guideDownloads += 1
         defer { guideDownloads -= 1 }
-        var failed: [GuideRefresh.Failure] = []
-        await run("番組表を取得中") { activity in
-            // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
-            // connected is cancelled when its screen goes away, and the refresh stops between types when it
-            // is cancelled -- which is for the overnight run, whose time runs out.
-            let refresh = Task {
-                try await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
-                    let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
-                    self.activities.update(activity, to: "番組表を取得中 (\(label))")
-                }, onStored: { _ in
-                    await self.reloadFromCache()
-                })
-            }
-            failed = try await refresh.value.failed
-        }
-        if !failed.isEmpty {
-            problem = failed.map { "\(GuideEmptyView.inSentence($0.broadcasting))の番組表：\($0.reason)" }
-                .joined(separator: "\n")
-        }
+        _ = await recorderDriver.refreshGuide(which) { _ in await self.reloadFromCache() }
         // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
         // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
         // not be asked for again, and which the model goes by.

@@ -12,7 +12,8 @@ import Foundation
 /// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
 /// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
 /// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, its own keyword conditions in
-/// `RecorderConditions.swift`, and its side of a run over many recordings in `RecorderRuns.swift`, beside this.
+/// `RecorderConditions.swift`, its side of a run over many recordings in `RecorderRuns.swift`, and the guide
+/// fetched by hand and at a connect in `RecorderGuide.swift`, beside this.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
@@ -22,7 +23,7 @@ public final class RecorderDriver: LinkDriver {
     /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
     /// a recording's details; the check before a reservation is read for its reason (`check`). The recordings',
     /// playback's, the power's and the keyword conditions' operations go through on the same parts, each as
-    /// `DeviceLink.run` makes one (`asked`). The guide fetched by hand is still the app's.
+    /// `DeviceLink.run` makes one (`asked`), and the guide's refresh on `DeviceLink.run` itself (`refreshGuide`).
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.

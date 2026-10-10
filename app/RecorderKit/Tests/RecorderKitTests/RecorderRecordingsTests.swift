@@ -423,6 +423,70 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await recorder.actions.count, 1)
     }
 
+    // MARK: - the guide's refresh
+
+    /// What a refresh of the guide hands back, which no screen reads yet. Turned away at its door -- with no
+    /// cache in hand; with a cache and no recorder's client, the link not having connected; with both and the
+    /// recorder known to be away, each of the three lacking that alone -- it asks nothing, puts up no line,
+    /// leaves the line an earlier failure left, and says in what it hands back that the app is not connected.
+    /// Asked for two types of a recorder that has built neither file, it goes through: its line goes up and
+    /// says each type in turn, nothing is reported stored, both types are handed back as failed with why, and
+    /// what it says is what it wrote on the line of what went wrong, a line to a type.
+    func testAGuideRefreshHandsBackWhatItCameToAndSaysWhatItWroteOnTheLine() async throws {
+        let (world, driver, recorder) = try await Self.playing([:])
+        let begun = world.begun.count
+
+        let turnedAway = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+        XCTAssertFalse(turnedAway.wentThrough)
+        XCTAssertEqual(turnedAway.said, RecorderDriver.notConnected)
+        XCTAssertEqual(turnedAway.failed, [])
+        expectEqual(await recorder.actions, [], "something was asked with no cache in hand")
+        XCTAssertEqual(world.begun.count, begun, "a line went up with no cache in hand")
+        XCTAssertEqual(world.problem, Self.left, "something was said on the line with no cache in hand")
+
+        // A cache in hand and the recorder not known to be away, on a link that has not connected: no client.
+        let (unconnected, withNoClient, link) = try Self.linked()
+        unconnected.cache = try temporaryStore()
+        let unasked = await withNoClient.refreshGuide(.all) { unconnected.put("stored \($0)") }
+        XCTAssertFalse(unasked.wentThrough, "with no client")
+        XCTAssertEqual(unasked.said, RecorderDriver.notConnected, "with no client")
+        XCTAssertEqual(unconnected.events, [], "something was asked, sent or told with no client")
+        XCTAssertEqual(unconnected.begun, [], "a line went up with no client")
+        XCTAssertEqual(unconnected.problem, Self.left, "something was said on the line with no client")
+        XCTAssertFalse(link.session.unreachable, "the recorder was known to be away too: not that door alone")
+
+        // A cache and a client in hand, the recorder lost since: known to be away.
+        let (dark, ofTheLost, lost) = try await Self.playing([:])
+        dark.cache = try temporaryStore()
+        ofTheLost.link?.lost()
+        dark.events = []
+        let putUp = dark.begun.count
+        let away = await ofTheLost.refreshGuide(.all) { dark.put("stored \($0)") }
+        XCTAssertFalse(away.wentThrough, "known to be away")
+        XCTAssertEqual(away.said, RecorderDriver.notConnected, "known to be away")
+        expectEqual(await lost.actions, [], "something was asked of a recorder known to be away")
+        XCTAssertEqual(dark.events, [], "something was sent or told for a recorder known to be away")
+        XCTAssertEqual(dark.begun.count, putUp, "a line went up for a recorder known to be away")
+        XCTAssertEqual(dark.problem, Self.left, "something was said on the line for a recorder known to be away")
+        XCTAssertTrue(ofTheLost.link?.client != nil, "the client went with the recorder: not that door alone")
+
+        world.cache = try temporaryStore()
+        let refreshed = await driver.refreshGuide(.only(["td", "bs"])) { world.put("stored \($0)") }
+        func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
+        let lines = "地上デジタルの番組表：\(missing("EPG_TRDEPG_FILE.dat"))\nBS の番組表：\(missing("EPG_BSEPG_FILE.dat"))"
+        XCTAssertTrue(refreshed.wentThrough, "a file the recorder has not built was taken for the refresh failing")
+        XCTAssertEqual(refreshed.stored, 0)
+        XCTAssertEqual(refreshed.answered, [])
+        XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["td", "bs"])
+        XCTAssertEqual(refreshed.said, lines)
+        XCTAssertEqual(world.problem, lines)
+        XCTAssertEqual(Array(world.begun.dropFirst(begun)), ["番組表を取得中"])
+        XCTAssertEqual(world.updated.suffix(2), ["番組表を取得中 (地上デジタル)", "番組表を取得中 (BS)"])
+        XCTAssertNil(world.line, "the line was left up")
+        XCTAssertFalse(world.events.contains { $0.hasPrefix("stored") }, "a type that failed was reported stored")
+        XCTAssertTrue(driver.link?.session.connected == true, "a file not built was taken for the recorder going")
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as

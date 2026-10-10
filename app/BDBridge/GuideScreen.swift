@@ -346,12 +346,8 @@ struct GuideEmptyView: View {
         }
     }
 
-    /// A broadcasting type's name at the start of a sentence: 地上デジタル as it is, a Latin one set off from the
-    /// Japanese after it by a space, as the app writes GB and Wi-Fi.
-    static func inSentence(_ broadcasting: String) -> String {
-        let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
-        return label.last?.isASCII == true ? label + " " : label
-    }
+    /// A broadcasting type's name at the start of a sentence (`Codes.broadcastingInSentence`).
+    static func inSentence(_ broadcasting: String) -> String { Codes.broadcastingInSentence(broadcasting) }
 }
 
 struct ProgramRowView: View {
