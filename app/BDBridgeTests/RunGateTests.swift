@@ -53,6 +53,17 @@ final class RunGateTests: XCTestCase {
         try await untilTheRunEnds(model, "the scan never ended")
     }
 
+    /// The two recordings a scan of the recorder with a copy asks about, in the order it asks: one a run can
+    /// delete, and the demo's protected one.
+    private func copies(_ model: AppModel) throws -> (first: String, second: String) {
+        let found = Duplicates.candidates(model.titles).flatMap { $0 }
+        guard found.count == 2, !found[0].protected, found[1].protected else {
+            XCTFail("the recorder was meant to hold one broadcast twice, the second copy protected")
+            throw StillWaiting()
+        }
+        return (found[0].id, found[1].id)
+    }
+
     /// A recording a run passed over, and why, as its job lists it.
     private func skip(_ title: RecordedTitle, _ reason: String) -> AppModel.BulkJob.Skip {
         AppModel.BulkJob.Skip(id: title.id, reason: reason)
@@ -759,6 +770,97 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.changed, [ticked])
         XCTAssertTrue(model.duplicates.isEmpty, "a set of one copy is still shown")
         XCTAssertTrue(model.duplicatePicks.isEmpty)
+    }
+
+    // MARK: - the scan for duplicates
+
+    /// A scan asks the recorder what each candidate is about, once, with nothing on the strip, and keeps what
+    /// it said in memory and in the cache, where it stays for the next scan; the job says how many it looked at.
+    /// A candidate the recorder says it no longer holds (820) leaves the list. One whose text the recorder would
+    /// not give is listed as passed over in the recorder's words and nothing is kept of it, in memory or in the
+    /// cache -- two failures kept as empty texts would agree with each other and come up as copies -- and the job
+    /// says that it was not compared.
+    func testAScanReadsEachCandidatesTextOnceAndKeepsOnlyWhatTheRecorderSaid() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        await recorder.holdTheNext(Ask.details)
+        var before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        XCTAssertNil(model.busy, "a scan put a line on the strip")
+        XCTAssertEqual(model.job?.total, 2)
+        await recorder.letGo()
+        try await untilTheRunEnds(model, "the scan never ended")
+
+        expectEqual(await recorder.asked(Ask.details, since: before), 2, "each candidate is asked about once")
+        XCTAssertEqual(Set(model.summaries.keys), [first, second])
+        XCTAssertFalse(model.summaries.values.contains(""), "the demo was meant to say what each is about")
+        expectEqual(try await GuideStore(path: bench.guidePath).titleSummaries([first, second]), model.summaries,
+                    "what the recorder said is not in the cache as it is in memory")
+        XCTAssertEqual(model.job?.done, 2)
+        XCTAssertEqual(model.job?.skipped, [])
+        XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
+        XCTAssertEqual(model.duplicates.count, 1, "the two copies were not found as one set")
+        XCTAssertNil(model.busy)
+
+        // On another phone: the second candidate's text refused, and then that candidate gone.
+        let (other, refusing, another, _) = try await settled(withACopy: true)
+        let cache = try GuideStore(path: other.guidePath)
+        await refusing.answer(Ask.details, with: .fault(402), after: 1)
+        before = await refusing.asked
+        try await scan(another)
+        expectEqual(await refusing.asked(Ask.details, since: before), 2)
+        XCTAssertEqual(Array(another.summaries.keys), [first])
+        expectEqual(try await cache.titleSummaries([first, second]), another.summaries,
+                    "something is kept in the cache of a text the recorder would not give")
+        XCTAssertEqual(another.job?.skipped, [.init(id: second, reason: Said.fault(402, Ask.details))])
+        XCTAssertEqual(another.job?.outcome, "2 件の確認が完了しました（1 件は番組内容を取得できず、比べていません）")
+
+        await refusing.answer(Ask.details, with: .fault(820))
+        before = await refusing.asked
+        try await scan(another)
+        expectEqual(await refusing.asked(Ask.details, since: before), 1, "a text already read was asked for again")
+        XCTAssertFalse(another.titles.contains { $0.id == second },
+                       "a recording the recorder no longer holds is listed")
+        XCTAssertTrue(another.titles.contains { $0.id == first })
+        XCTAssertEqual(Array(another.summaries.keys), [first])
+        expectEqual(try await cache.titleSummaries([first, second]), another.summaries)
+        XCTAssertEqual(another.job?.skipped, [])
+        XCTAssertEqual(another.job?.outcome, "2 件の確認が完了しました")
+    }
+
+    /// What the cache holds of a recording is not asked for: a scan asks the recorder only about the candidates
+    /// whose text was never read, and one that has every text asks nothing. Such a scan needs no recorder: with
+    /// the recorder known to be away it still comes to its end, says so, and leaves the line of what went wrong
+    /// as it was -- it is made sure of only for what the cache does not hold.
+    func testAScanAsksTheRecorderForNoTextTheCacheHolds() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        try await GuideStore(path: bench.guidePath).setTitleSummary(second, "前に読んだ番組内容")
+        var count = await recorder.heard.count
+        try await scan(model)
+        expectEqual(await recorder.heard(since: count), [Ask.details], "a text the cache holds was asked for")
+        XCTAssertEqual(model.summaries[second], "前に読んだ番組内容")
+        XCTAssertNotNil(model.summaries[first])
+
+        count = await recorder.heard.count
+        try await scan(model)
+        expectEqual(await recorder.heard(since: count), [], "a scan with every text read asked the recorder")
+        XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
+
+        // The recorder known to be away.
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to be known to be away")
+        leaveALine(on: model)
+        count = await recorder.heard.count
+        try await scan(model)
+        expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked")
+        XCTAssertEqual(model.job?.done, 2)
+        XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a scan that needed no recorder wrote on the line")
     }
 }
 
