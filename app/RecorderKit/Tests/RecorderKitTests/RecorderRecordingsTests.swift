@@ -171,6 +171,43 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(actions.contains("X_GetPlayStatus"))
     }
 
+    // MARK: - the free space as the screens show it
+
+    /// The free space as the screens show it (`RecorderDriver.storage`): what the recorder said is free and what
+    /// its disk holds, in bytes. A disk of no size counts as a recorder that has not said, since the screens would
+    /// show it as a full disk, and so does a recorder that refuses. Silence alone gets out, for whoever asked to
+    /// lose the recorder by.
+    func testTheFreeSpaceOfADiskOfNoSizeOrARecorderThatWillNotSayIsNoneAndOnlySilenceGetsOut() async throws {
+        func space(total: Int, free: Int) -> HTTPResponse {
+            let info = "<RecordDestinationInfo totalCapacity=\"\(total)\" availableCapacity=\"\(free)\"/>"
+            return Stub.soap("X_HDLnkGetRecordDestinationInfo",
+                             extra: "<RecordDestinationInfo>\(Soap.escape(info))</RecordDestinationInfo>")
+        }
+        func client(answering response: HTTPResponse) -> RecorderClient {
+            RecorderClient(host: Stub.host, transport: StubTransport(always: response))
+        }
+
+        let said = try await RecorderDriver.storage(
+            of: client(answering: space(total: 4_294_967_296_000, free: 790_273_982_464)))
+        XCTAssertEqual(said?.free, 790_273_982_464)
+        XCTAssertEqual(said?.total, 4_294_967_296_000)
+
+        let ofNoSize = try await RecorderDriver.storage(of: client(answering: space(total: 0, free: 0)))
+        XCTAssertNil(ofNoSize, "a disk of no size was taken for one that has said how full it is")
+        let refused = try await RecorderDriver.storage(of: client(answering: Stub.fault("402")))
+        XCTAssertNil(refused, "a refusal was read as a size")
+
+        let silent = RecorderClient(host: Stub.host, transport: StubTransport(handler: { _, _ in
+            throw RecorderError.transport("The request timed out.")
+        }))
+        do {
+            let space = try await RecorderDriver.storage(of: silent)
+            XCTFail("silence was read as an answer: \(String(describing: space))")
+        } catch {
+            XCTAssertEqual((error as? any DeviceError)?.failure, .silent, "\(error)")
+        }
+    }
+
     // MARK: - what the tests start from
 
     /// A link of the test's own to a recorder at the bench's address that says who it is and answers each
