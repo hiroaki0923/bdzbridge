@@ -1,8 +1,8 @@
 import Foundation
 
-/// What is asked of the recorder's recordings, beside its reservations: reading them, with the free space. The
-/// step, and what it says on the host's screen; the list is handed to the app as it is read (`keep`), and the
-/// screens are the app's.
+/// What is asked of the recorder's recordings, beside its reservations: reading them with the free space, and one
+/// recording's details. The steps, and what each says on the host's screen; the list is handed to the app as it
+/// is read (`keep`), and the screens are the app's.
 extension RecorderDriver {
     // MARK: - the list and the free space
 
@@ -37,6 +37,33 @@ extension RecorderDriver {
             link.session.learned(storage: try await Self.storage(of: client))
         } catch {
             link.lost()
+        }
+    }
+
+    // MARK: - one recording
+
+    /// What the recorder says a recording is about, or nil when it was not asked or could not say. Asked as a
+    /// recording's sheet opens, which is also the moment to wake a recorder that has gone to sleep: what the
+    /// reader opened it for -- playing, protecting, deleting -- then goes straight through.
+    ///
+    /// No line of its own, as the question of what a reservation would clash with (`conflicts`): it is asked
+    /// before anybody has asked for anything, and the line of what went wrong is left as it is, whatever the
+    /// answer. With no recorder's client, or the recorder silent at the last ask, nothing is asked. The recorder
+    /// is made sure of first (`DeviceLink.ensureUp`), on the client in hand at the door. Silence loses the
+    /// recorder and says nothing, unless the link asks through another client by then: nothing on the strip
+    /// says this is out, so another recorder can be chosen meanwhile, and a connect can make a new client, and
+    /// silence met by a client the link no longer holds says nothing of the recorder in play. Anything else is
+    /// no details, said nowhere.
+    public func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
+        guard let link, let client = link.client as? RecorderClient, !link.session.unreachable,
+              await link.ensureUp() else { return nil }
+        do {
+            return try await client.titleDetail(id: title.id)
+        } catch let error as any DeviceError where error.failure == .silent {
+            if client === link.client { link.lost() }
+            return nil
+        } catch {
+            return nil
         }
     }
 

@@ -67,22 +67,11 @@ extension AppModel {
             ?? ""
     }
 
-    /// Asked as a recording's sheet opens, which is also the moment to wake a recorder that has gone to
-    /// sleep: what the reader opened it for -- playing, protecting, deleting -- then goes straight through.
+    /// Asked as a recording's sheet opens (`RecorderDriver.detail`), which is also the moment to wake a recorder
+    /// that has gone to sleep.
     func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
         await start()
-        guard let client, !unreachable, await wakeIfDozing() else { return nil }
-        do {
-            return try await client.titleDetail(id: title.id)
-        } catch let error as any DeviceError where error.failure == .silent {
-            // Nothing on the strip says this is out, so another recorder can be chosen meanwhile, and a connect
-            // can make a new client. Silence met by a client the model no longer holds says nothing of the
-            // recorder in play, and is not taken for its own.
-            if client === self.client { lostTheRecorder() }
-            return nil
-        } catch {
-            return nil
-        }
+        return await recorderDriver?.detail(of: title)
     }
 
     /// A write: the recorder stops deleting this one to make room.
