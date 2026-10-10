@@ -1012,6 +1012,100 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertNil(model.busy, row.name)
         }
     }
+
+    // MARK: - a recording the recorder does not hold, and playback
+
+    /// A recording's delete or protect that the recorder answers it holds no such recording (820) is said in the
+    /// recorder's words, as any refusal is: the recorder is kept, the list is left as it was, and nothing is read
+    /// after it -- neither the list nor, after a delete, the free space.
+    ///
+    /// This pins the code, not the recorder: a BDZ is documented to answer a delete of a number it does not know
+    /// with success, and what it answers a change of one has not been seen. The reservations' delete and change
+    /// read their list again after such an answer; this is written down as a difference, not aligned.
+    func testARecordingTheRecorderSaysItDoesNotHoldIsSaidAndNothingIsReadAfter() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        for row in [Funnelled.delete, .protect] {
+            let titles = model.titles
+            leaveALine(on: model)
+            let before = await recorder.asked
+            await recorder.answer(row.kind, with: .fault(820))
+            let answer = await row.ask(model, subjects)
+
+            XCTAssertEqual(answer, false, row.name)
+            XCTAssertEqual(model.problem(for: .recorder), Said.fault(820, row.kind), row.name)
+            XCTAssertTrue(model.connected, row.name)
+            XCTAssertFalse(model.gaveUp, row.name)
+            XCTAssertEqual(model.titles, titles, "\(row.name) changed the list")
+            XCTAssertTrue(model.titlesLoaded, row.name)
+            expectEqual(await recorder.asked(row.kind, since: before), 1, row.name)
+            expectEqual(await recorder.asked(Kind.recordings, since: before), 0, "the list was read after \(row.name)")
+            expectEqual(await recorder.asked(Kind.freeSpace, since: before), 0, "the room was read after \(row.name)")
+        }
+    }
+
+    /// Playing a recording on a recorder in network standby: it answers 880, is turned on, and is asked every
+    /// second whether it is on yet, under a line that counts the seconds, before the play is sent again. The
+    /// offer to turn it on, left up by a pause it turned down before, goes at the door, before anything is
+    /// answered. This costs one real second: the model hands the client no interval.
+    func testPlayingTurnsARecorderInStandbyOnAndCountsTheSecondsOnItsLine() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await playARecording(model, subjects.title, "pause")
+        XCTAssertTrue(model.needsPower, "the pause was meant to leave the offer up")
+        let before = await recorder.asked
+
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await recorder.answer(Kind.playStatus, with: .result("<status><powerstatus>PowerOn</powerstatus></status>"))
+        await recorder.hold(only: Kind.playStatus)
+        let playing = Task { await playARecording(model, subjects.title, "play") }
+        try await until("the recorder was never asked whether it is on") {
+            await recorder.asked(Kind.playStatus, since: before) == 1
+        }
+        XCTAssertEqual(model.busy, "レコーダーの電源を入れています（0 秒）")
+        XCTAssertFalse(model.needsPower, "the offer stayed up while the recorder was being turned on")
+        await recorder.letGo()
+        await playing.value
+
+        expectEqual(await recorder.asked(Kind.playback, since: before), 2)
+        expectEqual(await recorder.asked(Kind.power, since: before), 1)
+        expectEqual(await recorder.asked(Kind.playStatus, since: before), 1)
+        XCTAssertFalse(model.needsPower)
+        XCTAssertNil(model.problem(for: .recorder), "the play that went through left an earlier failure up")
+        XCTAssertNil(model.busy)
+    }
+
+    /// Playing and turning the recorder on, asked while the recorder is being made sure of, wait for that answer:
+    /// when the check meets silence nothing is sent, and what is said is the check's. A power request the
+    /// recorder turns down leaves the offer to turn it on where it was, and says why.
+    func testPlaybackAndPowerWaitForTheCheckAndAPowerRequestTurnedDownKeepsTheOffer() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        for row in [Funnelled.play, .power] {
+            leaveALine(on: model)
+            let count = await recorder.heard.count
+            let (there, _) = try await duringACheck(by: model, of: recorder, endingIn: .silence, row.name,
+                                                    waitingFor: { model.busy == row.line }) {
+                await row.ask(model, subjects)
+            }
+            XCTAssertFalse(there, row.name)
+            expectEqual(await recorder.heard(since: count), [Kind.description],
+                        "\(row.name) was sent, or sent a probe of its own, beside a check that met silence")
+            XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, row.name)
+            XCTAssertTrue(model.gaveUp, row.name)
+            XCTAssertNil(model.busy, row.name)
+            await reconnect(model)
+        }
+
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await playARecording(model, subjects.title, "stop")
+        XCTAssertTrue(model.needsPower, "the stop was meant to leave the offer up")
+        let before = await recorder.asked
+        await recorder.answer(Kind.power, with: .fault(402))
+        await turnTheRecorderOn(model)
+        expectEqual(await recorder.asked(Kind.power, since: before), 1)
+        XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.power))
+        XCTAssertTrue(model.needsPower, "the offer went with a power request the recorder turned down")
+        XCTAssertTrue(model.connected)
+    }
 }
 
 // MARK: - what the tests ask for
@@ -1025,6 +1119,8 @@ private enum Kind {
     static let changeRecording = "X_UpdateTitle"
     static let deleteRecording = "X_DeleteTitle"
     static let playback = "X_PlayControlTitle"
+    /// What playing asks while it waits for a recorder it has turned on.
+    static let playStatus = "X_GetPlayStatus"
     static let power = "X_PowerControl"
     static let addCondition = "X_CreatePrefRecSetting"
     static let removeCondition = "X_DeletePrefRecSetting"

@@ -503,6 +503,51 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertTrue(model.duplicatePicks.isEmpty)
     }
 
+    /// The sets of copies on screen are worked out again whenever the recordings they were found among change
+    /// under them: the copy ticked, protected, is said to be protected and is no longer ticked, the recorder
+    /// refusing to delete it; deleted, it leaves its set with one, which is no set; and the list read again,
+    /// which a copy deleted on the recorder's own screen has left, has no set either.
+    func testTheSetsOfCopiesFollowAProtectADeleteAndTheListReadAgain() async throws {
+        // A model whose recorder has one broadcast twice, its recordings read and scanned for copies.
+        @MainActor func scanned() async throws -> (model: AppModel, recorder: RecorderWithACopy) {
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            let recorder = RecorderWithACopy()
+            let model = bench.model(recorder: recorder)
+            await model.start()
+            try await until("the first connect never finished", within: 20) {
+                model.connected && !isConnecting(model)
+            }
+            await model.loadTitles()
+            model.startDuplicateScan()
+            try await until("the scan never finished", within: 20) { model.job?.finished == true }
+            XCTAssertEqual(model.duplicates.count, 1, "the two copies were not found as one set")
+            return (model, recorder)
+        }
+
+        // The copy ticked, protected, its protection taken off again, and deleted.
+        let (model, _) = try await scanned()
+        let ticked = try XCTUnwrap(model.duplicatePicks.first, "neither copy came up ticked")
+        let copy = try XCTUnwrap(model.titles.first { $0.id == ticked })
+        XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中")
+        expectTrue(await protectARecording(model, copy, true), model.problem ?? "no reason given")
+        XCTAssertEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set does not say the copy is protected")
+        XCTAssertTrue(model.duplicatePicks.isEmpty, "a copy the recorder will not delete is still ticked")
+        expectTrue(await protectARecording(model, copy, false), model.problem ?? "no reason given")
+        XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set says the copy is still protected")
+        expectTrue(await deleteARecording(model, copy), model.problem ?? "no reason given")
+        XCTAssertTrue(model.duplicates.isEmpty, "a set of one copy is still shown")
+
+        // A copy deleted on the recorder's own screen, and the list read again.
+        let (again, recorder) = try await scanned()
+        let gone = try XCTUnwrap(again.duplicates.first?.items.first)
+        try await aClient(of: recorder).deleteTitle(id: gone.id)
+        XCTAssertFalse(again.duplicates.isEmpty)
+        await again.loadTitles(force: true)
+        XCTAssertFalse(again.titles.contains { $0.id == gone.id }, "the list was not read again")
+        XCTAssertTrue(again.duplicates.isEmpty, "the set of the list before is still shown")
+    }
+
     /// The address already in use, chosen again -- its own row in a scan's list, or typed once more -- is the
     /// recorder the app has, and connects again as 再接続 does. Nothing it said is thrown away: well over a
     /// thousand recordings would be read a second time, and the reader's ticks would go.
