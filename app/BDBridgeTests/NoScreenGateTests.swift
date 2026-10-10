@@ -250,4 +250,63 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(ran.told.said.dropFirst().first, .freeSpace(free: 0, total: 0, naming: nil),
                        "a disk of no size was not told as the recorder answered it")
     }
+
+    /// A night that finds nobody at the address, and one answered by a recorder it cannot take for the cache's
+    /// own, send nothing and fetch nothing, and say so only where the reader would otherwise miss something.
+    ///
+    /// Nobody there, with a reservation waiting that could be sent: nothing is told, and the queue is as it was.
+    /// Another recorder than the cache's, with only a reservation held for the reader and one whose programme
+    /// is over waiting: nothing is told either, there being nothing that would have gone, and neither row is
+    /// touched. A recorder whose cache does not say whose it is -- the owner cannot be read -- with a
+    /// reservation waiting that could be sent: it is told as a recorder the cache is not of is, that the queue
+    /// was held back, as it is today. A later change tells nothing of a recorder that merely could not be told
+    /// apart, and rewrites that row.
+    func testANightWithNobodyThereOrARecorderItCannotTakeForItsOwnSendsNothing() async throws {
+        let (recorder, store, path) = try await home()
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+        await recorder.goQuiet(for: 1000)
+        var ran = await night(of: recorder, store)
+        XCTAssertFalse(ran.stored)
+        XCTAssertEqual(ran.told.names, [], "a night that reached nobody told something")
+        XCTAssertEqual(ran.heard, [Ask.description])
+        expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
+        await recorder.goQuiet(for: 0)
+
+        // The cache's own recorder still, its owner out of reach.
+        let meta = MetaOutOfReach(in: path)
+        ran = await night(of: recorder, store)
+        meta.putBack()
+        XCTAssertFalse(ran.stored)
+        XCTAssertEqual(ran.told.names, ["heldBack"], "with the cache's owner out of reach")
+        XCTAssertEqual(ran.heard, [Ask.description], "with the cache's owner out of reach")
+        expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
+
+        // Another recorder, and nothing waiting that would go: one row held, one over an hour and a half ago.
+        try await store.removePending(morning.id)
+        let held = waiting("昼の番組", startingIn: 150, programme: 4322, problem: "前に断られた理由")
+        let over = waiting("終わった番組", startingIn: -120, programme: 4323)
+        try await store.queue(held)
+        try await store.queue(over)
+        await recorder.become(2)
+        ran = await night(of: recorder, store)
+        XCTAssertFalse(ran.stored)
+        XCTAssertEqual(ran.told.names, [], "a stranger was told of with nothing waiting that would have gone")
+        XCTAssertEqual(ran.heard, [Ask.description])
+        expectEqual(try await rows(in: store), ["終わった番組", "昼の番組: 前に断られた理由"],
+                    "a row was dropped or sent with a stranger answering")
+    }
+
+    /// The hour of the night: the next two o'clock in the morning in the recorder's own time, which is Japan's.
+    /// From a second before it, that same morning's; at it and after it, the next morning's.
+    ///
+    /// Asked from fixed instants, so what is held is the hour, in Japan's time. That the time is Japan's whatever
+    /// zone the phone is in is not held: on a machine in Japan the phone's own would give the same.
+    func testTheNextNightIsAtTwoInTheMorningJapanTime() throws {
+        func at(_ time: String) throws -> Date { try XCTUnwrap(ISO8601DateFormatter().date(from: time)) }
+        let two = try at("2026-10-10T02:00:00+09:00"), nextTwo = try at("2026-10-11T02:00:00+09:00")
+        XCTAssertEqual(BackgroundWork.nextNightlyRun(after: try at("2026-10-10T01:59:59+09:00")), two)
+        XCTAssertEqual(BackgroundWork.nextNightlyRun(after: two), nextTwo)
+        XCTAssertEqual(BackgroundWork.nextNightlyRun(after: try at("2026-10-10T02:00:01+09:00")), nextTwo)
+    }
 }
