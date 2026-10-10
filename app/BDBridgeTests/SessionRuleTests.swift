@@ -254,9 +254,11 @@ final class SessionRuleTests: XCTestCase {
 
     // MARK: - the check before an operation
 
-    /// A recorder that answers the check -- if only to say it is busy with somebody else -- is there: what the
-    /// reader asked for goes ahead, and says for itself what is wrong, if anything is.
-    func testARecorderThatAnswersTheCheckBusyLetsTheOperationGoAhead() async throws {
+    /// A recorder that answers the check -- if only to say it is busy with somebody else -- is there: the app is
+    /// not given up on. But busy says nothing of which recorder answered, so what the reader asks next to be
+    /// written to it is not sent: it asks again who answers, hears busy again, and says so, as the reservations'
+    /// writes do.
+    func testARecorderThatAnswersTheCheckBusyIsThereAndIsWrittenNothing() async throws {
         let bench = try aBench()
         let recorder = NamedRecorder(1)
         let model = try await started(bench, recorder: recorder)
@@ -267,7 +269,12 @@ final class SessionRuleTests: XCTestCase {
         await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered was taken for gone")
         XCTAssertFalse(model.offline)
-        expectTrue(await deleteARecording(model, title), model.problem ?? "no reason given")
+        let before = await recorder.asked
+        expectFalse(await deleteARecording(model, title), "a delete went out after a check that heard busy")
+        XCTAssertEqual(whyNotJustNow(model), Said.busy("description.xml"))
+        XCTAssertEqual(model.problem, Said.busy("description.xml"))
+        expectEqual(await recorder.asked("X_DeleteTitle", since: before), 0)
+        XCTAssertFalse(model.offline)
     }
 
     // MARK: - waking

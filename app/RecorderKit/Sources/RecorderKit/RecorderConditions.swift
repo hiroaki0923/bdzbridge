@@ -13,10 +13,14 @@ extension RecorderDriver {
     /// The conditions as the recorder lists them, read now; nil when they could not be read, and the host's line
     /// says why where there is anything to say. One operation, as `DeviceLink.run` makes one (`asked`), on the
     /// client in hand at the door. Nothing is asked when there is no recorder's client; whether to ask at all is
-    /// the app's to say.
+    /// the app's to say. After a check that heard something in place of the recorder saying which it is, nothing
+    /// is read, as for the reservations: what it heard is what the read fails as (`asked`).
     public func recorderRules() async -> [RecorderRule]? {
         guard let link, let client = link.client as? RecorderClient else { return nil }
-        return try? await asked(Self.conditionsLine, on: link) { _ in try await client.recorderRules() }.get()
+        if case .went(let list) = await asked(Self.conditionsLine, .aRead, on: link, { _ in
+            try await client.recorderRules()
+        }) { return list }
+        return nil
     }
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running. What it
@@ -39,7 +43,9 @@ extension RecorderDriver {
     /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press,
     /// which stays up until the caller's `readAfter` is over: the sheet holds its button while a line is up, so a
     /// second press cannot make a second condition meanwhile. The recorder not answering, at the check or at the
-    /// slot, ends it there with nothing sent, the result saying again what that left on the line. Then one
+    /// slot, ends it there with nothing sent, the result saying again what that left on the line; so does a check
+    /// that heard something in place of the recorder saying which it is (`DeviceLink.mayBeSent`), what it heard
+    /// said on the line, being the recorder's answer, as for a reservation to the slot (`reserve`). Then one
     /// operation, as `DeviceLink.run` makes one, on the client in hand at the door, under a line of its own:
     /// silence says that the registration may have arrived, and what the check or a failure said is in the
     /// result as well as on the line (`altered`).
@@ -55,7 +61,10 @@ extension RecorderDriver {
         let toTheSlot = request.destination == RecorderDisk.usbID
         return await link.underALine(toTheSlot ? Self.registeringLine : nil) { _ -> Altered in
             if toTheSlot {
-                guard await link.ensureUp() else { return .notDone(owner?.problem ?? self.whyNotConnected) }
+                guard case .up = await link.check(evenIfRecent: link.checksAgain) else {
+                    return .notDone(owner?.problem ?? self.whyNotConnected)
+                }
+                guard link.mayBeSent else { return .notDone(self.whyNotSent(on: link)) }
                 switch await self.withholds(request.destination) {
                 case nil:
                     break
@@ -67,7 +76,9 @@ extension RecorderDriver {
                     return .notDone(Self.slotWaitGivenUp)
                 }
             }
-            let came = await self.asked(Self.registeringLine, sending: Self.mayHaveArrived, on: link) { _ in
+            // Asked again whether it may be sent, after the slot: another operation's check may have heard
+            // something in place of the recorder meanwhile.
+            let came = await self.asked(Self.registeringLine, .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
                 _ = try await client.createRecorderRule(request)
             }
             let altered = self.altered(came, on: link)
@@ -88,7 +99,7 @@ extension RecorderDriver {
         guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
-        return altered(await asked(Self.removingConditionLine, sending: Self.mayHaveArrived, on: link) { _ in
+        return altered(await asked(Self.removingConditionLine, .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
             try await client.deleteRecorderRule(id: rule.id)
         }, on: link)
     }

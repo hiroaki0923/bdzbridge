@@ -613,6 +613,40 @@ final class USBDiskChoiceTests: XCTestCase {
         }
     }
 
+    /// A condition to the USB disk whose slot is waited for while another operation's check hears the recorder
+    /// busy with somebody else is not sent once the slot answers the disk, as a reservation and a change are not:
+    /// it is asked again after the slot whether it may be sent, and its own check, asking again who answers,
+    /// hears busy again. What was heard is said in its result and on the line.
+    func testAConditionWaitingForTheSlotWhileACheckHearsTheRecorderBusyIsNotSent() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        bench.slotSettling = SlotSettling(every: .milliseconds(500), for: .seconds(2))
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        // The demo's answer from here on, which is none; the read again is half a minute away.
+        await reconnect(model)
+        let before = await recorder.asked
+        // None to the first read of the slot, the disk to the second.
+        await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1, after: 1)
+        let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
+        try await until("the slot was not waited for") { await recorder.asked("X_GetMediaInfo", since: before) == 1 }
+
+        await recorder.busyAtTheDoor()
+        expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1,
+                    "the slot was read again before the check was over")
+        let busy = Said.busy("description.xml")
+        expectFalse(await adding.value, "a condition was made after a check that heard the recorder busy")
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 2, "the slot did not answer the disk")
+        XCTAssertEqual(whyNotJustNow(model), busy)
+        XCTAssertEqual(model.problem, busy, "the condition did not say what was heard")
+        expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
+        await recorder.comeFree()
+    }
+
     /// The slot answering the disk as not mounted while it is waited for -- registered, and taking no recordings --
     /// is no disk to send to: the reservation is refused as for a disk no longer offered, nothing sent, and the disk
     /// is taken as it answered.

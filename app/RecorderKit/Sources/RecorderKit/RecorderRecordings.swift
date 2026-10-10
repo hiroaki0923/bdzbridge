@@ -13,7 +13,9 @@ extension RecorderDriver {
     /// Reads every recording, in pages of 200, and then the free space, which is read again with the list. One
     /// operation, as `DeviceLink.run` makes one: under a line of its own, the recorder made sure of first, the
     /// list read on the client in hand at the door, which is the one the check is asked with. Whether the list
-    /// was read; when it was not, the host's line says why, as for any read.
+    /// was read; when it was not, the host's line says why, as for any read. After a check that heard something
+    /// in place of the recorder saying which it is, nothing is read, as for the reservations: what it heard is
+    /// what the read fails as, and the next check asks again (`asked`).
     ///
     /// The list is handed to `keep` as it comes back, before the free space is asked, so that what the app holds
     /// is the list from the moment it is read. The free space is only shown, and cannot fail the list: a
@@ -24,7 +26,7 @@ extension RecorderDriver {
     /// away, the list read already -- is the app's to say.
     public func titles(keep: @MainActor ([RecordedTitle]) -> Void) async -> Bool {
         guard let link, let client = link.client as? RecorderClient else { return false }
-        return await asked(Self.titlesLine, on: link) { _ in
+        return await asked(Self.titlesLine, .aRead, on: link) { _ in
             keep(try await client.allTitles())
             await self.learnTheFreeSpace(on: client, link)
         }.wentThrough
@@ -130,8 +132,10 @@ extension RecorderDriver {
     /// the recorder not having said which it is -- each that the app is not connected (`whyNotConnected`), as
     /// for a reservation's delete or change. Otherwise one operation, as
     /// `DeviceLink.run` makes one, on the client in hand at the door. A check that says no has said why on the
-    /// line, and the result says it again (`altered`); silence says that the protect may have arrived
-    /// (`mayHaveArrived`), and anything else is said in the recorder's words, on the line and in the result.
+    /// line, and the result says it again (`altered`); one that heard something in place of the recorder saying
+    /// which it is has nothing sent (`asked`), and what it heard is said on the line and in the result. Silence
+    /// says that the protect may have arrived (`mayHaveArrived`), and anything else is said in the recorder's
+    /// words, on the line and in the result.
     ///
     /// The recordings are to be read again after anything that failed with the recorder known to be away, the
     /// door that found it so among them: silence may have come after the recorder made the change, and the list
@@ -143,8 +147,8 @@ extension RecorderDriver {
         guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
-        let came = await asked(on ? Self.protectingLine : Self.unprotectingLine, sending: Self.mayHaveArrived,
-                               on: link) { _ in
+        let came = await asked(on ? Self.protectingLine : Self.unprotectingLine,
+                               .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
             try await client.updateTitle(id: title.id, protected: on)
             keep()
         }
@@ -167,7 +171,7 @@ extension RecorderDriver {
         guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
-        let came = await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in
+        let came = await asked(Self.deletingTitleLine, .aWrite(sending: Self.mayHaveArrived), on: link) { _ in
             try await client.deleteTitle(id: title.id)
             keep()
             await self.learnTheFreeSpace(on: client, link)
@@ -199,8 +203,9 @@ extension RecorderDriver {
     /// Turned away at the door as a protect is (`protect`), the result saying that the app is not connected and
     /// the line left as it was; the offer to turn the recorder on is left as it was too, since nothing was asked.
     /// Past the door the offer goes, whatever becomes of the request. Then one operation, as `DeviceLink.run`
-    /// makes one, on the client in hand at the door, whose silence is said as a read's; what the check or a
-    /// failure said is in the result as well as on the line (`altered`).
+    /// makes one, on the client in hand at the door: something that acts on the recorder, so not sent after a
+    /// check that heard something else than the recorder saying which it is (`asked`), but whose silence is said
+    /// as a read's; what the check or a failure said is in the result as well as on the line (`altered`).
     @discardableResult
     public func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
@@ -209,7 +214,8 @@ extension RecorderDriver {
         }
         let owner = link.owner
         link.session.powerNeeded(false)
-        let came = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, on: link) { line in
+        let came = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, .aWrite(sending: nil),
+                               on: link) { line in
             do {
                 if operation == "play" {
                     try await client.play(titleID: title.id) { @MainActor seconds in
@@ -234,7 +240,7 @@ extension RecorderDriver {
         guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
-        let came = await asked(Self.turningOnLine, on: link) { _ in
+        let came = await asked(Self.turningOnLine, .aWrite(sending: nil), on: link) { _ in
             _ = try await client.powerOn()
             link.session.powerNeeded(false)
         }
@@ -243,52 +249,88 @@ extension RecorderDriver {
 
     // MARK: - one request
 
+    /// What is asked through `asked`, for the check before it and for its failure: a read of a list, or
+    /// something that acts on the recorder, `sending` being the sentence for its silence -- nil where that is
+    /// said as a read's, for playback and the power.
+    enum Asking {
+        case aRead
+        case aWrite(sending: String?)
+    }
+
+    /// What an operation asked through `asked` came to.
+    enum Asked<T> {
+        /// It went through, and what it brought back.
+        case went(T)
+        /// Something that acts on the recorder, not sent after the check before it, and why, for its result
+        /// (`whyNotSent`).
+        case notSent(String)
+        /// The check said no, or what was asked failed, as the link tells it.
+        case failed(OperationFailure)
+
+        /// Whether it went through.
+        var wentThrough: Bool {
+            if case .went = self { return true }
+            return false
+        }
+    }
+
     /// One thing the reader asked of the recorder, as `DeviceLink.run` makes it, written out so that what is asked
     /// in it can be the operation's own: under `line`, the recorder made sure of first (`DeviceLink.check`),
-    /// then `work`, handed the line's token. What `work` returned, or how it failed: the check said no -- it has
-    /// said why -- or `work` failed, which is said (`DeviceLink.say`): `sending` is the sentence for silence met
-    /// by what changes the recorder, nil for a read. Going through clears the line of what went wrong, once
-    /// `work` is over.
+    /// then `work`, handed the line's token. What `work` returned, or why not: the check said no -- it has said
+    /// why -- or `work` failed, which is said (`DeviceLink.say`), silence on something sent in the sentence
+    /// `asking` gives. Going through clears the line of what went wrong, once `work` is over.
+    ///
+    /// After a check that heard something in place of the recorder saying which it is -- busy with somebody
+    /// else, a fault (`DeviceLink.heardInstead`) -- nothing goes, as for the reservations and the television: a
+    /// read fails with what it heard, which the link says; something that acts on the recorder is not sent
+    /// (`DeviceLink.mayBeSent`), and what was heard goes on the line, being the recorder's answer, outside any
+    /// clear of it, or with nothing heard -- the client not one an attach went through -- the result says that
+    /// the app is not connected (`whyNotSent`). The check after such a check asks however lately the recorder
+    /// answered (`DeviceLink.checksAgain`).
     ///
     /// `work` asks the client in hand at the operation's door, which is the one the check is asked with: nothing
     /// suspends between the door and the check.
-    func asked<T>(_ line: String, sending: String? = nil, on link: DeviceLink,
-                  _ work: @MainActor (Activities.Token?) async throws -> T) async -> Result<T, OperationFailure> {
+    func asked<T>(_ line: String, _ asking: Asking, on link: DeviceLink,
+                  _ work: @MainActor (Activities.Token?) async throws -> T) async -> Asked<T> {
         let owner = link.owner
         return await link.underALine(line) { token in
-            switch await link.check() {
+            switch await link.check(evenIfRecent: link.checksAgain) {
             case .notUp(let why):
-                return .failure(.notSent(why))
+                return .failed(.notSent(why))
             case .up:
+                var sending: String?
+                switch asking {
+                case .aRead:
+                    break
+                case .aWrite(let silence):
+                    guard link.mayBeSent else { return .notSent(self.whyNotSent(on: link)) }
+                    sending = silence
+                }
                 do {
+                    if case .aRead = asking, let heard = link.heardInstead { throw heard }
                     let value = try await work(token)
                     owner?.problem = nil
-                    return .success(value)
+                    return .went(value)
                 } catch {
-                    return .failure(link.say(OperationFailure(error, sending: sending), ofARead: sending == nil))
+                    let read: Bool
+                    if case .aRead = asking { read = true } else { read = false }
+                    return .failed(link.say(OperationFailure(error, sending: sending), ofARead: read))
                 }
             }
         }
     }
 
-    /// What a write asked through `asked` came to, for its result: done, or not, saying what the line says of it.
-    /// What was sent and failed is the link's sentence on the line; where the check before it said no, whatever
-    /// it left there, and that the app is not connected where it left nothing -- the reservations' rule
-    /// (`Reserved`).
-    func altered<T>(_ came: Result<T, OperationFailure>, on link: DeviceLink) -> Altered {
+    /// What a write asked through `asked` came to, for its result: done, or not, saying why. What was sent and
+    /// failed is the link's sentence on the line; where the check before it said no, whatever it left there, and
+    /// that the app is not connected where it left nothing -- the reservations' rule (`Reserved`).
+    func altered<T>(_ came: Asked<T>, on link: DeviceLink) -> Altered {
         switch came {
-        case .success:
+        case .went:
             .done(saying: nil)
-        case .failure(let failure):
+        case .notSent(let why):
+            .notDone(why)
+        case .failed(let failure):
             .notDone(failure.sentence ?? link.owner?.problem ?? whyNotConnected)
         }
-    }
-}
-
-extension Result {
-    /// Whether what was asked went through.
-    var wentThrough: Bool {
-        if case .success = self { return true }
-        return false
     }
 }

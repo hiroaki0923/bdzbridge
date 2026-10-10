@@ -1831,7 +1831,7 @@ public final class RecorderDriver: LinkDriver {
     /// The same for an operation whose result says it, handed back for the result. What the check heard is the
     /// recorder's own answer and goes on the line as well, as a television's check puts it there; that the app
     /// is not connected is said in the result alone.
-    private func whyNotSent(on link: DeviceLink) -> String {
+    func whyNotSent(on link: DeviceLink) -> String {
         guard let heard = link.heardInstead else { return whyNotConnected }
         link.owner?.problem = heard.explanation
         return heard.explanation

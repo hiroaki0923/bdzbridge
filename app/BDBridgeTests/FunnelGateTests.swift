@@ -379,8 +379,8 @@ final class FunnelGateTests: XCTestCase {
     /// What is asked for while the recorder is being made sure of waits for that answer, rather than send a
     /// probe or a request of its own. When the check meets silence nothing is sent, and what is said is the
     /// check's -- the recorder could not be reached -- and not that something may have arrived. When the
-    /// recorder answers the check, if only to say it is busy with somebody else, it is there, and what was asked
-    /// for goes.
+    /// recorder answers the check, if only to say it is busy with somebody else, it is there and is not given up
+    /// on; what is sent then depends on what it said (below).
     ///
     /// That is so of a write through the funnel, and of the two things that ask the check for themselves: the
     /// question of what a reservation would clash with, asked as a programme's sheet opens, and a waiting
@@ -388,7 +388,12 @@ final class FunnelGateTests: XCTestCase {
     /// asked beside each write here, whose line says that both have been asked. (After a check answered busy the
     /// order it goes in says nothing: the client sends one request at a time whoever asks.)
     ///
-    /// As it is today: a protect and a delete that were not sent mark the recordings unread all the same.
+    /// Busy says nothing of which recorder answered, though: the write asked beside such a check is not sent,
+    /// and says in its result and on the line what was heard, while the question, which has no line, is answered
+    /// as before.
+    ///
+    /// As it is today: a protect and a delete turned away by a check that met silence mark the recordings unread
+    /// all the same.
     func testWhatTheCheckFoundDecidesWhetherAWriteIsSent() async throws {
         let (bench, recorder, model, subjects) = try await settled(guide: true)
         let program = try await programmesNotReserved(model, 1)[0]
@@ -452,10 +457,12 @@ final class FunnelGateTests: XCTestCase {
                                                    waitingFor: { model.busy == Funnelled.delete.line },
                                                    asking(.delete))
         XCTAssertTrue(there, "a recorder that answered busy was taken for gone")
-        XCTAssertEqual(came.done, true, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(came.done, false, "a delete went out after a check that heard busy")
+        XCTAssertEqual(whyNotJustNow(model), Said.busy(Kind.description))
+        XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.description))
         XCTAssertEqual(came.clashes, [], "the question was not put to a recorder that had answered the check")
         expectEqual(await recorder.asked(Kind.description, since: before), 3, "a probe was sent beside the check's")
-        expectEqual(await recorder.asked(Kind.deleteRecording, since: before), 1)
+        expectEqual(await recorder.asked(Kind.deleteRecording, since: before), 0)
         expectEqual(await recorder.asked(Kind.clashes, since: before), 1)
         XCTAssertTrue(model.connected)
         await recorder.comeFree()
@@ -936,33 +943,48 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(bench.clientsMade, made + 1, "a write connected")
     }
 
-    /// After a check that heard the recorder busy with somebody else as it was asked who it is, what the reader
-    /// asks next goes and goes through: each write, the recordings and the conditions read, a recording's
-    /// details, playback and the power, with no second ask of who it is -- the recorder answered moments ago.
-    ///
-    /// As it is today, and to be rewritten: a later change sends no write and reads no list after such a check,
-    /// as the reservations' writes and read go, and has the next one ask again however lately the recorder
-    /// answered. The details are to stay as they are.
-    func testWhatIsAskedAfterACheckThatHeardTheRecorderBusyGoesWithNoSecondAsk() async throws {
-        let (_, recorder, model, subjects) = try await settled()
+    /// After a check that heard the recorder busy with somebody else as it was asked who it is, nothing the
+    /// reader asks next is written to it or read from it, as for the reservations: each write, playback and the
+    /// power are not sent, and the recordings and the conditions are not read. Each asks again who answers,
+    /// however lately the recorder answered -- busy says nothing of which recorder it is -- hears busy again, and
+    /// says so on the line, where it stays once the operation is over, and in its result. The lists are left as
+    /// they were. A recording's details and the question of what a reservation would clash with, which have no
+    /// line, go on after such a check and are answered, asking nothing again, and leave the line as it was.
+    func testNothingIsSentOrReadAfterACheckThatHeardTheRecorderBusyAndEachAsksAgain() async throws {
+        let (_, recorder, model, subjects) = try await settled(guide: true)
+        let program = try await programmesNotReserved(model, 1)[0]
         await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
-        let before = await recorder.asked
+        let busy = Said.busy(Kind.description)
+        let lists = Lists(model)
 
         for row in Funnelled.all where row.kind != Kind.reservations && row.kind != Kind.guide[0] {
             leaveALine(on: model)
             let count = await recorder.asked
             let answer = await row.ask(model, subjects)
-            XCTAssertNotEqual(answer, false, "\(row.name): \(model.problem(for: .recorder) ?? "no reason given")")
-            XCTAssertNil(model.problem(for: .recorder), "\(row.name) did not go through")
-            expectEqual(await recorder.asked(row.kind, since: count), 1, "\(row.name) was not sent once")
+            XCTAssertNotEqual(answer, true, "\(row.name) went through after a check that heard busy")
+            XCTAssertEqual(model.problem(for: .recorder), busy, "\(row.name) did not say what the check heard")
+            XCTAssertNil(model.busy, row.name)
+            if !row.reads { XCTAssertEqual(whyNotJustNow(model), busy, row.name) }
+            expectEqual(await recorder.asked(row.kind, since: count), 0, "\(row.name) was sent")
+            // Three asks each, busy through both tries after the first; a condition removed has the list read
+            // after it, as every one has, which asks again too.
+            expectEqual(await recorder.asked(Kind.description, since: count), row.kind == Kind.removeCondition ? 6 : 3,
+                        "\(row.name) did not ask again who answers")
         }
-        XCTAssertTrue(model.recorderRulesLoaded)
-        XCTAssertNil(model.recorderRulesFailure)
+        XCTAssertTrue(Lists(model) == lists, "a list changed after a check that heard busy")
+        XCTAssertEqual(model.recorderRulesFailure, busy)
+        XCTAssertTrue(model.connected)
+
+        leaveALine(on: model)
+        let count = await recorder.asked
         let details = await model.detail(of: subjects.title)
         XCTAssertNotNil(details, "a recording's details were not answered")
-        expectEqual(await recorder.asked(Kind.description, since: before), 0,
-                    "the recorder was asked again who it is, though it had answered moments ago")
+        let clashes = await model.conflicts(for: program, quality: "DR", repeating: "none")
+        XCTAssertNotNil(clashes, "the question of what a reservation would clash with was not answered")
+        expectEqual(await recorder.asked(Kind.description, since: count), 0,
+                    "the details or the question asked again who answers")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the details or the question wrote on the line")
         await recorder.comeFree()
     }
 
