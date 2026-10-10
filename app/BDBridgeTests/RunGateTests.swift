@@ -191,4 +191,58 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(said(.scanning, cancelled: true, lost: true),
                        "3 件まで調べたところで、レコーダーの応答がなくなったため中止しました")
     }
+
+    // MARK: - a job from the turn it is asked for
+
+    /// A job stands from the turn it is asked for, before its task has had a turn of its own: the screens say a
+    /// run is under way, the recorder in play cannot be changed -- for another address or for the demo -- and a
+    /// connect asked for in that very turn asks nothing, since a second client would be a second conversation
+    /// with the recorder beside the run's. Pulling the recordings down while it runs reads nothing either: the
+    /// run is walking that list. A run of no recordings is not started at all.
+    func testAJobStandsInTheTurnItIsAskedForAndKeepsTheRecorderToItself() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        model.startBulk(.delete, ids: [])
+        XCTAssertNil(model.job, "a run of no recordings was started")
+        XCTAssertFalse(model.jobRunning)
+
+        await recorder.hold(only: Ask.details)
+        let before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id])
+        XCTAssertTrue(model.jobRunning, "the job does not stand in the turn it was asked for")
+        XCTAssertEqual(model.job?.total, 1)
+        XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen in the turn a job was asked for")
+        await model.connect()
+        expectEqual(await recorder.asked(Ask.description, since: before), 0,
+                    "a connect asked for in the turn a job was started asked the recorder who it is")
+        // Only once that is so: where it is not, either of these would go through and take the recorder away
+        // from under everything below.
+        if !model.canChangeRecorder {
+            await model.adopt(host: Bench.otherHost)
+            XCTAssertEqual(model.host, Bench.host, "another address was taken with a job running")
+            await model.enterDemo()
+            XCTAssertFalse(model.demo, "the demo was entered with a job running")
+        }
+
+        // Pulled down beside the run, the recordings are not read: one that went on would put its line up and
+        // wait there behind the run's request.
+        let back = Back()
+        let pulling = Task {
+            await model.refreshTitles()
+            back.came = true
+        }
+        try await until("the pull-down neither came back nor went on to read") { back.came || model.busy != nil }
+        XCTAssertNil(model.busy, "the recordings were being read again beside a job")
+        await recorder.letGo()
+        await pulling.value
+        try await untilTheRunEnds(model)
+        expectEqual(await recorder.asked(Ask.recordings, since: before), 0, "the recordings were read beside a job")
+        expectEqual(await recorder.asked(Ask.description, since: before), 0)
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+    }
+}
+
+/// Whether what a test set going has come back, for a test that does not wait for it to.
+@MainActor
+private final class Back {
+    var came = false
 }
