@@ -1,8 +1,9 @@
 import Foundation
 
-/// What is asked of the recorder's recordings, beside its reservations: reading them with the free space, and one
-/// recording's details. The steps, and what each says on the host's screen; the list is handed to the app as it
-/// is read (`keep`), and the screens are the app's.
+/// What is asked of the recorder's recordings, beside its reservations: reading them with the free space, one
+/// recording's details, and protecting and deleting one. The steps, and what each says on the host's screen; what
+/// the app keeps of the list is handed to it as the step that changes it goes through (`keep`), and the screens
+/// are the app's.
 extension RecorderDriver {
     // MARK: - the list and the free space
 
@@ -65,6 +66,52 @@ extension RecorderDriver {
         } catch {
             return nil
         }
+    }
+
+    /// The lines on screen while a recording is protected, or its protection taken off, and while one is deleted.
+    static let protectingLine = "保護中"
+    static let unprotectingLine = "保護を解除中"
+    static let deletingTitleLine = "削除中"
+
+    /// Said when a recording still being recorded is asked to be deleted.
+    static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
+
+    /// A write: the recorder stops deleting this one to make room. Whether it went through; `keep` is how the
+    /// app's list shows it, called once the recorder has taken it. With no recorder's client, it fails with
+    /// nothing said. Otherwise one operation, as `DeviceLink.run` makes one, on the client in hand at the door:
+    /// silence says that the protect may have arrived (`mayHaveArrived`), and anything else in the recorder's
+    /// words.
+    public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async -> Bool {
+        guard let link, let client = link.client as? RecorderClient else { return false }
+        return await asked(on ? Self.protectingLine : Self.unprotectingLine, sending: Self.mayHaveArrived,
+                           on: link) { _ in
+            try await client.updateTitle(id: title.id, protected: on)
+            keep()
+        } != nil
+    }
+
+    /// A write, and not one that can be undone: the recording is gone from the recorder. Whether it went through;
+    /// `keep` takes the row out of the app's list, called once the recorder has taken it, before the free space
+    /// is read again under the same line (`learnTheFreeSpace`), which cannot fail the delete: it has happened
+    /// whatever that says.
+    ///
+    /// The recorder answers a bare HTTP 500 for a recording it is still writing to, which on screen reads as a
+    /// fault in the app. The screens do not offer it, but a row can be a few minutes old: one still being
+    /// recorded is turned away before anything is sent, and the line says why (`stillRecording`). Then as
+    /// `protect`: no recorder's client fails with nothing said, and silence says that the delete may have
+    /// arrived.
+    public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async -> Bool {
+        guard let link else { return false }
+        if title.recording {
+            link.owner?.problem = Self.stillRecording
+            return false
+        }
+        guard let client = link.client as? RecorderClient else { return false }
+        return await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in
+            try await client.deleteTitle(id: title.id)
+            keep()
+            await self.learnTheFreeSpace(on: client, link)
+        } != nil
     }
 
     // MARK: - one request

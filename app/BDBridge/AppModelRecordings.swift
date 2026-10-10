@@ -74,13 +74,12 @@ extension AppModel {
         return await recorderDriver?.detail(of: title)
     }
 
-    /// A write: the recorder stops deleting this one to make room.
+    /// A write: the recorder stops deleting this one to make room (`RecorderDriver.protect`).
     @discardableResult
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
         await start()
-        guard let client else { return false }
-        let done = await run(on ? "保護中" : "保護を解除中", sending: true) {
-            try await client.updateTitle(id: title.id, protected: on)
+        guard let recorderDriver else { return false }
+        let done = await recorderDriver.protect(title, on) {
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
                 self.titles[index].protected = on
             }
@@ -93,26 +92,16 @@ extension AppModel {
         return done
     }
 
-    /// A write, and not one that can be undone: the recording is gone from the recorder.
+    /// A write, and not one that can be undone: the recording is gone from the recorder
+    /// (`RecorderDriver.delete`).
     @discardableResult
     func delete(_ title: RecordedTitle) async -> Bool {
         await start()
-        // The recorder answers a bare HTTP 500 for a recording it is still writing to, which on screen
-        // reads as a fault in the app. The screens do not offer it, but a row can be a few minutes old.
-        if title.recording {
-            problem = "録画中のため削除できません。番組が終わるまでお待ちください。"
-            return false
-        }
-        guard let client else { return false }
-        let deleted = await run("削除中", sending: true) {
-            try await client.deleteTitle(id: title.id)
-            self.titles.removeAll { $0.id == title.id }
-            // Under the same line, but not able to fail the delete, which has happened whatever this says:
-            // see `refreshStorage`.
-            await self.refreshStorage(client)
-        }
-        // as for protecting: silence may have come after the recording had gone
-        if !deleted, unreachable { titlesLoaded = false }
+        guard let recorderDriver else { return false }
+        let deleted = await recorderDriver.delete(title) { self.titles.removeAll { $0.id == title.id } }
+        // As for protecting: silence may have come after the recording had gone. Not for one still being
+        // recorded, which the driver turns away before anything is sent.
+        if !deleted, unreachable, !title.recording { titlesLoaded = false }
         // A set on screen may have been left with one copy, or none of the one it says it keeps.
         if deleted, !duplicates.isEmpty { recomputeDuplicates() }
         return deleted
