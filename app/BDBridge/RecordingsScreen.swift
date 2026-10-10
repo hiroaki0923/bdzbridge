@@ -98,11 +98,9 @@ struct RecordingsScreen: View {
             // from before, and a load set going by it alone finds nothing to ask and is not tried again.
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
             // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
-            // With the recorder given up on, it is the reader asking for another go, as the strip's 再接続 is.
-            .refreshable {
-                guard !model.jobRunning else { return }
-                if model.offline { await model.connect() } else { await model.loadTitles(force: true) }
-            }
+            // With nothing that can be written to the recorder, it is the reader asking for another go, as the
+            // strip's 再接続 is.
+            .refreshable { await model.refreshTitles() }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see

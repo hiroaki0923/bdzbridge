@@ -32,6 +32,13 @@ extension AppModel {
 
     private static let rulesNotAsked = "レコーダーに接続していません"
 
+    /// What pulling the conditions down asks for: the list read again, or a connect when nothing can be written
+    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    func refreshRecorderRules() async {
+        await start()
+        await recorderDriver?.refresh { await self.loadRecorderRulesNow() }
+    }
+
     /// The disk a condition's row names, or nil for none: only one off the internal disk, by the one rule the
     /// reservations' rows go by (`RecorderDisk.shown`).
     func diskShown(_ rule: RecorderRule) -> String? {

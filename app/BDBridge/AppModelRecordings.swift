@@ -37,6 +37,15 @@ extension AppModel {
         }
     }
 
+    /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
+    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    /// Not while a bulk job is walking the list.
+    func refreshTitles() async {
+        await start()
+        guard !jobRunning else { return }
+        await recorderDriver?.refresh { await self.loadTitlesNow(force: true) }
+    }
+
     /// The recordings the screen is showing: filtered, then sorted.
     var shownTitles: [RecordedTitle] {
         var shown = titles

@@ -811,20 +811,83 @@ final class FunnelGateTests: XCTestCase {
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
     }
 
+    /// Playing, pausing and stopping a recording, and turning the recorder on, act on the recorder as the other
+    /// writes do, and are turned away at their doors in the same two moments: a connect under way, whose client
+    /// has not yet heard which recorder answers it, and a reconnect the recorder answered busy with somebody
+    /// else, which leaves the app connected beside such a client. Each comes back at once, is sent nowhere and
+    /// says in what it hands back that the app is not connected, the line left as it was. Nothing was asked of
+    /// the recorder, so the offer to turn it on that a pause it turned down for its standby put up stays.
+    func testPlaybackAndThePowerAreNotSentOnAClientThatHasNotHeardWhichRecorderAnswersIt() async throws {
+        let (bench, recorder, model, subjects) = try await settled()
+        let asks = [Funnelled.play, .pause, .stop, .power]
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await playARecording(model, subjects.title, "pause")
+        XCTAssertTrue(model.needsPower, "the pause was meant to leave the offer up")
+
+        // During a connect, with its ask of who answers held. One that went on would take the offer away and
+        // put its line up, to be sent once the ask is let go.
+        for row in asks {
+            await recorder.hold(only: Kind.description)
+            let before = await recorder.asked
+            let connecting = Task { await model.connect() }
+            try await until("the connect never asked who answers") {
+                await recorder.asked(Kind.description, since: before) == 1
+            }
+            leaveALine(on: model)
+            let back = Back()
+            let asking = Task {
+                _ = await row.ask(model, subjects)
+                back.came = true
+            }
+            let deadline = Date().addingTimeInterval(2)
+            while !back.came, model.busy != row.line, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertNotEqual(model.busy, row.line, "\(row.name) waited for the connect, rather than turned away")
+            XCTAssertTrue(model.needsPower, "\(row.name) took the offer to turn the recorder on away, at its door")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
+            await recorder.letGo()
+            await asking.value
+            await connecting.value
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
+            expectEqual(await recorder.asked(row.kind, since: before), 0, "\(row.name) was sent beside the connect")
+            XCTAssertTrue(model.needsPower, row.name)
+            XCTAssertTrue(model.connected, row.name)
+        }
+
+        // After a reconnect answered busy, on the client that never heard.
+        await recorder.busyAtTheDoor()
+        let made = bench.clientsMade
+        await model.connect()
+        XCTAssertEqual(bench.clientsMade, made + 1, "the reconnect was meant to make a client of its own")
+        XCTAssertTrue(model.connected, "the attach before was meant to stand")
+        await recorder.comeFree()
+        for row in asks {
+            leaveALine(on: model)
+            let before = await recorder.asked
+            _ = await row.ask(model, subjects)
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
+            XCTAssertTrue(model.needsPower, "\(row.name) took the offer to turn the recorder on away, at its door")
+            expectEqual(await recorder.asked(row.kind, since: before), 0, "\(row.name) was sent after the reconnect")
+        }
+        XCTAssertEqual(bench.clientsMade, made + 1, "playback or the power connected")
+    }
+
     /// A connect under way has a client of its own that has not yet heard which recorder answers it, and a
     /// reconnect the recorder answered busy with somebody else leaves the app connected from the attach before,
-    /// beside such a client. A protect, a delete, a condition added and one removed are sent on it all the same:
-    /// asked during the connect, each goes once the recorder has described itself, and after the busy reconnect,
-    /// at once. Each goes through.
-    ///
-    /// As it is today, and to be rewritten: a later change writes to the recorder only once it has said which it
-    /// is, as the reservations' writes are written, and these four are then not sent, their results saying that
-    /// the app is not connected.
-    func testAWriteIsSentOnAClientThatHasNotHeardWhichRecorderAnswersIt() async throws {
+    /// beside such a client. Nothing is written on it, as for the reservations: a protect, a delete, a condition
+    /// added and one removed, asked during the connect or after the busy reconnect, are each turned away at their
+    /// doors, at once, sent nowhere, and say in what they hand back that the app is not connected, the line left
+    /// as it was. Nothing connects for them either.
+    func testAWriteIsNotSentOnAClientThatHasNotHeardWhichRecorderAnswersIt() async throws {
         let (bench, recorder, model, subjects) = try await settled()
         let writes = [Funnelled.protect, .delete, .add, .remove]
 
-        // During a connect, with its ask of who answers held.
+        // During a connect, with its ask of who answers held. Turned away at its door, a write comes back at once
+        // -- a condition removed has the list read after it, as every one has, which waits behind that ask on the
+        // connect's client as a read does. One that went on would put its line up and wait there, to be sent
+        // once the ask is let go.
         for row in writes {
             await recorder.hold(only: Kind.description)
             let before = await recorder.asked
@@ -832,13 +895,25 @@ final class FunnelGateTests: XCTestCase {
             try await until("the connect never asked who answers") {
                 await recorder.asked(Kind.description, since: before) == 1
             }
-            let asking = Task { await row.ask(model, subjects) }
-            try await until("\(row.name) never put its line up beside the connect") { model.busy == row.line }
+            leaveALine(on: model)
+            let back = Back()
+            let asking = Task {
+                let answer = await row.ask(model, subjects)
+                back.came = true
+                return answer
+            }
+            let deadline = Date().addingTimeInterval(2)
+            while !back.came, model.busy != Funnelled.conditions.line, model.busy != row.line, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertNotEqual(model.busy, row.line, "\(row.name) waited for the connect, rather than turned away")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
             await recorder.letGo()
             let answer = await asking.value
             await connecting.value
-            XCTAssertEqual(answer, true, "\(row.name): \(model.problem(for: .recorder) ?? "no reason given")")
-            expectEqual(await recorder.asked(row.kind, since: before), 1, row.name)
+            XCTAssertEqual(answer, false, row.name)
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
+            expectEqual(await recorder.asked(row.kind, since: before), 0, "\(row.name) was sent beside the connect")
             XCTAssertTrue(model.connected, row.name)
         }
 
@@ -850,10 +925,13 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertTrue(model.connected, "the attach before was meant to stand")
         await recorder.comeFree()
         for row in writes {
+            leaveALine(on: model)
             let before = await recorder.asked
             let answer = await row.ask(model, subjects)
-            XCTAssertEqual(answer, true, "\(row.name): \(model.problem(for: .recorder) ?? "no reason given")")
-            expectEqual(await recorder.asked(row.kind, since: before), 1, row.name)
+            XCTAssertEqual(answer, false, row.name)
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
+            expectEqual(await recorder.asked(row.kind, since: before), 0, "\(row.name) was sent after the reconnect")
         }
         XCTAssertEqual(bench.clientsMade, made + 1, "a write connected")
     }
@@ -1196,6 +1274,12 @@ private enum Kind {
 private struct Subjects {
     let title: RecordedTitle, spare: RecordedTitle, rule: RecorderRule
     let request = RecorderRuleRequest(keywords: ["みほん"], qualityCode: 220)
+}
+
+/// Whether what a test set going has come back, for a test that does not wait for it to.
+@MainActor
+private final class Back {
+    var came = false
 }
 
 /// The three lists the model holds of what the recorder said, to be looked at again after something failed.

@@ -533,7 +533,7 @@ public final class RecorderDriver: LinkDriver {
     /// a check has heard it (`DeviceLink.mayBeSent`).
     public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
 
-    private func canBeAsked(on link: DeviceLink) -> Bool {
+    func canBeAsked(on link: DeviceLink) -> Bool {
         link.clientIsAttached && link.session.connected
     }
 

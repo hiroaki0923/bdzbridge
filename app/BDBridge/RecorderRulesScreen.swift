@@ -53,7 +53,8 @@ struct RecorderRulesScreen: View {
                     .disabled(!model.connected || model.busy != nil)
             }
         }
-        .refreshable { await model.loadRecorderRules() }
+        // As the recordings' pull-down: the list read again, or a connect.
+        .refreshable { await model.refreshRecorderRules() }
         // Keyed on `connected`, and on what the read itself checks, since `connected` turns true while the
         // recorder is still marked silent: see `RecordingsScreen`.
         .task(id: model.connected && !model.offline) { await model.loadRecorderRules() }

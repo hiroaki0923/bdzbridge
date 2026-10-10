@@ -41,6 +41,33 @@ extension RecorderDriver {
         }
     }
 
+    /// What pulling the recordings or the keyword conditions down asks for, as pulling the reservations down
+    /// does (`refreshReservations`): when something can be written to the recorder (`canBeAsked`), `read`, which
+    /// reads the list now. When nothing can, the reader has asked for it to be tried again: a connect. So it is
+    /// for a recorder given up on, for one the app is not connected to, and for one whose last connect it
+    /// answered busy with somebody else as it was asked which it is, for which no 再接続 is offered, the app being
+    /// connected from the attach before. A connect under way is not made again (`DeviceLink.connect`).
+    ///
+    /// The list itself comes once, either way. The screens read theirs as the app becomes connected, so after a
+    /// connect that makes it so the list is theirs to read. An app connected all through -- a reconnect under way
+    /// as it comes back from the background or the network changes, or one answered busy -- has nothing read
+    /// for it as the connect ends, which reads only the reservations: there `read` is asked once the pull-down's
+    /// own connect is over, or at once beside a connect under way, whose client sends it after what the attach
+    /// asks, as any read is sent. Not once that connect has let go of the recorder, another having described
+    /// itself at the address: the newcomer's connect reads the lists the screens had read (`LinkHost.reached`),
+    /// and the list is not read from it twice.
+    public func refresh(reading read: @MainActor () async -> Void) async {
+        guard let link else { return }
+        guard canBeAsked(on: link) else {
+            let connectedThrough = link.session.connected && !link.offline
+            let began = link.generation
+            await link.connect()
+            if connectedThrough, !link.letGo(since: began) { await read() }
+            return
+        }
+        await read()
+    }
+
     // MARK: - one recording
 
     /// What the recorder says a recording is about, or nil when it was not asked or could not say. Asked as a
@@ -98,20 +125,24 @@ extension RecorderDriver {
     /// app's list shows it, called once the recorder has taken it.
     ///
     /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
-    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, or the recorder
-    /// known to be away, each that the app is not connected (`whyNotConnected`). Otherwise one operation, as
+    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, the recorder
+    /// known to be away, or nothing that can be written to it (`canBeAsked`) -- a connect being under way, or
+    /// the recorder not having said which it is -- each that the app is not connected (`whyNotConnected`), as
+    /// for a reservation's delete or change. Otherwise one operation, as
     /// `DeviceLink.run` makes one, on the client in hand at the door. A check that says no has said why on the
     /// line, and the result says it again (`altered`); silence says that the protect may have arrived
     /// (`mayHaveArrived`), and anything else is said in the recorder's words, on the line and in the result.
     ///
     /// The recordings are to be read again after anything that failed with the recorder known to be away, the
     /// door that found it so among them: silence may have come after the recorder made the change, and the list
-    /// is read again once it answers rather than guessed at. Not after a door that found no recorder to ask.
+    /// is read again once it answers rather than guessed at. Not after a door that found no recorder to ask, nor
+    /// one that found it there and not to be written to.
     public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
         guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let came = await asked(on ? Self.protectingLine : Self.unprotectingLine, sending: Self.mayHaveArrived,
                                on: link) { _ in
             try await client.updateTitle(id: title.id, protected: on)
@@ -135,6 +166,7 @@ extension RecorderDriver {
         if let why = Self.whyNot(deleting: title) { return (.notDone(why), false) }
         guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let came = await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in
             try await client.deleteTitle(id: title.id)
             keep()
@@ -172,7 +204,7 @@ extension RecorderDriver {
     @discardableResult
     public func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
-        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+        guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
         let owner = link.owner
@@ -199,7 +231,7 @@ extension RecorderDriver {
     @discardableResult
     public func powerOn() async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
-        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+        guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
         let came = await asked(Self.turningOnLine, on: link) { _ in

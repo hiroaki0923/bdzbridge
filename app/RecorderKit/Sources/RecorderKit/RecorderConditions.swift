@@ -31,9 +31,9 @@ extension RecorderDriver {
     /// disk the last request found not to be had is forgotten as it begins (`clearTheDiskNotHad`).
     ///
     /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
-    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, or the recorder
-    /// known to be away, each that the app is not connected (`whyNotConnected`); a disk not had; a wait for the
-    /// slot given up on (`slotWaitGivenUp`).
+    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, the recorder
+    /// known to be away, or nothing that can be written to it (`canBeAsked`), each that the app is not connected
+    /// (`whyNotConnected`); a disk not had; a wait for the slot given up on (`slotWaitGivenUp`).
     ///
     /// To the slot, the recorder is made sure of, and the slot waited for, before the registration goes out --
     /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press,
@@ -51,7 +51,7 @@ extension RecorderDriver {
         guard RecorderDisk.offers(request.destination, with: link.session.usbDisk) else {
             return .notDone(RecorderDisk.chooseAnother(than: request.destination, usb: link.session.usbDisk))
         }
-        guard !link.session.unreachable else { return .notDone(whyNotConnected) }
+        guard !link.session.unreachable, canBeAsked(on: link) else { return .notDone(whyNotConnected) }
         let toTheSlot = request.destination == RecorderDisk.usbID
         return await link.underALine(toTheSlot ? Self.registeringLine : nil) { _ -> Altered in
             if toTheSlot {
@@ -85,7 +85,7 @@ extension RecorderDriver {
     /// so the caller reads the list again afterwards either way.
     public func removeRule(_ rule: RecorderRule) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
-        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+        guard let client = link.client as? RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
         return altered(await asked(Self.removingConditionLine, sending: Self.mayHaveArrived, on: link) { _ in
