@@ -284,10 +284,11 @@ final class FunnelGateTests: XCTestCase {
     /// connected, and leaves the line an earlier operation left. With no recorder in hand at all, nothing is
     /// asked and nothing written on the line either.
     ///
-    /// As it is today in two places. A protect and a delete mark the recordings unread although nothing was
-    /// sent, which costs a read of the list after the reconnect. The conditions' screen, with no list read,
-    /// gives the line an earlier operation left as its reason. Another change keeps a write from a recorder that
-    /// has not said which it is.
+    /// The conditions' screen, with no list read, gives as its reason that the app is not connected, said by the
+    /// read itself rather than the line an earlier operation left.
+    ///
+    /// As it is today: a protect and a delete mark the recordings unread although nothing was sent, which costs
+    /// a read of the list after the reconnect.
     func testNothingIsSentToARecorderTheAppIsNotConnectedTo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         await recorder.goQuiet(for: 1)
@@ -321,7 +322,7 @@ final class FunnelGateTests: XCTestCase {
         }
         expectEqual(await recorder.asked, asked, "a recorder the app had let go of was asked")
         await model.loadRecorderRules()
-        XCTAssertEqual(model.recorderRulesFailure, lineLeft)
+        XCTAssertEqual(model.recorderRulesFailure, Said.notConnected)
     }
 
     /// A recording the phone holds as protected, asked to be deleted, is turned away before anything is asked: the
@@ -1200,17 +1201,17 @@ final class FunnelGateTests: XCTestCase {
     // MARK: - the keyword conditions' reason and lines
 
     /// Why the keyword conditions' screen has no list to show, and what a read of them leaves when the recorder
-    /// cannot be asked. Known to be away with none read, the screen's reason is the line an earlier operation
-    /// left. Known to be away with a list read before, the list, its screen and the line are left as they were.
-    /// And a read whose silence is not said -- the recorder known to be away by the time it is answered, a
-    /// connect made meanwhile having met silence and said so -- gives as its reason, over an empty line, that the
-    /// app is not connected: with nothing on the line the recorder said nothing that can be told.
+    /// cannot be asked, said by the read itself. Known to be away with none read, turned away at its door, the
+    /// screen's reason is that the app is not connected, whatever line an earlier operation left. Known to be
+    /// away with a list read before, the list, its screen and the line are left as they were. And a read whose
+    /// silence is not said -- the recorder known to be away by the time it is answered, a connect made meanwhile
+    /// having met silence and said so -- gives what the link said of it, as the reservations' delete and change
+    /// do: over an empty line, that the app is not connected, the recorder having said nothing that can be told.
     ///
-    /// As it is today, and to be rewritten in part: a later change has the read say its own reason, that the app
-    /// is not connected, where it was turned away at its door with nothing read, rather than the line an earlier
-    /// operation left. The last case stands for a read turned away for the local network permission, which
-    /// writes nothing on the line either and which this bench cannot have a recorder's check meet: the bench
-    /// puts nothing on the network, and its recorder's check never looks at the permission.
+    /// The last case stands for a read turned away for the local network permission, which writes nothing on
+    /// the line either and which this bench cannot have a recorder's check meet: the bench puts nothing on the
+    /// network, and its recorder's check never looks at the permission. Over a line left, that line is the
+    /// reason there, as for the reservations: not pinned.
     func testTheConditionsReasonIsTheLineOrThatTheAppIsNotConnected() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
 
@@ -1221,7 +1222,7 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         var asked = await recorder.asked
         await model.loadRecorderRules()
-        XCTAssertEqual(model.recorderRulesFailure, lineLeft)
+        XCTAssertEqual(model.recorderRulesFailure, Said.notConnected)
         XCTAssertEqual(model.problem(for: .recorder), lineLeft)
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked for its conditions")
 
@@ -1258,7 +1259,7 @@ final class FunnelGateTests: XCTestCase {
         await recorder.letGo()
         await reading.value
         XCTAssertNil(model.problem(for: .recorder), "the read's silence was said a second time")
-        XCTAssertEqual(model.recorderRulesFailure, Said.conditionsNotAsked)
+        XCTAssertEqual(model.recorderRulesFailure, Said.notConnected)
     }
 
     /// What the strip says while a keyword condition is added or removed and the list is read after it: the

@@ -10,17 +10,34 @@ extension RecorderDriver {
     static let registeringLine = "レコーダーに登録中"
     static let removingConditionLine = "レコーダーから削除中"
 
-    /// The conditions as the recorder lists them, read now; nil when they could not be read, and the host's line
-    /// says why where there is anything to say. One operation, as `DeviceLink.run` makes one (`asked`), on the
-    /// client in hand at the door. Nothing is asked when there is no recorder's client; whether to ask at all is
-    /// the app's to say. After a check that heard something in place of the recorder saying which it is, nothing
-    /// is read, as for the reservations: what it heard is what the read fails as (`asked`).
-    public func recorderRules() async -> [RecorderRule]? {
-        guard let link, link.client is RecorderClient else { return nil }
-        if case .went(let list) = await asked(Self.conditionsLine, .aRead, on: link, since: link.generation, {
+    /// What a read of the conditions came to, for the screen: the list, or nil and why there is none.
+    public typealias ConditionsRead = (list: [RecorderRule]?, why: String?)
+
+    /// The conditions as the recorder lists them, read now, or why they could not be, said by the read itself.
+    /// One operation, as `DeviceLink.run` makes one (`asked`), on the client in hand at the door. Nothing is
+    /// asked when there is no recorder's client or the recorder is known to be away, which is that the app is
+    /// not connected (`whyNotConnected`); whether to ask at all is the app's to say. After a check that heard
+    /// something in place of the recorder saying which it is, nothing is read, as for the reservations: what it
+    /// heard is what the read fails as (`asked`), and why is said as `conditionsRead` says it.
+    public func recorderRules() async -> ConditionsRead {
+        guard let link else { return (nil, Self.notConnected) }
+        guard link.client is RecorderClient, !link.session.unreachable else { return (nil, whyNotConnected) }
+        return conditionsRead(await asked(Self.conditionsLine, .aRead, on: link, since: link.generation) {
             _, client in try await client.recorderRules()
-        }) { return list }
-        return nil
+        }, on: link)
+    }
+
+    /// What a read of the conditions asked through `asked` came to: the list, or why there is none -- a refusal
+    /// in the recorder's words, and otherwise what the link said of it, as the reservations' delete and change
+    /// say what their reads came to: a check that said no has said why on the line, silence too, and with
+    /// nothing on the line -- a check turned away for the local network permission, a silence not said -- that
+    /// the app is not connected.
+    func conditionsRead(_ came: Asked<[RecorderRule]>, on link: DeviceLink) -> ConditionsRead {
+        switch came {
+        case .went(let list): (list, nil)
+        case .failed(.refused(_, let sentence)): (nil, sentence)
+        default: (nil, link.owner?.problem ?? whyNotConnected)
+        }
     }
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running. What it
@@ -49,7 +66,7 @@ extension RecorderDriver {
     /// operation, as `DeviceLink.run` makes one, on the client in hand at the door: silence says that the
     /// registration may have arrived, and what the check or a failure said is in the result as well as on the
     /// line (`altered`). A registration that went through has the list read after it.
-    public func addRule(_ request: RecorderRuleRequest, keep: @MainActor ([RecorderRule]?) -> Void) async -> Altered {
+    public func addRule(_ request: RecorderRuleRequest, keep: @MainActor (ConditionsRead) -> Void) async -> Altered {
         clearTheDiskNotHad()
         guard let link else { return .notDone(Self.notConnected) }
         guard link.client is RecorderClient else { return .notDone(whyNotConnected) }
@@ -108,7 +125,7 @@ extension RecorderDriver {
     /// longer has, and which code it answers to one has not been seen. Not after one that was not sent -- turned
     /// away at the door, or after the check -- nor after silence: nothing has changed that the reader did, or the
     /// recorder is not there to read.
-    public func removeRule(_ rule: RecorderRule, keep: @MainActor ([RecorderRule]?) -> Void) async -> Altered {
+    public func removeRule(_ rule: RecorderRule, keep: @MainActor (ConditionsRead) -> Void) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
@@ -126,18 +143,14 @@ extension RecorderDriver {
     }
 
     /// The list read again after a condition was added or deleted, as a step of that operation: under its line,
-    /// with none of its own, and by the count it noted at its door. Handed to `keep` once read, or as nil when it
-    /// could not be, the failure said on the line as for any read. Not across a let-go: the list to read is the
+    /// with none of its own, and by the count it noted at its door. Handed to `keep` as any read of the list is
+    /// (`recorderRules`), with why when it could not be read. Not across a let-go: the list to read is the
     /// newcomer's, which its own connect reads, and one that comes back once the recorder has been let go of is
     /// neither handed over nor said.
-    private func readAfter(on link: DeviceLink, since began: Int, keep: @MainActor ([RecorderRule]?) -> Void) async {
+    private func readAfter(on link: DeviceLink, since began: Int, keep: @MainActor (ConditionsRead) -> Void) async {
         guard !link.letGo(since: began) else { return }
         let came = await asked(nil, .aRead, on: link, since: began) { _, client in try await client.recorderRules() }
         guard !link.letGo(since: began) else { return }
-        if case .went(let list) = came {
-            keep(list)
-        } else {
-            keep(nil)
-        }
+        keep(conditionsRead(came, on: link))
     }
 }
