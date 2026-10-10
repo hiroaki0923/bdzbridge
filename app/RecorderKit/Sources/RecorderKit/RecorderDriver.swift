@@ -1893,7 +1893,7 @@ public final class RecorderDriver: LinkDriver {
     }
 }
 
-private extension OperationFailure {
+extension OperationFailure {
     /// What the link said of it on the line, for a result to say again; nil for what the link says nothing of
     /// there, a check's no and a device let go of.
     var sentence: String? {

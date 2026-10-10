@@ -253,7 +253,8 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// A condition to a kept disk waits for the slot as a reservation does. The slot answering none each time,
-    /// nothing is sent, and it is said as for a disk that cannot be had, its sheet going back to the internal disk.
+    /// nothing is sent, and it is said as for a disk that cannot be had, its sheet going back to the internal disk:
+    /// in what the condition hands back, the line left as it was.
     func testAConditionToAKeptDiskTheSlotDoesNotAnswerIsNotSent() async throws {
         let (_, recorder, model) = try await connected(times: 1)
         // The demo's answer from here on, which is none; the read again is half a minute away.
@@ -264,19 +265,18 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                     "a condition to a disk the slot did not answer was sent")
 
-        XCTAssertEqual(model.problem, Self.diskNotHad)
+        XCTAssertEqual(whyNotJustNow(model), Self.diskNotHad)
+        XCTAssertEqual(model.problem, lineLeft, "the condition wrote over the line")
         XCTAssertTrue(model.diskCannotBeHad("USBHDD"), "the sheet would not go back to the internal disk")
         expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 6)
     }
 
     /// A condition to the USB disk is not sent past a check or a slot that said nothing. The check before it
-    /// meeting silence, nothing is asked of the slot, and the line says that the recorder did not answer. The
-    /// slot falling silent while it is waited for, the line says the same and the recorder is lost. The wait
-    /// given up, nothing is said, and the line is left as an earlier operation left it.
-    ///
-    /// As it is today, and to be rewritten for the wait given up: a later change says in the condition's result
-    /// that the wait was given up and nothing sent, the line still left.
+    /// meeting silence, nothing is asked of the slot, and the line says that the recorder did not answer, as
+    /// what the condition hands back does. The slot falling silent while it is waited for, the line and the
+    /// result say the same and the recorder is lost. The wait given up, the result says that it was and that
+    /// nothing was sent, and the line is left as an earlier operation left it.
     func testAConditionToTheUSBDiskIsNotSentPastACheckOrASlotThatSaidNothing() async throws {
         // The check meets silence, the disk answered at the connect.
         do {
@@ -295,6 +295,7 @@ final class USBDiskChoiceTests: XCTestCase {
             expectFalse(await adding.value, "a condition was made past a check that met silence")
             _ = await check.value
             XCTAssertEqual(model.problem, Said.noAnswer)
+            XCTAssertEqual(whyNotJustNow(model), Said.noAnswer)
             XCTAssertTrue(model.gaveUp)
             expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
             expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 0)
@@ -310,6 +311,7 @@ final class USBDiskChoiceTests: XCTestCase {
             expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                         "a condition was made past a slot that fell silent")
             XCTAssertEqual(model.problem, Said.noAnswer, "the slot's silence was not said")
+            XCTAssertEqual(whyNotJustNow(model), Said.noAnswer)
             XCTAssertTrue(model.gaveUp, "silence at the slot did not lose the recorder")
             XCTAssertFalse(model.diskCannotBeHad("USBHDD"), "a slot that said nothing was taken for one with no disk")
             expectEqual(await recorder.asked("X_CreatePrefRecSetting", since: before), 0)
@@ -329,6 +331,7 @@ final class USBDiskChoiceTests: XCTestCase {
             adding.cancel()
             await recorder.letGo()
             expectFalse(await adding.value, "a condition given up was made")
+            XCTAssertEqual(whyNotJustNow(model), Said.slotWaitGivenUp)
             XCTAssertEqual(model.problem, lineLeft, "a condition given up wrote on the line")
             XCTAssertFalse(model.gaveUp)
             XCTAssertNil(model.busy)
@@ -706,9 +709,11 @@ final class USBDiskChoiceTests: XCTestCase {
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
         XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
+        leaveALine(on: model)
         expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                     "a condition to a disk no longer offered was made")
-        XCTAssertEqual(model.problem, Self.slotGone)
+        XCTAssertEqual(whyNotJustNow(model), Self.slotGone)
+        XCTAssertEqual(model.problem, lineLeft, "the condition wrote over the line at its door")
 
         expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 0)
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: before), 0)

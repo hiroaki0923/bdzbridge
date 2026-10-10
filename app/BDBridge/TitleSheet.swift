@@ -15,6 +15,12 @@ struct TitleSheet: View {
     /// The live copy, since protecting it changes the list underneath.
     private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
 
+    /// What the sheet asked for and did not come to pass, said in its alert: the recorder's answer, or why
+    /// nothing was sent.
+    private func say(_ came: Altered) {
+        if case .notDone(let why) = came { failure = why }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -41,7 +47,7 @@ struct TitleSheet: View {
                     // turning the recorder on to play takes long enough to invite a second tap too.
                     Group {
                         Button {
-                            Task { await model.play(current, "play") }
+                            Task { say(await model.play(current, "play")) }
                         } label: {
                             // The recorder cannot be told where to start: `play` begins at the beginning whatever
                             // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
@@ -49,18 +55,18 @@ struct TitleSheet: View {
                             Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                         }
                         Button {
-                            Task { await model.play(current, "pause") }
+                            Task { say(await model.play(current, "pause")) }
                         } label: {
                             Label("一時停止 / 再開", systemImage: "pause.fill")
                         }
                         Button {
-                            Task { await model.play(current, "stop") }
+                            Task { say(await model.play(current, "stop")) }
                         } label: {
                             Label("停止", systemImage: "stop.fill")
                         }
                         if model.needsPower {
                             Button {
-                                Task { await model.powerOn() }
+                                Task { say(await model.powerOn()) }
                             } label: {
                                 Label("レコーダーの電源を入れる", systemImage: "power")
                             }
@@ -74,13 +80,7 @@ struct TitleSheet: View {
                 Section {
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
-                        set: { on in
-                            Task {
-                                if await !model.setProtected(current, on) {
-                                    failure = model.problem ?? "レコーダーがエラーを返しました"
-                                }
-                            }
-                        }))
+                        set: { on in Task { say(await model.setProtected(current, on)) } }))
                     .disabled(model.busy != nil)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
                         .disabled(current.protected || current.recording || model.busy != nil)
@@ -121,8 +121,9 @@ struct TitleSheet: View {
                 if failure == nil {
                     Button("削除する", role: .destructive) {
                         Task {
-                            deleted = await model.delete(current)
-                            if !deleted { failure = model.problem ?? "レコーダーがエラーを返しました" }
+                            let came = await model.delete(current)
+                            if case .done = came { deleted = true }
+                            say(came)
                         }
                     }
                     Button("キャンセル", role: .cancel) {}

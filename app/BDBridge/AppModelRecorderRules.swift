@@ -39,25 +39,27 @@ extension AppModel {
     }
 
     /// Registers a condition on the recorder itself (`RecorderDriver.addRule`), and reads the list again once it
-    /// has.
-    func addRecorderRule(_ request: RecorderRuleRequest) async -> Bool {
+    /// has. What it came to, for the sheet to say.
+    func addRecorderRule(_ request: RecorderRuleRequest) async -> Altered {
         await start()
-        guard let recorderDriver else { return false }
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
         return await recorderDriver.addRule(request) { await self.loadRecorderRules() }
     }
 
     /// Delete only, never edit (`RecorderDriver.removeRule`). The list is read again afterwards either way,
-    /// because the recorder renumbers a condition whenever its screen edits one.
-    func removeRecorderRule(_ rule: RecorderRule) async -> Bool {
+    /// because the recorder renumbers a condition whenever its screen edits one -- but for no recorder's client
+    /// in hand, with nothing to read from. What it came to, for the screen to say.
+    func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
         await start()
-        guard client != nil, let recorderDriver else { return false }
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
         let removed = await recorderDriver.removeRule(rule)
+        guard client != nil else { return removed }
         // The read that follows clears the message when it works, and for a delete that failed the message is
         // the reason the screen shows. Put back only over nothing: a read that failed has said something newer,
         // such as the recorder no longer answering, and that is what is true now.
         let reason = problem
         await loadRecorderRules()
-        if !removed, problem == nil { problem = reason }
+        if case .notDone = removed, problem == nil { problem = reason }
         return removed
     }
 }

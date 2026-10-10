@@ -74,49 +74,55 @@ extension AppModel {
         return await recorderDriver?.detail(of: title)
     }
 
-    /// A write: the recorder stops deleting this one to make room (`RecorderDriver.protect`).
+    /// A write: the recorder stops deleting this one to make room (`RecorderDriver.protect`). What it came to, for
+    /// the screen to say.
     @discardableResult
-    func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Bool {
+    func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {
         await start()
-        guard let recorderDriver else { return false }
-        let done = await recorderDriver.protect(title, on) {
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        let came = await recorderDriver.protect(title, on) {
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
                 self.titles[index].protected = on
             }
         }
         // Silence may have come after the recorder made the change. The list is read again once it answers,
         // rather than guessed at.
-        if !done, unreachable { titlesLoaded = false }
+        if came.readAgain { titlesLoaded = false }
         // which copy of a set to keep can change with it
-        if done, !duplicates.isEmpty { recomputeDuplicates() }
-        return done
+        if case .done = came.altered, !duplicates.isEmpty { recomputeDuplicates() }
+        return came.altered
     }
 
     /// A write, and not one that can be undone: the recording is gone from the recorder
-    /// (`RecorderDriver.delete`).
+    /// (`RecorderDriver.delete`). What it came to, for the screen to say.
     @discardableResult
-    func delete(_ title: RecordedTitle) async -> Bool {
+    func delete(_ title: RecordedTitle) async -> Altered {
         await start()
-        guard let recorderDriver else { return false }
-        let deleted = await recorderDriver.delete(title) { self.titles.removeAll { $0.id == title.id } }
-        // As for protecting: silence may have come after the recording had gone. Not for one still being
-        // recorded, which the driver turns away before anything is sent.
-        if !deleted, unreachable, !title.recording { titlesLoaded = false }
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        let came = await recorderDriver.delete(title) { self.titles.removeAll { $0.id == title.id } }
+        // as for protecting: silence may have come after the recording had gone
+        if came.readAgain { titlesLoaded = false }
         // A set on screen may have been left with one copy, or none of the one it says it keeps.
-        if deleted, !duplicates.isEmpty { recomputeDuplicates() }
-        return deleted
+        if case .done = came.altered, !duplicates.isEmpty { recomputeDuplicates() }
+        return came.altered
     }
 
     /// Playback happens on the television the recorder is attached to, not here (`RecorderDriver.play`). A
-    /// recorder in standby is what `needsPower` reports, and the sheet offers to turn it on for.
-    func play(_ title: RecordedTitle, _ operation: String) async {
+    /// recorder in standby is what `needsPower` reports, and the sheet offers to turn it on for. What it came to,
+    /// for the sheet to say.
+    @discardableResult
+    func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
         await start()
-        await recorderDriver?.play(title, operation)
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        return await recorderDriver.play(title, operation)
     }
 
-    /// Turns the recorder on, which also turns on the television attached to it (`RecorderDriver.powerOn`).
-    func powerOn() async {
+    /// Turns the recorder on, which also turns on the television attached to it (`RecorderDriver.powerOn`). What
+    /// it came to, for the sheet to say.
+    @discardableResult
+    func powerOn() async -> Altered {
         await start()
-        await recorderDriver?.powerOn()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        return await recorderDriver.powerOn()
     }
 }

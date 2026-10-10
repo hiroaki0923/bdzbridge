@@ -195,7 +195,8 @@ final class FunnelGateTests: XCTestCase {
     /// A condition's delete that is refused has the list read again all the same -- the recorder renumbers a
     /// condition whenever its own screen edits one -- and its reason put back over the read's success, since
     /// the reason is what the screen shows; an add that is refused reads nothing. A recording still being
-    /// written is turned down before anything is sent. And a recorder that will not say how much room it has,
+    /// written is turned down before anything is sent, which the delete says in what it hands back, the line
+    /// left as it was. And a recorder that will not say how much room it has,
     /// after a delete, leaves the delete done and the room unknown.
     ///
     /// Where the sentence of an answer that cannot be read is put may change: it is not the recorder's.
@@ -258,7 +259,8 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         before = await recorder.asked
         expectFalse(await deleteARecording(model, writing))
-        XCTAssertEqual(model.problem(for: .recorder), Said.stillRecording)
+        XCTAssertEqual(whyNotJustNow(model), Said.stillRecording)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft)
         expectEqual(await recorder.asked, before, "a recording being written to was asked to be deleted")
 
         // The free space refused after a delete.
@@ -272,14 +274,14 @@ final class FunnelGateTests: XCTestCase {
     }
 
     /// Known to be away -- the last ask met silence -- the app asks the recorder nothing. A read is simply not
-    /// made, and leaves what is on screen alone; anything else says that the app is not connected. With no
-    /// recorder in hand at all, nothing is asked and nothing said.
+    /// made, and leaves what is on screen alone; anything else says in what it hands back that the app is not
+    /// connected, and leaves the line an earlier operation left. With no recorder in hand at all, nothing is
+    /// asked and nothing written on the line either.
     ///
-    /// As it is today in three places. A protect and a delete mark the recordings unread although nothing was
+    /// As it is today in two places. A protect and a delete mark the recordings unread although nothing was
     /// sent, which costs a read of the list after the reconnect. The conditions' screen, with no list read,
-    /// gives the line an earlier operation left as its reason. And with no recorder in hand a write fails
-    /// without a word, where a later change says why; another keeps a write from a recorder that has not
-    /// said which it is.
+    /// gives the line an earlier operation left as its reason. Another change keeps a write from a recorder that
+    /// has not said which it is.
     func testNothingIsSentToARecorderTheAppIsNotConnectedTo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         await recorder.goQuiet(for: 1)
@@ -295,7 +297,8 @@ final class FunnelGateTests: XCTestCase {
                 XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) said something, unasked")
             } else {
                 XCTAssertNotEqual(answer, true, row.name)
-                XCTAssertEqual(model.problem(for: .recorder), Said.notConnected, row.name)
+                XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
+                XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
             }
             XCTAssertEqual(model.guideDownloads, 0, row.name)
             XCTAssertNil(model.busy, row.name)
@@ -313,6 +316,41 @@ final class FunnelGateTests: XCTestCase {
         expectEqual(await recorder.asked, asked, "a recorder the app had let go of was asked")
         await model.loadRecorderRules()
         XCTAssertEqual(model.recorderRulesFailure, lineLeft)
+    }
+
+    /// What the recordings' and the conditions' writes turn away at their doors, with nothing sent, each says in
+    /// what it hands back, and the line an earlier operation left stays: the recorder known to be away, and no
+    /// recorder in hand at all, are that the app is not connected. A play, a pause or a stop turned away so
+    /// leaves the offer to turn the recorder on where a pause the recorder turned down for its standby put it:
+    /// nothing was asked of it.
+    func testWhatADoorTurnsAwayIsSaidInTheResultAndLeavesTheLine() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        await recorder.answer(Kind.playback, with: .fault(880))
+        await playARecording(model, subjects.title, "pause")
+        XCTAssertTrue(model.needsPower, "the pause was meant to leave the offer up")
+        await recorder.goQuiet(for: 1)
+        expectFalse(await makeSure(model))
+        let asked = await recorder.asked
+
+        for row in Funnelled.all where !row.reads {
+            leaveALine(on: model)
+            let answer = await row.ask(model, subjects)
+            XCTAssertNotEqual(answer, true, row.name)
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, row.name)
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line at its door")
+            XCTAssertTrue(model.needsPower, "\(row.name) took the offer to turn the recorder on away at its door")
+        }
+        expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
+
+        await model.adopt(host: "")
+        for row in Funnelled.all where !row.reads {
+            leaveALine(on: model)
+            let answer = await row.ask(model, subjects)
+            XCTAssertNotEqual(answer, true, row.name)
+            XCTAssertEqual(whyNotJustNow(model), Said.notConnected, "\(row.name), with no recorder")
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(row.name) wrote over the line, with no recorder")
+        }
+        expectEqual(await recorder.asked, asked, "a recorder the app had let go of was asked")
     }
 
     // MARK: - beside a check, a connect, another recorder
@@ -731,11 +769,9 @@ final class FunnelGateTests: XCTestCase {
     // MARK: - the recordings' and the conditions' writes beside a connect, a busy check, another recorder
 
     /// A recording still being recorded, asked to be deleted while the recorder is known to be away, is turned
-    /// away before anything is asked, with the sentence that says why on the line; and the recordings are left
-    /// as read. Nothing was sent, so there is nothing a read once the recorder answers would have to put right.
-    ///
-    /// As it is today, and to be rewritten in part: a later change says the sentence in the delete's result and
-    /// leaves the line as it was. The recordings are to stay as read.
+    /// away before anything is asked, saying why in what it hands back and leaving the line as it was; and the
+    /// recordings are left as read. Nothing was sent, so there is nothing a read once the recorder answers would
+    /// have to put right.
     func testARecordingStillBeingRecordedLeavesTheRecordingsReadWhileTheRecorderIsAway() async throws {
         let (_, recorder, model, _) = try await settled()
         let writing = try XCTUnwrap(model.titles.first { $0.recording }, "the demo was meant to be recording")
@@ -748,7 +784,8 @@ final class FunnelGateTests: XCTestCase {
 
         expectFalse(await deleteARecording(model, writing))
 
-        XCTAssertEqual(model.problem(for: .recorder), Said.stillRecording)
+        XCTAssertEqual(whyNotJustNow(model), Said.stillRecording)
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the delete wrote over the line at its door")
         XCTAssertTrue(model.titlesLoaded, "the recordings were marked unread with nothing sent")
         expectEqual(await recorder.asked, asked, "a recorder known to be away was asked")
     }

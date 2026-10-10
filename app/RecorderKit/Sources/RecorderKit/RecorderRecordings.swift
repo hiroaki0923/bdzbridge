@@ -27,7 +27,7 @@ extension RecorderDriver {
         return await asked(Self.titlesLine, on: link) { _ in
             keep(try await client.allTitles())
             await self.learnTheFreeSpace(on: client, link)
-        } != nil
+        }.wentThrough
     }
 
     /// The free space read again, after a delete or with the list of recordings, and kept in the session for
@@ -76,42 +76,55 @@ extension RecorderDriver {
     /// Said when a recording still being recorded is asked to be deleted.
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
 
-    /// A write: the recorder stops deleting this one to make room. Whether it went through; `keep` is how the
-    /// app's list shows it, called once the recorder has taken it. With no recorder's client, it fails with
-    /// nothing said. Otherwise one operation, as `DeviceLink.run` makes one, on the client in hand at the door:
-    /// silence says that the protect may have arrived (`mayHaveArrived`), and anything else in the recorder's
-    /// words.
-    public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async -> Bool {
-        guard let link, let client = link.client as? RecorderClient else { return false }
-        return await asked(on ? Self.protectingLine : Self.unprotectingLine, sending: Self.mayHaveArrived,
-                           on: link) { _ in
+    /// A write: the recorder stops deleting this one to make room. What it came to, with its sentence, and
+    /// whether the recordings are to be read again once the recorder answers (`readAgain`); `keep` is how the
+    /// app's list shows it, called once the recorder has taken it.
+    ///
+    /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
+    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, or the recorder
+    /// known to be away, each that the app is not connected (`whyNotConnected`). Otherwise one operation, as
+    /// `DeviceLink.run` makes one, on the client in hand at the door. A check that says no has said why on the
+    /// line, and the result says it again (`altered`); silence says that the protect may have arrived
+    /// (`mayHaveArrived`), and anything else is said in the recorder's words, on the line and in the result.
+    ///
+    /// The recordings are to be read again after anything that failed with the recorder known to be away, the
+    /// door that found it so among them: silence may have come after the recorder made the change, and the list
+    /// is read again once it answers rather than guessed at. Not after a door that found no recorder to ask.
+    public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async
+        -> (altered: Altered, readAgain: Bool) {
+        guard let link else { return (.notDone(Self.notConnected), false) }
+        guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
+        guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        let came = await asked(on ? Self.protectingLine : Self.unprotectingLine, sending: Self.mayHaveArrived,
+                               on: link) { _ in
             try await client.updateTitle(id: title.id, protected: on)
             keep()
-        } != nil
+        }
+        return (altered(came, on: link), !came.wentThrough && link.session.unreachable)
     }
 
-    /// A write, and not one that can be undone: the recording is gone from the recorder. Whether it went through;
-    /// `keep` takes the row out of the app's list, called once the recorder has taken it, before the free space
-    /// is read again under the same line (`learnTheFreeSpace`), which cannot fail the delete: it has happened
-    /// whatever that says.
+    /// A write, and not one that can be undone: the recording is gone from the recorder. What it came to, and
+    /// whether the recordings are to be read again, as for `protect`; `keep` takes the row out of the app's list,
+    /// called once the recorder has taken it, before the free space is read again under the same line
+    /// (`learnTheFreeSpace`), which cannot fail the delete: it has happened whatever that says.
     ///
     /// The recorder answers a bare HTTP 500 for a recording it is still writing to, which on screen reads as a
     /// fault in the app. The screens do not offer it, but a row can be a few minutes old: one still being
-    /// recorded is turned away before anything is sent, and the line says why (`stillRecording`). Then as
-    /// `protect`: no recorder's client fails with nothing said, and silence says that the delete may have
-    /// arrived.
-    public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async -> Bool {
-        guard let link else { return false }
-        if title.recording {
-            link.owner?.problem = Self.stillRecording
-            return false
-        }
-        guard let client = link.client as? RecorderClient else { return false }
-        return await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in
+    /// recorded is turned away before anything is sent, the result saying why (`stillRecording`) and the line
+    /// left as it was, and the recordings are not to be read again for it. Then as `protect`: its doors, and
+    /// silence saying that the delete may have arrived.
+    public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
+        -> (altered: Altered, readAgain: Bool) {
+        guard let link else { return (.notDone(Self.notConnected), false) }
+        if title.recording { return (.notDone(Self.stillRecording), false) }
+        guard let client = link.client as? RecorderClient else { return (.notDone(whyNotConnected), false) }
+        guard !link.session.unreachable else { return (.notDone(whyNotConnected), true) }
+        let came = await asked(Self.deletingTitleLine, sending: Self.mayHaveArrived, on: link) { _ in
             try await client.deleteTitle(id: title.id)
             keep()
             await self.learnTheFreeSpace(on: client, link)
-        } != nil
+        }
+        return (altered(came, on: link), !came.wentThrough && link.session.unreachable)
     }
 
     // MARK: - playback and power
@@ -133,14 +146,22 @@ extension RecorderDriver {
     /// Playing turns a recorder in network standby on first and waits for it (`RecorderClient.play`), saying on
     /// the line how long it has been (`poweringOnLine`). One still not on by the end of the wait, or a pause or a
     /// stop sent to one in standby, answers 880, which the session keeps (`SessionState.needsPower`) for the
-    /// sheet to offer to turn it on; the offer goes at the door of each, whatever becomes of it. With no
-    /// recorder's client, nothing is done or said. Otherwise one operation, as `DeviceLink.run` makes one, on the
-    /// client in hand at the door, whose silence is said as a read's.
-    public func play(_ title: RecordedTitle, _ operation: String) async {
-        guard let link, let client = link.client as? RecorderClient else { return }
+    /// sheet to offer to turn it on. What it came to, with its sentence.
+    ///
+    /// Turned away at the door as a protect is (`protect`), the result saying that the app is not connected and
+    /// the line left as it was; the offer to turn the recorder on is left as it was too, since nothing was asked.
+    /// Past the door the offer goes, whatever becomes of the request. Then one operation, as `DeviceLink.run`
+    /// makes one, on the client in hand at the door, whose silence is said as a read's; what the check or a
+    /// failure said is in the result as well as on the line (`altered`).
+    @discardableResult
+    public func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
+        guard let link else { return .notDone(Self.notConnected) }
+        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+            return .notDone(whyNotConnected)
+        }
         let owner = link.owner
         link.session.powerNeeded(false)
-        _ = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, on: link) { line in
+        let came = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, on: link) { line in
             do {
                 if operation == "play" {
                     try await client.play(titleID: title.id) { @MainActor seconds in
@@ -154,42 +175,72 @@ extension RecorderDriver {
                 throw error
             }
         }
+        return altered(came, on: link)
     }
 
     /// Turns the recorder on, which also turns on the television attached to it, and takes the offer to do so
     /// away once the recorder has said it is on. As `play` otherwise.
-    public func powerOn() async {
-        guard let link, let client = link.client as? RecorderClient else { return }
-        _ = await asked(Self.turningOnLine, on: link) { _ in
+    @discardableResult
+    public func powerOn() async -> Altered {
+        guard let link else { return .notDone(Self.notConnected) }
+        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+            return .notDone(whyNotConnected)
+        }
+        let came = await asked(Self.turningOnLine, on: link) { _ in
             _ = try await client.powerOn()
             link.session.powerNeeded(false)
         }
+        return altered(came, on: link)
     }
 
     // MARK: - one request
 
     /// One thing the reader asked of the recorder, as `DeviceLink.run` makes it, written out so that what is asked
     /// in it can be the operation's own: under `line`, the recorder made sure of first (`DeviceLink.check`),
-    /// then `work`, handed the line's token. What `work` returned, or nil when the check said no -- it has said
-    /// why -- or `work` failed, which is said (`DeviceLink.say`): `sending` is the sentence for silence met by
-    /// what changes the recorder, nil for a read. Going through clears the line of what went wrong, once `work`
-    /// is over.
+    /// then `work`, handed the line's token. What `work` returned, or how it failed: the check said no -- it has
+    /// said why -- or `work` failed, which is said (`DeviceLink.say`): `sending` is the sentence for silence met
+    /// by what changes the recorder, nil for a read. Going through clears the line of what went wrong, once
+    /// `work` is over.
     ///
     /// `work` asks the client in hand at the operation's door, which is the one the check is asked with: nothing
     /// suspends between the door and the check.
     func asked<T>(_ line: String, sending: String? = nil, on link: DeviceLink,
-                  _ work: @MainActor (Activities.Token?) async throws -> T) async -> T? {
+                  _ work: @MainActor (Activities.Token?) async throws -> T) async -> Result<T, OperationFailure> {
         let owner = link.owner
         return await link.underALine(line) { token in
-            guard case .up = await link.check() else { return nil }
-            do {
-                let value = try await work(token)
-                owner?.problem = nil
-                return value
-            } catch {
-                _ = link.say(OperationFailure(error, sending: sending), ofARead: sending == nil)
-                return nil
+            switch await link.check() {
+            case .notUp(let why):
+                return .failure(.notSent(why))
+            case .up:
+                do {
+                    let value = try await work(token)
+                    owner?.problem = nil
+                    return .success(value)
+                } catch {
+                    return .failure(link.say(OperationFailure(error, sending: sending), ofARead: sending == nil))
+                }
             }
         }
+    }
+
+    /// What a write asked through `asked` came to, for its result: done, or not, saying what the line says of it.
+    /// What was sent and failed is the link's sentence on the line; where the check before it said no, whatever
+    /// it left there, and that the app is not connected where it left nothing -- the reservations' rule
+    /// (`Reserved`).
+    func altered<T>(_ came: Result<T, OperationFailure>, on link: DeviceLink) -> Altered {
+        switch came {
+        case .success:
+            .done(saying: nil)
+        case .failure(let failure):
+            .notDone(failure.sentence ?? link.owner?.problem ?? whyNotConnected)
+        }
+    }
+}
+
+extension Result {
+    /// Whether what was asked went through.
+    var wentThrough: Bool {
+        if case .success = self { return true }
+        return false
     }
 }

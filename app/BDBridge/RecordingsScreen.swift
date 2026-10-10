@@ -115,11 +115,7 @@ struct RecordingsScreen: View {
                 switch shown {
                 case .confirm(let title):
                     Button("削除する", role: .destructive) {
-                        Task {
-                            if await !model.delete(title) {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
-                            }
-                        }
+                        Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
@@ -189,8 +185,9 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, ask: { removing = title.id },
-                            unprotect: { Task { await model.setProtected(title, false) } })
+                .titleSwipe(title, ask: { removing = title.id }, unprotect: {
+                    Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
+                })
             }
             .listStyle(.plain)
             .overlay { if listed.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
@@ -414,11 +411,7 @@ struct GroupSheet: View {
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
                     Button("削除する", role: .destructive) {
-                        Task {
-                            if await !model.delete(title) {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
-                            }
-                        }
+                        Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
                     }
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
@@ -468,8 +461,9 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, ask: { removing = title.id },
-                        unprotect: { Task { await model.setProtected(title, false) } })
+            .titleSwipe(selecting ? nil : title, ask: { removing = title.id }, unprotect: {
+                Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
+            })
         }
         .listStyle(.plain)
     }

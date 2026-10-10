@@ -16,64 +16,80 @@ extension RecorderDriver {
     /// the app's to say.
     public func recorderRules() async -> [RecorderRule]? {
         guard let link, let client = link.client as? RecorderClient else { return nil }
-        return await asked(Self.conditionsLine, on: link) { _ in try await client.recorderRules() }
+        return try? await asked(Self.conditionsLine, on: link) { _ in try await client.recorderRules() }.get()
     }
 
-    /// Registers a condition on the recorder itself, which then records by it with nothing else running. Whether
-    /// it went through; `readAfter` is what the caller has done once it has, before the line from the press is
-    /// taken down.
+    /// Registers a condition on the recorder itself, which then records by it with nothing else running. What it
+    /// came to, with its sentence; `readAfter` is what the caller has done once it has gone through, before the
+    /// line from the press is taken down.
     ///
     /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
     /// refused before anything is sent, as a reservation's is (`reserve`), and so is one the slot has not answered
-    /// since the recorder last answered and does not answer while it is waited for (`withholds`): each says on the
-    /// line which disk cannot be had, by what the sheet has left to offer (`RecorderDisk.chooseAnother`). A
-    /// condition is never changed, so one made to a disk the reader did not pick could only be deleted and made
-    /// again. The disk the last request found not to be had is forgotten as it begins (`clearTheDiskNotHad`).
-    /// With no recorder's client, it fails with nothing said.
+    /// since the recorder last answered and does not answer while it is waited for (`withholds`): each says which
+    /// disk cannot be had, by what the sheet has left to offer (`RecorderDisk.chooseAnother`). A condition is
+    /// never changed, so one made to a disk the reader did not pick could only be deleted and made again. The
+    /// disk the last request found not to be had is forgotten as it begins (`clearTheDiskNotHad`).
+    ///
+    /// What a door turns away, with nothing sent, is said in the result and not on the line, which keeps what an
+    /// earlier operation left there (`Reserved`): the link gone, no recorder's client in hand, or the recorder
+    /// known to be away, each that the app is not connected (`whyNotConnected`); a disk not had; a wait for the
+    /// slot given up on (`slotWaitGivenUp`).
     ///
     /// To the slot, the recorder is made sure of, and the slot waited for, before the registration goes out --
     /// waking the recorder leaves the disk to be waited for -- under the registration's line from the press,
     /// which stays up until the caller's `readAfter` is over: the sheet holds its button while a line is up, so a
-    /// second press cannot make a second condition meanwhile. The recorder not answering, or the wait given up,
-    /// fails it with nothing more said. Then one operation, as `DeviceLink.run` makes one, on the client in hand
-    /// at the door, under a line of its own: silence says that the registration may have arrived.
-    public func addRule(_ request: RecorderRuleRequest, readAfter: @MainActor () async -> Void) async -> Bool {
+    /// second press cannot make a second condition meanwhile. The recorder not answering, at the check or at the
+    /// slot, ends it there with nothing sent, the result saying again what that left on the line. Then one
+    /// operation, as `DeviceLink.run` makes one, on the client in hand at the door, under a line of its own:
+    /// silence says that the registration may have arrived, and what the check or a failure said is in the
+    /// result as well as on the line (`altered`).
+    public func addRule(_ request: RecorderRuleRequest, readAfter: @MainActor () async -> Void) async -> Altered {
         clearTheDiskNotHad()
-        guard let link, let client = link.client as? RecorderClient else { return false }
+        guard let link else { return .notDone(Self.notConnected) }
+        guard let client = link.client as? RecorderClient else { return .notDone(whyNotConnected) }
         let owner = link.owner
         guard RecorderDisk.offers(request.destination, with: link.session.usbDisk) else {
-            owner?.problem = RecorderDisk.chooseAnother(than: request.destination, usb: link.session.usbDisk)
-            return false
+            return .notDone(RecorderDisk.chooseAnother(than: request.destination, usb: link.session.usbDisk))
         }
+        guard !link.session.unreachable else { return .notDone(whyNotConnected) }
         let toTheSlot = request.destination == RecorderDisk.usbID
-        return await link.underALine(toTheSlot ? Self.registeringLine : nil) { _ in
+        return await link.underALine(toTheSlot ? Self.registeringLine : nil) { _ -> Altered in
             if toTheSlot {
-                guard await link.ensureUp() else { return false }
-                if let withheld = await self.withholds(request.destination) {
-                    if withheld == .noDisk {
-                        owner?.problem = RecorderDisk.chooseAnother(than: request.destination,
-                                                                    usb: link.session.usbDisk)
-                    }
-                    return false
+                guard await link.ensureUp() else { return .notDone(owner?.problem ?? self.whyNotConnected) }
+                switch await self.withholds(request.destination) {
+                case nil:
+                    break
+                case .noDisk?:
+                    return .notDone(RecorderDisk.chooseAnother(than: request.destination, usb: link.session.usbDisk))
+                case .silence?:
+                    return .notDone(owner?.problem ?? self.whyNotConnected)
+                case .givenUp?:
+                    return .notDone(Self.slotWaitGivenUp)
                 }
             }
-            let made = await self.asked(Self.registeringLine, sending: Self.mayHaveArrived, on: link) { _ in
+            let came = await self.asked(Self.registeringLine, sending: Self.mayHaveArrived, on: link) { _ in
                 _ = try await client.createRecorderRule(request)
-            } != nil
-            if made { await readAfter() }
-            return made
+            }
+            let altered = self.altered(came, on: link)
+            if came.wentThrough { await readAfter() }
+            return altered
         }
     }
 
     /// Deletes a condition, never edits one: a condition read over the LAN lacks the channel narrowing the
-    /// recorder's own screen can set, and writing it back would erase that. Whether it went through. With no
-    /// recorder's client, it fails with nothing said. Otherwise one operation, as `DeviceLink.run` makes one, on
-    /// the client in hand at the door: silence says that the delete may have arrived. The recorder renumbers a
-    /// condition whenever its own screen edits one, so the caller reads the list again afterwards either way.
-    public func removeRule(_ rule: RecorderRule) async -> Bool {
-        guard let link, let client = link.client as? RecorderClient else { return false }
-        return await asked(Self.removingConditionLine, sending: Self.mayHaveArrived, on: link) { _ in
+    /// recorder's own screen can set, and writing it back would erase that. What it came to, with its sentence.
+    /// Turned away at the door as a condition added is, the result saying that the app is not connected and the
+    /// line left as it was. Otherwise one operation, as `DeviceLink.run` makes one, on the client in hand at the
+    /// door: silence says that the delete may have arrived, and what the check or a failure said is in the result
+    /// as well as on the line (`altered`). The recorder renumbers a condition whenever its own screen edits one,
+    /// so the caller reads the list again afterwards either way.
+    public func removeRule(_ rule: RecorderRule) async -> Altered {
+        guard let link else { return .notDone(Self.notConnected) }
+        guard let client = link.client as? RecorderClient, !link.session.unreachable else {
+            return .notDone(whyNotConnected)
+        }
+        return altered(await asked(Self.removingConditionLine, sending: Self.mayHaveArrived, on: link) { _ in
             try await client.deleteRecorderRule(id: rule.id)
-        } != nil
+        }, on: link)
     }
 }

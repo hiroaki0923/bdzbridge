@@ -68,11 +68,7 @@ struct RecorderRulesScreen: View {
             switch shown {
             case .confirm(let rule):
                 Button("削除する", role: .destructive) {
-                    Task {
-                        if await !model.removeRecorderRule(rule) {
-                            failure = model.problem ?? "レコーダーがエラーを返しました"
-                        }
-                    }
+                    Task { if case .notDone(let why) = await model.removeRecorderRule(rule) { failure = why } }
                 }
                 Button("キャンセル", role: .cancel) {}
             case .failed:
@@ -287,10 +283,11 @@ struct RecorderRuleSheet: View {
                                                               timeScope: timeScope, broadcastingScope: broadcastingScope,
                                                               qualityCode: Codes.quality[quality] ?? 240,
                                                               destination: chosenDisk ?? RecorderDisk.internalID)
-                            if await model.addRecorderRule(request) {
+                            switch await model.addRecorderRule(request) {
+                            case .done:
                                 dismiss()
-                            } else {
-                                failure = model.problem ?? "レコーダーがエラーを返しました"
+                            case .notDone(let why):
+                                failure = why
                                 // Refused for a disk that cannot be had -- no longer offered, or not answered by
                                 // the slot while it was waited for: the sheet goes back to the internal disk,
                                 // named, for the reader to send again or leave.

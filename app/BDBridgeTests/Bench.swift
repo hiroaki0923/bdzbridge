@@ -1167,7 +1167,8 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
 }
 
 /// Why the last reservation or change on the recorder asked through the two above was not done, as its result
-/// said it; nil when it was made, kept or done.
+/// said it, or the last of the recordings' and the keyword conditions' writes asked through the helpers below;
+/// nil when it was made, kept or done.
 @MainActor
 func whyNotJustNow(_ model: AppModel) -> String? {
     reasons.first { $0.model === model }?.why
@@ -1194,41 +1195,51 @@ func deleteThroughTheHost(_ host: TVHost, _ row: Reservation) async -> Bool {
 // for it: where these operations live can change, and only the bodies here change with it.
 
 /// A recording protected, or its protection taken off, as its sheet and the list's swipe ask for it: whether it
-/// went through.
+/// went through. Why not, as its result said it, is noted for `whyNotJustNow`, as for each of the five below.
 @MainActor
 func protectARecording(_ model: AppModel, _ title: RecordedTitle, _ on: Bool) async -> Bool {
-    await model.setProtected(title, on)
+    noted(await model.setProtected(title, on), of: model)
 }
 
 /// A recording deleted, as its sheet, the list's swipe and the group's sheet ask for it: whether it went through.
 @MainActor
 func deleteARecording(_ model: AppModel, _ title: RecordedTitle) async -> Bool {
-    await model.delete(title)
+    noted(await model.delete(title), of: model)
 }
 
 /// A recording played, paused or stopped on the television the recorder is attached to, as its sheet asks for
 /// it: `operation` is the recorder's own word for it (`play`, `pause`, `stop`).
 @MainActor
 func playARecording(_ model: AppModel, _ title: RecordedTitle, _ operation: String) async {
-    await model.play(title, operation)
+    _ = noted(await model.play(title, operation), of: model)
 }
 
 /// The recorder turned on, as a recording's sheet offers once the recorder has said it is in standby.
 @MainActor
 func turnTheRecorderOn(_ model: AppModel) async {
-    await model.powerOn()
+    _ = noted(await model.powerOn(), of: model)
 }
 
 /// A keyword condition registered on the recorder, as its sheet asks for it: whether it went through.
 @MainActor
 func addACondition(_ model: AppModel, _ request: RecorderRuleRequest) async -> Bool {
-    await model.addRecorderRule(request)
+    noted(await model.addRecorderRule(request), of: model)
 }
 
 /// A keyword condition deleted from the recorder, as its screen's swipe asks for it: whether it went through.
 @MainActor
 func removeACondition(_ model: AppModel, _ rule: RecorderRule) async -> Bool {
-    await model.removeRecorderRule(rule)
+    noted(await model.removeRecorderRule(rule), of: model)
+}
+
+/// Whether `altered` was done, with why not noted for `whyNotJustNow`.
+@MainActor
+private func noted(_ altered: Altered, of model: AppModel) -> Bool {
+    var why: String?
+    if case .notDone(let said) = altered { why = said }
+    note(why, of: model)
+    if case .done = altered { return true }
+    return false
 }
 
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands
