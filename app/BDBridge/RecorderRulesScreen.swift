@@ -34,7 +34,7 @@ struct RecorderRulesScreen: View {
                 ForEach(model.recorderRules) { rule in
                     RecorderRuleRow(rule: rule, disk: model.diskShown(rule))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("削除") { removing = rule }.tint(.red)
+                            Button("削除") { removing = rule }.tint(.red).disabled(model.isBusy(for: .recorder))
                         }
                 }
             } footer: {
@@ -50,7 +50,7 @@ struct RecorderRulesScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel("条件を追加")
-                    .disabled(!model.connected || model.busy != nil)
+                    .disabled(!model.connected || model.isBusy(for: .recorder))
             }
         }
         // As the recordings' pull-down: the list read again, or a connect.
@@ -71,6 +71,7 @@ struct RecorderRulesScreen: View {
                 Button("削除する", role: .destructive) {
                     Task { if case .notDone(let why) = await model.removeRecorderRule(rule) { failure = why } }
                 }
+                .disabled(model.isBusy(for: .recorder))
                 Button("キャンセル", role: .cancel) {}
             case .failed:
                 Button("OK", role: .cancel) {}
@@ -308,7 +309,7 @@ struct RecorderRuleSheet: View {
                             }
                         }
                     }
-                    .disabled(problem != nil || model.busy != nil || asking)
+                    .disabled(problem != nil || model.isBusy(for: .recorder) || asking)
                 }
             }
             .interactiveDismissDisabled(asking)

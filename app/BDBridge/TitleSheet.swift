@@ -57,7 +57,7 @@ struct TitleSheet: View {
                 }
 
                 Section("テレビで再生") {
-                    // Held off while anything is under way, and from the press until the sheet's own request is
+                    // Held off while the recorder works, and from the press until the sheet's own request is
                     // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
                     // on its way resumed what the reader had meant to pause; and turning the recorder on to play
                     // takes long enough to invite a second tap too.
@@ -89,7 +89,7 @@ struct TitleSheet: View {
                             .foregroundStyle(Color.legibleOrange)
                         }
                     }
-                    .disabled(model.busy != nil || asking)
+                    .disabled(model.isBusy(for: .recorder) || asking)
                     Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -97,11 +97,11 @@ struct TitleSheet: View {
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in ask { await model.setProtected(current, on) } }))
-                    .disabled(model.busy != nil || asking)
+                    .disabled(model.isBusy(for: .recorder) || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
                     let whyNot = RecorderDriver.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(whyNot != nil || model.busy != nil || asking)
+                        .disabled(whyNot != nil || model.isBusy(for: .recorder) || asking)
                     if let whyNot {
                         Text(whyNot)
                             .font(.caption)
@@ -142,6 +142,7 @@ struct TitleSheet: View {
                             return came
                         }
                     }
+                    .disabled(model.isBusy(for: .recorder))
                     Button("キャンセル", role: .cancel) {}
                 } else {
                     Button("OK", role: .cancel) {}

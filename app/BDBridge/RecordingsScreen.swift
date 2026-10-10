@@ -115,6 +115,7 @@ struct RecordingsScreen: View {
                     Button("削除する", role: .destructive) {
                         Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
                     }
+                    .disabled(model.isBusy(for: .recorder))
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -183,7 +184,7 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, ask: { removing = title.id }, unprotect: {
+                .titleSwipe(title, held: model.isBusy(for: .recorder), ask: { removing = title.id }, unprotect: {
                     Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
                 })
             }
@@ -199,9 +200,10 @@ extension View {
     ///
     /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
     /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
-    /// first. `title` is nil where the row should not be swipeable at all. Both are held while `held` says so: on
-    /// a programme's sheet, while its own request is out.
-    func titleSwipe(_ title: RecordedTitle?, held: Bool = false, ask: @escaping () -> Void,
+    /// first. `title` is nil where the row should not be swipeable at all. Both are held while the recorder works
+    /// (`held`), and on a programme's sheet while its own request is out: a second delete or protect of a row
+    /// while one is out, and nothing held by the television's work.
+    func titleSwipe(_ title: RecordedTitle?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let title {
@@ -419,7 +421,7 @@ struct GroupSheet: View {
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
                     Button("削除する", role: .destructive) { ask { await model.delete(title) } }
-                        .disabled(asking)
+                        .disabled(model.isBusy(for: .recorder) || asking)
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -478,9 +480,8 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, held: asking, ask: { removing = title.id }, unprotect: {
-                ask { await model.setProtected(title, false) }
-            })
+            .titleSwipe(selecting ? nil : title, held: model.isBusy(for: .recorder) || asking,
+                        ask: { removing = title.id }, unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
     }
