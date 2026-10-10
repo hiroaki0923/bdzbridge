@@ -740,6 +740,88 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertGreaterThan(model.counts["td"]?.programs ?? 0, 0, "what was fetched is not on screen")
     }
 
+    /// What a refresh puts on the screens, and when. A type is on screen as soon as it is stored, before the next
+    /// type has answered: the first run does not wait for BS, CS and BS4K behind the terrestrial programmes it
+    /// opens on. And a type stored before the recorder fell silent over its logos, which nothing reports as
+    /// stored, is on screen once the refresh has ended, by the read of the cache that ends every refresh however
+    /// it went.
+    func testATypeOfTheGuideIsOnScreenAsSoonAsItIsStoredAndOneStoredBeforeSilenceOnceTheRefreshEnds() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+        let guide = try vectorFile("epg-sample.dat")
+        XCTAssertEqual(model.counts["td"]?.programs, 0, "the cache was meant to hold no programme")
+        XCTAssertTrue(model.channels.isEmpty, "the cache was meant to hold no station")
+
+        let before = await recorder.asked
+        await recorder.answer(Kind.guide[0], with: .body(guide))
+        await recorder.hold(only: Kind.guide[1])
+        let asking = Task { await refreshTheGuideByHand(model) }
+        try await until("the second type was never asked for") {
+            await recorder.asked(Kind.guide[1], since: before) == 1
+        }
+        XCTAssertGreaterThan(model.counts["td"]?.programs ?? 0, 0,
+                             "the first type was stored and is not on screen while the second is out")
+        XCTAssertFalse(model.channels.isEmpty, "the stations of the type on screen are not shown")
+        XCTAssertEqual(model.counts["bs"]?.programs, 0)
+
+        // The second type comes with a guide, and the recorder says nothing when asked for its logos.
+        await recorder.answer(Kind.guide[1], with: .body(guide))
+        await recorder.goQuiet(on: Ask.logos[1])
+        await recorder.letGo()
+        await asking.value
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to have fallen silent over the logos")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
+        expectEqual(await recorder.asked(Kind.guide[2], since: before), 0, "a silent recorder was asked for more")
+        XCTAssertGreaterThan(model.counts["bs"]?.programs ?? 0, 0,
+                             "a type stored before the silence is not on screen once the refresh has ended")
+        XCTAssertEqual(model.guideDownloads, 0)
+    }
+
+    /// Which types a connect fetches is judged by what the cache holds as the connect asks, not by what the model
+    /// read from it last: the overnight run writes the cache through a connection of its own, in this very
+    /// process when the app was kept alive behind it. A type marked there as answered for, after the model read
+    /// its marks, is not fetched, and its mark is on screen; a type whose mark there is behind the recorder's
+    /// last rebuild, though the model holds a newer one, is fetched, and alone.
+    ///
+    /// The marks are the test's own, a day ahead of now and two days back: the hour the recorder rebuilds its
+    /// files at cannot fall between a mark and the look at it.
+    func testAConnectFetchesTheTypesTheCacheSaysAreBehindAndNoOther() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let cache = try GuideStore(path: bench.guidePath)
+        let ahead = Date().addingTimeInterval(86_400), behind = Date().addingTimeInterval(-2 * 86_400)
+        for type in GuideRefresh.broadcastingTypes {
+            try await cache.noteNoGuide(broadcasting: type, at: type == "cs" ? behind : ahead)
+        }
+        let recorder = NamedRecorder(1)
+        // The one type behind is asked for at the first connect and not had, so the model goes on holding it
+        // as behind.
+        await recorder.answer(Kind.guide[2], with: .status(500))
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        func files(since count: Int) async -> [String] {
+            await recorder.heard(since: count).filter { Kind.guide.contains($0) }
+        }
+        expectEqual(await files(since: 0), [Kind.guide[2]], "the first connect was meant to ask for the one type")
+        XCTAssertEqual(model.staleBroadcastingTypes, ["cs"], "the model was meant to hold the type as behind")
+
+        // Marked through another connection as answered for, as the overnight run marks it.
+        try await cache.noteNoGuide(broadcasting: "cs", at: ahead)
+        var count = await recorder.heard.count
+        await reconnect(model)
+        expectEqual(await files(since: count), [], "a type the cache says was answered for was fetched")
+        XCTAssertEqual(model.counts["cs"]?.checked, RecorderTime.format(ahead),
+                       "what another connection wrote to the cache is not on screen")
+        XCTAssertFalse(model.guideIsStale)
+
+        // And one behind in the cache alone: the model read a mark a day ahead for it at the connect before.
+        try await cache.noteNoGuide(broadcasting: "bs", at: behind)
+        count = await recorder.heard.count
+        await reconnect(model)
+        expectEqual(await files(since: count), [Kind.guide[1]],
+                    "the one type the cache says is behind was to be fetched, and no other")
+    }
+
     // MARK: - a recording's details
 
     /// A recording's details are asked as its sheet opens, before anybody has asked for anything, and have no
