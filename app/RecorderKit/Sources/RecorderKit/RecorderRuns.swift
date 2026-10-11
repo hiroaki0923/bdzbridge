@@ -9,9 +9,10 @@ public enum RunKind: Sendable, Equatable {
 }
 
 /// What the recorder's driver knows of a run between two of its recordings: what the run does, and the count of
-/// recorders let go of as it began (`DeviceLink.generation`). Made as the run begins (`RecorderDriver.beginRun`)
-/// and handed back with each of its steps. It holds no client: each request of a run goes on the client the link
-/// has in hand as it is sent.
+/// recorders let go of as it began (`DeviceLink.generation`), which says which recorder the run is about: asked
+/// again before anything of the run is sent and as each answer comes back (`DeviceLink.letGo(since:)`). Made as
+/// the run begins (`RecorderDriver.beginRun`), in the turn its job is set up, and handed back with each of its
+/// steps. It holds no client: each request of a run goes on the client the link has in hand as it is sent.
 public struct Run: Sendable {
     let kind: RunKind
     let began: Int
@@ -26,7 +27,9 @@ public enum RunStop: Error, Sendable, Equatable {
     /// (`RecorderDriver.mayGoOn`): at a door, that the app is not connected; after a check that said no, what
     /// that check left on the host's line of what went wrong, or that the app is not connected where it left
     /// nothing; and after a check that heard something in place of the recorder saying which it is, what it
-    /// heard, in the recorder's words.
+    /// heard, in the recorder's words. For a run whose recorder was let go of, before a request or with its
+    /// answer, what a single write says then (`RecorderDriver.whyLetGo`): that another recorder answered, or,
+    /// with no recorder in hand since, what whatever let go of it left on the line.
     case said(String)
     /// The recorder said nothing to a request of the run. `afterSending` says whether that request was one that
     /// changes the recorder: it may have arrived all the same.
@@ -171,13 +174,25 @@ extension RecorderDriver {
     ///
     /// Not to be taken for a recording the recorder was too busy to answer for: that one request, turned down
     /// through the client's tries, passes the recording over and the run goes on.
+    ///
+    /// A run is for the recorder it began with (`Run`). Let go of since -- another recorder answered a check, or
+    /// the app let go of it over a cache it could not make over to the one that answered -- the run stops, with
+    /// nothing asked, nothing written on the line, which is the newcomer's or says already why, and nobody lost:
+    /// why is what a single write says then (`whyLetGo`). Asked after the wait of 1, ahead of what that check
+    /// found, so that a check which ended on another recorder is said so and not as a check that failed; and
+    /// again after the check of 3, which can itself be what hears the other recorder.
     public func mayGoOn(_ run: Run) async -> RunStop? {
         guard let link else { return .said(Self.notConnected) }
-        if let check = link.wakeCheck, await check.value != nil { return whatTheLinkSaid(on: link) }
+        var found: NotUp?
+        if let check = link.wakeCheck { found = await check.value }
+        guard !link.letGo(since: run.began) else { return .said(whyLetGo(on: link)) }
+        guard found == nil else { return whatTheLinkSaid(on: link) }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .said(whyNotConnected)
         }
-        guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return whatTheLinkSaid(on: link) }
+        let check = await link.check(evenIfRecent: link.checksAgain)
+        guard !link.letGo(since: run.began) else { return .said(whyLetGo(on: link)) }
+        guard case .up = check else { return whatTheLinkSaid(on: link) }
         guard link.mayBeSent else { return .said(whyNotSent(on: link)) }
         return nil
     }
@@ -277,19 +292,23 @@ extension RecorderDriver {
 
     /// Ends a run. After one that deletes, the free space is read again, on the client the link has in hand,
     /// and kept in the session for the screens -- unless the recorder is known to be away, which would cost the
-    /// read its timeout, or no client is in hand, the recorder having been let go of. It is only shown, so a
-    /// recorder that will not say leaves it unknown (`storage(of:)`) and the run it follows is not said to have
-    /// failed. Silence is still silence: it loses the recorder, with nothing said on the line. Whatever
-    /// `deleted`, the number of recordings the run deleted, and `stopped`, what stopped it if anything did: the
-    /// free space is read after a run that deleted nothing, and after one the recorder stopped while it is not
-    /// known to be away.
+    /// read its timeout. It is only shown, so a recorder that will not say leaves it unknown (`storage(of:)`)
+    /// and the run it follows is not said to have failed. Silence is still silence: it loses the recorder, with
+    /// nothing said on the line. Whatever `deleted`, the number of recordings the run deleted, and `stopped`,
+    /// what stopped it if anything did: the free space is read after a run that deleted nothing, and after one
+    /// the recorder stopped while it is not known to be away.
+    ///
+    /// Not for a recorder the run did not begin with (`Run`): let go of since, nothing is read, the free space
+    /// being another recorder's or nobody's to ask. Let go of while the read is out, what comes back is not
+    /// kept in the session, which is the newcomer's by then, and its silence loses nobody.
     public func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
-        guard case .delete = run.kind, let link, !link.session.unreachable,
+        guard case .delete = run.kind, let link, !link.letGo(since: run.began), !link.session.unreachable,
               let client = link.client as? RecorderClient else { return }
         do {
-            link.session.learned(storage: try await Self.storage(of: client))
+            let storage = try await Self.storage(of: client)
+            if !link.letGo(since: run.began) { link.session.learned(storage: storage) }
         } catch {
-            link.lost()
+            if !link.letGo(since: run.began) { link.lost() }
         }
     }
 }

@@ -1348,6 +1348,87 @@ final class RunGateTests: XCTestCase {
         XCTAssertNil(model.job, "what the run came to is shown over a recorder it was not about")
     }
 
+    /// A run waiting for the app to come back when a look at the network wakes the recorder, finds another one
+    /// answering, and cannot make the cache over to it: the app lets go of the recorder the run began with, and
+    /// nobody stops the job as 中止 would. Back in front the run stops, with nothing asked at the address, and
+    /// its job stays on the screen and says that it was stopped and, under that, why the app let go of the
+    /// recorder, as the line says it and goes on saying it -- not that the app is not connected, which is all a
+    /// door could say of a recorder no longer in hand. A bulk delete, and a scan for duplicates.
+    func testARunBackFromWaitingForTheAppToARecorderLetGoOfOverItsCacheSaysWhy() async throws {
+        for scanning in [false, true] {
+            let what = scanning ? "the scan" : "the bulk delete"
+            let (bench, recorder, model) = try await settledOverACacheThatGivesUpSoon()
+            let id = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected }?.id,
+                                   "the demo was meant to hold a recording to write to")
+            model.wentToBackground()
+            if scanning {
+                model.startDuplicateScan()
+            } else {
+                model.startBulk(.delete, ids: [id])
+            }
+            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+
+            let writer = Writer(to: bench.guidePath)
+            await recorder.become(2)
+            await recorder.goQuiet(for: 1)
+            bench.network = "away"
+            await lookAtTheNetwork(model)
+            writer.letGo()
+            XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver,
+                           "the cache was meant not to have been made over, before \(what) came back")
+            XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
+            XCTAssertTrue(model.jobRunning, "\(what) was meant to be waiting still")
+            XCTAssertEqual(model.job?.cancelled, false, "nobody was meant to have stopped \(what)")
+
+            // Whatever the return sets going at the address is held at its first ask.
+            await recorder.hold()
+            let count = await recorder.heard.count
+            let back = Task { await model.returnedToForeground() }
+            try await untilTheRunEnds(model, "\(what) never ended once the app was back")
+            XCTAssertEqual(model.job?.stopped, .said(Said.cacheNotMadeOver), what)
+            XCTAssertEqual(model.job?.outcome, scanning ? "0 件まで調べて中止しました" : "0 件を削除したところで中止しました")
+            XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver, "\(what) wrote on the line")
+            expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [],
+                        "\(what) asked the address something for a recorder the app had let go of")
+            await recorder.letGo()
+            await back.value
+        }
+    }
+
+    /// What the cache holds of a scan's candidates is put into memory as the scan begins, and only for the
+    /// recorder the scan was asked for. The cache is kept busy -- a write of the app's waits behind another
+    /// connection's, and the scan's read of its texts behind that write -- while a look at the network hears
+    /// another recorder at the address, which empties what memory held of the last one. Once the cache answers,
+    /// the texts it had are the last recorder's: they are not put into memory, where the newcomer's recordings,
+    /// numbered as the last one's were, would be compared on them and not asked about.
+    func testAScanPutsNoTextOfTheCacheIntoMemoryOnceItsRecorderWasLetGoOf() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")
+        try await store.setTitleSummary(first, "前に読んだ番組内容")
+        try await store.setTitleSummary(second, "前に読んだ番組内容")
+
+        let writer = Writer(to: bench.guidePath)
+        let waiting = Task { try? await store.setTitleSummary("0x0", "") }
+        model.startDuplicateScan()
+        await recorder.become(2)
+        bench.network = "another"
+        await lookAtTheNetwork(model)
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "the look at the network was meant to hear another recorder, and say so")
+        XCTAssertTrue(model.jobRunning, "the scan was meant to be waiting for the cache still")
+        XCTAssertTrue(model.summaries.isEmpty, "the cache was meant not to have answered the scan yet")
+        writer.letGo()
+        _ = await waiting.value
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil && !model.jobRunning
+        }
+
+        XCTAssertTrue(model.summaries.isEmpty,
+                      "texts the cache held for the last recorder are in memory over the newcomer")
+        XCTAssertNil(model.job, "what the scan came to is shown over a recorder it was not about")
+    }
+
     /// A scan in front, waiting for a check that is out before its next candidate, when that check wakes the
     /// recorder, finds another one answering, and cannot make the cache over to it: the app lets go of the
     /// recorder it had, and nobody stops the scan as 中止 would. The scan stops all the same, on what the check

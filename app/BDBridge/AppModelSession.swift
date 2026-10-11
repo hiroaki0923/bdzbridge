@@ -289,8 +289,10 @@ extension AppModel {
 
     /// Its lists go at once, and the newcomer is taken up by a connect of its own, which reads its reservations
     /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
-    /// its next step, and the connect waits for it to end, since one does not start beside a job. Said twice:
-    /// the failure line for whoever asked, which the connect takes away, and the strip after that.
+    /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
+    /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
+    /// beside a job. Said twice: the failure line for whoever asked, which the connect takes away, and the strip
+    /// after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
         cancelBulk()

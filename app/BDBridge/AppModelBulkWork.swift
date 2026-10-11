@@ -155,18 +155,24 @@ extension AppModel {
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         switch driver.beginRun(.scanning) {
         case .success(let run):
+            let forgotten = timesForgotten
             jobTask = Task { [weak self] in
-                await self?.runScan(candidates, store: store, run, driver)
+                await self?.runScan(candidates, store: store, run, driver, since: forgotten)
             }
         case .failure(let stop):
             endJob(stoppedBy: stop)
         }
     }
 
+    /// The scan's loop. `forgotten` is `timesForgotten` as the scan was set up, which says which recorder's
+    /// texts memory holds: what the cache had of these recordings is put there only while the count is still
+    /// that, as a list is kept (`keepTitles`). The cache is read across a turn, and a recorder let go of
+    /// meanwhile has had its texts emptied out of memory; the next one gives out the same numbers for its own
+    /// recordings, and would be compared on these.
     private func runScan(_ candidates: [[RecordedTitle]], store: GuideStore, _ run: Run,
-                         _ driver: RecorderDriver) async {
+                         _ driver: RecorderDriver, since forgotten: Int) async {
         let ids = candidates.flatMap { $0.map(\.id) }
-        if let known = try? await store.titleSummaries(ids) {
+        if let known = try? await store.titleSummaries(ids), timesForgotten == forgotten {
             summaries.merge(known) { _, new in new }
         }
         // The recorder is needed only for what the cache does not already hold, and made sure of only then.
@@ -195,7 +201,8 @@ extension AppModel {
                     case .stopped(let stop):
                         // Silence as a rule, which has lost the recorder. Stop at the first rather than wait
                         // it out once for every recording left, and keep nothing for this one: silence says
-                        // nothing about what it is.
+                        // nothing about what it is. Nor is anything kept of a text that came back once the
+                        // recorder had been let go of: it comes here as a stop, not as a text.
                         stopped = stop
                         break scan
                     }
@@ -230,8 +237,9 @@ extension AppModel {
     }
 
     /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and
-    /// the job brought into step with what that came to. What stopped the run at it -- silence, or a no before
-    /// its delete was sent (`RecorderDriver.mayGoOn`) -- or nil: see `runBulk`.
+    /// the job brought into step with what that came to. What stopped the run at it -- silence, a no before
+    /// its delete was sent (`RecorderDriver.mayGoOn`), or the recorder let go of, when nothing is counted and
+    /// the list, which is no longer that recorder's, is left alone -- or nil: see `runBulk`.
     private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
         guard let title = titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))

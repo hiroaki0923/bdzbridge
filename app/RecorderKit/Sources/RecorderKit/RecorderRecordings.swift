@@ -451,7 +451,8 @@ extension RecorderDriver {
         /// The recorder answered and turned the request down, or with something that cannot be read: handed
         /// back for the run to say of that recording, and said nowhere else.
         case refused(any Error)
-        /// The run stops: silence, which has lost the recorder (`RunStop.silent`), or no client in hand to ask.
+        /// The run stops: silence (`RunStop.silent`), the recorder let go of since the run began, or no client
+        /// in hand to ask.
         case stopped(RunStop)
     }
 
@@ -463,15 +464,28 @@ extension RecorderDriver {
     /// recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run, `sending` saying
     /// whether the request is one that changes the recorder. With no client in hand nothing is sent, and the run
     /// stops as not connected.
+    ///
+    /// What is asked is for the recorder the run began with (`Run`). Let go of before the request is handed to
+    /// the client, nothing is sent and the run stops, saying why (`whyLetGo`). Handed over, it goes whatever
+    /// happens after -- the client sends what it was given -- and what comes back once the recorder has been let
+    /// go of, an answer or a refusal, is about that one: the run stops the same way, so that the caller counts
+    /// nothing, takes no row out of a list that is the newcomer's by then, and keeps no text. Silence met across
+    /// a let-go still stops the run as silence, since what was sent may have arrived, but loses nobody: the
+    /// recorder in play has not been asked anything.
     func asked<T: Sendable>(in run: Run, sending: Bool,
                             _ work: @MainActor (RecorderClient) async throws -> T) async -> AskedInARun<T> {
-        guard let link, let client = link.client as? RecorderClient else { return .stopped(.said(whyNotConnected)) }
+        guard let link else { return .stopped(.said(Self.notConnected)) }
+        guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
+        guard let client = link.client as? RecorderClient else { return .stopped(.said(whyNotConnected)) }
         do {
-            return .went(try await work(client))
+            let value = try await work(client)
+            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
+            return .went(value)
         } catch let error as any DeviceError where error.failure == .silent {
-            link.lost()
+            if !link.letGo(since: run.began) { link.lost() }
             return .stopped(.silent(afterSending: sending))
         } catch {
+            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
             return .refused(error)
         }
     }

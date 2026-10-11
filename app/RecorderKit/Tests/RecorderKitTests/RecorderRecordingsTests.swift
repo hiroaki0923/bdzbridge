@@ -436,6 +436,140 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(world.problem, busy, "what the check heard is not on the line")
     }
 
+    /// A run is for the recorder it began with. Once another recorder has described itself at the address and
+    /// been taken up -- the link asks through a client that has heard the newcomer, and is connected to it --
+    /// nothing of a run begun before goes to it: asked whether it may go on, a bulk delete, a bulk protect and a
+    /// scan each stop, saying that another recorder answered; a recording handed to the run all the same is
+    /// neither asked about nor sent; and the free space is not read as the run ends. Nothing is asked of either
+    /// recorder, nothing is written on the line, which is the newcomer's, and the newcomer is not lost. A run
+    /// begun with the newcomer goes.
+    ///
+    /// With no recorder in hand since -- the app let go of the one the run began with and has taken up no other
+    /// -- the run stops the same way, and says what whatever let go of the recorder left on the line, or that
+    /// another recorder answered where the line holds nothing.
+    func testNothingOfARunGoesToARecorderThatTookThePlaceOfTheOneItBeganWith() async throws {
+        let answers = [
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")],
+            "X_DeleteTitle": [Stub.soap("X_DeleteTitle")], "X_UpdateTitle": [Stub.soap("X_UpdateTitle")],
+        ]
+        let (world, driver, first) = try await Self.playing(answers)
+        let link = try XCTUnwrap(driver.link)
+        let title = try await Self.title()
+        let deleting = try driver.beginRun(.delete).get()
+        let protecting = try driver.beginRun(.protecting(true)).get()
+        let scanning = try driver.beginRun(.scanning).get()
+
+        let newcomer = try PlayingRecorder(answers, udn: Self.anotherUDN)
+        world.devices[Stub.host] = newcomer
+        await link.connect()
+        XCTAssertTrue(link.session.connected && link.clientIsAttached, world.problem ?? "no reason given")
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, "the newcomer was meant to be taken up")
+        await newcomer.forget()
+        world.events = []
+        world.problem = Self.left
+
+        let another = RunStop.said(RecorderDriver.anotherAnswered)
+        for run in [deleting, protecting, scanning] {
+            expectEqual(await driver.mayGoOn(run), another)
+        }
+        expectEqual(await driver.delete(title, in: deleting), .stopped(another))
+        expectEqual(await driver.protect(title, true, in: protecting), .stopped(another))
+        expectEqual(await driver.text(of: title, in: scanning), .stopped(another))
+        await driver.end(deleting, deleted: 1, stopped: nil)
+        expectEqual(await newcomer.actions, [], "something of a run went to a recorder it did not begin with")
+        expectEqual(await first.actions, [], "something of a run went to the recorder let go of")
+        XCTAssertEqual(world.problem, Self.left, "a run stopped for its recorder wrote on the newcomer's line")
+        XCTAssertEqual(world.events, [], "something was sent or told for a run stopped for its recorder")
+        XCTAssertTrue(link.session.connected, "a run stopped for its recorder lost the newcomer")
+
+        let begunSince = try driver.beginRun(.delete).get()
+        expectEqual(await driver.mayGoOn(begunSince), nil)
+        expectEqual(await driver.delete(title, in: begunSince), .done)
+        expectEqual(await newcomer.actions, ["X_GetTitleDetail", "X_DeleteTitle"])
+
+        // No recorder in hand since.
+        link.forgetTheDevice()
+        await newcomer.forget()
+        world.problem = "why the app let go of the recorder"
+        expectEqual(await driver.mayGoOn(begunSince), .said("why the app let go of the recorder"))
+        expectEqual(await driver.delete(title, in: begunSince), .stopped(.said("why the app let go of the recorder")))
+        XCTAssertEqual(world.problem, "why the app let go of the recorder")
+        world.problem = nil
+        expectEqual(await driver.mayGoOn(begunSince), another)
+        XCTAssertNil(world.problem, "a run stopped for its recorder wrote on the line")
+        expectEqual(await newcomer.actions, [], "something of a run went to an address the app had let go of")
+    }
+
+    /// What comes back for a run once its recorder has been let go of is not the run's. A request is held at the
+    /// recorder the run began with while another describes itself at the address on a connect, whose client is
+    /// another one; then the held request is answered. The run stops there, saying that another recorder
+    /// answered, whatever the answer: a scan's text is not handed back to be kept, a delete taken is not handed
+    /// back as done, a delete refused not as a recording passed over, and a question answered "no such
+    /// recording" not as a recording gone, which would take a row out of a list that is the newcomer's by then.
+    /// Nothing is written on the newcomer's line.
+    ///
+    /// Silence across the let-go still stops the run as silence and loses nobody. And the free space read as a
+    /// run ends, answered across the let-go, is not kept: what the session shows is the newcomer's.
+    func testWhatComesBackForARunOnceItsRecorderWasLetGoOfIsNotTheRuns() async throws {
+        let read = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        let another = RunStop.said(RecorderDriver.anotherAnswered)
+        let title = try await Self.title()
+        let unprotected = try await Self.title(protected: false)
+
+        /// Asks `something` of a run of `kind` on a recorder that answers as `answers` say, holds the request for
+        /// `held` there, has another recorder taken up at the address meanwhile, and lets the request go.
+        func acrossALetGo<T: Sendable>(
+            _ kind: RunKind, _ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [],
+            holding held: String, _ something: @escaping @MainActor (RecorderDriver, Run) async -> T
+        ) async throws -> (came: T, world: LinkWorld, link: DeviceLink) {
+            let (world, driver, first) = try await Self.playing(answers, silentTo: silent)
+            let link = try XCTUnwrap(driver.link)
+            let run = try driver.beginRun(kind).get()
+            await first.holdTheNext(held)
+            let asking = Task { await something(driver, run) }
+            try await first.whenHeld()
+            world.devices[Stub.host] = try PlayingRecorder(["X_HDLnkGetRecordDestinationInfo": [Self.space(free: 20)]],
+                                                           udn: Self.anotherUDN)
+            await link.connect()
+            XCTAssertTrue(link.session.connected && link.clientIsAttached, world.problem ?? "no reason given")
+            world.problem = Self.left
+            await first.letGo()
+            return (await asking.value, world, link)
+        }
+
+        let text = try await acrossALetGo(.scanning, ["X_GetTitleDetail": [read]], holding: "X_GetTitleDetail") {
+            await $0.text(of: title, in: $1)
+        }
+        XCTAssertEqual(text.came, .stopped(another), "a text read for the recorder let go of was handed back")
+        XCTAssertEqual(text.world.problem, Self.left, "an answer across a let-go wrote on the newcomer's line")
+
+        let deleted = Stub.soap("X_DeleteTitle")
+        let taken = try await acrossALetGo(.delete, ["X_GetTitleDetail": [read], "X_DeleteTitle": [deleted]],
+                                           holding: "X_DeleteTitle") { await $0.delete(title, in: $1) }
+        XCTAssertEqual(taken.came, .stopped(another), "a delete answered across a let-go was handed back as done")
+
+        let fault = Stub.fault("402")
+        let refused = try await acrossALetGo(.delete, ["X_GetTitleDetail": [read], "X_DeleteTitle": [fault]],
+                                             holding: "X_DeleteTitle") { await $0.delete(title, in: $1) }
+        XCTAssertEqual(refused.came, .stopped(another), "a refusal across a let-go passed the recording over")
+
+        let gone = try await acrossALetGo(.delete, ["X_GetTitleDetail": [Stub.fault("820")]],
+                                          holding: "X_GetTitleDetail") { await $0.delete(title, in: $1) }
+        XCTAssertEqual(gone.came, .stopped(another), "a recording was taken for gone on an answer across a let-go")
+
+        let silent = try await acrossALetGo(.protecting(true), [:], silentTo: ["X_UpdateTitle"],
+                                            holding: "X_UpdateTitle") { await $0.protect(unprotected, true, in: $1) }
+        XCTAssertEqual(silent.came, .stopped(.silent(afterSending: true)))
+        XCTAssertTrue(silent.link.session.connected, "silence met across a let-go lost the newcomer")
+
+        let ended = try await acrossALetGo(.delete, ["X_HDLnkGetRecordDestinationInfo": [Self.space(free: 10)]],
+                                           holding: "X_HDLnkGetRecordDestinationInfo") {
+            await $0.end($1, deleted: 1, stopped: nil)
+        }
+        XCTAssertEqual(ended.link.session.storage?.free, 20,
+                       "the free space of the recorder let go of is shown as the newcomer's")
+    }
+
     // MARK: - one recording of a run
 
     // The decisions a run makes about each recording. The recorder's traps are the point: it refuses a protected
@@ -768,6 +902,16 @@ final class RecorderRecordingsTests: XCTestCase {
 
     /// The links the tests above made, kept for as long as the tests run, their drivers holding them weakly.
     private static var links: [DeviceLink] = []
+
+    /// Another recorder than the one `playing` makes: Sony's OUI and the rest zeroed, with a last digit of its own.
+    private static let anotherUDN = "uuid:00000000-0000-0000-0000-f84e17000002"
+
+    /// What a recorder answers when asked how much room its disk has: `free` bytes of a hundred.
+    private static func space(free: Int) -> HTTPResponse {
+        let info = "<RecordDestinationInfo totalCapacity=\"100\" availableCapacity=\"\(free)\"/>"
+        return Stub.soap("X_HDLnkGetRecordDestinationInfo",
+                         extra: "<RecordDestinationInfo>\(Soap.escape(info))</RecordDestinationInfo>")
+    }
 
     /// What `X_PowerControl` answers when the recorder takes it.
     private static let poweredOn = Stub.soap("X_PowerControl",
