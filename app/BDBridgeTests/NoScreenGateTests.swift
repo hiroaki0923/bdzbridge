@@ -438,6 +438,88 @@ final class NoScreenGateTests: XCTestCase {
                        "a file was asked for after the one the cache would not take")
     }
 
+    /// A night sends a waiting reservation only as its round read it: one given a reason while the round was out
+    /// is not sent, nor one the queue cannot say anything of just then.
+    ///
+    /// Two reservations wait, and while the first is being made the cache is made over to another recorder, as
+    /// the screens make it over when they take one up, which writes on every row that waits that it is held for
+    /// the recorder before. The first goes, its request being out. The second is not sent to the recorder the
+    /// screens have left: it waits, carrying that sentence, for the reader to send again. Nothing is told, the
+    /// cache being another's, and the night ends there.
+    ///
+    /// The cache the first recorder's again, and the queue out of reach while the first of two more is being
+    /// made, so that the round cannot read the second again: the second is not sent. The night tells what the
+    /// round came to, the first made, and goes on.
+    func testANightSendsAWaitingReservationOnlyAsItsRoundReadIt() async throws {
+        let (recorder, store, path) = try await home()
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        var ran = try await nightHeld(of: recorder, store, at: Ask.create) { _ in
+            let another = try await aClient(of: NamedRecorder(2)).describe()
+            expectEqual(try await GuideStore(path: path)
+                .claim(for: another, holdingTheQueueWith: RecorderDriver.heldForAnotherRecorder), .another,
+                        "the cache was meant to be made over")
+        }
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create],
+                       "a reservation held for another recorder meanwhile was sent to the recorder left")
+        expectEqual(try await rows(in: store), ["昼の番組: " + Said.heldForAnotherRecorder],
+                    "the reservation held meanwhile does not wait with the sentence written on it")
+        XCTAssertEqual(ran.told.names, [], "something was told over a cache made over meanwhile")
+        XCTAssertFalse(ran.stored)
+
+        let first = try await aClient(of: NamedRecorder(1)).describe()
+        expectEqual(try await store.claim(for: first), .another, "the cache was meant to be made over")
+        for row in try await store.pendingReservations() { try await store.removePending(row.id) }
+        let evening = waiting("夕方の番組", startingIn: 180, programme: 4324)
+        try await store.queue(evening)
+        try await store.queue(waiting("夜の番組", startingIn: 210, programme: 4325))
+        ran = try await nightHeld(of: recorder, store, at: Ask.create) { run in
+            let queue = QueueOutOfReach(in: path)
+            await recorder.letGo()
+            _ = await run.value
+            queue.putBack()
+        }
+        XCTAssertEqual(ran.heard.filter { $0 == Ask.create }.count, 1,
+                       "a reservation was sent that the queue could not say anything of")
+        XCTAssertEqual(ran.told.rounds.map { $0.sent.map(\.id) }, [[evening.id]])
+        expectTrue(try await rows(in: store).contains("夜の番組"), "the reservation not sent does not wait")
+    }
+
+    /// Nor does a night take a waiting reservation out as found on the recorder but as its round read it.
+    ///
+    /// A reservation waits that the recorder holds already, as one does whose create the recorder took and whose
+    /// answer was lost: the night's round finds it there, takes it out unsent, and tells that it was reserved
+    /// already. Then the same reservation waits again behind another, and while that one is being made the
+    /// cache is made over to another recorder, as the screens make it over when they take one up, which writes
+    /// on every row that waits that it is held for the recorder before. The first goes, its request being out.
+    /// The second, which the round found on the recorder as it opened, is not taken out: it waits, carrying
+    /// that sentence, for the reader, who has just been shown it as left for them. Nothing is told, the cache
+    /// being another's.
+    func testANightTakesAReservationOutAsFoundOnTheRecorderOnlyAsItsRoundReadIt() async throws {
+        let (recorder, store, path) = try await home()
+        let noon = waiting("昼の番組", startingIn: 150, programme: 4322)
+        try await aClient(of: recorder).create(noon.request)
+        try await store.queue(noon)
+        var ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.rounds.map { $0.alreadyThere.map(\.id) }, [[noon.id]],
+                       "the reservation was meant to be found on the recorder")
+        XCTAssertEqual(Array(ran.heard.prefix(3)), [Ask.description, Ask.reservations, Ask.slot])
+        expectEqual(try await rows(in: store), [])
+
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        try await store.queue(noon)
+        ran = try await nightHeld(of: recorder, store, at: Ask.create) { _ in
+            let another = try await aClient(of: NamedRecorder(2)).describe()
+            expectEqual(try await GuideStore(path: path)
+                .claim(for: another, holdingTheQueueWith: RecorderDriver.heldForAnotherRecorder), .another,
+                        "the cache was meant to be made over")
+        }
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create])
+        expectEqual(try await rows(in: store), ["昼の番組: " + Said.heldForAnotherRecorder],
+                    "a reservation held for another recorder meanwhile was taken out as found on the recorder left")
+        XCTAssertEqual(ran.told.names, [], "something was told over a cache made over meanwhile")
+    }
+
     /// A cache whose owner cannot be read just then silences nothing: no other recorder is known to have taken
     /// the cache, and what the night found is still of the recorder it knew as it began. The cache's own table
     /// is put out of reach here while a request of the night's is held, and back once the night is over.

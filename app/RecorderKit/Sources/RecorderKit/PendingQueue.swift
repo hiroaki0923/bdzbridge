@@ -25,7 +25,9 @@ public enum PendingQueue {
         /// Not sent this time for a reason that passes -- the device busy with another request, an answer
         /// with no reason in it -- and still waiting, as they were, to go at the next chance.
         public var deferred: [PendingReservation] = []
-        /// Refused on an earlier try and not sent this time: see `flush`.
+        /// Refused on an earlier try and not sent this time, or given another reason while the round was out
+        /// and left for that -- not sent, nor taken out as found on the device -- each as it stands in the
+        /// queue: see `flush`.
         public var held: [PendingReservation] = []
         /// Found on the device already, and gone from the queue: nothing was made for them.
         public var alreadyThere: [PendingReservation] = []
@@ -57,6 +59,24 @@ public enum PendingQueue {
     /// is to go, and only then: a queue with nothing to send asks it nothing. A round that cannot be opened ends
     /// the flush with every row that is not over as it was. A row the opening found on the device leaves the queue
     /// unsent, whether or not a reason is on it.
+    ///
+    /// The queue is read once, as the round begins, and a row is read again in the turn the round acts on it:
+    /// before the device is asked for it, and before it is taken out as found on the device. A round can be out
+    /// for as long as a device takes over the rows ahead, and the queue need not stand as it was read by then.
+    /// A row that has gone meanwhile is not sent, and is counted nowhere. One that carries another reason than
+    /// the one it was read with is not sent in this round either, nor taken out as found there: it is left, and
+    /// counted as held, as it stands now. Another recorder's arrival writes on every row that waits for a
+    /// recorder that it is held for the one before (`GuideStore.claim`), and a row so held is the reader's to
+    /// send again or to delete, not the round's to settle. The round goes on to the row after it. A queue that
+    /// cannot be read just then is taken as the row gone: nothing is done on the strength of a row whose state
+    /// is not known, as nothing is by a round whose first read of the queue fails. What was out when the reason
+    /// was written has gone to the device all the same (below).
+    ///
+    /// The read comes before the device's own steps for the row, which need not begin with its create: a
+    /// recorder waits for its USB slot to settle first (`RecorderClient.send`), and a reason written during
+    /// that wait is not seen by the round, whose create then goes all the same. The rows passed over with a
+    /// reason before the round opened are read again too, once the device has been read for the round and
+    /// before any of them that it found there is taken out: they were read before that request went.
     ///
     /// One the device refused with a reason of its own keeps that reason and is not sent again, since the
     /// answer would be the same: it waits for the reader to clear the reason (`GuideStore.setPendingProblem`)
@@ -143,22 +163,55 @@ public enum PendingQueue {
                 case .open(let opened, let alreadyThere):
                     round = opened
                     found = alreadyThere
-                    // The rows with a reason on them that were passed on the way here are looked up as well.
-                    for passed in outcome.held where found.contains(passed.id) {
-                        try? await store.removePending(passed.id)
-                        outcome.alreadyThere.append(passed)
+                    // The rows with a reason on them that were passed on the way here are looked up as well,
+                    // each as the queue has it now that the device has been read (`standing`).
+                    let heldBefore = outcome.held
+                    let queue = heldBefore.contains { found.contains($0.id) }
+                        ? try? await store.pendingReservations() : nil
+                    outcome.held = []
+                    for passed in heldBefore {
+                        guard found.contains(passed.id) else {
+                            outcome.held.append(passed)
+                            continue
+                        }
+                        switch standing(of: passed, in: queue) {
+                        case .gone:
+                            break
+                        case .rewritten(let asItStands):
+                            outcome.held.append(asItStands)
+                        case .asRead:
+                            try? await store.removePending(passed.id)
+                            outcome.alreadyThere.append(passed)
+                        }
                     }
-                    outcome.held.removeAll { found.contains($0.id) }
                 }
             }
             if found.contains(pending.id) {
-                try? await store.removePending(pending.id)
-                outcome.alreadyThere.append(pending)
+                // Taken out only as the round read it, as a row is sent only so (below).
+                switch standing(of: pending, in: try? await store.pendingReservations()) {
+                case .gone:
+                    break
+                case .rewritten(let asItStands):
+                    outcome.held.append(asItStands)
+                case .asRead:
+                    try? await store.removePending(pending.id)
+                    outcome.alreadyThere.append(pending)
+                }
                 continue
             }
             guard isToGo, let opened = round else {
                 outcome.held.append(pending)
                 continue
+            }
+            // Sent only as the round read it: gone from the queue, or its reason another by now, it is not.
+            switch standing(of: pending, in: try? await store.pendingReservations()) {
+            case .gone:
+                continue
+            case .rewritten(let asItStands):
+                outcome.held.append(asItStands)
+                continue
+            case .asRead:
+                break
             }
             let (came, next) = await client.send(pending, consented: consented, in: opened)
             round = next
@@ -189,6 +242,23 @@ public enum PendingQueue {
             }
         }
         return outcome
+    }
+
+    /// How a row the round read stands in the queue in the turn the round acts on it (`flush`).
+    private enum Standing {
+        /// As it was read: with the reason it had, or with none still.
+        case asRead
+        /// Not there any more, or nothing is known of it: the queue could not be read.
+        case gone
+        /// Carrying another reason than it was read with: the row as it stands.
+        case rewritten(PendingReservation)
+    }
+
+    /// `row`, as the round read it, against `queue`, read in the turn the round acts on the row; nil for a
+    /// queue that could not be read.
+    private static func standing(of row: PendingReservation, in queue: [PendingReservation]?) -> Standing {
+        guard let now = queue?.first(where: { $0.id == row.id }) else { return .gone }
+        return now.problem == row.problem ? .asRead : .rewritten(now)
     }
 }
 

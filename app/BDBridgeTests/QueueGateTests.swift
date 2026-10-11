@@ -785,48 +785,61 @@ final class QueueGateTests: XCTestCase {
     }
 
     /// The same row sent again, taken while it waits for the queue's turn by a pull-down's sending that holds
-    /// the turn with an earlier row's create held, when another recorder answers a connect meanwhile; the
-    /// pull-down's round then makes both rows. The row sent again is in none of its own round's lists, and the
-    /// list that would say what became of it is not read across the arrival: it is answered that it could not
-    /// be confirmed, as without one, and not that nothing was done because another recorder answered -- the
-    /// pull-down may have made it on the recorder let go of. Nothing more is sent for it.
+    /// the turn with that row's create held, when another recorder answers a connect meanwhile; the pull-down's
+    /// round then makes the row, its create having been out. The row sent again is in none of its own round's
+    /// lists, and the list that would say what became of it is not read across the arrival: it is answered
+    /// that it could not be confirmed, as without one, and not that nothing was done because another recorder
+    /// answered -- the pull-down may have made it on the recorder let go of. Nothing more is sent for it. Nor
+    /// is the row that waited behind it sent, by the pull-down's round or by any other: the arrival held it for
+    /// the recorder before, and it waits with that reason.
+    ///
+    /// And the row behind that create sent again in the same way: the pull-down's round, which read it with no
+    /// reason, finds it held by the arrival and does not send it, and its own round finds it held as well. It
+    /// was not sent, and that is what is answered: nothing was done because another recorder answered, as a
+    /// single write across such an arrival is answered. One create, the held one's, and the row waits with the
+    /// arrival's reason.
     func testARowSentAgainThatAnotherSendingTookAcrossAnotherRecordersArrivalIsNotSaidUndone() async throws {
-        let (bench, recorder, model) = try await connectedHome()
-        addTeardownBlock { await recorder.letGo() }
-        let store = try GuideStore(path: bench.guidePath)
-        // Two that begin at different moments: at some hours the first two free are on two channels at once.
-        // The demo's guide has nine channels, so twelve programmes hold at least two moments.
-        let free = try await programmesNotReserved(model, 12)
-        let first = try XCTUnwrap(free.min { $0.start < $1.start })
-        let next = try XCTUnwrap(free.filter { $0.start > first.start }.min { $0.start < $1.start })
-        let rows = try [first, next].map { try waiting(for: $0) }
-        XCTAssertLessThan(rows[0].request.start, rows[1].request.start, "the round would send them in no set order")
-        let pressed = rows[1]
-        for row in rows { try await store.queue(row) }
-        await model.loadPending()
-        let before = await recorder.asked
-        await recorder.holdTheNext(Kind.create)
-        let pulling = Task { await model.refreshReservations() }
-        try await until("what waits never got to the recorder") {
-            await recorder.asked(Kind.create, since: before) == 1
+        let cases = [(name: "the row whose create was out", pressed: 0, answer: Said.couldNotBeConfirmed),
+                     (name: "the row behind the create that was out", pressed: 1, answer: Said.anotherAnswered)]
+        for (name, pressed, answer) in cases {
+            let (bench, recorder, model) = try await connectedHome()
+            addTeardownBlock { await recorder.letGo() }
+            let store = try GuideStore(path: bench.guidePath)
+            // Two that begin at different moments: at some hours the first two free are on two channels at once.
+            // The demo's guide has nine channels, so twelve programmes hold at least two moments.
+            let free = try await programmesNotReserved(model, 12)
+            let first = try XCTUnwrap(free.min { $0.start < $1.start })
+            let next = try XCTUnwrap(free.filter { $0.start > first.start }.min { $0.start < $1.start })
+            let rows = try [first, next].map { try waiting(for: $0) }
+            XCTAssertLessThan(rows[0].request.start, rows[1].request.start,
+                              "the round would send them in no set order")
+            for row in rows { try await store.queue(row) }
+            await model.loadPending()
+            let before = await recorder.asked
+            await recorder.holdTheNext(Kind.create)
+            let pulling = Task { await model.refreshReservations() }
+            try await until("\(name): what waits never got to the recorder") {
+                await recorder.asked(Kind.create, since: before) == 1
+            }
+            let asking = Task { await model.sendAgain(rows[pressed]) }
+            // Long enough for the row sent again to be waiting for the queue's turn.
+            try await Task.sleep(for: .milliseconds(300))
+
+            await recorder.become(2)
+            await model.connect()
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+            await recorder.letGo()
+            await pulling.value
+            let came = await asking.value
+            try await untilIdle(model)
+
+            XCTAssertEqual(came, .notDone(answer), name)
+            XCTAssertFalse(model.gaveUp, "\(name): the newcomer was given up on")
+            expectEqual(await recorder.asked(Kind.create, since: before), 1,
+                        "\(name): the row taken was sent again, or the row behind it, held meanwhile, was sent")
+            expectEqual(reasons(try await store.pendingReservations()), [rows[1].id: Said.heldForAnotherRecorder],
+                        "\(name): the row the pull-down made still waits, or the row behind it does not wait held")
         }
-        let asking = Task { await model.sendAgain(pressed) }
-        // Long enough for the row sent again to be waiting for the queue's turn.
-        try await Task.sleep(for: .milliseconds(300))
-
-        await recorder.become(2)
-        await model.connect()
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
-        await recorder.letGo()
-        await pulling.value
-        let came = await asking.value
-        try await untilIdle(model)
-
-        XCTAssertEqual(came, .notDone(Said.couldNotBeConfirmed))
-        XCTAssertFalse(model.gaveUp, "the newcomer was given up on")
-        expectEqual(await recorder.asked(Kind.create, since: before), 2, "the row taken was sent again")
-        expectEqual(try await store.pendingReservations().map(\.id).filter { $0 == pressed.id }, [],
-                    "the row the pull-down made still waits")
     }
 
     /// A row sent again whose check wakes the recorder -- the check here one already out, its probe held and
