@@ -85,6 +85,9 @@ extension RecorderDriver {
     /// is handed to `found` as it finds it, each waited for before the next step: what became of the queue and
     /// the free space are told before a guide download that can outlast the task.
     ///
+    /// Silence in the guide ends the run: that a guide was fetched is told when a type answered before it, what
+    /// was stored before it is handed back, and nothing more is asked.
+    ///
     /// It runs in the caller's task, and stops between steps once that is cancelled, which is what the system
     /// does when the run's time is up: the request under way is waited for, and nothing is asked after it.
     /// `sendPacket` is `reachWithNoScreen`'s.
@@ -129,10 +132,12 @@ extension RecorderDriver {
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
         // connect: nothing marks it fetched.
-        guard let refresh = try? await GuideRefresh.run(client: client, store: store) else { return false }
+        let refresh = await GuideRefresh.run(client: client, store: store)
         if !refresh.answered.isEmpty { await found(.fetched(Date())) }
+        // Not after a guide that silence stopped: one request more of a recorder just found silent.
         // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
-        if readAgain, !Task.isCancelled, let again = try? await usbDisk(of: client), again.takesRecordings {
+        if refresh.stopped == nil, readAgain, !Task.isCancelled, let again = try? await usbDisk(of: client),
+           again.takesRecordings {
             await found(.usbSpace(again))
         }
         return refresh.stored > 0

@@ -43,7 +43,7 @@ final class GuideRefreshTests: XCTestCase {
         let store = try GuideStore(path: ":memory:")
         let stored = Stored()
 
-        let outcome = try await GuideRefresh.run(client: client, store: store, onStored: { stored.add($0) })
+        let outcome = await GuideRefresh.run(client: client, store: store, onStored: { stored.add($0) })
 
         XCTAssertEqual(outcome.stored, 5)
         XCTAssertEqual(outcome.answered, ["td", "bs4k"])
@@ -68,7 +68,7 @@ final class GuideRefreshTests: XCTestCase {
         let (client, transport) = try recorder(serving: ["td", "bs"]) { _ in HTTPResponse(statusCode: 416) }
         let store = try GuideStore(path: ":memory:")
 
-        let outcome = try await GuideRefresh.run(client: client, store: store, types: ["bs"])
+        let outcome = await GuideRefresh.run(client: client, store: store, types: ["bs"])
 
         XCTAssertEqual(outcome.answered, ["bs"])
         let urls = await transport.requests.map(\.url.absoluteString)
@@ -77,25 +77,32 @@ final class GuideRefreshTests: XCTestCase {
     }
 
     /// Silence ends it at once: a recorder that has stopped answering will not answer for the next type, and
-    /// each file asked of it would cost a long timeout. What came in before stays.
+    /// each file asked of it would cost a long timeout. It is handed back as what stopped the refresh, with
+    /// what came before it: the type that was stored, and the one that failed.
     func testSilenceStopsTheRefreshThere() async throws {
-        let (client, transport) = try recorder(serving: ["td"]) { _ in
+        let (client, transport) = try recorder(serving: ["td"]) { url in
+            if url.hasSuffix(Codes.epgFiles["bs"]!) { return HTTPResponse(statusCode: 500) }
             throw RecorderError.transport("timed out")
         }
         let store = try GuideStore(path: ":memory:")
+        let stored = Stored()
 
-        do {
-            _ = try await GuideRefresh.run(client: client, store: store)
-            XCTFail("silence is thrown")
-        } catch let error as RecorderError {
-            XCTAssertEqual(error.failure, .silent)
-        }
+        let outcome = await GuideRefresh.run(client: client, store: store, onStored: { stored.add($0) })
+
+        XCTAssertEqual(outcome.stopped, .silent, "silence was not handed back as what stopped it")
+        XCTAssertEqual(outcome.stored, 5, "what was stored before the silence was not handed back")
+        XCTAssertEqual(outcome.answered, ["td"])
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), ["bs"], "the type that failed before the silence")
+        XCTAssertFalse(outcome.cancelled)
+        XCTAssertEqual(stored.types, ["td"])
         let urls = await transport.requests.map(\.url.absoluteString)
-        XCTAssertEqual(urls.last.map { $0.hasSuffix(Codes.epgFiles["bs"]!) }, true, "nothing asked after BS")
+        XCTAssertEqual(urls.last.map { $0.hasSuffix(Codes.epgFiles["cs"]!) }, true, "nothing asked after CS")
         expectEqual(try await store.counts()["td"]?.programs, 4, "the type fetched before it stays")
     }
 
-    /// Silence while fetching a type's logos stops it too, though the logos alone are only looks.
+    /// Silence while fetching a type's logos stops it too, though the logos alone are only looks. The type's
+    /// programmes are in the cache by then: it is handed back as answered, with what was stored of it, and is
+    /// not reported as stored, which is for a type whose logos are in as well.
     func testSilenceOverTheLogosStopsTheRefreshToo() async throws {
         let guide = try file("epg-sample.json")
         let transport = StubTransport { request, _ in
@@ -106,8 +113,15 @@ final class GuideRefreshTests: XCTestCase {
         }
         let client = RecorderClient(host: Stub.host, transport: transport, streamPort: 60151)
         let store = try GuideStore(path: ":memory:")
+        let stored = Stored()
 
-        await XCTAssertThrowsErrorAsync(try await GuideRefresh.run(client: client, store: store))
+        let outcome = await GuideRefresh.run(client: client, store: store, onStored: { stored.add($0) })
+
+        XCTAssertEqual(outcome.stopped, .silent)
+        XCTAssertEqual(outcome.answered, ["td"], "the type whose programmes are in was not handed back")
+        XCTAssertEqual(outcome.stored, 5)
+        XCTAssertEqual(outcome.failed, [])
+        XCTAssertEqual(stored.types, [])
         expectEqual(await transport.requests.count, 2, "the guide and its logos, and then nothing")
     }
 
@@ -120,12 +134,12 @@ final class GuideRefreshTests: XCTestCase {
         let store = try GuideStore(path: ":memory:")
 
         let refresh = Task {
-            try await GuideRefresh.run(client: client, store: store, onStored: { _ in
+            await GuideRefresh.run(client: client, store: store, onStored: { _ in
                 // cancelled from inside, once the first type is in, so that nothing depends on timing
                 withUnsafeCurrentTask { $0?.cancel() }
             })
         }
-        let outcome = try await refresh.value
+        let outcome = await refresh.value
 
         XCTAssertTrue(outcome.cancelled)
         XCTAssertEqual(outcome.answered, ["td"])
@@ -149,12 +163,4 @@ private final class Stored: @unchecked Sendable {
         defer { lock.unlock() }
         return list
     }
-}
-
-private func XCTAssertThrowsErrorAsync<T>(_ expression: @autoclosure () async throws -> T,
-                                          file: StaticString = #filePath, line: UInt = #line) async {
-    do {
-        _ = try await expression()
-        XCTFail("no error was thrown", file: file, line: line)
-    } catch {}
 }

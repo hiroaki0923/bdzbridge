@@ -244,7 +244,7 @@ final class BenchRecorderTests: XCTestCase {
         // And into a cache: one type given the file, the rest answered as the demo answers, with no file.
         await recorder.answer(Ask.guide[0], with: .body(guide))
         let store = try GuideStore(path: ":memory:")
-        let fetched = try await GuideRefresh.run(client: client, store: store)
+        let fetched = await GuideRefresh.run(client: client, store: store)
         XCTAssertEqual(fetched.answered, GuideRefresh.broadcastingTypes)
         XCTAssertTrue(fetched.stored > 0, "nothing of the sample guide was stored")
         expectTrue(try await store.counts()["td"]?.programs ?? 0 > 0, "the cache holds none of its programmes")

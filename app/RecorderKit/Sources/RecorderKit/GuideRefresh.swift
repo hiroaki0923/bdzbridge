@@ -17,8 +17,17 @@ public enum GuideRefresh {
         public var failed: [Failure] = []
         /// Set when the caller's task was cancelled, and the types after the one under way were left.
         public var cancelled = false
+        /// Why it ended before its types did, nil when it did not. The rest is what came before: the types
+        /// answered and failed until then, and what was stored of them.
+        public var stopped: Stop?
 
         public init() {}
+    }
+
+    /// Why a refresh ended before its types did.
+    public enum Stop: Sendable, Equatable {
+        /// The recorder stopped answering, over a type's guide or over its logos.
+        case silent
     }
 
     public struct Failure: Sendable, Equatable {
@@ -31,8 +40,9 @@ public enum GuideRefresh {
     ///
     /// A type that fails is passed over and the next one is tried. The recorder answers 500 for a file it
     /// has not built yet -- after a restart or a channel scan, until the small hours. Silence is the exception
-    /// and is thrown at once: a recorder that has stopped answering will not answer for the next type, and
-    /// each file asked of it costs a two-minute timeout.
+    /// and ends the refresh at once (`Outcome.stopped`), with what came before it handed back: a recorder that
+    /// has stopped answering will not answer for the next type, and each file asked of it costs a two-minute
+    /// timeout.
     ///
     /// Cancellation is looked at before each type. The request under way is finished rather than abandoned
     /// (see `SerialQueue`), and each type is stored in one transaction, so stopping there leaves nothing half
@@ -42,7 +52,7 @@ public enum GuideRefresh {
     /// are in the cache, for the screen to show them without waiting for the rest.
     public static func run(client: some GuideSource, store: GuideStore, types: [String] = broadcastingTypes,
                            onType: (@MainActor @Sendable (String) -> Void)? = nil,
-                           onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async throws -> Outcome {
+                           onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async -> Outcome {
         var outcome = Outcome()
         for broadcasting in types {
             if Task.isCancelled {
@@ -69,7 +79,8 @@ public enum GuideRefresh {
                 }
                 await onStored?(broadcasting)
             } catch let error as any DeviceError where error.failure == .silent {
-                throw error
+                outcome.stopped = .silent
+                break
             } catch {
                 outcome.failed.append(Failure(broadcasting: broadcasting, reason: reason(for: error)))
             }

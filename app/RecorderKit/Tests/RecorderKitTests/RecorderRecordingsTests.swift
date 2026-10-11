@@ -1167,6 +1167,46 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(driver.link?.session.connected == true, "a file not built was taken for the recorder going")
     }
 
+    /// A refresh of the guide that silence stops hands back what came before the silence: the type that
+    /// failed, the type that was stored and reported so, and what was stored of it. It did not go through. What
+    /// it says is a line for the type that failed and then that the recorder did not answer, while the line of
+    /// what went wrong holds the silence alone, said as a read's is, with the recorder lost. Nothing is asked
+    /// for after the type that met it.
+    ///
+    /// Where the silence is not said -- the recorder known to be away by then, something else having met its
+    /// silence first -- the line stays as it was: a refresh that silence stopped does not clear it.
+    func testAGuideRefreshStoppedBySilenceHandsBackWhatCameBeforeItAndSaysItOnce() async throws {
+        func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
+        let (world, driver, recorder) = try await Self.serving(["bs": true, "cs": false])
+        world.cache = try temporaryStore()
+        let begun = world.begun.count
+
+        let stopped = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+
+        XCTAssertFalse(stopped.wentThrough, "a refresh that silence stopped was said to have gone through")
+        XCTAssertEqual(stopped.failed.map(\.broadcasting), ["td"], "the type that failed before the silence")
+        XCTAssertEqual(stopped.answered, ["bs"], "the type that answered before the silence")
+        XCTAssertEqual(stopped.stored, 5, "what was stored before the silence")
+        XCTAssertEqual(stopped.said, "地上デジタルの番組表：\(missing("EPG_TRDEPG_FILE.dat"))\n\(driver.noAnswerLine)")
+        XCTAssertEqual(world.problem, driver.noAnswerLine, "the line was meant to hold the silence alone")
+        XCTAssertTrue(driver.link?.session.unreachable == true, "silence in the guide did not lose the recorder")
+        XCTAssertEqual(world.events.filter { $0.hasPrefix("stored") }, ["stored bs"])
+        XCTAssertEqual(Array(world.begun.dropFirst(begun)), ["番組表を取得中"])
+        XCTAssertNil(world.line, "the line was left up")
+        expectEqual(await Self.guideFiles(asked: recorder), ["td", "bs", "cs"], "a silent recorder was asked for more")
+        expectEqual(try await world.cache?.counts()["bs"]?.programs, 4, "the type stored before the silence stays")
+
+        // Lost by something else while the first type was being stored, with its own sentence left on the line.
+        let (dark, ofTheLost, quiet) = try await Self.serving(["td": true, "bs": false])
+        dark.cache = try temporaryStore()
+        let unsaid = await ofTheLost.refreshGuide(.all) { _ in ofTheLost.link?.lost() }
+        XCTAssertFalse(unsaid.wentThrough)
+        XCTAssertEqual(unsaid.answered, ["td"])
+        XCTAssertEqual(unsaid.said, ofTheLost.noAnswerLine)
+        XCTAssertEqual(dark.problem, Self.left, "a refresh whose silence was not said cleared the line, or wrote on it")
+        expectEqual(await Self.guideFiles(asked: quiet), ["td", "bs"])
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
@@ -1221,6 +1261,43 @@ final class RecorderRecordingsTests: XCTestCase {
         // Held by the driver weakly: kept here for as long as the test runs.
         links.append(link)
         return (world, driver, recorder)
+    }
+
+    /// A link as `playing` makes one, connected a moment ago with an earlier failure's line left, to a recorder
+    /// that says who it is and gives the guide's files as `files` says, by the type each is of: the sample
+    /// guide for a type listed as true, nothing at all for one listed as false, and for the rest, as for
+    /// everything else it is asked, a 500, as for a file it has not built.
+    private static func serving(_ files: [String: Bool]) async throws -> (LinkWorld, RecorderDriver, StubTransport) {
+        let description = try Vectors.descriptionXML(udn: DeviceLinkTests.udn)
+        let sample = try Vectors.load("epg-sample.json").string("file")
+        let guide = try Data(contentsOf: Vectors.directory.appendingPathComponent(sample))
+        let recorder = StubTransport { request, _ in
+            let name = request.url.lastPathComponent
+            if name == "description.xml" { return HTTPResponse(statusCode: 200, body: Data(description.utf8)) }
+            guard let type = Codes.epgFiles.first(where: { $0.value == name })?.key, let gives = files[type] else {
+                return HTTPResponse(statusCode: 500)
+            }
+            guard gives else { throw RecorderError.transport("timed out") }
+            return HTTPResponse(statusCode: 200, body: guide)
+        }
+        let world = LinkWorld()
+        world.devices[Stub.host] = recorder
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        world.problem = left
+        links.append(link)
+        return (world, driver, recorder)
+    }
+
+    /// The types whose guide `recorder` was asked for, in the order it was asked.
+    private static func guideFiles(asked recorder: StubTransport) async -> [String] {
+        await recorder.requests.compactMap { request in
+            Codes.epgFiles.first { $0.value == request.url.lastPathComponent }?.key
+        }
     }
 
     /// The links the tests above made, kept for as long as the tests run, their drivers holding them weakly.

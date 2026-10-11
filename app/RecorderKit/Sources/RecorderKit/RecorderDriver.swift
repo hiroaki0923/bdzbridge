@@ -23,7 +23,8 @@ public final class RecorderDriver: LinkDriver {
     /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
     /// a recording's details; the check before a reservation is read for its reason (`check`). The recordings',
     /// playback's, the power's and the keyword conditions' operations go through on the same parts, each as
-    /// `DeviceLink.run` makes one (`asked`), and the guide's refresh on `DeviceLink.run` itself (`refreshGuide`).
+    /// `DeviceLink.run` makes one (`asked`), and so does the guide's refresh, which says its own silence
+    /// (`refreshGuide`).
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.

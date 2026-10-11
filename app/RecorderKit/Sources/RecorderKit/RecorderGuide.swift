@@ -14,17 +14,18 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// when nothing was asked -- turned away at the door, or by the check before it -- and when silence stopped it.
     public var wentThrough = false
     /// How many programmes were stored, over every type; the types the recorder answered for; and the types
-    /// that could not be fetched or stored, each with why (`GuideRefresh.Outcome`). Of a refresh that went
-    /// through: one stopped by silence hands back none of what came before the silence.
+    /// that could not be fetched or stored, each with why (`GuideRefresh.Outcome`). Of a refresh stopped by
+    /// silence, what came before the silence.
     public var stored = 0
     public var answered: [String] = []
     public var failed: [GuideRefresh.Failure] = []
     /// What there is to say of it, nil for nothing. Of a refresh that went through: a line for each type that
     /// failed, as the step wrote them on the host's line of what went wrong. Turned away at the door: that the
-    /// app is not connected. Stopped by silence, or by anything else an answer came to: that failure's own
-    /// sentence. Otherwise -- the check before it said no, the recorder was let go of meanwhile -- whatever
-    /// stands on the host's line of what went wrong, or that the app is not connected where the line is empty:
-    /// what the check wrote there if it wrote, and if it did not, what an earlier operation left.
+    /// app is not connected. Stopped by silence: a line for each type that failed before it, which are not on
+    /// the host's line, and then that the recorder did not answer, as a read says it. Otherwise -- the check
+    /// before it said no -- whatever stands on the host's line of what went wrong, or that the app is not
+    /// connected where the line is empty: what the check wrote there if it wrote, and if it did not, what an
+    /// earlier operation left.
     public var said: String?
 }
 
@@ -45,11 +46,17 @@ extension RecorderDriver {
     }
 
     /// Downloads the broadcasting types asked for and replaces what the cache holds for each. One operation, as
-    /// `DeviceLink.run` makes one: under a line of its own, which says the type being fetched, the recorder made
-    /// sure of first, and going through clears the line of what went wrong. A type that fails is passed over
-    /// (`GuideRefresh.run`) and the recorder kept; the types that failed are then written on that line, a line
-    /// to a type, and are fetched again at the next connect. Silence stops it, loses the recorder and is said as
-    /// any read's.
+    /// `DeviceLink.run` makes one, written on its parts: under a line of its own, which says the type being
+    /// fetched, the recorder made sure of first, and going through clears the line of what went wrong. A type
+    /// that fails is passed over (`GuideRefresh.run`) and the recorder kept; the types that failed are then
+    /// written on that line, a line to a type, and are fetched again at the next connect.
+    ///
+    /// Silence stops it, and what came before the silence is handed back with it: the types that answered,
+    /// what was stored, the types that failed. It is said here, through the link, as the round of what waits
+    /// says its own (`say(stopped:on:)`): as any read's, the recorder lost, while the recorder is not known to
+    /// be away already (`takesSilenceOnARead`). The line of what went wrong is not cleared then, and holds the
+    /// silence alone, or what it held where the silence is not said; the types that failed before it are said
+    /// in what is handed back.
     ///
     /// Nothing is asked without a recorder's client, without the host's cache, or with the recorder known to be
     /// away, and nothing is said on the line then. The files are asked of the client in hand at that door, and
@@ -68,31 +75,37 @@ extension RecorderDriver {
         case .all: types = GuideRefresh.broadcastingTypes
         case .only(let these): types = these
         }
-        let ran = await link.underALine(Self.guideLine) { line in
-            await link.run { _ in
-                // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
-                // connected is cancelled when its screen goes away, and the refresh stops between types when it
-                // is cancelled -- which is for the overnight run, whose time runs out.
-                let refresh = Task {
-                    try await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
-                        if let line { link.owner?.updateActivity(line, to: Self.guideLine(for: broadcasting)) }
-                    }, onStored: stored)
-                }
-                return try await refresh.value
+        // Read once, as `DeviceLink.run` reads it: what went wrong is cleared on the host the refresh began under.
+        let owner = link.owner
+        let ran = await link.underALine(Self.guideLine) { line -> GuideRefresh.Outcome? in
+            guard case .up = await link.check() else { return nil }
+            // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
+            // connected is cancelled when its screen goes away, and the refresh stops between types when it
+            // is cancelled -- which is for the overnight run, whose time runs out.
+            let refresh = Task {
+                await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
+                    if let line { link.owner?.updateActivity(line, to: Self.guideLine(for: broadcasting)) }
+                }, onStored: stored)
             }
-        }
-        switch ran {
-        case .success(let outcome):
-            var refreshed = GuideRefreshed(wentThrough: true, stored: outcome.stored, answered: outcome.answered,
-                                           failed: outcome.failed)
-            if !outcome.failed.isEmpty {
-                let lines = outcome.failed.map(Self.guideFailed).joined(separator: "\n")
-                link.owner?.problem = lines
-                refreshed.said = lines
+            let outcome = await refresh.value
+            if outcome.stopped == .silent {
+                _ = link.say(.silentOnARead(sentence: self.noAnswerLine))
+            } else {
+                owner?.problem = nil
             }
-            return refreshed
-        case .failure(let failure):
-            return GuideRefreshed(said: failure.sentence ?? link.owner?.problem ?? whyNotConnected)
+            return outcome
         }
+        // The check said no, and has said why.
+        guard let outcome = ran else { return GuideRefreshed(said: link.owner?.problem ?? whyNotConnected) }
+        var refreshed = GuideRefreshed(wentThrough: outcome.stopped == nil, stored: outcome.stored,
+                                       answered: outcome.answered, failed: outcome.failed)
+        var lines = outcome.failed.map(Self.guideFailed)
+        if outcome.stopped == nil {
+            if !lines.isEmpty { link.owner?.problem = lines.joined(separator: "\n") }
+        } else {
+            lines.append(noAnswerLine)
+        }
+        if !lines.isEmpty { refreshed.said = lines.joined(separator: "\n") }
+        return refreshed
     }
 }

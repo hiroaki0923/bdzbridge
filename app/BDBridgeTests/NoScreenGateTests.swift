@@ -168,11 +168,11 @@ final class NoScreenGateTests: XCTestCase {
     /// with its reason, what became of the queue is told, and the night goes on -- the slot is read, the free
     /// space told, the guide fetched. From the create on: the round is told, the slot is asked, and its silence
     /// ends the night. On the free space alone: nothing is told of it, and the guide is still asked for. In the
-    /// guide: the night ends there, hands back that nothing was stored and does not tell that a guide was
-    /// fetched, though a type answered before the silence; and the slot is not read again after it.
+    /// guide: the night ends there, and the slot is not read again after it; that a guide was fetched is told,
+    /// a type having answered before the silence, and what the night hands back is whether a programme was
+    /// stored before it -- none where the type that answered had no file to give, and one where it gave a guide.
     ///
-    /// A later change ends a night at its first silence, which rewrites the first three; another tells of the
-    /// types that answered before a silence in the guide, which rewrites the last but for the slot.
+    /// A later change ends a night at its first silence, which rewrites the first three.
     func testSilencePartWayThroughANightEndsItAtTheSlotAndInTheGuideAndNowhereElse() async throws {
         let (recorder, store, _) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
@@ -210,8 +210,16 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.goQuiet(on: Ask.guide[1])
         ran = await night(of: recorder, store)
         XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0], Ask.guide[1]], "silence in the guide")
-        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"], "silence in the guide")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"], "silence in the guide")
         XCTAssertFalse(ran.stored)
+
+        await recorder.answer(Ask.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        await recorder.goQuiet(on: Ask.guide[1])
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0], Ask.logos[0], Ask.guide[1]],
+                       "silence in the guide, after a type that gave one")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertTrue(ran.stored, "a guide stored before the silence was not handed back as stored")
     }
 
     /// A night tells what is free as the free space and what the disk holds as its size, each as the recorder
