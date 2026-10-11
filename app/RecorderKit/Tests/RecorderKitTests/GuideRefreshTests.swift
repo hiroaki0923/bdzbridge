@@ -125,6 +125,100 @@ final class GuideRefreshTests: XCTestCase {
         expectEqual(await transport.requests.count, 2, "the guide and its logos, and then nothing")
     }
 
+    /// One of two recorders, as each says who it is: Sony's OUI and the rest zeroed, with a last digit of its own.
+    private func described(_ last: Int) -> RecorderDescription {
+        RecorderDescription(host: Stub.host, port: 64220, friendlyName: "サンプルレコーダー \(last)", product: "BDZ",
+                            model: "BDZ-SAMPLE", udn: "uuid:00000000-0000-0000-0000-f84e1700000\(last)",
+                            epgCapable: true, location: "http://\(Stub.host):64220/description.xml", via: "manual")
+    }
+
+    /// A refresh says which recorder its guide is fetched from, and ends where the cache is another's by the
+    /// time a file has come: the cache is made over when another recorder describes itself, and a file asked of
+    /// the last one can be out then. Here the first type is stored, the cache is made over to another recorder
+    /// as that is reported, and the second type's file comes with a guide: nothing of it is stored and nothing
+    /// marked, the refresh ends there with what came before -- the first type answered, its programmes counted
+    /// -- and nothing is asked for after that file, not its logos and not the next type.
+    ///
+    /// The logos alone are only looks, and a failure over them passes; but not this one. Made over between a
+    /// type's programmes and its logos, the cache takes no logos and the refresh ends: the type is not reported
+    /// as stored, and nothing more is asked for.
+    func testARefreshEndsWhereTheCacheHasBeenMadeOverToAnotherRecorder() async throws {
+        let (client, transport) = try recorder(serving: ["td", "bs", "cs"]) { _ in HTTPResponse(statusCode: 416) }
+        let store = try temporaryStore()
+        try await store.claim(for: described(1))
+        let second = described(2)
+        let stored = Stored()
+
+        let outcome = await GuideRefresh.run(client: client, store: store, from: described(1), onStored: {
+            stored.add($0)
+            _ = try? await store.claim(for: second)
+        })
+
+        XCTAssertEqual(outcome.stopped, .letGo, "the refresh went on into a cache that is another recorder's")
+        XCTAssertEqual(outcome.answered, ["td"])
+        XCTAssertEqual(outcome.stored, 5, "what was stored before the cache was made over")
+        XCTAssertEqual(outcome.failed, [], "a cache that is another's was taken for a type that failed")
+        XCTAssertEqual(stored.types, ["td"])
+        let urls = await transport.requests.map(\.url.lastPathComponent)
+        XCTAssertEqual(urls, [Codes.epgFiles["td"]!, Codes.logoFiles["td"]!, Codes.epgFiles["bs"]!],
+                       "something was asked for after the file the cache would not take")
+        let counts = try await store.counts()
+        for type in GuideRefresh.broadcastingTypes {
+            XCTAssertEqual(counts[type]?.programs, 0, "\(type): the last recorder's programmes are in the cache")
+            XCTAssertNil(counts[type]?.lastAnswered, "\(type) is marked as answered for")
+        }
+        expectEqual(try await store.owner(), second.udn)
+
+        // Made over as the first type's logos are asked for.
+        let guide = try file("epg-sample.json"), logos = try file("logo-sample.json")
+        let other = try temporaryStore()
+        try await other.claim(for: described(1))
+        let atTheLogos = StubTransport { request, _ in
+            guard request.url.lastPathComponent == Codes.logoFiles["td"] else {
+                return HTTPResponse(statusCode: 200, body: guide)
+            }
+            _ = try? await other.claim(for: second)
+            return HTTPResponse(statusCode: 200, body: logos)
+        }
+        let asking = RecorderClient(host: Stub.host, transport: atTheLogos, streamPort: 60151, busyRetryDelay: 0...0)
+        let reported = Stored()
+        let overTheLogos = await GuideRefresh.run(client: asking, store: other, from: described(1),
+                                                  onStored: { reported.add($0) })
+        XCTAssertEqual(overTheLogos.stopped, .letGo, "logos the cache would not take were passed over")
+        XCTAssertEqual(overTheLogos.answered, ["td"])
+        XCTAssertEqual(reported.types, [], "a type whose logos the cache would not take was reported stored")
+        expectEqual(await atTheLogos.requests.count, 2, "the guide and its logos, and then nothing")
+        expectEqual(try await other.channels(broadcasting: "td", includeHidden: true).count, 0)
+    }
+
+    /// Whoever asks for a refresh is asked before each type whether to go on, and a no ends it there, before
+    /// that type's file is asked for: the screens say no once the recorder they began with has been let go of.
+    /// What came before is handed back with it. With no recorder named and nobody to ask, a refresh asks
+    /// neither: it fetches every type into the cache it was given.
+    func testARefreshAsksBeforeEachTypeWhetherToGoOn() async throws {
+        let (client, transport) = try recorder(serving: ["td", "bs"]) { _ in HTTPResponse(statusCode: 416) }
+        let store = try temporaryStore()
+        let asked = Stored()
+
+        let outcome = await GuideRefresh.run(client: client, store: store, onType: { type in
+            asked.add(type)
+            return type != "bs"
+        })
+
+        XCTAssertEqual(outcome.stopped, .letGo)
+        XCTAssertEqual(outcome.answered, ["td"])
+        XCTAssertEqual(asked.types, ["td", "bs"], "each type was meant to be asked about as it came to it")
+        expectEqual(await transport.requests.count, 2, "the first type's guide and logos, and nothing of the next")
+        expectEqual(try await store.counts()["bs"]?.programs, 0)
+
+        // A cache another recorder owns, and a refresh that names none: nothing is asked of whose it is.
+        try await store.claim(for: described(2))
+        let unasked = await GuideRefresh.run(client: client, store: store, types: ["bs"])
+        XCTAssertNil(unasked.stopped)
+        XCTAssertEqual(unasked.answered, ["bs"])
+        expectEqual(try await store.counts()["bs"]?.programs, 4)
+    }
+
     /// Cancelled, it stops before the next type rather than going through all four: the overnight run's time
     /// is up by then, and the task has been completed.
     func testACancelledRefreshStopsBeforeTheNextType() async throws {

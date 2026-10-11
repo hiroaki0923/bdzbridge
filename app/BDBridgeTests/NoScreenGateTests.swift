@@ -222,6 +222,44 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertTrue(ran.stored, "a guide stored before the silence was not handed back as stored")
     }
 
+    /// A night's guide goes only into the cache of the recorder that answered the night. While its first file is
+    /// out, the cache is made over to another recorder, as the screens make it over when they take one up: by
+    /// a connection of the test's own. The file then comes with a guide. Nothing of it is stored and no type is
+    /// marked as answered for, in a cache that is the other's now; no further file is asked for; nothing is told
+    /// of the guide; and the night hands back that nothing was stored.
+    func testANightsGuideStaysOutOfACacheMadeOverToAnotherRecorderWhileAFileWasOut() async throws {
+        let (recorder, store, path) = try await home()
+        let told = Tellings()
+        let tell = telling(told)
+        let client = aClient(of: recorder)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        await recorder.holdTheNext(Ask.guide[0])
+        addTeardownBlock { await recorder.letGo() }
+        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        try await until("the night never asked for the guide") {
+            await recorder.asked(Ask.guide[0], since: before) == 1
+        }
+
+        let another = try await aClient(of: NamedRecorder(2)).describe()
+        let screens = try GuideStore(path: path)
+        expectEqual(try await screens.claim(for: another), .another, "the cache was meant to be made over")
+        await recorder.answer(Ask.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        await recorder.letGo()
+        let stored = await run.value
+
+        XCTAssertFalse(stored, "the night said a guide was stored")
+        expectEqual(await recorder.heard(since: count), Self.beforeTheGuide + [Ask.guide[0]],
+                    "a file was asked for after the one the cache would not take")
+        XCTAssertEqual(told.names, ["flushed", "freeSpace"], "a guide was said to be fetched")
+        expectEqual(try await screens.owner(), NamedRecorder.udn(2))
+        let counts = try await screens.counts()
+        for type in GuideRefresh.broadcastingTypes {
+            XCTAssertEqual(counts[type]?.programs, 0, "\(type): the night's programmes are in the other's cache")
+            XCTAssertNil(counts[type]?.lastAnswered, "\(type) is marked as answered for")
+        }
+    }
+
     /// A night tells what is free as the free space and what the disk holds as its size, each as the recorder
     /// answered it and neither for the other: here a disk that holds two terabytes with thirty gigabytes of them
     /// free. The notice the app makes of the two, where no test sees, reads the first against its line: told

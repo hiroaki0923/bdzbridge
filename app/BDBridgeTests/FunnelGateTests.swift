@@ -992,23 +992,23 @@ final class FunnelGateTests: XCTestCase {
                     "the one type the cache says is behind was to be fetched, and no other")
     }
 
-    /// A refresh that is out when another recorder takes the address. Nothing asks today whether the recorder a
-    /// refresh began with is still the one in hand. The newcomer is taken up by a connect while the first file is
-    /// held, which makes the cache over to it, and its own refresh, on a client of its own, is answered that it
-    /// has built none of its files: nothing is marked, and its failures are on the line. Then the file held
-    /// comes back with a guide: the last recorder's programmes go into the cache that is the newcomer's by now
-    /// and on screen, that type is marked as answered for, though the newcomer said it has no such file, the
-    /// types after it are asked of whoever answers at the address and marked too, and going through clears the
-    /// line the newcomer's connect left.
+    /// A refresh that is out when another recorder takes the address: a guide goes only into the cache of the
+    /// recorder it was fetched from. The newcomer is taken up by a connect while the first file is held, which
+    /// makes the cache over to it, and its own refresh, on a client of its own, is answered that it has built
+    /// none of its files: nothing is marked, and its failures are on the line. Then the file held comes back
+    /// with a guide. Nothing of the last recorder's goes into the cache, which is the newcomer's by now, or on
+    /// its screens: no programme, and no type marked as answered for. No further file is asked for, of a
+    /// recorder the press was not made for. The line left for the newcomer stands, neither cleared nor written.
+    /// And the press did not go through: it says that another recorder answered.
     ///
-    /// Every part of that is to change: a guide is to go only into the cache of the recorder it was fetched from,
-    /// and a refresh answered across a let-go is to leave the newcomer's line alone. One refresh at a time, which
-    /// is to come as well, has the newcomer's connect wait behind the file held, and changes the order here.
-    func testAGuideFetchedAcrossAnotherRecordersArrivalGoesIntoTheNewcomersCacheAndClearsItsLine() async throws {
+    /// One refresh at a time, which is still to come, has the newcomer's connect wait behind the file held, and
+    /// changes the order here.
+    func testAGuideFetchedAcrossAnotherRecordersArrivalStaysOutOfTheNewcomersCacheAndLeavesItsLine() async throws {
         let (bench, recorder, model) = try await connectedHome(guide: false)
         let cache = try GuideStore(path: bench.guidePath)
         let before = await recorder.asked
         await recorder.holdTheNext(Kind.guide[0])
+        addTeardownBlock { await recorder.letGo() }
         let asking = Task { await refreshTheGuideByHand(model) }
         try await until("the guide was never asked for") { await recorder.asked(Kind.guide[0], since: before) == 1 }
 
@@ -1028,19 +1028,21 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.guideDownloads, 1, "the refresh begun with the last recorder was meant to be out still")
         leaveALine(on: model)
 
+        let heard = await recorder.heard.count
         await recorder.answer(Kind.guide[0], with: .body(try vectorFile("epg-sample.dat")))
         await recorder.letGo()
-        await asking.value
+        expectFalse(await asking.value, "a refresh went through for a recorder let go of meanwhile")
 
         expectEqual(try await cache.owner(), NamedRecorder.udn(2))
         let counts = try await cache.counts()
-        XCTAssertGreaterThan(counts["td"]?.programs ?? 0, 0,
-                             "the programmes fetched from the last recorder are not in the newcomer's cache")
         for type in GuideRefresh.broadcastingTypes {
-            XCTAssertNotNil(counts[type]?.lastAnswered, "\(type) is not marked as answered for")
+            XCTAssertEqual(counts[type]?.programs, 0, "\(type): the last recorder's programmes are in the cache")
+            XCTAssertNil(counts[type]?.lastAnswered, "\(type) is marked as answered for")
         }
-        XCTAssertGreaterThan(model.counts["td"]?.programs ?? 0, 0, "they are not on the newcomer's screens")
-        XCTAssertNil(model.problem(for: .recorder), "the line left for the newcomer was not cleared")
+        XCTAssertEqual(model.counts["td"]?.programs, 0, "the last recorder's programmes are on the newcomer's screens")
+        expectEqual(await recorder.heard(since: heard), [], "a file was asked for once the recorder was let go of")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the line left for the newcomer was cleared or written")
+        XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
         XCTAssertEqual(model.guideDownloads, 0)
     }
 

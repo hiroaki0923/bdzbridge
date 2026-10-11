@@ -84,6 +84,10 @@ public struct GuideCounts: Sendable, Equatable {
     public var lastAnswered: Date? { (checked ?? refreshed).flatMap(RecorderTime.parse) }
 }
 
+/// Thrown by a write of the guide that says which recorder it was fetched from (`GuideStore.replace`,
+/// `noteNoGuide`, `replaceLogos`), when the cache is another recorder's: nothing was written.
+struct CacheIsAnothers: Error, Equatable {}
+
 /// The guide cache on the device: channels, programmes, station logos, and which channels the user hides or
 /// reorders. The cache tables are disposable and are rebuilt when the schema changes; the user's own
 /// preferences survive that.
@@ -200,8 +204,14 @@ public actor GuideStore {
     // MARK: - refresh
 
     /// Replaces everything held for one broadcasting type. Returns how many programmes were stored.
+    ///
+    /// `recorder` is the recorder the guide was fetched from, for a caller that fetched it: a cache that is
+    /// another recorder's by the time of the write takes nothing of it (`refuseAGuide`), and nothing is
+    /// changed. Nil asks nothing, for a caller whose guide is no recorder's, or its own cache's by the way it
+    /// was made: the demo's invented guide, a test's.
     @discardableResult
-    public func replace(_ services: [GuideService], broadcasting: String, at now: Date = Date()) throws -> Int {
+    public func replace(_ services: [GuideService], broadcasting: String, from recorder: RecorderDescription? = nil,
+                        at now: Date = Date()) throws -> Int {
         var programs: [[SqlValue]] = []
         for service in services {
             for program in service.programs {
@@ -226,6 +236,7 @@ public actor GuideStore {
         }
 
         return try db.transaction {
+            try refuseAGuide(from: recorder)
             try db.run("DELETE FROM programs WHERE bt=?", [.text(broadcasting)])
             try db.run("DELETE FROM channels WHERE bt=?", [.text(broadcasting)])
             try db.insertMany("INSERT INTO channels (bt, service_id, name, sort) VALUES (?,?,?,?)", channels)
@@ -239,9 +250,27 @@ public actor GuideStore {
 
     /// Notes that the recorder was asked for one broadcasting type's guide and had none to give -- a model
     /// without that kind of tuner, or one not built yet -- so that the type is not asked for again on every
-    /// connect until the recorder next rebuilds its files. What is cached for it is left as it is.
-    public func noteNoGuide(broadcasting: String, at now: Date = Date()) throws {
-        try noteAnswered(broadcasting: broadcasting, at: now)
+    /// connect until the recorder next rebuilds its files. What is cached for it is left as it is. Not in a
+    /// cache that is another recorder's than the one asked (`recorder`, as for `replace`): it is not the one
+    /// that had none to give.
+    public func noteNoGuide(broadcasting: String, from recorder: RecorderDescription? = nil,
+                            at now: Date = Date()) throws {
+        try db.transaction {
+            try refuseAGuide(from: recorder)
+            try noteAnswered(broadcasting: broadcasting, at: now)
+        }
+    }
+
+    /// Refuses what was fetched from `recorder` in a cache that is another recorder's (`recognises`): a guide
+    /// goes only into the cache of the recorder it was fetched from. The cache is made over when another
+    /// recorder describes itself (`claim`), while a file asked of the last one can still be out, and what it
+    /// brings would stand in the newcomer's guide, marked as fetched, until the next refresh. Asked inside the
+    /// write's own transaction, as `claim` asks again inside its own: another connection may have made the
+    /// cache over since the caller last looked. A cache with no owner written down takes it, as `claim` takes
+    /// the first to answer, and so does every cache from a recorder that gives no UDN. Nil asks nothing.
+    private func refuseAGuide(from recorder: RecorderDescription?) throws {
+        guard let recorder, try recognises(recorder) == .another else { return }
+        throw CacheIsAnothers()
     }
 
     private func noteAnswered(broadcasting: String, at now: Date) throws {
@@ -284,13 +313,17 @@ public actor GuideStore {
         return rewritten
     }
 
-    public func replaceLogos(_ logos: [StationLogo], broadcasting: String) throws {
+    /// Replaces the station logos held for one broadcasting type; `recorder` as for `replace`.
+    public func replaceLogos(_ logos: [StationLogo], broadcasting: String,
+                             from recorder: RecorderDescription? = nil) throws {
         try replaceLogos(logos.map { (serviceID: $0.serviceID, channelNo: $0.channelNo, png: $0.png) },
-                         broadcasting: broadcasting)
+                         broadcasting: broadcasting, from: recorder)
     }
 
-    public func replaceLogos(_ logos: [(serviceID: Int, channelNo: Int, png: Data)], broadcasting: String) throws {
+    public func replaceLogos(_ logos: [(serviceID: Int, channelNo: Int, png: Data)], broadcasting: String,
+                             from recorder: RecorderDescription? = nil) throws {
         try db.transaction {
+            try refuseAGuide(from: recorder)
             try db.run("DELETE FROM logos WHERE bt=?", [.text(broadcasting)])
             try db.insertMany("INSERT OR REPLACE INTO logos (bt, service_id, channel_no, png) VALUES (?,?,?,?)",
                               logos.map { [.text(broadcasting), .integer($0.serviceID), .integer($0.channelNo),

@@ -1454,6 +1454,130 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertFalse(link.checksAgain)
     }
 
+    /// A refresh of the guide is for the recorder in play at its door, and nothing of it goes on once that
+    /// recorder has been let go of. Each refresh here has its first file out, held at the recorder, as the
+    /// recorder is let go of.
+    ///
+    /// Let go of by the host, nobody taken up in its place, and the file then answered as one not built: the
+    /// next type is not asked for, the line of what went wrong is neither cleared nor written with the type
+    /// that failed, and the refresh did not go through; what it says is what a write says then, which with no
+    /// recorder in hand is what the line holds. So it is where the file out was the last one asked for, and
+    /// the refresh came to its end across the let-go. The file answered with nothing at all instead: the
+    /// silence is not the recorder in play's, and is neither said nor taken -- nobody is lost.
+    ///
+    /// Another recorder taken up at the address by a connect, which makes the cache over to it, and the file
+    /// then answered with a guide: nothing of it is in the newcomer's cache and no type is marked, nothing more
+    /// is asked for, of either recorder, the line is as the newcomer's connect left it, and the refresh says
+    /// that another recorder answered.
+    ///
+    /// And let go of while the check before the refresh is out, nobody taken up in its place: no file is asked
+    /// for, and the refresh says what a write says then, not what a check's no says. With a line left by
+    /// whatever let go of the recorder, it repeats that line; with the line empty, it says that another
+    /// recorder answered, where after a check's no it would say that the app is not connected.
+    func testAGuideRefreshIsForTheRecorderInPlayAtItsDoorAndNothingOfItGoesOnAcrossALetGo() async throws {
+        func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
+        /// A refresh begun on `driver`, of every type unless told which, its first file held at `recorder`.
+        func refreshing(_ driver: RecorderDriver, _ world: LinkWorld, _ which: GuideAsked = .all,
+                        heldAt recorder: HoldingAFile) async -> Task<GuideRefreshed, Never> {
+            let refresh = Task { await driver.refreshGuide(which) { world.put("stored \($0)") } }
+            var turns = 0
+            while await !recorder.isHolding, turns < 100_000 {
+                turns += 1
+                await Task.yield()
+            }
+            expectTrue(await recorder.isHolding, "the refresh was meant to have its first file out")
+            return refresh
+        }
+
+        var (world, driver, link, recorder) = try await holdingAFile()
+        var refresh = await refreshing(driver, world, heldAt: recorder)
+        link.forgetTheDevice()
+        await recorder.letGo(with: .success(HTTPResponse(statusCode: 500)))
+        var refreshed = await refresh.value
+        XCTAssertFalse(refreshed.wentThrough, "a refresh went through for a recorder let go of")
+        XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["td"])
+        XCTAssertEqual(refreshed.said, Self.left, "what a write says with no recorder in hand: the line")
+        XCTAssertEqual(world.problem, Self.left, "the line was cleared, or written, across a let-go")
+        expectEqual(await recorder.files, ["EPG_TRDEPG_FILE.dat"], "a file was asked for after the let-go")
+        XCTAssertNil(world.line, "the line was left up")
+
+        (world, driver, link, recorder) = try await holdingAFile()
+        refresh = await refreshing(driver, world, .only(["td"]), heldAt: recorder)
+        link.forgetTheDevice()
+        await recorder.letGo(with: .success(HTTPResponse(statusCode: 500)))
+        refreshed = await refresh.value
+        XCTAssertFalse(refreshed.wentThrough, "a refresh that ended across a let-go was said to have gone through")
+        XCTAssertEqual(refreshed.said, Self.left)
+        XCTAssertEqual(world.problem, Self.left, "the line was cleared, or written, across a let-go")
+
+        (world, driver, link, recorder) = try await holdingAFile()
+        refresh = await refreshing(driver, world, heldAt: recorder)
+        link.forgetTheDevice()
+        await recorder.letGo(with: .failure(.transport("timed out")))
+        refreshed = await refresh.value
+        XCTAssertFalse(refreshed.wentThrough)
+        XCTAssertEqual(refreshed.said, Self.left)
+        XCTAssertEqual(world.problem, Self.left, "the silence of a recorder let go of was said")
+        XCTAssertFalse(link.session.unreachable, "the silence of a recorder let go of was taken for the one in play's")
+        expectEqual(await recorder.files, ["EPG_TRDEPG_FILE.dat"])
+
+        // Another recorder at the address, taken up by a connect while the file is out.
+        (world, driver, link, recorder) = try await holdingAFile()
+        let cache = try XCTUnwrap(world.cache)
+        refresh = await refreshing(driver, world, heldAt: recorder)
+        let newcomer = try PlayingRecorder([:], udn: Self.anotherUDN)
+        world.devices[Stub.host] = newcomer
+        await link.connect()
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, "the newcomer was meant to be taken up")
+        expectEqual(try await cache.owner(), Self.anotherUDN, "the cache was meant to be made over to it")
+        let lineOfTheNewcomer = world.problem
+        let sample = try Vectors.load("epg-sample.json").string("file")
+        let guide = try Data(contentsOf: Vectors.directory.appendingPathComponent(sample))
+        await recorder.letGo(with: .success(HTTPResponse(statusCode: 200, body: guide)))
+        refreshed = await refresh.value
+        XCTAssertFalse(refreshed.wentThrough)
+        XCTAssertEqual(refreshed.said, RecorderDriver.anotherAnswered)
+        XCTAssertEqual(refreshed.stored, 0)
+        XCTAssertEqual(world.problem, lineOfTheNewcomer, "the newcomer's line was cleared or written")
+        let counts = try await cache.counts()
+        for type in GuideRefresh.broadcastingTypes {
+            XCTAssertEqual(counts[type]?.programs, 0, "\(type): the last recorder's programmes are in the cache")
+            XCTAssertNil(counts[type]?.lastAnswered, "\(type) is marked as answered for")
+        }
+        XCTAssertFalse(world.events.contains { $0.hasPrefix("stored") }, "a type was reported stored")
+        expectEqual(await recorder.files, ["EPG_TRDEPG_FILE.dat"], "more was asked of the recorder let go of")
+        expectEqual(await newcomer.actions.filter(\.isEmpty).count, 0, "a file was asked of the newcomer")
+
+        // Let go of while the check before the refresh is out: with a line left, and with the line empty.
+        for (left, said) in [(Self.left as String?, Self.left), (nil, RecorderDriver.anotherAnswered)] {
+            let what = left == nil ? "the line empty" : "a line left"
+            let (checked, ofTheChecked, toTheChecked) = try Self.linked()
+            let scripted = try XCTUnwrap(checked.devices[Stub.host] as? ScriptedRecorder)
+            Self.links.append(toTheChecked)
+            checked.cache = try temporaryStore()
+            await toTheChecked.connect()
+            XCTAssertTrue(toTheChecked.session.connected, checked.problem ?? "no reason given")
+            checked.events = []
+            await scripted.hold()
+            let check = Task { await toTheChecked.ensureUp(evenIfRecent: true) }
+            try await Self.whenHeld(scripted)
+            let besideTheCheck = Task { await ofTheChecked.refreshGuide(.all) { checked.put("stored \($0)") } }
+            for _ in 0..<100_000 where checked.line != "番組表を取得中" { await Task.yield() }
+            XCTAssertEqual(checked.line, "番組表を取得中", "the refresh was meant to be waiting for the check")
+            toTheChecked.forgetTheDevice()
+            checked.problem = left
+            await scripted.letGo()
+            _ = await check.value
+            refreshed = await besideTheCheck.value
+            XCTAssertFalse(refreshed.wentThrough, what)
+            XCTAssertEqual(refreshed.said, said,
+                           "\(what): a check that ended across a let-go was said as a check that said no")
+            XCTAssertEqual(checked.events.filter { $0.hasPrefix("ask") }, ["ask description.xml at \(Stub.host)"],
+                           "\(what): a file was asked for across a let-go")
+            XCTAssertEqual(checked.problem, left, "\(what): the line was written, or cleared, across a let-go")
+        }
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
@@ -1538,6 +1662,26 @@ final class RecorderRecordingsTests: XCTestCase {
         world.problem = left
         links.append(link)
         return (world, driver, recorder)
+    }
+
+    /// A link as `playing` makes one, connected a moment ago to a recorder that says who it is and holds the
+    /// first file of the guide asked of it (`HoldingAFile`), with a cache in hand that the connect has put that
+    /// recorder down as the owner of, and an earlier failure's line left.
+    private func holdingAFile() async throws -> (LinkWorld, RecorderDriver, DeviceLink, HoldingAFile) {
+        let world = LinkWorld()
+        let recorder = try HoldingAFile(udn: DeviceLinkTests.udn)
+        world.devices[Stub.host] = recorder
+        world.cache = try temporaryStore()
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        expectEqual(try await world.cache?.owner(), DeviceLinkTests.udn, "the cache was meant to be this recorder's")
+        world.problem = Self.left
+        Self.links.append(link)
+        return (world, driver, link, recorder)
     }
 
     /// The types whose guide `recorder` was asked for, in the order it was asked.
@@ -1647,6 +1791,42 @@ private final class Noted {
     var back = false
     var rowsTakenOut = 0
     var list: [String]?
+}
+
+/// A recorder that says who it is as the vectors' recorder does, and holds the first file of the guide it is
+/// asked for until the test lets it go, with what that file then gets: an answer, or nothing at all. Every file
+/// after it, and everything else it is asked, gets a 500, as from a recorder that has not built its files. It
+/// puts down the guide's files it was asked for, by name.
+private actor HoldingAFile: HTTPTransport {
+    private let description: String
+    private var holds = true
+    private var held: CheckedContinuation<Result<HTTPResponse, RecorderError>, Never>?
+    private(set) var files: [String] = []
+
+    init(udn: String) throws {
+        description = try Vectors.descriptionXML(udn: udn)
+    }
+
+    /// Whether the file is being held now.
+    var isHolding: Bool { held != nil }
+
+    /// The file held gets `answer` now.
+    func letGo(with answer: Result<HTTPResponse, RecorderError>) {
+        held?.resume(returning: answer)
+        held = nil
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let name = request.url.lastPathComponent
+        if name == "description.xml" { return HTTPResponse(statusCode: 200, body: Data(description.utf8)) }
+        guard Codes.epgFiles.values.contains(name) || Codes.logoFiles.values.contains(name) else {
+            return HTTPResponse(statusCode: 500)
+        }
+        files.append(name)
+        guard holds else { return HTTPResponse(statusCode: 500) }
+        holds = false
+        return try await withCheckedContinuation { held = $0 }.get()
+    }
 }
 
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a

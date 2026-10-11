@@ -19,8 +19,8 @@ public enum GuideAsked: Sendable {
 public struct GuideRefreshed: Sendable, Equatable {
     /// Whether the refresh ran to its end, types that failed among it or not, though nothing may have been
     /// behind: one that comes to fetch and finds every type answered for already asks for no file, and went
-    /// through. False when it was turned away -- at the door, or by the check before it -- and when silence
-    /// stopped it.
+    /// through. False when it was turned away -- at the door, or by the check before it -- when silence
+    /// stopped it, and when the recorder was let go of while it was out.
     public var wentThrough = false
     /// How many programmes were stored, over every type; the types the recorder answered for; and the types
     /// that could not be fetched or stored, each with why (`GuideRefresh.Outcome`). Of a refresh stopped by
@@ -37,10 +37,12 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// not answer, as a read says it. Otherwise -- the check before it said no -- whatever stands on the
     /// host's line of what went wrong, or that the app is not connected where the line is empty: what the
     /// check wrote there if it wrote, and if it did not, what an earlier operation left. That is the
-    /// reservations' rule (`Reserved`), and no more is promised of it: a check that ends on a recorder let go
-    /// of meanwhile writes nothing, and one that ends waiting for the local network permission empties the
-    /// line. And where that check heard something in place of the recorder saying which it is, nothing having
-    /// been asked for: what it heard, in the recorder's words, as the step wrote it on the host's line.
+    /// reservations' rule (`Reserved`), and no more is promised of it: a check that ends waiting for the local
+    /// network permission empties the line. And where that check heard something in place of the recorder
+    /// saying which it is, nothing having been asked for: what it heard, in the recorder's words, as the step
+    /// wrote it on the host's line. Of a refresh whose recorder was let go of while it was out, the check
+    /// before it included, and whatever it had come to: what a write says then (`RecorderDriver.whyLetGo`),
+    /// and nothing of the types.
     public var said: String?
 
     /// What a refresh comes to that was not asked for at all, its host having no recorder's driver to ask:
@@ -92,6 +94,16 @@ extension RecorderDriver {
     /// (`whyNotConnected`), and the line of what went wrong is left as it was. The files are asked of the client
     /// in hand at that door, and what comes goes into the cache in hand there.
     ///
+    /// A guide goes only into the cache of the recorder it was fetched from, and a refresh is for the recorder
+    /// in play at its door: which one that is is noted there, as a description to hand on with everything
+    /// written (`GuideRefresh.run`) and as the count of recorders let go of (`DeviceLink.generation`). Let go
+    /// of since -- another recorder described itself, another address was chosen -- nothing more is asked for:
+    /// not after a check that ended across it, not the next type. A file that was out by then comes back to a
+    /// cache that takes nothing of it once it has been made over. The line of what went wrong, which is the
+    /// newcomer's or says already why, is neither written nor cleared, and the silence of a file that was out
+    /// loses nobody (`DeviceLink.say(_:since:ofARead:)`). What is handed back says what a write says then
+    /// (`whyLetGo`).
+    ///
     /// After a check that heard something in place of the recorder saying which it is -- busy with somebody
     /// else, a fault (`DeviceLink.heardInstead`) -- nothing is fetched, as no list is read after one
     /// (`reservations`): the files' server names no recorder either, and an answer that does not say which
@@ -105,15 +117,17 @@ extension RecorderDriver {
     /// stored before the recorder fell silent over its logos is not reported to it.
     public func refreshGuide(_ which: GuideAsked,
                              stored: @escaping @MainActor @Sendable (String) async -> Void) async -> GuideRefreshed {
-        guard let link, let (client, store) = inHandForTheGuide(on: link) else {
+        guard let link, let (client, store, recorder) = inHandForTheGuide(on: link) else {
             return GuideRefreshed(said: whyNotConnected)
         }
+        let began = link.generation
         // Read once, as `DeviceLink.run` reads it: what went wrong is cleared on the host the refresh began under.
         let owner = link.owner
         let ran = await link.underALine(Self.guideLine) { line -> Result<GuideRefresh.Outcome, OperationFailure> in
-            if case .notUp(let why) = await link.check(evenIfRecent: link.checksAgain) {
-                return .failure(.notSent(why))
-            }
+            let check = await link.check(evenIfRecent: link.checksAgain)
+            // Ahead of what the check found: one that ended on a recorder let go of is said as that.
+            guard !link.letGo(since: began) else { return .failure(.letGoMeanwhile) }
+            if case .notUp(let why) = check { return .failure(.notSent(why)) }
             if let heard = link.heardInstead {
                 return .failure(link.say(OperationFailure(heard, sending: nil), ofARead: true))
             }
@@ -122,15 +136,20 @@ extension RecorderDriver {
             // is cancelled -- which is for the overnight run, whose time runs out.
             let refresh = Task {
                 let types = await Self.types(which, by: store)
-                return await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
+                return await GuideRefresh.run(client: client, store: store, from: recorder, types: types,
+                                              onType: { broadcasting in
+                    guard !link.letGo(since: began) else { return false }
                     if let line { link.owner?.updateActivity(line, to: Self.guideLine(for: broadcasting)) }
+                    return true
                 }, onStored: stored)
             }
             let outcome = await refresh.value
-            if outcome.stopped == .silent {
-                _ = link.say(.silentOnARead(sentence: self.noAnswerLine))
-            } else if !(outcome.answered.isEmpty && outcome.failed.isEmpty) {
-                owner?.problem = nil
+            switch outcome.stopped {
+            case .silent: _ = link.say(.silentOnARead(sentence: self.noAnswerLine), since: began)
+            case .letGo: break
+            case nil:
+                let asked = !(outcome.answered.isEmpty && outcome.failed.isEmpty)
+                if asked, !link.letGo(since: began) { owner?.problem = nil }
             }
             return .success(outcome)
         }
@@ -138,12 +157,19 @@ extension RecorderDriver {
         switch ran {
         case .success(let fetched):
             outcome = fetched
+        case .failure(.letGoMeanwhile):
+            return GuideRefreshed(said: whyLetGo(on: link))
         case .failure(let failure):
             // What the link said of what the check heard; or the check said no, and has said why.
             return GuideRefreshed(said: failure.sentence ?? link.owner?.problem ?? whyNotConnected)
         }
-        var refreshed = GuideRefreshed(wentThrough: outcome.stopped == nil, stored: outcome.stored,
+        let letGo = outcome.stopped == .letGo || link.letGo(since: began)
+        var refreshed = GuideRefreshed(wentThrough: outcome.stopped == nil && !letGo, stored: outcome.stored,
                                        answered: outcome.answered, failed: outcome.failed)
+        guard !letGo else {
+            refreshed.said = whyLetGo(on: link)
+            return refreshed
+        }
         var lines = outcome.failed.map(Self.guideFailed)
         if outcome.stopped == nil {
             if !lines.isEmpty { link.owner?.problem = lines.joined(separator: "\n") }
@@ -154,13 +180,15 @@ extension RecorderDriver {
         return refreshed
     }
 
-    /// The step's door: the recorder's client and the host's cache, for a refresh to ask and to write to, or
-    /// nil where nothing is to be asked -- no recorder's client in hand, no cache, the recorder known to be
-    /// away, or one that has not said which it is (`canBeAsked`).
-    private func inHandForTheGuide(on link: DeviceLink) -> (client: RecorderClient, store: GuideStore)? {
+    /// The step's door: the recorder's client and the host's cache, for a refresh to ask and to write to, and
+    /// the recorder in play as it described itself, which the guide is fetched from; or nil where nothing is
+    /// to be asked -- no recorder's client in hand, no cache, the recorder known to be away, or one that has not
+    /// said which it is (`canBeAsked`).
+    private func inHandForTheGuide(on link: DeviceLink)
+        -> (client: RecorderClient, store: GuideStore, recorder: RecorderDescription)? {
         guard let client = link.client as? RecorderClient, let store = link.owner?.cache,
-              !link.session.unreachable, canBeAsked(on: link) else { return nil }
-        return (client, store)
+              let recorder = link.session.info, !link.session.unreachable, canBeAsked(on: link) else { return nil }
+        return (client, store, recorder)
     }
 
     /// The types a refresh asked for with `which` fetches, judged as it comes to fetch them. A cache whose

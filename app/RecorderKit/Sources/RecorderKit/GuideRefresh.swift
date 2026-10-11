@@ -28,6 +28,10 @@ public enum GuideRefresh {
     public enum Stop: Sendable, Equatable {
         /// The recorder stopped answering, over a type's guide or over its logos.
         case silent
+        /// The guide is no longer for the recorder it was being fetched from: the cache has been made over to
+        /// another recorder and took nothing of what came for the last one (`GuideStore.replace`), or whoever
+        /// asked said before a type not to go on (`onType`). The write that was refused changed nothing.
+        case letGo
     }
 
     public struct Failure: Sendable, Equatable {
@@ -48,10 +52,20 @@ public enum GuideRefresh {
     /// (see `SerialQueue`), and each type is stored in one transaction, so stopping there leaves nothing half
     /// written. Only the overnight run is meant to be stopped this way.
     ///
-    /// `onType` is called on the main actor as each type starts, and `onStored` once its programmes and logos
-    /// are in the cache, for the screen to show them without waiting for the rest.
-    public static func run(client: some GuideSource, store: GuideStore, types: [String] = broadcastingTypes,
-                           onType: (@MainActor @Sendable (String) -> Void)? = nil,
+    /// A guide goes only into the cache of the recorder it was fetched from. `recorder` is the one `client`
+    /// asks, as it described itself to whoever asks for the refresh, and is handed on with everything written
+    /// (`GuideStore.replace`, `noteNoGuide`, `replaceLogos`): once the cache is another recorder's -- made
+    /// over while a file was out -- it takes nothing, and the refresh ends there (`Stop.letGo`), the files'
+    /// server naming no recorder and the rest being no more this cache's than that one. The screens and the
+    /// overnight run always hand one; nil asks nothing, for a test's cache.
+    ///
+    /// `onType` is called on the main actor as each type starts, and says whether to go on: a caller that
+    /// knows the recorder to have been let go of since ends the refresh before another file is asked for
+    /// (`Stop.letGo`). `onStored` is called once a type's programmes and logos are in the cache, for the
+    /// screen to show them without waiting for the rest.
+    public static func run(client: some GuideSource, store: GuideStore, from recorder: RecorderDescription? = nil,
+                           types: [String] = broadcastingTypes,
+                           onType: (@MainActor @Sendable (String) -> Bool)? = nil,
                            onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async -> Outcome {
         var outcome = Outcome()
         for broadcasting in types {
@@ -59,27 +73,35 @@ public enum GuideRefresh {
                 outcome.cancelled = true
                 break
             }
-            await onType?(broadcasting)
+            if let onType, await !onType(broadcasting) {
+                outcome.stopped = .letGo
+                break
+            }
             do {
                 guard let services = try await client.guide(broadcasting) else {
-                    try await store.noteNoGuide(broadcasting: broadcasting)
+                    try await store.noteNoGuide(broadcasting: broadcasting, from: recorder)
                     outcome.answered.append(broadcasting)
                     continue
                 }
-                outcome.stored += try await store.replace(services, broadcasting: broadcasting)
+                outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder)
                 outcome.answered.append(broadcasting)
                 do {
                     if let logos = try await client.logos(broadcasting) {
-                        try await store.replaceLogos(logos, broadcasting: broadcasting)
+                        try await store.replaceLogos(logos, broadcasting: broadcasting, from: recorder)
                     }
                 } catch let error as any DeviceError where error.failure == .silent {
                     throw error
+                } catch is CacheIsAnothers {
+                    throw CacheIsAnothers()
                 } catch {
                     // The logos are only looks, and the programmes are in: the type keeps the logos it had.
                 }
                 await onStored?(broadcasting)
             } catch let error as any DeviceError where error.failure == .silent {
                 outcome.stopped = .silent
+                break
+            } catch is CacheIsAnothers {
+                outcome.stopped = .letGo
                 break
             } catch {
                 outcome.failed.append(Failure(broadcasting: broadcasting, reason: reason(for: error)))

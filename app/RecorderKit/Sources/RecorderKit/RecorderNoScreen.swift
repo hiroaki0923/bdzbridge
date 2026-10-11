@@ -86,7 +86,8 @@ extension RecorderDriver {
     /// the free space are told before a guide download that can outlast the task.
     ///
     /// Silence in the guide ends the run: that a guide was fetched is told when a type answered before it, what
-    /// was stored before it is handed back, and nothing more is asked.
+    /// was stored before it is handed back, and nothing more is asked. So does a cache that is another
+    /// recorder's by the time a file has come (`GuideRefresh.Stop.letGo`): it takes nothing of the file.
     ///
     /// It runs in the caller's task, and stops between steps once that is cancelled, which is what the system
     /// does when the run's time is up: the request under way is waited for, and nothing is asked after it.
@@ -131,8 +132,9 @@ extension RecorderDriver {
         if let second { await found(.usbSpace(second)) }
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
-        // connect: nothing marks it fetched.
-        let refresh = await GuideRefresh.run(client: client, store: store)
+        // connect: nothing marks it fetched. Handed the recorder that answered this run, as it described itself:
+        // should the screens make the cache over to another meanwhile, it takes nothing more of this one's guide.
+        let refresh = await GuideRefresh.run(client: client, store: store, from: await client.info)
         if !refresh.answered.isEmpty { await found(.fetched(Date())) }
         // Not after a guide that silence stopped: one request more of a recorder just found silent.
         // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
