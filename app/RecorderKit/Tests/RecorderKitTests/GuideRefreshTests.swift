@@ -239,6 +239,101 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertEqual(outcome.answered, ["td"])
         expectEqual(await transport.requests.count, 2, "the first type's guide and logos")
     }
+
+    /// Two clients of one recorder, as the screens and the overnight run each have one, on one transport that
+    /// holds the first request it is sent and answers every file as one the recorder has no channels for.
+    private func twoClients() -> (first: RecorderClient, second: RecorderClient, transport: StubTransport, held: Held) {
+        let held = Held()
+        let transport = StubTransport { _, index in
+            if index == 0 { await held.wait() }
+            return HTTPResponse(statusCode: 416)
+        }
+        func client() -> RecorderClient {
+            RecorderClient(host: Stub.host, transport: transport, streamPort: 60151, busyRetryDelay: 0...0)
+        }
+        return (client(), client(), transport, held)
+    }
+
+    /// Waits, a bounded while, for the request the two clients' transport holds to have come.
+    private func whenHeld(_ held: Held) async throws {
+        var turns = 0
+        while await !held.isHolding, turns < 100_000 {
+            turns += 1
+            await Task.yield()
+        }
+        guard await held.isHolding else {
+            XCTFail("the first refresh was meant to have its first file out")
+            throw NothingHeld()
+        }
+    }
+
+    /// One refresh at a time, whichever client asks: a client's own queue keeps apart only what is asked of
+    /// that client. With the first refresh's first file out, a second is asked on another client for the
+    /// types not answered for since yesterday, which is every type as it is asked. It waits its turn, and
+    /// judges once the turn is its own: the first has had every type answered by then, and the second asks
+    /// for nothing. Four files in all, where there would be eight, and never two requests at the recorder
+    /// at once.
+    ///
+    /// What is behind, which a connect asks for, is the same judged against the recorder's last rebuild: by
+    /// marks a day ahead and two days back, which no hour of the day changes.
+    func testARefreshAskedWhileAnotherIsOutWaitsItsTurnAndFetchesOnlyWhatIsStillBehind() async throws {
+        let (first, second, transport, held) = twoClients()
+        let store = try temporaryStore()
+        let yesterday = Date().addingTimeInterval(-86_400)
+        expectEqual(await GuideRefresh.types(.notAnsweredSince(yesterday), by: store), GuideRefresh.broadcastingTypes)
+
+        let out = Task { await GuideRefresh.run(client: first, store: store) }
+        try await whenHeld(held)
+        let begun = Stored()
+        let behind = Task {
+            begun.add("begun")
+            return await GuideRefresh.run(asked: .notAnsweredSince(yesterday),
+                                          onTurn: { .fetch(client: second, store: store, from: nil) })
+        }
+        for _ in 0..<100_000 where begun.types.isEmpty { await Task.yield() }
+        XCTAssertEqual(begun.types, ["begun"], "the second refresh was meant to have been asked for")
+        await held.letGo()
+        let (one, other) = (await out.value, await behind.value)
+
+        XCTAssertEqual(one.answered, GuideRefresh.broadcastingTypes)
+        XCTAssertEqual(other.answered, [], "the second fetched what the first had fetched while it waited")
+        XCTAssertNil(other.stopped)
+        expectEqual(await transport.requests.count, 4, "each file was meant to be asked for once")
+        expectEqual(await transport.maxConcurrent, 1, "two refreshes asked the recorder at the same time")
+
+        let ahead = Date().addingTimeInterval(86_400), longAgo = Date().addingTimeInterval(-2 * 86_400)
+        for type in GuideRefresh.broadcastingTypes {
+            try await store.noteNoGuide(broadcasting: type, at: type == "cs" ? longAgo : ahead)
+        }
+        expectEqual(await GuideRefresh.types(.whatIsBehind, by: store), ["cs"])
+        expectEqual(await GuideRefresh.types(.all, by: store), GuideRefresh.broadcastingTypes)
+        expectEqual(await GuideRefresh.types(.only(["bs"]), by: store), ["bs"])
+    }
+
+    /// A refresh runs in the task that asked for it, also once it has waited its turn: that task being
+    /// cancelled while it waits -- the overnight run's, its time up -- the wait is not cut short, and the look
+    /// before the first type, which comes after the wait, ends it with no file asked for.
+    func testARefreshCancelledWhileItWaitsItsTurnAsksForNoFile() async throws {
+        let (first, second, transport, held) = twoClients()
+        let store = try temporaryStore()
+
+        let out = Task { await GuideRefresh.run(client: first, store: store) }
+        try await whenHeld(held)
+        let begun = Stored()
+        let waiting = Task {
+            begun.add("begun")
+            return await GuideRefresh.run(client: second, store: store)
+        }
+        for _ in 0..<100_000 where begun.types.isEmpty { await Task.yield() }
+        waiting.cancel()
+        await held.letGo()
+        let (one, cancelled) = (await out.value, await waiting.value)
+
+        XCTAssertEqual(one.answered, GuideRefresh.broadcastingTypes, "the refresh that was out did not end as asked")
+        XCTAssertTrue(cancelled.cancelled, "the refresh did not see that its task was cancelled while it waited")
+        XCTAssertEqual(cancelled.answered, [])
+        expectEqual(await transport.requests.count, 4, "a file was asked for by a refresh cancelled as it waited")
+    }
 }
 
 /// The types `onStored` was called for, from the main actor.
@@ -258,3 +353,24 @@ private final class Stored: @unchecked Sendable {
         return list
     }
 }
+
+/// Something a test holds one request at until it lets it go.
+private actor Held {
+    private var waiting: CheckedContinuation<Void, Never>?
+
+    /// Whether something waits here now.
+    var isHolding: Bool { waiting != nil }
+
+    /// Waits here until `letGo`.
+    func wait() async {
+        await withCheckedContinuation { waiting = $0 }
+    }
+
+    func letGo() {
+        waiting?.resume()
+        waiting = nil
+    }
+}
+
+/// Thrown to end a test whose request never came to be held, once the failure is recorded.
+private struct NothingHeld: Error {}

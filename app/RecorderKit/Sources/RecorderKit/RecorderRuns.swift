@@ -185,16 +185,28 @@ extension RecorderDriver {
     /// found, so that a check which ended on another recorder is said so and not as a check that failed; and
     /// again after the check of 3, which can itself be what hears the other recorder.
     public func mayGoOn(_ run: Run) async -> RunStop? {
+        await mayGoOn(since: run.began) { link in
+            guard link.client is RecorderClient, !link.session.unreachable, self.canBeAsked(on: link) else {
+                return .said(self.whyNotConnected)
+            }
+            return nil
+        }
+    }
+
+    /// The same asking by the count alone, which is all of a run that it reads (`DeviceLink.generation`, as
+    /// noted when the requests began), and with the doors handed in: for whatever else is so many requests of
+    /// one recorder, asked one after another. That is a refresh of the guide (`refreshGuide`), which has a door
+    /// more than a run and says another thing where one is shut. `shut` is asked with the link where the doors
+    /// stand in the order, 2, and says why one is shut, or nil with every door open.
+    func mayGoOn(since began: Int, shut: @MainActor (DeviceLink) -> RunStop?) async -> RunStop? {
         guard let link else { return .said(Self.notConnected) }
         var found: NotUp?
         if let check = link.wakeCheck { found = await check.value }
-        guard !link.letGo(since: run.began) else { return .said(whyLetGo(on: link)) }
+        guard !link.letGo(since: began) else { return .said(whyLetGo(on: link)) }
         guard found == nil else { return whatTheLinkSaid(on: link) }
-        guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
-            return .said(whyNotConnected)
-        }
+        if let why = shut(link) { return why }
         let check = await link.check(evenIfRecent: link.checksAgain)
-        guard !link.letGo(since: run.began) else { return .said(whyLetGo(on: link)) }
+        guard !link.letGo(since: began) else { return .said(whyLetGo(on: link)) }
         guard case .up = check else { return whatTheLinkSaid(on: link) }
         guard link.mayBeSent else { return .said(whyNotSent(on: link)) }
         return nil
@@ -202,8 +214,9 @@ extension RecorderDriver {
 
     /// What stops a run after a check that said no, before a recording (`mayGoOn`) or before one of its requests
     /// (`asked(in:_:_:)`): what that check left on the host's line of what went wrong, or that the app is not
-    /// connected where it left nothing, as a write's result says a check's no again (`altered`).
-    private func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
+    /// connected where it left nothing, as a write's result says a check's no again (`altered`). A refresh of
+    /// the guide says the same where a door of its own is found shut (`refreshGuide`).
+    func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
         .said(link.owner?.problem ?? whyNotConnected)
     }
 

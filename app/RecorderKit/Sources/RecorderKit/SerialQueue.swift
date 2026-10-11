@@ -23,3 +23,37 @@ actor SerialQueue {
         return try await task.value
     }
 }
+
+/// One at a time as well, for work that has to stay in the task that asked for it: a turn that is waited for,
+/// taken in the order it was asked for, and given back.
+///
+/// `SerialQueue` runs each piece of work in a task of its own, which is what makes a caller's cancellation
+/// change nothing there. Work that looks at its own cancellation to stop early would never see it from inside
+/// such a task: the guide's refresh, which the overnight run asks in the task the system cancels when its time
+/// is up, looks before each type (`GuideRefresh.run`), and behind a queue's task it would go on through every
+/// file of a night already ended. So whoever has the turn runs its work itself.
+///
+/// The wait for the turn is not cut short when the caller is cancelled: the work is what looks at that, once
+/// the turn is its own, and gives the turn back like any other.
+actor Turn {
+    private var taken = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    /// Returns once the turn is the caller's, which then gives it back, once (`giveBack`).
+    func take() async {
+        guard taken else {
+            taken = true
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    /// Hands the turn to whoever has waited longest, or leaves it free.
+    func giveBack() {
+        if waiting.isEmpty {
+            taken = false
+        } else {
+            waiting.removeFirst().resume()
+        }
+    }
+}

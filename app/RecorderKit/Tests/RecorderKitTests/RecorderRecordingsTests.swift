@@ -1630,6 +1630,148 @@ final class RecorderRecordingsTests: XCTestCase {
         }
     }
 
+    /// A refresh that waited its turn asks nothing at all for a recorder let go of meanwhile: no file, and not
+    /// who answers either. The turn is another refresh's here, of the test's own, its first file held; a
+    /// refresh is asked for and waits under its line; and another recorder is then taken up at the address by
+    /// a connect, which lets go of the first. A check has since heard the newcomer busy with somebody else, so
+    /// that whatever makes sure of it next asks who answers, however lately it answered. Once the turn comes,
+    /// nothing is asked of the newcomer, and nothing of the recorder let go of: the refresh did not go
+    /// through, says that another recorder answered, and leaves the newcomer's line as it was.
+    func testAGuideWhoseRecorderWasLetGoOfWhileItWaitedItsTurnAsksNothingOfTheOneInItsPlace() async throws {
+        let (world, driver, first) = try await Self.playing([:])
+        let link = try XCTUnwrap(driver.link)
+        world.cache = try temporaryStore()
+        let turn = try await holdingTheTurn()
+        let refreshing = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
+        try await Self.whenWaitingUnderItsLine(world)
+
+        let newcomer = try PlayingRecorder([:], udn: Self.anotherUDN)
+        world.devices[Stub.host] = newcomer
+        await link.connect()
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, "the newcomer was meant to be taken up")
+        await newcomer.beBusyWhenAskedWhoItIs()
+        expectTrue(await link.ensureUp(evenIfRecent: true), "a recorder that answered busy was taken for gone")
+        XCTAssertTrue(link.checksAgain, "the check was meant to have heard the newcomer busy")
+        await newcomer.sayWhoItIs()
+        await newcomer.forget()
+        await first.forget()
+        let lineOfTheNewcomer = world.problem
+
+        await turn.giveBack()
+        let refreshed = await refreshing.value
+        XCTAssertFalse(refreshed.wentThrough, "a refresh went through for a recorder let go of as it waited its turn")
+        XCTAssertEqual(refreshed.said, RecorderDriver.anotherAnswered)
+        expectEqual(await newcomer.actions, [], "the newcomer was asked, for a refresh that is not for it")
+        expectEqual(await first.actions, [], "the recorder let go of was asked")
+        XCTAssertEqual(world.problem, lineOfTheNewcomer, "the newcomer's line was cleared or written")
+        XCTAssertFalse(world.events.contains { $0.hasPrefix("stored") }, "a type was reported stored")
+        XCTAssertNil(world.line, "the line was left up")
+    }
+
+    /// A refresh whose turn comes while the recorder is being woken hears the waking out, as a run does, and
+    /// goes by what it found: a recorder being woken counts as away until the waking is over, and a door asked
+    /// first would turn the refresh away over a recorder that is about to answer. The turn is another
+    /// refresh's here, of the test's own; a refresh is asked for and waits under its line; the recorder then
+    /// says nothing as something else makes sure of it, and is being woken when the turn is given back.
+    ///
+    /// The recorder answers again: until then the refresh has not come back and no file is asked for; then it
+    /// asks for each file, and goes through. With a waking that gets no answer, nothing is asked for: the
+    /// refresh did not go through, and says what the waking left on the line.
+    func testAGuideWhoseTurnComesWhileTheRecorderIsBeingWokenHearsTheWakingOut() async throws {
+        func files(_ recorder: PlayingRecorder) async -> Int { await recorder.actions.filter(\.isEmpty).count }
+        /// A refresh waiting its turn on a link that can wake its recorder, the recorder then silent to a check
+        /// that wakes it: what is needed to give the turn back and to look at what came of it. The waking is
+        /// waited for a bounded while, and whether it is under way is for the row to say: one that gives up
+        /// after a twentieth of a second can be over before it is seen.
+        func refreshingBesideAWaking(givingUpAfter limit: TimeInterval) async throws
+            -> (world: LinkWorld, link: DeviceLink, recorder: PlayingRecorder, turn: TurnHeld, back: Noted,
+                refresh: Task<GuideRefreshed, Never>, check: Task<Bool, Never>) {
+            let (world, driver, link, recorder) = try await wakeable(givingUpAfter: limit)
+            let turn = try await holdingTheTurn()
+            let noted = Noted()
+            let refresh = Task {
+                let came = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+                noted.back = true
+                return came
+            }
+            try await Self.whenWaitingUnderItsLine(world)
+            await recorder.sayNothingOfWhoItIs()
+            let check = Task { await link.ensureUp(evenIfRecent: true) }
+            for _ in 0..<100_000 where !link.session.waking { await Task.yield() }
+            return (world, link, recorder, turn, noted, refresh, check)
+        }
+
+        var beside = try await refreshingBesideAWaking(givingUpAfter: 30)
+        XCTAssertTrue(beside.link.session.waking, "the recorder was meant to be being woken")
+        await beside.turn.giveBack()
+        // The turn is the refresh's from here on. A refresh turned away at a door would be back by now.
+        for _ in 0..<100_000 where !beside.back.back { await Task.yield() }
+        XCTAssertFalse(beside.back.back, "a refresh whose turn came during a waking did not hear the waking out")
+        expectEqual(await files(beside.recorder), 0, "a file was asked for of a recorder being woken")
+        await beside.recorder.sayWhoItIs()
+        expectTrue(await beside.check.value, "the recorder was meant to have been woken")
+        var refreshed = await beside.refresh.value
+        XCTAssertTrue(refreshed.wentThrough, refreshed.said ?? "nothing said")
+        XCTAssertEqual(refreshed.failed.map(\.broadcasting), GuideRefresh.broadcastingTypes)
+        expectEqual(await files(beside.recorder), 4, "each file was meant to be asked for once the recorder answered")
+
+        beside = try await refreshingBesideAWaking(givingUpAfter: 0.05)
+        await beside.turn.giveBack()
+        expectFalse(await beside.check.value, "a recorder that said nothing was taken for one to ask")
+        refreshed = await beside.refresh.value
+        XCTAssertFalse(refreshed.wentThrough, "a refresh went through for a recorder that was not woken")
+        XCTAssertEqual(refreshed.said, DeviceLinkTests.noAnswer, "the refresh does not say what the waking left")
+        XCTAssertEqual(beside.world.problem, DeviceLinkTests.noAnswer)
+        expectEqual(await files(beside.recorder), 0, "a file was asked for of a recorder that was not woken")
+        XCTAssertNil(beside.world.line, "the line was left up")
+    }
+
+    /// The files of a refresh are asked of the client in hand once its turn has come, and not of the one in
+    /// hand as it was asked for. The turn is another refresh's here, of the test's own; a refresh is asked for
+    /// and waits under its line. Meanwhile the recorder moves: it says nothing where it was, a connect finds
+    /// it at another address by its MAC and attaches there with a client of its own, and nobody is let go of,
+    /// since it is the same recorder. Once the turn comes, each file is asked for at the address the recorder
+    /// is at now and none where it was; the refresh goes through, and the recorder is kept.
+    func testAGuideThatWaitedItsTurnIsFetchedThroughTheClientInHandOnceTheTurnHasCome() async throws {
+        let world = LinkWorld()
+        let recorder = DeviceLinkTests.Recorder(at: Stub.host, udn: DeviceLinkTests.udn, world: world)
+        world.devices[Stub.host] = recorder
+        world.cache = try temporaryStore()
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: DeviceLinkTests.mac), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        Self.links.append(link)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        let turn = try await holdingTheTurn()
+        let refreshing = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
+        try await Self.whenWaitingUnderItsLine(world)
+
+        let moved = DeviceLinkTests.moved
+        let began = link.generation
+        await recorder.goSilent()
+        let there = DeviceLinkTests.Recorder(at: moved, udn: DeviceLinkTests.udn, world: world)
+        world.devices[moved] = there
+        world.near = [moved]
+        // As a search of the subnet finds it: what it says of itself where it is now.
+        world.found = try await RecorderClient(host: moved, transport: there).describe()
+        await link.connect()
+        XCTAssertEqual(link.client?.host, moved, world.problem ?? "the recorder was meant to be found where it moved")
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        XCTAssertFalse(link.letGo(since: began), "a recorder that moved was meant not to be let go of")
+        world.events = []
+
+        await turn.giveBack()
+        let refreshed = await refreshing.value
+        let files = GuideRefresh.broadcastingTypes.compactMap { Codes.epgFiles[$0] }
+        XCTAssertEqual(world.events.filter { $0.hasPrefix("ask EPG_") }, files.map { "ask \($0) at \(moved)" },
+                       "the files were not asked for where the recorder is, or were asked for where it was")
+        XCTAssertTrue(refreshed.wentThrough, refreshed.said ?? "nothing said")
+        XCTAssertTrue(link.session.connected, "the recorder was lost over a file asked for where it no longer is")
+        XCTAssertNil(world.line, "the line was left up")
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
@@ -1734,6 +1876,60 @@ final class RecorderRecordingsTests: XCTestCase {
         world.problem = Self.left
         Self.links.append(link)
         return (world, driver, link, recorder)
+    }
+
+    /// A link as `playing` makes one, to a recorder that can be woken: a MAC is known for it, and a check that
+    /// meets silence wakes it, asking every hundredth of a second and giving up after `limit` seconds. With a
+    /// cache in hand and an earlier failure's line left; the recorder has put down nothing yet.
+    private func wakeable(givingUpAfter limit: TimeInterval) async throws
+        -> (LinkWorld, RecorderDriver, DeviceLink, PlayingRecorder) {
+        let world = LinkWorld()
+        let recorder = try PlayingRecorder([:], udn: DeviceLinkTests.udn)
+        world.devices[Stub.host] = recorder
+        world.cache = try temporaryStore()
+        let driver = RecorderDriver(wakingLimit: limit, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: DeviceLinkTests.mac), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        await recorder.forget()
+        world.problem = Self.left
+        Self.links.append(link)
+        return (world, driver, link, recorder)
+    }
+
+    /// The guide's one turn, taken by a refresh of the test's own: on a client and into a cache of its own, its
+    /// first file held at a recorder of its own (`HoldingAFile`) until the test gives the turn back
+    /// (`TurnHeld.giveBack`). The turn is the whole process's, so the file is let go as the test is torn down
+    /// as well: left held by a test that failed part-way, it would keep every later refresh waiting.
+    private func holdingTheTurn() async throws -> TurnHeld {
+        let recorder = try HoldingAFile(udn: DeviceLinkTests.udn)
+        let client = RecorderClient(host: Stub.host, transport: recorder, streamPort: 60151, busyRetryDelay: 0...0)
+        let store = try temporaryStore()
+        addTeardownBlock { await recorder.letGo(with: .success(HTTPResponse(statusCode: 500))) }
+        let refresh = Task { await GuideRefresh.run(client: client, store: store) }
+        var turns = 0
+        while await !recorder.isHolding, turns < 100_000 {
+            turns += 1
+            await Task.yield()
+        }
+        guard await recorder.isHolding else {
+            XCTFail("the refresh that was to have the turn never asked for its first file")
+            throw NothingHeld()
+        }
+        return TurnHeld(recorder: recorder, refresh: refresh)
+    }
+
+    /// Waits, a bounded while, for a refresh asked for on `world`'s link to have put its line up, which it
+    /// does before it waits its turn: a counted loop of turns, and a failure, thrown on, when it has not by
+    /// then.
+    private static func whenWaitingUnderItsLine(_ world: LinkWorld) async throws {
+        for _ in 0..<100_000 where world.line != RecorderDriver.guideLine { await Task.yield() }
+        guard world.line == RecorderDriver.guideLine else {
+            XCTFail("the refresh that was to wait its turn never put its line up")
+            throw NothingHeld()
+        }
     }
 
     /// The types whose guide `recorder` was asked for, in the order it was asked.
@@ -1846,6 +2042,20 @@ private final class Noted {
     var back = false
     var rowsTakenOut = 0
     var list: [String]?
+}
+
+/// The guide's one turn as a refresh of a test's own has it, its first file held at a recorder of its own
+/// (`holdingTheTurn`).
+private struct TurnHeld {
+    let recorder: HoldingAFile
+    let refresh: Task<GuideRefresh.Outcome, Never>
+
+    /// Lets the file held go, answered as one not built, and waits for that refresh to end: the turn is then
+    /// whoever's waited for it.
+    func giveBack() async {
+        await recorder.letGo(with: .success(HTTPResponse(statusCode: 500)))
+        _ = await refresh.value
+    }
 }
 
 /// A recorder that says who it is as the vectors' recorder does, and holds the first file of the guide it is

@@ -32,6 +32,20 @@ public enum GuideRefresh {
         /// another recorder and took nothing of what came for the last one (`GuideStore.replace`), or whoever
         /// asked said before a type not to go on (`onType`). The write that was refused changed nothing.
         case letGo
+        /// Whoever asked for the refresh would not have it made once its turn had come (`OnTurn.turnedAway`),
+        /// nothing having been asked for: why, in the asker's own words, for the asker to say.
+        case turnedAway(String)
+    }
+
+    /// What whoever asked for a refresh says once its turn has come
+    /// (`run(asked:onTurn:onType:onStored:)`).
+    enum OnTurn: Sendable {
+        /// Fetch: the files are asked of `client`, what comes goes into `store`, and `from` is the recorder
+        /// `client` asks, as it described itself -- the three `run(client:store:from:types:onType:onStored:)`
+        /// is handed.
+        case fetch(client: any GuideSource, store: GuideStore, from: RecorderDescription?)
+        /// The refresh is not to be made after all, and why (`Stop.turnedAway`).
+        case turnedAway(String)
     }
 
     public struct Failure: Sendable, Equatable {
@@ -40,7 +54,20 @@ public enum GuideRefresh {
         public var reason: String
     }
 
+    /// The one turn there is for fetching the guide, in the whole process (`run`).
+    private static let turn = Turn()
+
     /// Fetches `types` in turn and replaces what the cache holds for each.
+    ///
+    /// One refresh at a time, whoever asks and of whichever client: the screens and the overnight run each
+    /// have a client and a connection to the cache of their own, in one process when the system wakes the app
+    /// for the night while the reader has it open, and a client's own queue keeps apart only what is asked of
+    /// that client. Two refreshes asked together would ask the recorder for the same files at once. So a
+    /// refresh waits its turn behind one that is out (`Turn`), and is run in the task that asked for it, as
+    /// before: it is a wait, and not a queue's task, since cancellation is looked at here (below). Which types
+    /// to fetch can be left to be judged once the turn has come (`run(asked:onTurn:onType:onStored:)`), by
+    /// what the refresh before it left in the cache, and whoever asks can be asked there first whether the
+    /// refresh is still to be made, and through which client.
     ///
     /// A type that fails is passed over and the next one is tried. The recorder answers 500 for a file it
     /// has not built yet -- after a restart or a channel scan, until the small hours. Silence is the exception
@@ -50,7 +77,8 @@ public enum GuideRefresh {
     ///
     /// Cancellation is looked at before each type. The request under way is finished rather than abandoned
     /// (see `SerialQueue`), and each type is stored in one transaction, so stopping there leaves nothing half
-    /// written. Only the overnight run is meant to be stopped this way.
+    /// written. Only the overnight run is meant to be stopped this way. The wait for the turn is not cut short
+    /// by it, and the first look comes after that wait: a refresh cancelled while it waited asks for no file.
     ///
     /// A guide goes only into the cache of the recorder it was fetched from. `recorder` is the one `client`
     /// asks, as it described itself to whoever asks for the refresh, and is handed on with everything written
@@ -67,6 +95,53 @@ public enum GuideRefresh {
                            types: [String] = broadcastingTypes,
                            onType: (@MainActor @Sendable (String) -> Bool)? = nil,
                            onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async -> Outcome {
+        await run(asked: .only(types), onTurn: { .fetch(client: client, store: store, from: recorder) },
+                  onType: onType, onStored: onStored)
+    }
+
+    /// The same for the types `which` names, judged once the turn has come where that is by the cache's marks
+    /// (`GuideAsked`): what a refresh that was out meanwhile has fetched is not fetched again.
+    ///
+    /// `onTurn` is asked once the turn has come and before the types are judged, and says what the refresh is
+    /// fetched through and into, or why it is not to be made after all (`OnTurn`). The wait for the turn can
+    /// be as long as the refresh in front: what its asker made sure of before it is worth nothing by then, and
+    /// the client it had in hand then may be in hand no longer. So the screens' step makes sure of its
+    /// recorder here and not before the wait, and fetches through the client it finds in hand here, into the
+    /// cache and of the recorder it finds with it (`RecorderDriver.refreshGuide`). A refresh ended there has
+    /// asked for nothing and gives its turn back (`Stop.turnedAway`). The overnight run, which has no link to
+    /// make sure of, fetches with what it came with.
+    static func run(asked which: GuideAsked, onTurn: @Sendable () async -> OnTurn,
+                    onType: (@MainActor @Sendable (String) -> Bool)? = nil,
+                    onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async -> Outcome {
+        await turn.take()
+        var outcome = Outcome()
+        switch await onTurn() {
+        case .turnedAway(let why):
+            outcome.stopped = .turnedAway(why)
+        case .fetch(let client, let store, let recorder):
+            outcome = await fetch(await types(which, by: store), client: client, store: store, from: recorder,
+                                  onType: onType, onStored: onStored)
+        }
+        await turn.giveBack()
+        return outcome
+    }
+
+    /// The types a refresh asked for with `which` fetches, judged as it comes to fetch them. A cache whose
+    /// marks cannot be read is taken as never answered for.
+    static func types(_ which: GuideAsked, by store: GuideStore) async -> [String] {
+        switch which {
+        case .all: broadcastingTypes
+        case .only(let these): these
+        case .notAnsweredSince(let moment): staleTypes((try? await store.counts()) ?? [:], since: moment)
+        case .whatIsBehind: staleTypes((try? await store.counts()) ?? [:])
+        }
+    }
+
+    /// The refresh itself, by whoever has the turn.
+    private static func fetch(_ types: [String], client: some GuideSource, store: GuideStore,
+                              from recorder: RecorderDescription?,
+                              onType: (@MainActor @Sendable (String) -> Bool)?,
+                              onStored: (@MainActor @Sendable (String) async -> Void)?) async -> Outcome {
         var outcome = Outcome()
         for broadcasting in types {
             if Task.isCancelled {

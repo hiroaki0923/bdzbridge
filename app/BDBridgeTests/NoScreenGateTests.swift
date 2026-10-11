@@ -113,6 +113,7 @@ final class NoScreenGateTests: XCTestCase {
         let before = await recorder.asked
         let count = await recorder.heard.count
         await recorder.holdTheNext(kind)
+        addTeardownBlock { await recorder.letGo() }
         let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
         try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
         run.cancel()
@@ -159,6 +160,39 @@ final class NoScreenGateTests: XCTestCase {
                        "a further file was asked for, or the slot read again, once the night's time was up")
         XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
         XCTAssertFalse(ran.stored)
+    }
+
+    /// A night that comes to its guide while another refresh is out waits its turn: one refresh at a time, the
+    /// screens' and the night's. And a night whose time runs out while it waits asks for no file once the turn
+    /// is its own: the guide is fetched in the night's own task, also behind that wait, and looks for the
+    /// cancellation before its first type. Here the refresh that is out is one as the screens make it, on a
+    /// recorder and a client of its own, its first file held; the night has told the free space, which is the
+    /// last thing before its guide, when its task is cancelled; and the other refresh is then let go. The
+    /// night asked the recorder who it is, for the slot and for the free space, and for nothing after.
+    func testANightWhoseTimeIsUpWhileItWaitsItsTurnForTheGuideAsksForNoFile() async throws {
+        let (recorder, store, _) = try await home()
+        let other = NamedRecorder(1)
+        await other.holdTheNext(Ask.guide[0])
+        addTeardownBlock { await other.letGo() }
+        let out = Task { await GuideRefresh.run(client: aClient(of: other), store: store) }
+        try await until("the other refresh was never asked for") { await other.asked(Ask.guide[0]) == 1 }
+
+        let told = Tellings()
+        let tell = telling(told)
+        let client = aClient(of: recorder)
+        let count = await recorder.heard.count
+        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        try await until("the night never came to its guide") { told.names.contains("freeSpace") }
+        run.cancel()
+        await other.letGo()
+        let fetched = await out.value
+        let stored = await run.value
+
+        XCTAssertEqual(fetched.answered, GuideRefresh.broadcastingTypes, "the refresh that was out did not end")
+        XCTAssertFalse(stored)
+        expectEqual(await recorder.heard(since: count), [Ask.description, Ask.slot, Ask.freeSpace],
+                    "a file was asked for by a night whose time was up as it waited its turn")
+        XCTAssertEqual(told.names, ["flushed", "freeSpace"])
     }
 
     /// Silence part-way through a night ends it at the USB slot and in the guide, and nowhere else, as it is
