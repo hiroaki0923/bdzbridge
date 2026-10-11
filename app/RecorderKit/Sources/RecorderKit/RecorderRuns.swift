@@ -27,12 +27,15 @@ public enum RunStop: Error, Sendable, Equatable {
     /// (`RecorderDriver.mayGoOn`): at a door, that the app is not connected; after a check that said no, what
     /// that check left on the host's line of what went wrong, or that the app is not connected where it left
     /// nothing; and after a check that heard something in place of the recorder saying which it is, what it
-    /// heard, in the recorder's words. For a run whose recorder was let go of, before a request or with its
+    /// heard, in the recorder's words. The same for one stopped at a recording's own request, which is asked as
+    /// a single write is and not sent then. For a run whose recorder was let go of, before a request or with its
     /// answer, what a single write says then (`RecorderDriver.whyLetGo`): that another recorder answered, or,
     /// with no recorder in hand since, what whatever let go of it left on the line.
     case said(String)
-    /// The recorder said nothing to a request of the run. `afterSending` says whether that request was one that
-    /// changes the recorder: it may have arrived all the same.
+    /// The recorder said nothing to a request of the run, which the link has said on the line of what went
+    /// wrong as it says any silence (`DeviceLink.say`). `afterSending` says whether that request was one that
+    /// changes the recorder, a delete or a protect: it may have arrived all the same, and the list of recordings
+    /// is to be read again once the recorder answers. Not after silence to a request that only asks.
     case silent(afterSending: Bool)
 
     /// The sentence handed back with a run turned away, as `.said` has it, for the job to show under what it
@@ -197,9 +200,9 @@ extension RecorderDriver {
         return nil
     }
 
-    /// What a no of `mayGoOn` hands back after a check that said no: what that check left on the host's line of
-    /// what went wrong, or that the app is not connected where it left nothing, as a write's result says a
-    /// check's no again (`altered`).
+    /// What stops a run after a check that said no, before a recording (`mayGoOn`) or before one of its requests
+    /// (`asked(in:_:_:)`): what that check left on the host's line of what went wrong, or that the app is not
+    /// connected where it left nothing, as a write's result says a check's no again (`altered`).
     private func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
         .said(link.owner?.problem ?? whyNotConnected)
     }
@@ -219,32 +222,35 @@ extension RecorderDriver {
     /// sent all the same would come back as done for one already gone and be counted so: the recording is passed
     /// over with what the recorder said, and the run goes on.
     ///
-    /// Between the question and the delete the run asks again whether it may go on (`mayGoOn`), as before each
-    /// recording: a check of the recorder that came in behind the question is waited for, and heard, before the
-    /// delete is handed over, and a no stops the run with the recording neither deleted nor passed over.
+    /// Each of the two is asked as a single write is (`asked(in:_:_:)`). Between them the run asks again whether
+    /// it may go on (`mayGoOn`), as before each recording: a check of the recorder that came in behind the
+    /// question is waited for, and heard, before the delete is handed over, and a no stops the run with the
+    /// recording neither deleted nor passed over.
     ///
     /// Silence is a stop and not a recording passed over (`RunStop.silent`): a recorder gone to sleep part way
     /// through would otherwise turn every recording left into one passed over, each after a thirty-second
     /// timeout. The run stops at the first, and does not send that recording again: a write that met silence may
-    /// have arrived all the same. Silence to the question asked first stops the run as well, the delete not
-    /// sent: nothing has been deleted yet, but the delete would only wait out the same silence.
+    /// have arrived all the same, which the line then says (`mayHaveArrived`), as after a single delete. Silence
+    /// to the question asked first stops the run as well, the delete not sent: nothing has been deleted yet, but
+    /// the delete would only wait out the same silence; it is said as a read's.
     public func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame {
         if let why = Self.whyNot(deleting: title) { return .passedOver(why) }
 
-        switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id) }) {
+        switch await asked(in: run, .aWrite(sending: nil), { try await $0.titleDetail(id: title.id) }) {
         case .went:
             break
-        case .refused(let error):
-            if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
-            return .passedOver(Self.inTheRecordersWords(error))
+        case .refused(.unknownItem, _):
+            return .gone
+        case .refused(_, let why):
+            return .passedOver(why)
         case .stopped(let stop):
             return .stopped(stop)
         }
 
         if let stop = await mayGoOn(run) { return .stopped(stop) }
-        switch await asked(in: run, sending: true, { try await $0.deleteTitle(id: title.id) }) {
+        switch await asked(in: run, .aWrite(sending: Self.mayHaveArrived), { try await $0.deleteTitle(id: title.id) }) {
         case .went: return .done
-        case .refused(let error): return .passedOver(Self.inTheRecordersWords(error))
+        case .refused(_, let why): return .passedOver(why)
         case .stopped(let stop): return .stopped(stop)
         }
     }
@@ -258,34 +264,98 @@ extension RecorderDriver {
 
     /// Protects one recording of a run, or takes its protection off, and says what that came to. Nothing is
     /// sent when the recording is already the way it should be (`whyNot(protecting:_:)`). Silence stops the run,
-    /// as for `delete(_:in:)`.
+    /// as for `delete(_:in:)`, the line saying that the protect may have arrived.
     public func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame {
         if let why = Self.whyNot(protecting: title, on) { return .passedOver(why) }
-        switch await asked(in: run, sending: true, { try await $0.updateTitle(id: title.id, protected: on) }) {
+        let came = await asked(in: run, .aWrite(sending: Self.mayHaveArrived)) {
+            try await $0.updateTitle(id: title.id, protected: on)
+        }
+        switch came {
         case .went: return .done
-        case .refused(let error): return .passedOver(Self.inTheRecordersWords(error))
+        case .refused(_, let why): return .passedOver(why)
         case .stopped(let stop): return .stopped(stop)
         }
     }
 
     /// The text the duplicate scan compares, and caches for good, so only what the recorder actually said counts
     /// as read: two failures kept as empty texts would agree with each other and come up as copies. Silence
-    /// stops the scan, as for `delete(_:in:)`.
+    /// stops the scan, as for `delete(_:in:)`, and is said as a read's.
     public func text(of title: RecordedTitle, in run: Run) async -> TextCame {
-        switch await asked(in: run, sending: false, { try await $0.titleDetail(id: title.id).summary }) {
-        case .went(let text):
-            return .read(text)
-        case .refused(let error):
-            if (error as? any DeviceError)?.failure == .unknownItem { return .gone }
-            return .failed(Self.inTheRecordersWords(error))
-        case .stopped(let stop):
-            return .stopped(stop)
+        switch await asked(in: run, .aWrite(sending: nil), { try await $0.titleDetail(id: title.id).summary }) {
+        case .went(let text): return .read(text)
+        case .refused(.unknownItem, _): return .gone
+        case .refused(_, let why): return .failed(why)
+        case .stopped(let stop): return .stopped(stop)
         }
     }
 
-    /// What the recorder said as it turned a request down, or what else went wrong with its answer.
-    private nonisolated static func inTheRecordersWords(_ error: any Error) -> String {
-        (error as? any DeviceError)?.explanation ?? String(describing: error)
+    /// What one request of a run came to, as a run tells it (`asked(in:_:_:)`).
+    private enum AskedInARun<T> {
+        /// The recorder answered, and what it brought back.
+        case went(T)
+        /// The recorder answered and turned the request down, or with something that cannot be read: what kind
+        /// of refusal the recorder's client made of it, and what it said, in the recorder's words or as the
+        /// error describes itself. For the run to say of that recording; said nowhere else.
+        case refused(DeviceFailure?, String)
+        /// The run stops, and why.
+        case stopped(RunStop)
+    }
+
+    /// One request of a run, asked as anything else that acts on the recorder is (`asked`) -- the recorder made
+    /// sure of, nothing sent to one let go of or heard in place of saying which it is, silence said once through
+    /// the link -- under no line, and leaving the line of what went wrong to what stops the run: a recording
+    /// done or passed over neither clears it nor writes on it. `asking` gives the sentence for silence: that it
+    /// may have arrived, for a delete or a protect; none for the question a delete asks first and for a scan's
+    /// text, which change nothing and whose silence is said as a read's. Those two are asked as something that
+    /// acts on the recorder all the same, as playing is: a delete rests on the one, and the other is kept for
+    /// good, so neither goes after a check that heard something else.
+    ///
+    /// `asked` hands back alike what a run tells apart -- a recording to pass over and a run to stop, an answer
+    /// for the recorder in play and one for a recorder let go of -- so what it handed back is read here:
+    ///
+    /// - Not sent -- the recorder let go of, something heard in its place by the check, a client no attach went
+    ///   through: the run stops, with why, which is the sentence a single write is turned away with.
+    /// - The check before it said no: the run stops, with what that check left on the line (`whatTheLinkSaid`).
+    /// - Silence: the run stops (`RunStop.silent`). The link has said it and lost the recorder
+    ///   (`DeviceLink.say`), by the count the run began with: across a let-go, silence on something sent is
+    ///   still said, since it may have arrived, and loses nobody; silence on the other two is neither said nor
+    ///   taken.
+    /// - Refused -- busy with somebody else through the client's tries, a fault, an answer that cannot be read:
+    ///   handed back for the run to say of that recording, which is passed over, and the run goes on. A check
+    ///   that heard the recorder busy never comes back as this: what is asked here is not sent after one.
+    /// - Answered. A request handed to the client goes whatever happens after, and is answered also once the
+    ///   recorder has been let go of, when `asked` still says that it went through, as it does of a single
+    ///   write. A run does not: it reads the count itself, for an answer and for a refusal, and stops, saying
+    ///   why (`whyLetGo`), so that the caller counts nothing, takes no row out of a list that is the newcomer's
+    ///   by then, and keeps no text.
+    ///
+    /// The count is asked before `asked` as well, as it is before a run's own check (`mayGoOn`): a run notes it
+    /// long before a request, and nothing of it is to reach a recorder taken up since, not the check either.
+    private func asked<T>(in run: Run, _ asking: Asking,
+                          _ work: @MainActor (RecorderClient) async throws -> T) async -> AskedInARun<T> {
+        guard let link else { return .stopped(.said(Self.notConnected)) }
+        guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
+        let came = await asked(nil, asking, on: link, since: run.began, leavingTheLine: true) { _, client in
+            try await work(client)
+        }
+        switch came {
+        case .notSent(let why):
+            return .stopped(.said(why))
+        case .failed(.notSent):
+            return .stopped(whatTheLinkSaid(on: link))
+        case .failed(.silentAfterSending):
+            return .stopped(.silent(afterSending: true))
+        case .failed(.silentOnARead):
+            return .stopped(.silent(afterSending: false))
+        case .failed(.letGoMeanwhile):
+            return .stopped(.said(whyLetGo(on: link)))
+        case .failed(.refused(let kind, let sentence)):
+            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
+            return .refused(kind, sentence)
+        case .went(let value):
+            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
+            return .went(value)
+        }
     }
 
     // MARK: - a run's end

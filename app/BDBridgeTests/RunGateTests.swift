@@ -188,6 +188,37 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(protected(), [guarded.id, second.id], "the flag came off a row the recorder kept protected")
     }
 
+    /// The recordings of a run come and go under whatever the line of what went wrong holds. One deleted, one the
+    /// recorder no longer holds, one whose delete it refuses, one protected and a scan's texts read neither clear
+    /// that line nor write on it: what the recorder said of a recording is in the job's list of what it passed
+    /// over, and what an earlier operation left on the line is not a run's to take away. Only what stops a run
+    /// is said there.
+    func testTheRecordingsOfARunLeaveTheLineOfWhatWentWrongAsItWas() async throws {
+        let (_, recorder, model, idle) = try await settled(withACopy: true)
+        // Not the two copies, which the scan below is to find still there.
+        let copies = try copies(model)
+        let spare = idle.map(\.id).filter { $0 != copies.first && $0 != copies.second }
+        guard spare.count >= 4 else { return XCTFail("the demo was meant to hold four recordings beside the copies") }
+
+        leaveALine(on: model)
+        await recorder.answer(Ask.details, with: .fault(820), after: 1)
+        await recorder.answer(Ask.deleteRecording, with: .fault(402), after: 1)
+        try await run(model, .delete, [spare[0], spare[1], spare[2]])
+        XCTAssertEqual(model.job?.changed, [spare[0]])
+        XCTAssertEqual(model.job?.skipped.map(\.id), [spare[1], spare[2]],
+                       "one recording was meant to be gone and one refused")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft,
+                       "the recordings of a bulk delete cleared the line, or wrote on it")
+
+        try await run(model, .protecting(true), [spare[3]])
+        XCTAssertEqual(model.job?.changed, [spare[3]])
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a recording protected in a run cleared the line")
+
+        try await scan(model)
+        XCTAssertEqual(model.summaries.count, 2, "the scan was meant to read both copies' texts")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a text read by a scan cleared the line")
+    }
+
     /// What a job says once it has stopped, letter for letter: how many recordings it changed, or a scan how many
     /// it looked at, whether it came to its end or was stopped before it, and how many it passed over. One the
     /// recorder's silence stopped says that the recorder stopped answering, whether the silence met something
@@ -315,20 +346,23 @@ final class RunGateTests: XCTestCase {
     /// app is left given up on the recorder. The job says how far it got and that the recorder stopped
     /// answering. So it is at a delete, at the question a delete asks first, and at a protect.
     ///
-    /// Two things are as they are today. The line of what went wrong is left as it was: a later change has
-    /// the silence said there, as a single delete says it. And the recordings are marked unread in every row,
-    /// the one where nothing had been sent for the recording among them: a later change marks them only after
-    /// silence on something sent.
-    func testSilenceAtARecordingStopsTheRunThereAndMarksTheRecordingsUnread() async throws {
+    /// The silence is said on the line of what went wrong, once, as a single delete's is: after a delete or a
+    /// protect, that it may have arrived and was not sent again; after the question, which changes nothing, what
+    /// a read's silence says. And the recordings are marked unread, to be read again once the recorder answers,
+    /// only after silence on a delete or a protect: at the question nothing had been sent for the recording, and
+    /// the list stays as read.
+    func testSilenceAtARecordingStopsTheRunIsSaidOnTheLineAndMarksTheRecordingsUnreadOnlyAfterAWrite() async throws {
         let (_, recorder, model, _) = try await settled()
         let lost = "したところで、レコーダーの応答がなくなったため中止しました"
-        let rows: [(name: String, kind: AppModel.BulkJob.Kind, silent: String, heard: [String], outcome: String)] = [
+        let rows: [(name: String, kind: AppModel.BulkJob.Kind, silent: String, heard: [String], outcome: String,
+                    said: String, unread: Bool)] = [
             ("the second delete", .delete, Ask.deleteRecording,
-             [Ask.details, Ask.deleteRecording, Ask.details, Ask.deleteRecording], "1 件を削除" + lost),
+             [Ask.details, Ask.deleteRecording, Ask.details, Ask.deleteRecording], "1 件を削除" + lost,
+             Said.mayHaveArrived, true),
             ("the second recording asked about", .delete, Ask.details,
-             [Ask.details, Ask.deleteRecording, Ask.details], "1 件を削除" + lost),
+             [Ask.details, Ask.deleteRecording, Ask.details], "1 件を削除" + lost, Said.noAnswer, false),
             ("the second protect", .protecting(true), Ask.changeRecording,
-             [Ask.changeRecording, Ask.changeRecording], "1 件を保護" + lost),
+             [Ask.changeRecording, Ask.changeRecording], "1 件を保護" + lost, Said.mayHaveArrived, true),
         ]
         for row in rows {
             let three = model.titles.filter { !$0.recording && !$0.protected }.prefix(3).map(\.id)
@@ -344,9 +378,10 @@ final class RunGateTests: XCTestCase {
             expectEqual(await recorder.heard(since: count), row.heard,
                         "silence at \(row.name): sent again, or something asked after it")
             XCTAssertTrue(model.gaveUp, "silence at \(row.name) did not leave the app given up")
-            XCTAssertEqual(model.problem(for: .recorder), lineLeft,
-                           "silence at \(row.name) is said on the line, today not")
-            XCTAssertFalse(model.titlesLoaded, "silence at \(row.name) left the recordings as read")
+            XCTAssertEqual(model.problem(for: .recorder), row.said, "silence at \(row.name) is not said on the line")
+            XCTAssertEqual(model.titlesLoaded, !row.unread,
+                           row.unread ? "silence at \(row.name) left the recordings as read"
+                               : "silence at \(row.name) marked the recordings unread, nothing having been sent")
             XCTAssertEqual(model.job?.changed, [three[0]], row.name)
             XCTAssertEqual(model.job?.done, 1, row.name)
             XCTAssertEqual(model.job?.outcome, row.outcome, row.name)
@@ -1157,10 +1192,8 @@ final class RunGateTests: XCTestCase {
     /// Silence at a candidate of a scan stops the scan there: no candidate after it is asked about, the app is
     /// left given up on the recorder, and nothing is kept for that candidate -- silence says nothing of what it
     /// is about. What was read before it stays, and the job says how far it got and that the recorder stopped
-    /// answering. The recordings stay as read: a scan changes nothing on the recorder.
-    ///
-    /// The line of what went wrong is left as it was, today: a later change has the silence said there, as any
-    /// read's is.
+    /// answering. The recordings stay as read: a scan changes nothing on the recorder. And the silence is said
+    /// on the line of what went wrong, as any read's is.
     func testSilenceAtAScansCandidateStopsItAndKeepsNothingForThatRecording() async throws {
         let (bench, recorder, model, _) = try await settled(withACopy: true)
         let (first, second) = try copies(model)
@@ -1181,7 +1214,7 @@ final class RunGateTests: XCTestCase {
             expectEqual(try await cache.titleSummaries([first, second]).keys.sorted(), read, "candidate \(silent)")
             XCTAssertEqual(model.job?.outcome, "\(silent - 1) 件まで" + lost)
             XCTAssertTrue(model.titlesLoaded, "silence in a scan marked the recordings unread")
-            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "silence in a scan is said on the line, today not")
+            XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence in a scan is not said on the line")
             await reconnect(model)
         }
     }

@@ -95,10 +95,11 @@ extension AppModel {
             }
             if let stop = stopped {
                 // Stop at the first. Silence has lost the recorder: every recording after it would wait out
-                // the same timeout, and this one is not sent again, since it may have gone through -- the
-                // list is read again once the recorder answers, which settles what became of it. A run
-                // turned away between two requests for a recording has sent nothing that changes one.
-                if case .silent = stop { titlesLoaded = false }
+                // the same timeout. A delete or a protect that met it is not sent again, since it may have
+                // gone through -- the list is read again once the recorder answers, which settles what became
+                // of it. Not after silence to the question a delete asks first, nor for a run turned away
+                // between two requests for a recording: nothing was sent that changes one.
+                if case .silent(afterSending: true) = stop { titlesLoaded = false }
                 break
             }
             job?.done += 1

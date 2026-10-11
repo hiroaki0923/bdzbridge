@@ -409,7 +409,13 @@ extension RecorderDriver {
     /// failure is said by that count (`DeviceLink.say(_:since:ofARead:)`), silence on something sent losing
     /// nobody. `work` reads the count too, for what it keeps. A client made anew for the same recorder meanwhile
     /// lets go of nothing.
+    ///
+    /// `leavingTheLine` is for a request of a run over many recordings (`asked(in:_:_:)`), whose recordings come
+    /// and go under whatever the line of what went wrong holds: going through does not clear it, and a refusal
+    /// is handed back and not said, being the run's to list beside that recording. Everything else is as for
+    /// any request: what the check says, what was heard in place of the recorder, and silence, which is said.
     func asked<T>(_ line: String?, _ asking: Asking, on link: DeviceLink, since began: Int,
+                  leavingTheLine: Bool = false,
                   _ work: @MainActor (Activities.Token?, RecorderClient) async throws -> T) async -> Asked<T> {
         let owner = link.owner
         let read: Bool
@@ -433,60 +439,16 @@ extension RecorderDriver {
                     if read, let heard = link.heardInstead { throw heard }
                     let value = try await work(token, client)
                     if link.letGo(since: began) { return read ? .failed(.letGoMeanwhile) : .went(value) }
-                    owner?.problem = nil
+                    if !leavingTheLine { owner?.problem = nil }
                     return .went(value)
                 } catch let away as TurnedAway {
                     return .notSent(away.why)
                 } catch {
-                    return .failed(link.say(OperationFailure(error, sending: sending), since: began, ofARead: read))
+                    let failure = OperationFailure(error, sending: sending)
+                    if leavingTheLine, case .refused = failure { return .failed(failure) }
+                    return .failed(link.say(failure, since: began, ofARead: read))
                 }
             }
-        }
-    }
-
-    /// What one request of a run over many recordings came to (`asked(in:sending:_:)`).
-    enum AskedInARun<T> {
-        /// The recorder answered, and what it brought back.
-        case went(T)
-        /// The recorder answered and turned the request down, or with something that cannot be read: handed
-        /// back for the run to say of that recording, and said nowhere else.
-        case refused(any Error)
-        /// The run stops: silence (`RunStop.silent`), the recorder let go of since the run began, or no client
-        /// in hand to ask.
-        case stopped(RunStop)
-    }
-
-    /// One request of a run over many recordings (`beginRun`), in the outline of `asked` with the rules a run
-    /// keeps: `work`, on the client the link has in hand, under no line and with no check of its own -- a run
-    /// makes sure of the recorder before each of its requests (`mayGoOn`), and the client in hand once that has
-    /// answered is the one whose attach went through. What `work` returned, or why not. A refusal is handed back
-    /// as a value and not said, and the line of what went wrong is neither written nor cleared. Silence loses the
-    /// recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run, `sending` saying
-    /// whether the request is one that changes the recorder. With no client in hand nothing is sent, and the run
-    /// stops as not connected.
-    ///
-    /// What is asked is for the recorder the run began with (`Run`). Let go of before the request is handed to
-    /// the client, nothing is sent and the run stops, saying why (`whyLetGo`). Handed over, it goes whatever
-    /// happens after -- the client sends what it was given -- and what comes back once the recorder has been let
-    /// go of, an answer or a refusal, is about that one: the run stops the same way, so that the caller counts
-    /// nothing, takes no row out of a list that is the newcomer's by then, and keeps no text. Silence met across
-    /// a let-go still stops the run as silence, since what was sent may have arrived, but loses nobody: the
-    /// recorder in play has not been asked anything.
-    func asked<T: Sendable>(in run: Run, sending: Bool,
-                            _ work: @MainActor (RecorderClient) async throws -> T) async -> AskedInARun<T> {
-        guard let link else { return .stopped(.said(Self.notConnected)) }
-        guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
-        guard let client = link.client as? RecorderClient else { return .stopped(.said(whyNotConnected)) }
-        do {
-            let value = try await work(client)
-            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
-            return .went(value)
-        } catch let error as any DeviceError where error.failure == .silent {
-            if !link.letGo(since: run.began) { link.lost() }
-            return .stopped(.silent(afterSending: sending))
-        } catch {
-            guard !link.letGo(since: run.began) else { return .stopped(.said(whyLetGo(on: link))) }
-            return .refused(error)
         }
     }
 
