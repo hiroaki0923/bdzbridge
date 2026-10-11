@@ -204,8 +204,8 @@ public extension PendingQueue {
 
 public extension PendingQueue.Outcome {
     /// What became of the queue, where the home has one device: the sentences as they have always read. The
-    /// body of the overnight notification, and the line the app shows when it sent the queue itself. nil when
-    /// there is nothing to say.
+    /// line the app shows when it sent the queue itself; what a run with no screen tells of its round is made
+    /// of the same sentences (`RecorderDriver.tells`). nil when there is nothing to say.
     var summary: String? { says(naming: nil) }
 
     /// What became of the queue, in a few short sentences: one for each way a row went, in the order sent,

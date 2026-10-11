@@ -483,10 +483,15 @@ final class NoScreenGateTests: XCTestCase {
     /// The action's round meets silence. At the read of the recorder's list that opens it, nothing was sent: the
     /// action says the recorder stopped answering part-way and that what waits is left as it is, and the row is
     /// as it was. At a reservation's create the row is held for the reader with its reason, which says it may
-    /// have arrived and is not sent again by itself -- and the action says the same sentence, that it is left as
-    /// it is, as it does today. A later change has the action say of such a row that it is held, and rewrites
-    /// that.
-    func testTheActionWhoseRoundMeetsSilenceSaysWhatWaitsIsLeftAtTheReadAndAtACreateAlike() async throws {
+    /// have arrived and is not sent again by itself, and the action says that sentence, the one written on the
+    /// row: what waits is not left as it was. So it does with a television saved, the sentence naming no device
+    /// but the recorder it is about.
+    ///
+    /// And after another reservation that went: what the queue says of the one sent, then that sentence, in
+    /// place of the queue's own for a round cut short -- that the rest goes the next time the recorder answers,
+    /// which the reservation held does not.
+    func testTheActionWhoseRoundMeetsSilenceSaysWhatWaitsIsLeftAtTheReadAndThatTheReservationIsHeldAtACreate()
+        async throws {
         let (recorder, store, _) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
         try await store.queue(morning)
@@ -501,7 +506,22 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.goQuiet(on: Ask.create)
         came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), left, "silence at the create")
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.heldAfterSilence, "silence at the create")
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true), Said.heldAfterSilence,
+                       "silence at the create, with a television saved")
         expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
+
+        // The morning's is held now and is not sent again: two more, the second's create meeting silence.
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        try await store.queue(waiting("夜の番組", startingIn: 180, programme: 4323))
+        await recorder.answer(Ask.create, with: .silence, after: 1)
+        came = await action(on: recorder, store)
+        XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create, Ask.create])
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Said.heldAfterSilence,
+                       "silence at a create, after a reservation that went")
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true),
+                       Said.sent("昼の番組", naming: "レコーダー") + "。" + Said.heldAfterSilence)
+        expectEqual(try await rows(in: store),
+                    ["朝の番組: " + Said.heldAfterSilence, "夜の番組: " + Said.heldAfterSilence])
     }
 }

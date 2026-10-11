@@ -1189,7 +1189,9 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// One real sending of each device, made against the fakes, stands for a round that went; so does one of
     /// the television's that found nothing left to send, and one stopped for its disk or for want of a
     /// registration. A round of the recorder's with nothing in it is left out beside the television's; one
-    /// that its silence cut short before anything went is said.
+    /// that its silence cut short before anything went is said, and so is one whose silence met a reservation's
+    /// create, in the sentence written on the reservation it holds, with its own full stop left out before the
+    /// television's sentence as any other's is.
     func testTheActionAnswersForTheRecorderAndThenTheTelevision() async throws {
         let recorder = NamedRecorder(1)
         let home = try await launch(with: recorder)
@@ -1210,8 +1212,10 @@ final class QueueWithATelevisionTests: XCTestCase {
         }
         let nothingForTheRecorder = await recordersRound()
         try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
-        await recorder.goQuiet(on: Self.create)
+        await recorder.goQuiet(on: Self.list)
         let recorderCutShort = await recordersRound()
+        await recorder.goQuiet(on: Self.create)
+        let recorderHeld = await recordersRound()
         let televisions = await sendToTheTelevision(with: model.surroundings.tvCredentials)
         let nothingLeft = NoScreenSending.sent(
             await PendingQueue.flush(client: client(with: model.surroundings.tvCredentials), store: store))
@@ -1235,6 +1239,7 @@ final class QueueWithATelevisionTests: XCTestCase {
             ("nothing in the recorder's round", nothingForTheRecorder, televisions, made.tv),
             ("the recorder's round cut short", recorderCutShort, televisions,
              "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。" + made.tv),
+            ("the recorder's round silent at a create", recorderHeld, televisions, Said.heldAfterSilence + made.tv),
             ("the recorder away", .unreachable, .nothingWaiting, "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"),
             ("the television away", .nothingWaiting, .unreachable, notAnswering),
             ("another of each", .anotherRecorder, .anotherAnswered,

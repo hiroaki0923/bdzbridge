@@ -217,9 +217,11 @@ extension RecorderDriver {
 
     /// What a sending came to, in words, for the Shortcuts action's answer when it is run by hand. Nil when
     /// there is nothing to say: nothing waiting, or a round with nothing in it that was not cut short. For a
-    /// round, what the queue says of it, naming `device` where the home has a television beside the recorder and
-    /// a sentence has to say which the reservations went to; a round cut short by silence before the queue had
-    /// anything to say is `cutShortWithNoScreen`.
+    /// round, what it has to tell (`tells`), naming `device` where the home has a television beside the recorder
+    /// and a sentence has to say which the reservations went to. A round with no news may still have something
+    /// for whoever ran the action -- a reservation the recorder was too busy for, which goes again by itself --
+    /// and that is said as the queue says it; one cut short by silence before the queue had anything to say,
+    /// with nothing sent, is `cutShortWithNoScreen`.
     public nonisolated static func says(_ sending: NoScreenSending, naming device: String?) -> String? {
         switch sending {
         case .nothingWaiting:
@@ -229,8 +231,30 @@ extension RecorderDriver {
         case .anotherAnswered:
             anotherAnsweredWithNoScreen
         case .sent(let outcome):
-            outcome.says(naming: device) ?? (outcome.interrupted ? cutShortWithNoScreen : nil)
+            tells(outcome, naming: device) ?? outcome.says(naming: device)
+                ?? (outcome.interrupted ? cutShortWithNoScreen : nil)
         }
+    }
+
+    /// What a round with no screen has to tell, for the notification of what became of what waited and for the
+    /// Shortcuts action's answer. Nil when it has no news: nothing was sent, found on the recorder already,
+    /// dropped as over or refused, and no reservation is held now. One the recorder was too busy for waits as
+    /// it did, and one refused before was told when it was refused.
+    ///
+    /// Otherwise the queue's sentences (`PendingQueue.Outcome.says`), naming `device` as they do. A round that
+    /// stopped at silence at a reservation's create ends with `heldAfterSilence` where the queue ends a round
+    /// cut short with its clause, that the rest goes the next time the recorder answers, and says it alone
+    /// when nothing else happened. Of that reservation the clause is not true: it may have been made, the
+    /// round has held it for the reader (`PendingQueue.flush`), and nothing sends it again but the reader. A
+    /// television's goes by itself, which is why the queue's own sentences cannot say this. The sentence is the
+    /// one written on the row, read here as it stands.
+    public nonisolated static func tells(_ outcome: PendingQueue.Outcome, naming device: String?) -> String? {
+        let held = outcome.stopped == .silent(afterSending: true)
+        guard held || !outcome.isEmpty else { return nil }
+        var round = outcome
+        // With no stop to it the queue says no clause for a round cut short.
+        if held { round.stopped = nil }
+        return [round.says(naming: device), held ? heldAfterSilence : nil].compactMap { $0 }.joined(separator: "。")
     }
 
     /// Said when another recorder than the one the queue was made for answered a run with no screen, in the
@@ -243,7 +267,8 @@ extension RecorderDriver {
     /// told from the recorder the queue was made for: the nearer of the two sentences there are, though it is
     /// not the cause when it is the phone's cache that could not be read.
     public nonisolated static let notReachedWithNoScreen = "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"
-    /// Said by the Shortcuts action when its round was cut short by silence and the queue has nothing to say
-    /// of it.
+    /// Said by the Shortcuts action when its round was cut short by silence with nothing sent -- at the read
+    /// that opens it -- and the queue has nothing to say of it. Silence at a reservation's create is said as the
+    /// reservation being held (`tells`).
     public nonisolated static let cutShortWithNoScreen = "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。"
 }

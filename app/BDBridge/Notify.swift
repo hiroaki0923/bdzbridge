@@ -72,8 +72,8 @@ enum Notify {
     /// reservation refused on an earlier night is not news again: it is no longer sent (`PendingQueue.flush`).
     /// With a television saved it says which device the reservations went to (`PendingQueue.Outcome.said`).
     static func queueFlushed(_ outcome: PendingQueue.Outcome) async {
-        guard !outcome.isEmpty,
-              let said = outcome.said(withATelevisionSaved: BackgroundWork.televisionSaved()) else { return }
+        let device = BackgroundWork.televisionSaved() ? outcome.slot.label : nil
+        guard let said = RecorderDriver.tells(outcome, naming: device) else { return }
         await post(id: "queue-flushed", title: "送信待ちの予約", body: said)
     }
 

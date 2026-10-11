@@ -168,4 +168,88 @@ final class NoScreenReachTests: XCTestCase {
         XCTAssertEqual(events.all.filter { $0 == "description.xml" }.count, 1, "the recorder was waited for")
         XCTAssertTrue(events.all.contains("ask"), "the action ended as it reached the recorder")
     }
+
+    private static let held = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"
+        + "自動では送り直しません。予約一覧で確かめ、届いていなければ「もう一度送る」を選んでください。"
+    private static let atACreate = SendingStop.silent(afterSending: true)
+    private static let atARead = SendingStop.silent(afterSending: false)
+
+    /// What a round with no screen tells, in the notification and in the Shortcuts action's answer. Nothing where
+    /// it has no news: nothing at all, only what was held before, only a reservation the recorder was too busy
+    /// for, or silence before anything was sent. Otherwise the queue's sentences, the device named in them or
+    /// not as it is handed in.
+    ///
+    /// A round that stopped at silence at a reservation's create says that the reservation is held, in the
+    /// sentence written on its row: alone when nothing else happened, and last after the other sentences, where
+    /// the queue ends a round cut short with its clause that the rest goes the next time the recorder answers.
+    /// That clause is not said then. After silence at a read it is, as the queue says it: nothing is held.
+    func testWhatARoundWithNoScreenTellsEndsWithTheHeldSentenceAfterSilenceAtACreate() {
+        let one = [pending("朝の番組", eventID: 1)], busy = [pending("昼の番組", eventID: 2)]
+        let (held, atACreate, atARead) = (Self.held, Self.atACreate, Self.atARead)
+        let clause = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
+        let sent = "送信待ちだった「朝の番組」を登録しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに登録しました"
+        let passedOver = "「昼の番組」は送れなかったため、次の機会にもう一度送ります"
+        let passedOverTo = "「昼の番組」はレコーダーに送れなかったため、次の機会にもう一度送ります"
+        typealias Outcome = PendingQueue.Outcome
+        let rounds: [(name: String, outcome: Outcome, unnamed: String?, named: String?)] = [
+            ("nothing", Outcome(slot: .recorder), nil, nil),
+            ("only what was held before", Outcome(slot: .recorder, held: one), nil, nil),
+            ("only one passed over", Outcome(slot: .recorder, deferred: busy), nil, nil),
+            ("silence at a read alone", Outcome(slot: .recorder, stopped: atARead), nil, nil),
+            ("one passed over, then silence at a read", Outcome(slot: .recorder, deferred: busy, stopped: atARead),
+             nil, nil),
+            ("sent", Outcome(slot: .recorder, sent: one), sent, sentTo),
+            ("found there already", Outcome(slot: .recorder, alreadyThere: one),
+             "「朝の番組」はすでに予約されていました", "「朝の番組」はレコーダーにすでに予約がありました"),
+            ("over", Outcome(slot: .recorder, expired: one),
+             "「朝の番組」は放送が終わっていたため、送らずに削除しました",
+             "レコーダー宛の「朝の番組」は放送が終わっていたため、送らずに削除しました"),
+            ("refused now", Outcome(slot: .recorder, refused: one),
+             "「朝の番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
+             "「朝の番組」はレコーダーに登録できませんでした。理由は予約タブにあります"),
+            ("sent, and one passed over", Outcome(slot: .recorder, sent: one, deferred: busy),
+             sent + "。" + passedOver, sentTo + "。" + passedOverTo),
+            ("sent, then silence at a read", Outcome(slot: .recorder, sent: one, stopped: atARead),
+             sent + "。" + clause, sentTo + "。" + clause),
+            ("sent, then the list could not say", Outcome(slot: .recorder, sent: one,
+                                                         stopped: .notKnownThere(listRead: true)), sent, sentTo),
+            ("silence at a create alone", Outcome(slot: .recorder, stopped: atACreate), held, held),
+            ("held before, then silence at a create", Outcome(slot: .recorder, held: one, stopped: atACreate),
+             held, held),
+            ("sent, then silence at a create", Outcome(slot: .recorder, sent: one, stopped: atACreate),
+             sent + "。" + held, sentTo + "。" + held),
+            ("one passed over, then silence at a create",
+             Outcome(slot: .recorder, deferred: busy, stopped: atACreate),
+             passedOver + "。" + held, passedOverTo + "。" + held),
+        ]
+        for round in rounds {
+            XCTAssertEqual(RecorderDriver.tells(round.outcome, naming: nil), round.unnamed, round.name)
+            XCTAssertEqual(RecorderDriver.tells(round.outcome, naming: "レコーダー"), round.named, round.name)
+        }
+        XCTAssertEqual(RecorderDriver.heldAfterSilence, held, "the sentence written on the rows is another")
+    }
+
+    /// The Shortcuts action's answer for a round is what the round tells. A round with no news is still
+    /// answered for whoever ran the action: a reservation the recorder was too busy for as the queue says it,
+    /// silence before anything was sent as what waits being left as it is, and nothing where nothing happened.
+    func testTheActionsAnswerForARoundIsWhatItTellsAndWhatTheQueueSaysOfOneWithNoNews() {
+        let busy = [pending("昼の番組", eventID: 2)]
+        typealias Outcome = PendingQueue.Outcome
+        let answers: [(name: String, outcome: Outcome, said: String?)] = [
+            ("nothing", Outcome(slot: .recorder), nil),
+            ("sent", Outcome(slot: .recorder, sent: [pending("朝の番組", eventID: 1)]),
+             "送信待ちだった「朝の番組」を登録しました"),
+            ("only one passed over", Outcome(slot: .recorder, deferred: busy),
+             "「昼の番組」は送れなかったため、次の機会にもう一度送ります"),
+            ("silence at a read alone", Outcome(slot: .recorder, stopped: Self.atARead),
+             "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。"),
+            ("silence at a create alone", Outcome(slot: .recorder, stopped: Self.atACreate), Self.held),
+            ("one passed over, then silence at a create",
+             Outcome(slot: .recorder, deferred: busy, stopped: Self.atACreate),
+             "「昼の番組」は送れなかったため、次の機会にもう一度送ります。" + Self.held),
+        ]
+        for answer in answers {
+            XCTAssertEqual(RecorderDriver.says(.sent(answer.outcome), naming: nil), answer.said, answer.name)
+        }
+    }
 }
