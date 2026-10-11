@@ -457,7 +457,7 @@ extension RecorderDriver {
 
     /// One request of a run over many recordings (`beginRun`), in the outline of `asked` with the rules a run
     /// keeps: `work`, on the client the link has in hand, under no line and with no check of its own -- a run
-    /// makes sure of the recorder between its recordings (`mayGoOn`), and the client in hand once that has
+    /// makes sure of the recorder before each of its requests (`mayGoOn`), and the client in hand once that has
     /// answered is the one whose attach went through. What `work` returned, or why not. A refusal is handed back
     /// as a value and not said, and the line of what went wrong is neither written nor cleared. Silence loses the
     /// recorder (`DeviceLink.lost`), says nothing and is handed back as what stops the run, `sending` saying

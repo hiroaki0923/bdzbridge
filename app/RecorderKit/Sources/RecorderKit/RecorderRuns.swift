@@ -22,11 +22,11 @@ public struct Run: Sendable {
 /// that it can be the failure of `RecorderDriver.beginRun`'s `Result`, which asks that of it; nothing throws it.
 public enum RunStop: Error, Sendable, Equatable {
     /// Turned away, with a sentence. For a run that did not begin, that the app is not connected
-    /// (`RecorderDriver.beginRun`). For one stopped before a recording (`RecorderDriver.mayGoOn`): after a check
-    /// that said no, or with the recorder known to be away, whatever stands on the host's line of what went
-    /// wrong, or that the app is not connected where the line is empty -- what a check wrote there if one
-    /// wrote, and if none did, what an earlier operation left; and with a recorder that has not said which it
-    /// is, that the app is not connected.
+    /// (`RecorderDriver.beginRun`). For one stopped before a recording, or before a later request for one
+    /// (`RecorderDriver.mayGoOn`): at a door, that the app is not connected; after a check that said no, what
+    /// that check left on the host's line of what went wrong, or that the app is not connected where it left
+    /// nothing; and after a check that heard something in place of the recorder saying which it is, what it
+    /// heard, in the recorder's words.
     case said(String)
     /// The recorder said nothing to a request of the run. `afterSending` says whether that request was one that
     /// changes the recorder: it may have arrived all the same.
@@ -40,12 +40,6 @@ public enum RunStop: Error, Sendable, Equatable {
     }
 }
 
-/// Where a run stands as it asks whether it may go on (`RecorderDriver.mayGoOn`): before its first recording,
-/// before a later one, or before one it waited for while the app was away.
-public enum RunMoment: Sendable {
-    case first, next, afterAReturn
-}
-
 /// What deleting or protecting one recording of a run came to (`RecorderDriver.delete(_:in:)`,
 /// `protect(_:_:in:)`).
 public enum ItemCame: Sendable, Equatable {
@@ -57,7 +51,8 @@ public enum ItemCame: Sendable, Equatable {
     case gone
     /// Nothing was changed, and why. The run goes on.
     case passedOver(String)
-    /// The run stops at this recording, and why (`RunStop`).
+    /// The run stops at this recording, and why (`RunStop`): nothing more is sent for it, and it counts neither
+    /// as changed nor as passed over.
     case stopped(RunStop)
 
     /// Why nothing was changed, for the run's list of what it passed over. Nil when something was, and when the
@@ -149,62 +144,47 @@ extension RecorderDriver {
         return .success(Run(kind: kind, began: link.generation))
     }
 
-    /// Whether a run may go on to a recording: nil when it may, or why it stops there, with nothing sent. Asked
-    /// before each recording, by where the run stands:
+    /// Whether a run may go on: nil when it may, or why it stops there, with nothing sent. Asked before each
+    /// recording, and again before each request for a recording after the first (`delete(_:in:)`), in the order
+    /// a single write keeps, a run being so many of them:
     ///
-    /// - `.first`, before its first recording: the recorder is made sure of, like anything else the reader asks
-    ///   for (`DeviceLink.ensureUp`) -- one asleep since the list was read would otherwise cost the first
-    ///   recording a timeout, and every one after it another.
-    /// - `.next`, before each recording after it: the run goes on unless the recorder is known to be away:
-    ///   silence met by anything stops a run, not only silence met by the run.
-    /// - `.afterAReturn`, before a recording the run waited for while the app was away: the recorder, which has
-    ///   had all that time to fall asleep, is made sure of, and then as `.next`.
+    /// 1. A check of the recorder that is out is heard first. It may be waking the recorder, which counts as not
+    ///    answering until the waking is over, and a run waits for it and goes on by what it found, where a
+    ///    single operation pressed meanwhile is turned away at its door. A check that said no -- silence, a
+    ///    waking the recorder turned away, another recorder answering, the recorder let go of -- stops the run,
+    ///    with what it left on the line.
+    /// 2. The doors of a single protect (`protect(_:_:keep:)`), which leave the line as it was: no recorder's
+    ///    client in hand, the recorder known to be away, or nothing that can be written to it (`canBeAsked`),
+    ///    each that the app is not connected (`whyNotConnected`). Whatever the run does: a scan only reads, and
+    ///    a read of a list has no such door, but what a scan reads is kept in the cache for good, under a number
+    ///    each recorder gives out for itself, and a text read from the wrong recorder is not put right by the
+    ///    next connect as a list is.
+    /// 3. The recorder is made sure of (`DeviceLink.check`), like anything else the reader asks for: one asleep
+    ///    since it last answered would otherwise cost the recording a timeout, and every one after it another.
+    ///    Inside a run it asks nothing as a rule, the recorder having answered a moment ago; after a check
+    ///    that heard something in place of the recorder saying which it is, it asks however lately the recorder
+    ///    answered (`DeviceLink.checksAgain`). A no stops the run, with what the check left on the line.
+    /// 4. Nothing goes after a check that heard something in place of the recorder saying which it is -- busy
+    ///    with somebody else, a fault (`DeviceLink.mayBeSent`): the run stops with what was heard, which goes on
+    ///    the line as well, being the recorder's answer, as for a single write (`whyNotSent`). A scan stops the
+    ///    same way, by the rule of a list's read, which fails with what the check heard: its text is kept.
     ///
-    /// A check of the recorder that is out is heard first, at each of these (`heardOut`): it may be waking the
-    /// recorder, which counts as not answering until the waking is over, and a run waits for it and goes on by
-    /// what it found, where a single operation pressed meanwhile is turned away at its door. What it found is
-    /// the run's answer too: a check that said no -- silence, a waking the recorder turned away, another recorder
-    /// answering, the recorder let go of -- stops the run.
-    ///
-    /// Then the door of a write (`canBeAsked`), whatever the run does: the next recording goes only to a
-    /// recorder that has said which it is, on the client whose attach heard it. A scan only reads, and a read of
-    /// a list has no such door; but what a scan reads is kept in the cache for good, under a number each
-    /// recorder gives out for itself, and a text read from the wrong recorder is not put right by the next
-    /// connect as a list is.
-    ///
-    /// A no from a check, or for a recorder known to be away, hands back whatever stands on the host's line of
-    /// what went wrong, or that the app is not connected where the line is empty, as a write's result says a
-    /// check's no again (`altered`): the run's job shows it as why the run stopped. That is what a check wrote
-    /// there, when one did. A no to `.next` with the recorder known to be away and no check out hands back what
-    /// an earlier operation left, which need not be about the run. A no at the door is that the app is not
-    /// connected (`whyNotConnected`). Nothing is written on the line here.
-    public func mayGoOn(_ run: Run, _ moment: RunMoment) async -> RunStop? {
+    /// Not to be taken for a recording the recorder was too busy to answer for: that one request, turned down
+    /// through the client's tries, passes the recording over and the run goes on.
+    public func mayGoOn(_ run: Run) async -> RunStop? {
         guard let link else { return .said(Self.notConnected) }
-        switch moment {
-        case .first:
-            if let no = await heardOut(on: link) { return no }
-            guard await link.ensureUp() else { return whatTheLinkSaid(on: link) }
-        case .afterAReturn:
-            if let no = await heardOut(on: link) { return no }
-            guard await link.ensureUp() else { return whatTheLinkSaid(on: link) }
-            fallthrough
-        case .next:
-            if let no = await heardOut(on: link) { return no }
-            if link.session.unreachable { return whatTheLinkSaid(on: link) }
+        if let check = link.wakeCheck, await check.value != nil { return whatTheLinkSaid(on: link) }
+        guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
+            return .said(whyNotConnected)
         }
-        return canBeAsked(on: link) ? nil : .said(whyNotConnected)
+        guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return whatTheLinkSaid(on: link) }
+        guard link.mayBeSent else { return .said(whyNotSent(on: link)) }
+        return nil
     }
 
-    /// Waits for a check of the recorder that is out, and hands back its no as what stops the run
-    /// (`whatTheLinkSaid`): nil when none is out, and when the one that was found the recorder up.
-    private func heardOut(on link: DeviceLink) async -> RunStop? {
-        guard let check = link.wakeCheck, await check.value != nil else { return nil }
-        return whatTheLinkSaid(on: link)
-    }
-
-    /// What a no of `mayGoOn` hands back after a check that said no, or for a recorder known to be away:
-    /// whatever stands on the host's line of what went wrong, or that the app is not connected where the line is
-    /// empty.
+    /// What a no of `mayGoOn` hands back after a check that said no: what that check left on the host's line of
+    /// what went wrong, or that the app is not connected where it left nothing, as a write's result says a
+    /// check's no again (`altered`).
     private func whatTheLinkSaid(on link: DeviceLink) -> RunStop {
         .said(link.owner?.problem ?? whyNotConnected)
     }
@@ -224,6 +204,10 @@ extension RecorderDriver {
     /// sent all the same would come back as done for one already gone and be counted so: the recording is passed
     /// over with what the recorder said, and the run goes on.
     ///
+    /// Between the question and the delete the run asks again whether it may go on (`mayGoOn`), as before each
+    /// recording: a check of the recorder that came in behind the question is waited for, and heard, before the
+    /// delete is handed over, and a no stops the run with the recording neither deleted nor passed over.
+    ///
     /// Silence is a stop and not a recording passed over (`RunStop.silent`): a recorder gone to sleep part way
     /// through would otherwise turn every recording left into one passed over, each after a thirty-second
     /// timeout. The run stops at the first, and does not send that recording again: a write that met silence may
@@ -242,6 +226,7 @@ extension RecorderDriver {
             return .stopped(stop)
         }
 
+        if let stop = await mayGoOn(run) { return .stopped(stop) }
         switch await asked(in: run, sending: true, { try await $0.deleteTitle(id: title.id) }) {
         case .went: return .done
         case .refused(let error): return .passedOver(Self.inTheRecordersWords(error))

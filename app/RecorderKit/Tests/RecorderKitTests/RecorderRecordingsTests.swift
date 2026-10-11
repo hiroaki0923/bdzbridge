@@ -316,34 +316,33 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await recorder.actions, [], "the free space was asked for a run whose recorder was let go of")
     }
 
-    /// What a run stopped before a recording hands back, for its job to show as why: whatever stands on the line
-    /// of what went wrong, and that the app is not connected where nothing stands there. Before a recording after
-    /// the first, with the recorder known to be away and no check out, the run writes nothing on the line and asks
-    /// nothing: so what it hands back is what a check that met silence said there, when that is what lost the
-    /// recorder -- and what an earlier operation left there, when the recorder was lost by something that said
-    /// nothing, which need not be about the run at all. Before its first recording the run makes sure of the
-    /// recorder itself, and of one known to be away that check says that the app is not connected, on the line
-    /// and so in what is handed back.
-    func testARunStoppedBeforeARecordingHandsBackWhatStandsOnTheLine() async throws {
-        // Lost by something that said nothing, the line as an earlier failure left it.
+    /// What a run stopped before a recording hands back, for its job to show as why, nothing having been asked
+    /// about any recording.
+    ///
+    /// At a door the line of what went wrong is left as it was, and why is that the app is not connected. So it
+    /// is with the recorder known to be away, whatever lost it and whatever stands on the line -- what an earlier
+    /// operation left there, or what a check that met silence said -- and on a client that has not heard which
+    /// recorder answers, after a reconnect the recorder answered busy, for a scan as for a run that writes. Nothing
+    /// is asked at a door, not even who answers.
+    ///
+    /// Past the doors the run makes sure of the recorder itself. After a check that heard the recorder busy with
+    /// somebody else as it was asked who it is, it asks again however lately the recorder answered: still busy,
+    /// the run stops with what it heard, which goes on the line as well; saying which it is, the run goes on, and
+    /// the next time asks nothing; silent, the run stops with what the check said of that silence on the line.
+    func testARunTurnedAwayAtADoorLeavesTheLineAndOneStoppedByItsCheckSaysWhatThatCheckHeard() async throws {
+        let notConnected = RunStop.said(RecorderDriver.notConnected)
+
+        // Known to be away, lost by something that said nothing: the line as an earlier failure left it.
         let (world, driver, recorder) = try await Self.playing([:])
         let run = try driver.beginRun(.delete).get()
         driver.link?.lost()
         world.events = []
-        expectEqual(await driver.mayGoOn(run, .next), .said(Self.left))
-        XCTAssertEqual(world.problem, Self.left, "the run wrote on the line before a later recording")
-        world.problem = nil
-        expectEqual(await driver.mayGoOn(run, .next), .said(RecorderDriver.notConnected))
-        XCTAssertNil(world.problem, "the run wrote on the line before a later recording")
-        expectEqual(await recorder.actions, [], "a recorder known to be away was asked")
-
-        // Before the first recording: the run's own check, of a recorder known to be away.
-        expectEqual(await driver.mayGoOn(run, .first), .said(LinkWorld.notConnected))
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        expectEqual(await driver.mayGoOn(run), notConnected)
+        XCTAssertEqual(world.problem, Self.left, "a run turned away at a door wrote on the line")
         expectEqual(await recorder.actions, [], "a recorder known to be away was asked")
         XCTAssertEqual(world.events, [], "something was sent or told for a recorder known to be away")
 
-        // Lost by a check that met silence, which said so.
+        // Known to be away, lost by a check that met silence and said so.
         let (dark, ofTheSilent, silent) = try await Self.playing([:])
         let stopped = try ofTheSilent.beginRun(.delete).get()
         await silent.sayNothingOfWhoItIs()
@@ -351,9 +350,90 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(there, false, "the check was meant to meet silence")
         XCTAssertEqual(dark.problem, ofTheSilent.noAnswerLine, "the check was meant to say that nothing answered")
         await silent.forget()
-        expectEqual(await ofTheSilent.mayGoOn(stopped, .next), .said(ofTheSilent.noAnswerLine))
-        XCTAssertEqual(dark.problem, ofTheSilent.noAnswerLine)
+        expectEqual(await ofTheSilent.mayGoOn(stopped), notConnected)
+        XCTAssertEqual(dark.problem, ofTheSilent.noAnswerLine, "a run turned away at a door wrote on the line")
         expectEqual(await silent.actions, [], "a recorder known to be away was asked")
+
+        // On a client that has not heard which recorder answers: a scan, which began before the reconnect.
+        let (apart, ofTheUnheard, unheard) = try await Self.playing([:])
+        let scan = try ofTheUnheard.beginRun(.scanning).get()
+        await unheard.beBusyWhenAskedWhoItIs()
+        await ofTheUnheard.link?.connect()
+        XCTAssertTrue(ofTheUnheard.link?.session.connected == true, "the attach before was meant to stand")
+        XCTAssertTrue(ofTheUnheard.link?.clientIsAttached == false,
+                      "the reconnect was meant not to have heard who answers")
+        await unheard.forget()
+        apart.problem = Self.left
+        expectEqual(await ofTheUnheard.mayGoOn(scan), notConnected)
+        XCTAssertEqual(apart.problem, Self.left, "a run turned away at a door wrote on the line")
+        expectEqual(await unheard.actions, [], "a client that never heard who answers was asked through")
+
+        // After a check that heard the recorder busy: asked again, and still busy.
+        let busy = RecorderError.busy(action: "description.xml").explanation
+        let (heard, ofTheBusy, busyOne) = try await Self.playing([:])
+        let held = try ofTheBusy.beginRun(.delete).get()
+        await busyOne.beBusyWhenAskedWhoItIs()
+        var up = await ofTheBusy.link?.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(up, true, "a recorder that answered busy was taken for gone")
+        XCTAssertEqual(heard.problem, Self.left, "the recorder's check was meant to write nothing on the line")
+        await busyOne.forget()
+        expectEqual(await ofTheBusy.mayGoOn(held), .said(busy))
+        XCTAssertEqual(heard.problem, busy, "what the check heard is not on the line")
+        expectEqual(await busyOne.actions, Array(repeating: "description.xml", count: 3),
+                    "the run did not ask again who answers, through the client's tries")
+
+        // Free again: asked once more, and then no more.
+        await busyOne.sayWhoItIs()
+        await busyOne.forget()
+        expectEqual(await ofTheBusy.mayGoOn(held), nil)
+        expectEqual(await busyOne.actions, ["description.xml"], "the run after a busy check did not ask again")
+        expectEqual(await ofTheBusy.mayGoOn(held), nil)
+        expectEqual(await busyOne.actions, ["description.xml"],
+                    "the run asked who answers though the recorder had just said")
+
+        // Busy to a check once more, and then silent to the run's own ask.
+        await busyOne.beBusyWhenAskedWhoItIs()
+        up = await ofTheBusy.link?.ensureUp(evenIfRecent: true)
+        XCTAssertEqual(up, true, "a recorder that answered busy was taken for gone")
+        await busyOne.sayNothingOfWhoItIs()
+        await busyOne.forget()
+        expectEqual(await ofTheBusy.mayGoOn(held), .said(ofTheBusy.noAnswerLine))
+        XCTAssertEqual(heard.problem, ofTheBusy.noAnswerLine)
+        expectEqual(await busyOne.actions, ["description.xml"], "the run's own check asked more than who answers")
+        XCTAssertTrue(ofTheBusy.link?.session.unreachable == true,
+                      "silence to the run's check did not lose the recorder")
+    }
+
+    /// Between the question a delete asks first and the delete itself, a check of the recorder that came in
+    /// behind the question is heard out before the delete is handed over. The question is held at the recorder
+    /// while a check is asked for, which waits its turn behind it; the question is then answered, and the check
+    /// hears the recorder busy with somebody else as it asks who it is. The run stops with what was heard, which
+    /// is on the line: the delete is not sent, and nothing is asked after the question but who answers.
+    func testARunHearsOutACheckThatCameInBehindTheQuestionBeforeItSendsTheDelete() async throws {
+        let (world, driver, recorder) = try await Self.playing([
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],
+            "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let link = try XCTUnwrap(driver.link)
+        let title = try await Self.title()
+        let run = try driver.beginRun(.delete).get()
+        await recorder.holdTheNext("X_GetTitleDetail")
+        let deleting = Task { await driver.delete(title, in: run) }
+        try await recorder.whenHeld()
+        await recorder.beBusyWhenAskedWhoItIs()
+        let check = Task { await link.ensureUp(evenIfRecent: true) }
+        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the question")
+        await recorder.letGo()
+
+        let busy = RecorderError.busy(action: "description.xml").explanation
+        expectEqual(await deleting.value, .stopped(.said(busy)))
+        expectEqual(await check.value, true, "a recorder that answered busy was taken for gone")
+        let asked = await recorder.actions
+        XCTAssertEqual(asked.first, "X_GetTitleDetail")
+        XCTAssertEqual(Set(asked.dropFirst()), ["description.xml"],
+                       "the delete was sent after a check that heard the recorder busy: \(asked)")
+        XCTAssertEqual(world.problem, busy, "what the check heard is not on the line")
     }
 
     // MARK: - one recording of a run
@@ -756,10 +836,10 @@ final class RecorderRecordingsTests: XCTestCase {
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a
 /// test gives for it, in turn and the last again once they run out; an action the test names as met by silence
 /// with nothing at all; anything else with a 500, as a recorder that refuses what an attach reads besides its
-/// description. It can be told to say nothing when asked who it is, or that it is busy with somebody else. It
-/// puts down everything it was asked, answered or not: each action with its body, and an ask of who it is by its
-/// file's name with an empty body, so that a test that counts what was asked, or finds nothing asked, counts a
-/// look at who is there as well.
+/// description. It can be told to say nothing when asked who it is, or that it is busy with somebody else, and to
+/// hold the next request for one action until it is let go. It puts down everything it was asked, answered or
+/// not: each action with its body, and an ask of who it is by its file's name with an empty body, so that a test
+/// that counts what was asked, or finds nothing asked, counts a look at who is there as well.
 private actor PlayingRecorder: HTTPTransport {
     private var answers: [String: [HTTPResponse]]
     private let silent: Set<String>
@@ -768,6 +848,8 @@ private actor PlayingRecorder: HTTPTransport {
     private(set) var bodies: [String] = []
     private var saysWhoItIs = true
     private var busyWhenAsked = false
+    private var holdsTheNext: String?
+    private var held: CheckedContinuation<Void, Never>?
 
     init(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [], udn: String) throws {
         self.answers = answers
@@ -791,6 +873,37 @@ private actor PlayingRecorder: HTTPTransport {
         busyWhenAsked = true
     }
 
+    /// Says who it is again from now on.
+    func sayWhoItIs() {
+        saysWhoItIs = true
+        busyWhenAsked = false
+    }
+
+    /// The next request for `action` gets no answer until `letGo`, and then whatever it would get.
+    func holdTheNext(_ action: String) { holdsTheNext = action }
+
+    /// Whether a request is being held now.
+    var isHolding: Bool { held != nil }
+
+    /// Returns once a request is being held: waited for a bounded while, and a failure, thrown on, when none
+    /// has come by then.
+    nonisolated func whenHeld() async throws {
+        var turns = 0
+        while await !isHolding, turns < 100_000 {
+            turns += 1
+            await Task.yield()
+        }
+        guard await isHolding else {
+            XCTFail("the request that was to be held never came")
+            throw NothingHeld()
+        }
+    }
+
+    func letGo() {
+        held?.resume()
+        held = nil
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.lastPathComponent != "description.xml" else {
             actions.append("description.xml")
@@ -803,6 +916,10 @@ private actor PlayingRecorder: HTTPTransport {
             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         actions.append(action)
         bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
+        if holdsTheNext == action {
+            holdsTheNext = nil
+            await withCheckedContinuation { held = $0 }
+        }
         guard !silent.contains(action) else { throw RecorderError.transport("timed out") }
         guard var given = answers[action], let answer = given.first else { return HTTPResponse(statusCode: 500) }
         if given.count > 1 { given.removeFirst() }
@@ -810,3 +927,6 @@ private actor PlayingRecorder: HTTPTransport {
         return answer
     }
 }
+
+/// Thrown to end a test whose request never came to be held, once the failure is recorded.
+private struct NothingHeld: Error {}

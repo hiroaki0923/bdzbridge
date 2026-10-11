@@ -421,11 +421,13 @@ final class RunGateTests: XCTestCase {
     /// nothing is asked, the line of what went wrong is left as it was, and the job says that it was stopped and,
     /// under that, that the app is not connected. With a check that meets silence nothing is asked but the
     /// check's own ask: the run ends with nothing sent, and the job says under what it came to what the check
-    /// said on the line. After a check the recorder answered, the recordings go.
+    /// said on the line.
     ///
-    /// One thing is as it is today. After a check that heard the recorder busy with somebody else as it was
-    /// asked who it is -- which says nothing of which recorder answered -- the run's recordings are sent: a later
-    /// change stops the run there.
+    /// Beside a check that heard the recorder busy with somebody else as it was asked who it is -- which says
+    /// nothing of which recorder answered -- nothing of the run is sent either: the job says that it was stopped
+    /// and, under that, what the check heard, which is on the line as well, the recorder still there and the app
+    /// connected. The run pressed next asks who answers again, however lately the recorder answered, and its
+    /// recording goes once the recorder has said.
     func testARunMakesSureOfTheRecorderBeforeItsFirstRecordingAndWaitsForACheckThatIsOut() async throws {
         let (_, recorder, model, idle) = try await settled()
         let notBegun = "0 件を削除したところで中止しました"
@@ -460,19 +462,34 @@ final class RunGateTests: XCTestCase {
         await reconnect(model)
 
         // Beside a check that hears it busy with somebody else, through both tries after the first.
-        count = await recorder.heard.count
+        leaveALine(on: model)
+        var before = await recorder.asked
         let busy = try await duringACheck(by: model, of: recorder, endingIn: .busy, "the run",
                                           waitingFor: { model.jobRunning }) {
             model.startBulk(.delete, ids: [idle[0].id])
         }
         try await untilTheRunEnds(model)
-        await recorder.comeFree()
         XCTAssertTrue(busy.there, "a recorder that answered busy was taken for gone")
-        expectEqual(await recorder.heard(since: count),
-                    [Ask.description, Ask.description, Ask.description,
-                     Ask.details, Ask.deleteRecording, Ask.freeSpace],
-                    "the recording goes after a check that heard the recorder busy, today")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0,
+                    "a recording was asked about after a check that heard the recorder busy")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 0,
+                    "a recording was sent to be deleted after a check that heard the recorder busy")
+        XCTAssertEqual(model.job?.outcome, notBegun)
+        XCTAssertEqual(model.job?.stopped, .said(Said.busy(Ask.description)))
+        XCTAssertEqual(model.problem(for: .recorder), Said.busy(Ask.description),
+                       "what the check heard is not on the line")
+        XCTAssertTrue(model.connected, "a recorder that answered busy was let go of")
+        XCTAssertFalse(model.gaveUp)
+
+        // The run pressed next, the recorder free again: it is asked who it is once more, and the recording goes.
+        await recorder.comeFree()
+        before = await recorder.asked
+        try await run(model, .delete, [idle[0].id])
+        expectEqual(await recorder.asked(Ask.description, since: before), 1,
+                    "the run after one a busy check stopped did not ask again who answers, or asked more than once")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1)
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+        XCTAssertNil(model.job?.stopped)
     }
 
     /// A run started beside a check that woke the recorder and was then turned away -- silent to the check's own
@@ -637,6 +654,86 @@ final class RunGateTests: XCTestCase {
         expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 0,
                     "a recording was sent to be deleted beside a connect under way")
         XCTAssertTrue(model.connected)
+    }
+
+    /// Nothing of a run is sent after a check that heard something in place of the recorder saying which it is,
+    /// and the job says that it was stopped and, under that, what the check heard, which is on the line too.
+    ///
+    /// A scan started beside a check that hears the recorder busy with somebody else reads no text: what it
+    /// reads is kept, so it stops as a run that writes does.
+    ///
+    /// A bulk delete whose question about its first recording is out when such a check comes in behind it: the
+    /// run hears the check out before it hands the delete over, and the delete is not sent. The recording is
+    /// neither counted nor listed as passed over, the next is not asked about, and the recordings stay as read,
+    /// nothing having been sent that changes one.
+    ///
+    /// And a run after a check that heard something which is no recorder's answer asks who answers itself,
+    /// however lately the address answered, and stops on what it hears then.
+    func testNothingOfARunIsSentAfterACheckThatHeardTheRecorderBusyOrAFault() async throws {
+        let (_, recorder, model, idle) = try await settled(withACopy: true)
+        let busy = Said.busy(Ask.description)
+
+        // A scan, beside the check.
+        leaveALine(on: model)
+        var before = await recorder.asked
+        let heard = try await duringACheck(by: model, of: recorder, endingIn: .busy, "the scan",
+                                           waitingFor: { model.jobRunning }) {
+            model.startDuplicateScan()
+        }
+        try await untilTheRunEnds(model, "the scan never ended")
+        XCTAssertTrue(heard.there, "a recorder that answered busy was taken for gone")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0,
+                    "a text was read after a check that heard the recorder busy")
+        XCTAssertEqual(model.job?.done, 0)
+        XCTAssertEqual(model.job?.outcome, "0 件まで調べて中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(busy))
+        XCTAssertEqual(model.problem(for: .recorder), busy, "what the check heard is not on the line")
+        XCTAssertTrue(model.summaries.isEmpty)
+        await recorder.comeFree()
+        expectTrue(await makeSure(model), "the recorder was meant to say which it is again")
+
+        // A bulk delete, the check coming in behind the question about its first recording.
+        leaveALine(on: model)
+        await recorder.hold(only: Ask.details)
+        before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never asked about its first recording") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.busyAtTheDoor()
+        await recorder.letGo()
+        expectTrue(await check.value, "a recorder that answered busy was taken for gone")
+        try await untilTheRunEnds(model)
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 0,
+                    "the delete was sent after a check that heard the recorder busy")
+        expectEqual(await recorder.asked(Ask.details, since: before), 1, "the run went on to its next recording")
+        XCTAssertEqual(model.job?.changed, [], "a recording whose delete was not sent is counted")
+        XCTAssertEqual(model.job?.skipped, [], "a recording the run stopped at is listed as passed over")
+        XCTAssertEqual(model.job?.done, 0)
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(busy))
+        XCTAssertEqual(model.problem(for: .recorder), busy, "what the check heard is not on the line")
+        XCTAssertTrue(model.titles.contains { $0.id == idle[0].id }, "a recording not deleted left the list")
+        XCTAssertTrue(model.titlesLoaded, "the recordings are marked unread though nothing was sent that changes one")
+        await recorder.comeFree()
+        expectTrue(await makeSure(model), "the recorder was meant to say which it is again")
+
+        // A check hears something that is no recorder's answer, and so does the run's own ask after it.
+        let fault = RecorderError.notARecorder(host: Bench.host).explanation
+        await recorder.answer(Ask.description, with: .status(500), times: 2)
+        expectTrue(await makeSure(model), "something that answered was taken for gone")
+        leaveALine(on: model)
+        before = await recorder.asked
+        try await run(model, .delete, [idle[0].id])
+        expectEqual(await recorder.asked(Ask.description, since: before), 1,
+                    "the run did not ask again who answers after a check that heard a fault")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0,
+                    "a recording was asked about after a check that heard a fault")
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(fault))
+        XCTAssertEqual(model.problem(for: .recorder), fault, "what the check heard is not on the line")
     }
 
     // MARK: - why a run stopped
@@ -824,7 +921,7 @@ final class RunGateTests: XCTestCase {
 
     /// A run waiting for the app to come back makes sure of the recorder itself once it is, and sends nothing
     /// more to one that was lost meanwhile -- here by a look at the network, taken while the app was away, that
-    /// met silence. The job says that it was stopped and, under that, why the run's own check turned it away:
+    /// met silence. The job says that it was stopped and, under that, why the run was turned away at its door:
     /// the app is not connected.
     func testARunWaitingForTheAppToComeBackSendsNothingToARecorderLostMeanwhile() async throws {
         let (bench, recorder, model, idle) = try await settled()
@@ -1215,6 +1312,39 @@ final class RunGateTests: XCTestCase {
         expectEqual(Array(await recorder.heard(since: count).prefix(4)),
                     [Ask.details, Ask.deleteRecording, Ask.description, Ask.description],
                     "between the check that heard the newcomer and its own connect, the run asked it something")
+        XCTAssertNil(model.job, "what the run came to is shown over a recorder it was not about")
+    }
+
+    /// A bulk delete waiting for the app to come back when a look at the network hears another recorder at the
+    /// address, which says so on the line. Back in front, the run is turned away at its door, the app having no
+    /// recorder in hand: nothing is asked, and the line still says that another recorder answered, for as long
+    /// as the newcomer's own connect -- held here at its first ask -- has not taken it away. The run does not
+    /// write over it that the app is not connected.
+    func testARunBackFromWaitingForTheAppLeavesTheLineThatSaysAnotherRecorderAnswered() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+        model.wentToBackground()
+        model.startBulk(.delete, ids: [idle[0].id])
+        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        await recorder.become(2)
+        bench.network = "another"
+        await lookAtTheNetwork(model)
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "the look at the network was meant to hear another recorder, and say so")
+
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        await model.returnedToForeground()
+        try await until("the newcomer's own connect never began") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "a run that came back to no recorder wrote over what the line said")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0)
+        expectEqual(await recorder.asked(Ask.freeSpace, since: before), 0)
+        await recorder.letGo()
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil && !model.jobRunning
+        }
         XCTAssertNil(model.job, "what the run came to is shown over a recorder it was not about")
     }
 
