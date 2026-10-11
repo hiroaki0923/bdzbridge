@@ -360,25 +360,24 @@ extension RecorderDriver {
 
     // MARK: - a run's end
 
-    /// Ends a run. After one that deletes, the free space is read again, on the client the link has in hand,
-    /// and kept in the session for the screens -- unless the recorder is known to be away, which would cost the
-    /// read its timeout. It is only shown, so a recorder that will not say leaves it unknown (`storage(of:)`)
-    /// and the run it follows is not said to have failed. Silence is still silence: it loses the recorder, with
-    /// nothing said on the line. Whatever `deleted`, the number of recordings the run deleted, and `stopped`,
-    /// what stopped it if anything did: the free space is read after a run that deleted nothing, and after one
-    /// the recorder stopped while it is not known to be away.
+    /// Ends a run. After a bulk delete that deleted something (`deleted`, how many) and that nothing stopped on
+    /// the recorder's account (`stopped`) -- it came to the end of its recordings, or the reader pressed 中止 --
+    /// the free space is read again and kept in the session for the screens, as after a single delete
+    /// (`learnTheFreeSpace`), on the client the link has in hand. It is only shown, so a recorder that will not
+    /// say leaves it unknown (`storage(of:)`) and the run it follows is not said to have failed. Silence is said
+    /// as any read's, on the line of what went wrong, and loses the recorder.
+    ///
+    /// Nothing is read after a run that deleted nothing, which has freed nothing, nor after one the recorder
+    /// stopped, whatever it had deleted: that read makes no check of its own, and would go straight behind a
+    /// check that heard the recorder busy, or wait out its timeout on a recorder that has just gone silent. Nor
+    /// of a recorder known to be away, which would cost the read its timeout.
     ///
     /// Not for a recorder the run did not begin with (`Run`): let go of since, nothing is read, the free space
     /// being another recorder's or nobody's to ask. Let go of while the read is out, what comes back is not
-    /// kept in the session, which is the newcomer's by then, and its silence loses nobody.
+    /// kept in the session, which is the newcomer's by then, and its silence is neither said nor taken.
     public func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
-        guard case .delete = run.kind, let link, !link.letGo(since: run.began), !link.session.unreachable,
-              let client = link.client as? RecorderClient else { return }
-        do {
-            let storage = try await Self.storage(of: client)
-            if !link.letGo(since: run.began) { link.session.learned(storage: storage) }
-        } catch {
-            if !link.letGo(since: run.began) { link.lost() }
-        }
+        guard case .delete = run.kind, deleted > 0, stopped == nil, let link, !link.letGo(since: run.began),
+              !link.session.unreachable, let client = link.client as? RecorderClient else { return }
+        await learnTheFreeSpace(on: client, link, since: run.began)
     }
 }

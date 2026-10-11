@@ -84,8 +84,8 @@ final class RunGateTests: XCTestCase {
     /// there is not known, and the recorder answers a delete of one it no longer holds as done. It is listed as
     /// passed over in the recorder's words and stays in the list, and the run goes on to the next.
     ///
-    /// One thing is as it is today. The free space is read after a run that deleted nothing: a later change
-    /// reads it only after one that deleted something.
+    /// The free space is read only after a run that deleted something: one that passed its recordings over, or
+    /// had none it could ask about, asks nothing once it has ended.
     func testABulkDeleteAsksAboutEachRecordingDeletesItAndListsWhatItPassedOver() async throws {
         let (_, recorder, model, idle) = try await settled()
         let writing = try XCTUnwrap(model.titles.first { $0.recording }, "the demo was meant to be recording")
@@ -152,8 +152,7 @@ final class RunGateTests: XCTestCase {
         // Nothing to delete.
         count = await recorder.heard.count
         try await run(model, .delete, [guarded.id])
-        expectEqual(await recorder.heard(since: count), [Ask.freeSpace],
-                    "the free space is read after a run that deleted nothing, today")
+        expectEqual(await recorder.heard(since: count), [], "the free space was read after a run that deleted nothing")
         XCTAssertEqual(model.job?.outcome, "0 件を削除しました（1 件はスキップ）")
     }
 
@@ -422,9 +421,9 @@ final class RunGateTests: XCTestCase {
     /// will not say leaves it unknown and the app connected. Silence on it loses the recorder like any other,
     /// and the job still says what it deleted.
     ///
-    /// That silence is said nowhere today: the line of what went wrong is left with nothing on it. A later
-    /// change says it there, as the free space read after a single delete does.
-    func testTheFreeSpaceAfterABulkDeleteIsOnlyShownAndItsSilenceIsSaidNowhere() async throws {
+    /// That silence is said on the line of what went wrong, as the free space read after a single delete says
+    /// it: the recorder did not answer.
+    func testTheFreeSpaceAfterABulkDeleteIsOnlyShownAndItsSilenceIsSaidOnTheLine() async throws {
         let (_, recorder, model, idle) = try await settled()
 
         clearTheLine(on: model)
@@ -433,7 +432,8 @@ final class RunGateTests: XCTestCase {
         try await run(model, .delete, [idle[0].id])
         expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording, Ask.freeSpace])
         XCTAssertTrue(model.gaveUp, "silence on the free space did not leave the app given up")
-        XCTAssertNil(model.problem(for: .recorder), "silence on the free space after a run is said, today not")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer,
+                       "silence on the free space after a run is not said on the line")
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
 
         await reconnect(model)
@@ -444,6 +444,76 @@ final class RunGateTests: XCTestCase {
         XCTAssertTrue(model.connected, "a recorder that would not say its free space was let go of")
         XCTAssertFalse(model.gaveUp)
         XCTAssertNil(model.problem(for: .recorder))
+        XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+    }
+
+    /// The free space is read after a bulk delete only when nothing stopped the run on the recorder's account,
+    /// whatever the run had deleted by then. A run of two stopped before its second recording by a check that
+    /// heard the recorder busy with somebody else -- the check's ask waiting its turn behind the first delete --
+    /// has deleted one and reads nothing: the read makes no check of its own, and would go straight behind that
+    /// one, to a recorder that has not said which it is. And a run of two stopped before its second recording
+    /// after a look at the network that met silence reads nothing either, of a recorder known to be away.
+    func testTheFreeSpaceIsNotReadAfterARunTheRecorderStopped() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+
+        // Stopped by a check that heard the recorder busy.
+        await recorder.hold(only: Ask.deleteRecording)
+        var before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never came to its first delete") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.busyAtTheDoor()
+        await recorder.letGo()
+        expectTrue(await check.value, "a recorder that answered busy was taken for gone")
+        try await untilTheRunEnds(model)
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+        XCTAssertEqual(model.job?.stopped, .said(Said.busy(Ask.description)))
+        expectEqual(await recorder.asked(Ask.details, since: before), 1, "the run went on to its next recording")
+        expectEqual(await recorder.asked(Ask.freeSpace, since: before), 0,
+                    "the free space was read behind a check that heard the recorder busy")
+        await recorder.comeFree()
+        expectTrue(await makeSure(model), "the recorder was meant to say which it is again")
+
+        // Stopped after a look at the network that met silence.
+        await recorder.hold(only: Ask.deleteRecording)
+        before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[1].id, idle[2].id])
+        try await until("the run never came to its first delete") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        bench.network = "away"
+        let look = Task { await lookAtTheNetwork(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.goQuiet(on: Ask.description)
+        await recorder.letGo()
+        _ = await look.value
+        try await untilTheRunEnds(model)
+        XCTAssertTrue(model.gaveUp, "the look at the network was meant to lose the recorder")
+        XCTAssertEqual(model.job?.changed, [idle[1].id])
+        XCTAssertEqual(model.job?.stopped, .said(Said.noAnswer))
+        expectEqual(await recorder.asked(Ask.freeSpace, since: before), 0,
+                    "the free space was asked of a recorder known to be away")
+    }
+
+    /// The free space after a bulk delete is a request like a recording's: it is read under a background task,
+    /// as a step of the run is, so that one that is out as the reader leaves the app is finished and not frozen
+    /// half way; the job is still running while it is out, and the task is given back once it has answered.
+    func testTheFreeSpaceAfterABulkDeleteIsReadUnderABackgroundTaskAsAStepIs() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.freeSpace)
+        let before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id])
+        try await until("the free space was never asked for") {
+            await recorder.asked(Ask.freeSpace, since: before) == 1
+        }
+        XCTAssertTrue(model.jobRunning, "the job ended before its free space had been read")
+        XCTAssertNotEqual(model.stepTask, .invalid, "the free space after a run is read under no background task")
+        await recorder.letGo()
+        try await untilTheRunEnds(model)
+        XCTAssertEqual(model.stepTask, .invalid, "the background task was kept once the run had ended")
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
     }
 
@@ -534,9 +604,8 @@ final class RunGateTests: XCTestCase {
     /// The job says that it was stopped and, under that, what the waking's attach left on the line: that the
     /// recorder is busy with somebody else.
     ///
-    /// One thing is as it is today. The free space is read once the run has stopped, of a recorder that has not
-    /// said which it is: a later change reads it only after a run that deleted something and that the recorder
-    /// did not stop.
+    /// Nor is the free space read once the run has stopped: nothing was deleted, and the recorder has not said
+    /// which it is.
     func testARunBesideACheckTurnedAwayAfterAWakingSendsNoRecording() async throws {
         let (_, recorder, model, idle) = try await settled(wakeable: true)
         let count = await recorder.heard.count
@@ -545,8 +614,8 @@ final class RunGateTests: XCTestCase {
         }
         try await untilTheRunEnds(model)
 
-        expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [Ask.freeSpace],
-                    "a recording was sent to a recorder that turned the attach away; the free space is read, today")
+        expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [],
+                    "a recording was sent to a recorder that turned the attach away, or its free space read")
         XCTAssertEqual(model.job?.changed, [])
         XCTAssertEqual(model.job?.outcome, "0 件を削除したところで中止しました")
         XCTAssertEqual(model.job?.stopped, .said(Said.busy(Ask.description)))

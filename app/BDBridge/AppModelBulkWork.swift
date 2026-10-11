@@ -105,8 +105,11 @@ extension AppModel {
             job?.done += 1
         }
         job?.stopped = stopped
+        // The free space, when the driver reads it: a request like a recording's, finished under the same
+        // hold if the reader leaves meanwhile. The hold is taken whatever the run came to, and given back at
+        // once where the driver reads nothing: whether it reads is the driver's to say.
         let deleted = kind == .delete ? job?.changed.count ?? 0 : 0
-        await driver.end(run, deleted: deleted, stopped: stopped)
+        await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
         // the sets were built from recordings that may no longer all be there
         if !duplicates.isEmpty { recomputeDuplicates() }
         job?.finished = true

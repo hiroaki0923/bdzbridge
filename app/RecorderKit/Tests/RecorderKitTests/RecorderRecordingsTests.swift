@@ -644,6 +644,59 @@ final class RecorderRecordingsTests: XCTestCase {
                        "the free space of the recorder let go of is shown as the newcomer's")
     }
 
+    /// The free space is read as a run ends only after a bulk delete that deleted something and that nothing
+    /// stopped on the recorder's account, as it is read after a single delete: what the recorder says is kept
+    /// for the screens, and the line of what went wrong is left as it was. Nothing is asked after a run that
+    /// deleted nothing; after one that was stopped, whatever it had deleted, turned away or by silence; after a
+    /// bulk protect or a scan; or of a recorder known to be away.
+    ///
+    /// A recorder that will not say leaves the free space unknown and is not lost for it. Silence is said on the
+    /// line as any read's is, and loses the recorder.
+    func testTheFreeSpaceIsReadAsARunEndsOnlyAfterADeleteThatNothingStopped() async throws {
+        let space = "X_HDLnkGetRecordDestinationInfo"
+        let (world, driver, recorder) = try await Self.playing([
+            space: [Self.space(free: 10), Self.space(free: 30), Stub.fault("402")],
+        ])
+        let link = try XCTUnwrap(driver.link)
+        XCTAssertEqual(link.session.storage?.free, 10, "the connect was meant to read the free space")
+        let deleting = try driver.beginRun(.delete).get()
+
+        await driver.end(deleting, deleted: 0, stopped: nil)
+        await driver.end(deleting, deleted: 2, stopped: .said(RecorderDriver.notConnected))
+        await driver.end(deleting, deleted: 2, stopped: .silent(afterSending: true))
+        await driver.end(deleting, deleted: 2, stopped: .silent(afterSending: false))
+        await driver.end(try driver.beginRun(.protecting(true)).get(), deleted: 2, stopped: nil)
+        await driver.end(try driver.beginRun(.scanning).get(), deleted: 2, stopped: nil)
+        expectEqual(await recorder.actions, [],
+                    "the free space was read after a run that deleted nothing, was stopped, or is no delete")
+        XCTAssertEqual(link.session.storage?.free, 10)
+
+        await driver.end(deleting, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [space], "the free space was not read once, after a run that deleted")
+        XCTAssertEqual(link.session.storage?.free, 30, "what the recorder said is not kept for the screens")
+        XCTAssertEqual(world.problem, Self.left, "the free space read as a run ends wrote on the line, or cleared it")
+
+        // A recorder that will not say.
+        await driver.end(deleting, deleted: 1, stopped: nil)
+        XCTAssertNil(link.session.storage, "the free space the recorder would not say is still shown as it was")
+        XCTAssertTrue(link.session.connected, "a recorder that would not say its free space was lost")
+        XCTAssertEqual(world.problem, Self.left, "a refusal to say the free space is said on the line")
+
+        // Silence.
+        await recorder.sayNothing(to: space)
+        await recorder.forget()
+        await driver.end(deleting, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [space])
+        XCTAssertEqual(world.problem, RecorderError.transport("").explanation,
+                       "silence on the free space as a run ends is not said on the line")
+        XCTAssertTrue(link.session.unreachable, "silence on the free space did not lose the recorder")
+
+        // Known to be away.
+        await recorder.forget()
+        await driver.end(deleting, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [], "the free space was asked of a recorder known to be away")
+    }
+
     // MARK: - one recording of a run
 
     // The decisions a run makes about each recording. The recorder's traps are the point: it refuses a protected
@@ -1129,13 +1182,14 @@ final class RecorderRecordingsTests: XCTestCase {
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a
 /// test gives for it, in turn and the last again once they run out; an action the test names as met by silence
 /// with nothing at all; anything else with a 500, as a recorder that refuses what an attach reads besides its
-/// description. It can be told to say nothing when asked who it is, or that it is busy with somebody else, and to
-/// hold the next request for one action until it is let go. It puts down everything it was asked, answered or
-/// not: each action with its body, and an ask of who it is by its file's name with an empty body, so that a test
-/// that counts what was asked, or finds nothing asked, counts a look at who is there as well.
+/// description. It can be told to say nothing when asked who it is, or that it is busy with somebody else; to
+/// say nothing to one more action from then on; and to hold the next request for one action until it is let go.
+/// It puts down everything it was asked, answered or not: each action with its body, and an ask of who it is by
+/// its file's name with an empty body, so that a test that counts what was asked, or finds nothing asked, counts
+/// a look at who is there as well.
 private actor PlayingRecorder: HTTPTransport {
     private var answers: [String: [HTTPResponse]]
-    private let silent: Set<String>
+    private var silent: Set<String>
     private let description: String
     private(set) var actions: [String] = []
     private(set) var bodies: [String] = []
@@ -1170,6 +1224,11 @@ private actor PlayingRecorder: HTTPTransport {
     func sayWhoItIs() {
         saysWhoItIs = true
         busyWhenAsked = false
+    }
+
+    /// Says nothing to `action` from now on.
+    func sayNothing(to action: String) {
+        silent.insert(action)
     }
 
     /// The next request for `action` gets no answer until `letGo`, and then whatever it would get.
