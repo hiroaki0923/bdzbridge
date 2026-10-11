@@ -240,6 +240,38 @@ final class GuideRefreshTests: XCTestCase {
         expectEqual(await transport.requests.count, 2, "the first type's guide and logos")
     }
 
+    /// Cancelled while a type's guide is out, it asks for no further file, and not for that type's logos
+    /// either, which follow its guide: the overnight run's time is up by then. The request under way is waited
+    /// for and what it brings is stored, so the type is among what was answered for, and is reported as
+    /// stored, with the logos it had. Held at the recorder here: the first type's guide, which then comes.
+    func testARefreshCancelledWhileATypesGuideIsOutAsksForNoLogosAndReportsTheTypeStored() async throws {
+        let guide = try file("epg-sample.json")
+        let held = Held()
+        let transport = StubTransport { _, index in
+            if index == 0 { await held.wait() }
+            return HTTPResponse(statusCode: 200, body: guide)
+        }
+        addTeardownBlock { await held.letGo() }
+        let client = RecorderClient(host: Stub.host, transport: transport, streamPort: 60151, busyRetryDelay: 0...0)
+        let store = try GuideStore(path: ":memory:")
+        let stored = Stored()
+
+        let refresh = Task { await GuideRefresh.run(client: client, store: store, onStored: { stored.add($0) }) }
+        try await whenHeld(held)
+        refresh.cancel()
+        await held.letGo()
+        let outcome = await refresh.value
+
+        XCTAssertTrue(outcome.cancelled, "the refresh did not say that its task was cancelled")
+        XCTAssertNil(outcome.stopped)
+        XCTAssertEqual(outcome.answered, ["td"])
+        XCTAssertEqual(outcome.stored, 5)
+        XCTAssertEqual(stored.types, ["td"], "the type whose guide was out was not reported as stored")
+        expectEqual(await transport.requests.count, 1,
+                    "the logos of the type that came, or a further type, were asked for once the task was cancelled")
+        expectEqual(try await store.counts()["td"]?.programs, 4, "the type whose guide was out is not in the cache")
+    }
+
     /// Two clients of one recorder, as the screens and the overnight run each have one, on one transport that
     /// holds the first request it is sent and answers every file as one the recorder has no channels for.
     private func twoClients() -> (first: RecorderClient, second: RecorderClient, transport: StubTransport, held: Held) {
@@ -333,6 +365,71 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertTrue(cancelled.cancelled, "the refresh did not see that its task was cancelled while it waited")
         XCTAssertEqual(cancelled.answered, [])
         expectEqual(await transport.requests.count, 4, "a file was asked for by a refresh cancelled as it waited")
+    }
+
+    /// The overnight run looks at its task and at whose cache it is once the turn for its guide has come, as it
+    /// did before the wait: the wait can be as long as a refresh of the screens' takes, and the screens can take
+    /// another recorder up meanwhile. Here the turn is another refresh's, of the test's own, its first file
+    /// held. A night is run beside it on a client and over a cache of its own: it asks who is there, for the
+    /// USB slot and for the free space, the two refused, and its guide is next. Then the cache is made over to
+    /// another recorder, as the screens make it over, and the file held is let go: the night asks for no file
+    /// of the guide, and hands back that nothing was stored. So it is where the night's task is cancelled in
+    /// place of the make-over, as when its time runs out.
+    ///
+    /// Nothing says that the night has come to its wait for the turn. It is given turns to come to it, a
+    /// counted number, once it has asked for the free space; whichever comes first, the wait or what happens
+    /// beside it, the night asks for no file.
+    func testANightsGuideIsNotAskedForOnceItsTurnComesOverACacheMadeOverOrATaskCancelledMeanwhile() async throws {
+        for row in ["the cache made over", "the task cancelled"] {
+            let held = Held()
+            let inFront = StubTransport { _, index in
+                if index == 0 { await held.wait() }
+                return HTTPResponse(statusCode: 416)
+            }
+            addTeardownBlock { await held.letGo() }
+            let screens = RecorderClient(host: Stub.host, transport: inFront, streamPort: 60151, busyRetryDelay: 0...0)
+            let elsewhere = try temporaryStore()
+            let out = Task { await GuideRefresh.run(client: screens, store: elsewhere) }
+            try await whenHeld(held)
+
+            let description = try Vectors.descriptionXML(udn: described(1).udn)
+            let recorder = StubTransport { request, _ in
+                guard request.url.lastPathComponent == "description.xml" else { return HTTPResponse(statusCode: 500) }
+                return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+            }
+            let client = RecorderClient(host: Stub.host, transport: recorder, streamPort: 60151, busyRetryDelay: 0...0)
+            let store = try temporaryStore()
+            try await store.claim(for: described(1))
+            let night = Task {
+                await RecorderDriver.refreshWithNoScreen(client, store: store, sendPacket: { false }, found: { _ in })
+            }
+            func askedForTheFreeSpace() async -> Bool {
+                await recorder.bodies.contains { $0.contains("X_HDLnkGetRecordDestinationInfo") }
+            }
+            var turns = 0
+            while await !askedForTheFreeSpace(), turns < 100_000 {
+                turns += 1
+                await Task.yield()
+            }
+            guard await askedForTheFreeSpace() else {
+                XCTFail("\(row): the night never asked for the free space")
+                throw NothingHeld()
+            }
+            for _ in 0..<10_000 { await Task.yield() }
+            let asked = await recorder.requests.count
+            if row == "the cache made over" {
+                expectEqual(try await store.claim(for: described(2)), .another, "the cache was meant to be made over")
+            } else {
+                night.cancel()
+            }
+            await held.letGo()
+            let (fetched, stored) = (await out.value, await night.value)
+
+            XCTAssertEqual(fetched.answered, GuideRefresh.broadcastingTypes, "\(row): the refresh in front did not end")
+            XCTAssertFalse(stored, row)
+            expectEqual(await recorder.requests.count, asked,
+                        "\(row): the night asked for a file of the guide once its turn had come")
+        }
     }
 }
 

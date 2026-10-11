@@ -96,9 +96,10 @@ extension RecorderDriver {
 
     /// The overnight run, with no screen behind it: the recorder is reached, woken if need be
     /// (`reachWithNoScreen`), what waits in the queue goes out while it is up, how much room is left is found
-    /// out, and the guide is fetched, every type of it. Whether a programme was stored. What it finds on the way
-    /// is handed to `found` as it finds it, each waited for before the next step: what became of the queue and
-    /// the free space are told before a guide download that can outlast the task.
+    /// out, and the guide is fetched, every type of it. Whether a programme was stored, by a run that told all
+    /// it found. What it finds on the way is handed to `found` as it finds it, each waited for before the next
+    /// step: what became of the queue and the free space are told before a guide download that can outlast the
+    /// task.
     ///
     /// Silence ends the run where it is first met: whatever came next would wait the same silence out again, of
     /// a recorder that has gone. A round of what waits that met it is told, and nothing is asked after it. The
@@ -108,12 +109,36 @@ extension RecorderDriver {
     /// was stored before it is handed back, and nothing more is asked. A night whose one silence passed gives up
     /// what it had not come to -- the free space, the guide -- until the next connect or the next night.
     ///
-    /// A cache that is another recorder's by the time a file of the guide has come ends the run as well
-    /// (`GuideRefresh.Stop.letGo`): it takes nothing of the file.
+    /// Nothing is handed over once the cache is another recorder's: the screens have taken one up while the run
+    /// was out (`GuideStore.claim`), and what the run found is of a recorder that is theirs no longer. The store
+    /// is asked again before each thing told from the round on (`isTheOneKnown`); once what became of the queue
+    /// has been told, which is where the app posts its notification and can take a while; before the guide,
+    /// where there may have been nothing to tell since the round; and once the guide's turn has come, which
+    /// can be waited for as long as a refresh of the screens' takes (`GuideRefresh.run`), and where the task
+    /// is looked at again as well. The run ends where the cache has become another's, and asks nothing more
+    /// of the recorder the screens have left: turned away as its guide's turn comes, it has asked for no
+    /// file. So it does after a guide that such a cache ended, having taken nothing of a file
+    /// (`GuideRefresh.Stop.letGo`): that a guide was fetched is not told, and nothing is handed back as
+    /// stored, the make-over having taken away what was. An owner that cannot be read just then silences
+    /// nothing: what the run found is still of the recorder it knew as it began.
     ///
     /// It runs in the caller's task, and stops between steps once that is cancelled, which is what the system
-    /// does when the run's time is up: the request under way is waited for, and nothing is asked after it.
-    /// `sendPacket` is `reachWithNoScreen`'s.
+    /// does when the run's time is up: the request of its own that is under way is waited for, and nothing is
+    /// asked after it -- not the free space after the slot, no guide, and not the logos of a type whose guide
+    /// was the file that was out (`GuideRefresh.run`). The round of what waits is the one exception, and is
+    /// finished row by row whatever the task says: it is run in the queue's own turn, which a caller's
+    /// cancellation does not reach (`PendingQueue.flush`), and its rows are reservations the reader made.
+    /// Of what the run has found by then only what became of what waited is told, and only when it is
+    /// news (`tells`): what became of the reader's reservations stands whatever cut the run short. One held
+    /// after silence at its create is such news, since it is held on the phone and waits for the reader.
+    /// Silence at a read is not told as a stop: the suspension may be what cut the request, and the recorder is
+    /// not to be said to have stopped answering on that account. Nothing else is told then -- no free space,
+    /// whose notice writes down that it warned, and no guide fetched, which writes the time the settings show:
+    /// the task has been completed by then, and what the system allows after that is not to be counted on.
+    ///
+    /// Once a telling is kept back, for the time or for the cache, the run ends and hands back that nothing
+    /// was stored, whatever the guide had put in the cache: nothing reads the value by then, the task having
+    /// been completed, and a cache made over holds none of it. `sendPacket` is `reachWithNoScreen`'s.
     public nonisolated static func refreshWithNoScreen(_ client: RecorderClient, store: GuideStore,
                                                        sendPacket: @escaping @Sendable () -> Bool,
                                                        found: @Sendable (NightFound) async -> Void) async -> Bool {
@@ -126,7 +151,7 @@ extension RecorderDriver {
         case .yes:
             break
         case .another:
-            if PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? []) {
+            if PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? []), !Task.isCancelled {
                 await found(.heldBack)
             }
             return false
@@ -134,10 +159,23 @@ extension RecorderDriver {
             return false
         }
 
-        let outcome = await PendingQueue.flush(client: client, store: store)
+        var outcome = await PendingQueue.flush(client: client, store: store)
+        // The cache made over to another recorder while the round was out: nothing is told from here on.
+        guard await isTheOneKnown(client, to: store) != .another else { return false }
+        // The time ran out while the round was out. What became of what waited is told when it is news, and
+        // the run ends. A round that silence cut short at a read is told as one that was not cut short: the
+        // queue's sentence for that says the rest goes the next time the recorder answers, as of a recorder that
+        // went away. One cut short at a create keeps its stop, which is what says that the reservation is held.
+        if Task.isCancelled {
+            if outcome.stopped == .silent(afterSending: false) { outcome.stopped = nil }
+            if tells(outcome, naming: nil) != nil { await found(.queue(outcome)) }
+            return false
+        }
         await found(.queue(outcome))
         // A round that met silence has been told, and ends the run: the slot would wait the silence out next.
-        guard !outcome.interrupted, !Task.isCancelled else { return false }
+        // So does the night's time having run out, or the cache having become another recorder's, while that
+        // was told: the two looks a telling makes, made here behind one.
+        guard !outcome.interrupted, await mayStillTell(of: client, in: store) else { return false }
         // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
         // Read through the one rule the screens use: only a disk the recorder registered counts. It lets only
         // silence out, and silence ends the run here: the free space and the guide would each wait it out again.
@@ -152,6 +190,8 @@ extension RecorderDriver {
         } catch {
             return false
         }
+        // The time ran out while the slot was read: nothing is asked after it.
+        guard !Task.isCancelled else { return false }
         let second = usb?.takesRecordings == true ? usb : nil
         let known = usb == nil ? (try? await store.knownUSBDisk()) : nil
         let readAgain = known?.takesRecordings == true
@@ -167,23 +207,55 @@ extension RecorderDriver {
         }
         if let space {
             let naming = second != nil || readAgain ? RecorderDisk.label(RecorderDisk.internalID, named: nil) : nil
-            await found(.freeSpace(free: space.free, total: space.total, naming: naming))
+            guard await tell(.freeSpace(free: space.free, total: space.total, naming: naming), of: client,
+                             in: store, to: found) else { return false }
         }
-        if let second { await found(.usbSpace(second)) }
-        guard answered else { return false }
+        if let second {
+            guard await tell(.usbSpace(second), of: client, in: store, to: found) else { return false }
+        }
+        // Before the guide, the two looks a telling makes, though nothing may have been told since the round:
+        // no file is asked for by a night whose time is up, or for a cache that is another recorder's by now.
+        guard answered, await mayStillTell(of: client, in: store) else { return false }
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
         // connect: nothing marks it fetched. Handed the recorder that answered this run, as it described itself:
         // should the screens make the cache over to another meanwhile, it takes nothing more of this one's guide.
-        let refresh = await GuideRefresh.run(client: client, store: store, from: await client.info)
-        if !refresh.answered.isEmpty { await found(.fetched(Date())) }
+        // The two looks are made again once the guide's turn has come, behind a wait that can be as long as a
+        // refresh of the screens' takes: turned away there the night has asked for no file, and ends as it
+        // does where a telling is kept back.
+        let answering = await client.info
+        let refresh = await GuideRefresh.run(asked: .all, onTurn: {
+            guard await mayStillTell(of: client, in: store) else { return .turnedAway(nil) }
+            return .fetch(client: client, store: store, from: answering)
+        })
+        // Not told of a guide the cache ended by being made over, nor is anything handed back as stored then:
+        // such a cache is another recorder's, which is where the telling ends the run.
+        if !refresh.answered.isEmpty {
+            guard await tell(.fetched(Date()), of: client, in: store, to: found) else { return false }
+        }
         // Not after a guide that silence stopped: one request more of a recorder just found silent.
         // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
         if refresh.stopped == nil, readAgain, !Task.isCancelled, let again = try? await usbDisk(of: client),
            again.takesRecordings {
-            await found(.usbSpace(again))
+            guard await tell(.usbSpace(again), of: client, in: store, to: found) else { return false }
         }
         return refresh.stored > 0
+    }
+
+    /// Whether a night may still tell what it finds: not once its time is up, and not once the cache has
+    /// become another recorder's (`refreshWithNoScreen`). An owner that cannot be read says nothing against it.
+    private nonisolated static func mayStillTell(of client: RecorderClient, in store: GuideStore) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        return await isTheOneKnown(client, to: store) != .another
+    }
+
+    /// Hands `value` to `found` for a night that may still tell it (`mayStillTell`). Whether it was handed
+    /// over.
+    private nonisolated static func tell(_ value: NightFound, of client: RecorderClient, in store: GuideStore,
+                                         to found: @Sendable (NightFound) async -> Void) async -> Bool {
+        guard await mayStillTell(of: client, in: store) else { return false }
+        await found(value)
+        return true
     }
 
     // MARK: - the Shortcuts action

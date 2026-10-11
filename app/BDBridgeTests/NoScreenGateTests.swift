@@ -128,9 +128,9 @@ final class NoScreenGateTests: XCTestCase {
     ///
     /// Cancelled from outside while the first file of the guide is out, it asks for no further file: the guide is
     /// fetched in the night's own task, and looks for the cancellation before each type. The slot, which a night
-    /// reads once more after the guide while the disk known does not answer, is not read again. That a guide was
-    /// fetched is told all the same, a type having answered, as it is today: a later change has a night tell
-    /// nothing of the guide once its time is up, and rewrites that.
+    /// reads once more after the guide while the disk known does not answer, is not read again. And that a guide
+    /// was fetched is not told, though a type answered: once its time is up a night tells only what became of
+    /// the queue, and the time the settings show is not written by a run the system has ended.
     func testANightWhoseTimeIsUpStopsBetweenItsStepsHavingToldWhatBecameOfTheQueue() async throws {
         let (recorder, store, _) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
@@ -158,8 +158,331 @@ final class NoScreenGateTests: XCTestCase {
         ran = try await nightCancelled(of: recorder, store, at: Ask.guide[0])
         XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0]],
                        "a further file was asked for, or the slot read again, once the night's time was up")
-        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "a guide was said to be fetched once the night's time was up")
         XCTAssertFalse(ran.stored)
+    }
+
+    /// The overnight run with its next request of one kind held, and what a test does while it is
+    /// (`meanwhile`, which is handed the night's task): the request is then let go, with whatever else is held,
+    /// and the run waited for. What `night` hands back.
+    private func nightHeld(of recorder: NamedRecorder, _ store: GuideStore, at kind: String,
+                           _ meanwhile: (Task<Bool, Never>) async throws -> Void) async throws
+        -> (stored: Bool, told: Tellings, heard: [String]) {
+        let told = Tellings()
+        let tell = telling(told)
+        let client = aClient(of: recorder)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        await recorder.holdTheNext(kind)
+        addTeardownBlock { await recorder.letGo() }
+        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
+        try await meanwhile(run)
+        await recorder.letGo()
+        return (await run.value, told, await recorder.heard(since: count))
+    }
+
+    /// What the notification would say of a round as a night told it. The app posts what the driver says a
+    /// round with no screen tells (`Notify.queueFlushed`), where no test sees; nil is nothing posted.
+    private func posted(_ round: PendingQueue.Outcome?) -> String? {
+        round.flatMap { RecorderDriver.tells($0, naming: nil) }
+    }
+
+    /// Once its time is up a night tells of the reservations that waited only what is news, and says it so that
+    /// it holds whatever it was that cut the run short.
+    ///
+    /// Cancelled while a reservation is being made, the create then meeting silence: the reservation is held
+    /// for the reader with its reason, and that is told, in the sentence written on the row and with nothing of
+    /// a rest that goes the next time; the night ends there. It is told also now: the row is held on the phone
+    /// whatever cut the create.
+    ///
+    /// Cancelled while the recorder's list is read for the round, the read then meeting silence, with a
+    /// reservation whose programme is over ahead of the one to go: the one dropped is told, and not as of a
+    /// round cut short. The queue's sentence for that -- the recorder stopped answering, the rest goes the next
+    /// time it answers -- is left off, since the system's suspension may be what cut the read. With nothing
+    /// dropped ahead of the read there is no news, and nothing is told.
+    ///
+    /// And a night whose time runs out while what became of the queue is being told -- as the app posts the
+    /// notification -- asks nothing after it: here the telling itself cancels the task it is made in, which
+    /// is the night's.
+    ///
+    /// The reservation the first night held is taken out of the queue before the nights after it, as the
+    /// reader deletes one from the reservations tab: what those nights tell is of the reservations they are
+    /// about alone.
+    func testANightWhoseTimeIsUpTellsOfTheQueueOnlyWhatIsNewsAndOfASilentCreateThatTheReservationIsHeld()
+        async throws {
+        let (recorder, store, _) = try await home()
+        let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
+        try await store.queue(morning)
+        await recorder.goQuiet(on: Ask.create)
+        var ran = try await nightCancelled(of: recorder, store, at: Ask.create)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create],
+                       "a night whose time was up went on after a create that met silence")
+        XCTAssertEqual(ran.told.names, ["flushed"], "the reservation held was not told, the night's time being up")
+        XCTAssertEqual(posted(ran.told.rounds.first), Said.heldAfterSilence,
+                       "the reservation held was not told as held and nothing more")
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
+
+        // The morning's, held now, is taken out. One that is over, and one to go, which the round reads the
+        // recorder's list for.
+        try await store.removePending(morning.id)
+        let over = waiting("終わった番組", startingIn: -120, programme: 4323)
+        try await store.queue(over)
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        await recorder.goQuiet(on: Ask.reservations)
+        ran = try await nightCancelled(of: recorder, store, at: Ask.reservations)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations],
+                       "a night whose time was up went on after a read that met silence")
+        XCTAssertEqual(ran.told.names, ["flushed"], "the reservation dropped was not told")
+        XCTAssertEqual(ran.told.rounds.map { $0.expired.map(\.id) }, [[over.id]])
+        XCTAssertEqual(posted(ran.told.rounds.first), Said.expired("終わった番組"),
+                       "a round cut short once the night's time was up was told as cut short")
+        expectEqual(try await rows(in: store), ["昼の番組"])
+
+        // Nothing over ahead of the read now.
+        await recorder.goQuiet(on: Ask.reservations)
+        ran = try await nightCancelled(of: recorder, store, at: Ask.reservations)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations])
+        XCTAssertEqual(ran.told.names, [], "a round with no news was told, the night's time being up")
+        expectEqual(try await rows(in: store), ["昼の番組"], "the queue is not as it was")
+
+        // The noon's goes now. The night's time is up as that is told.
+        let told = Tellings()
+        var tell = telling(told)
+        let flushed = tell.flushed
+        tell.flushed = { outcome in
+            await flushed(outcome)
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        let (client, count, tellingIt) = (aClient(of: recorder), await recorder.heard.count, tell)
+        let stored = await Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tellingIt)
+        }.value
+        XCTAssertEqual(told.names, ["flushed"])
+        XCTAssertEqual(posted(told.rounds.first), Said.sent("昼の番組"))
+        expectEqual(await recorder.heard(since: count), [Ask.description, Ask.reservations, Ask.create],
+                    "a night whose time ran out as it told what became of the queue went on")
+        XCTAssertFalse(stored)
+    }
+
+    /// Once its time is up a night tells nothing of the room on the recorder's disks, though the request that
+    /// asked for it was under way and is answered: the notice made of it writes down that it warned, and
+    /// nothing is written by a run the system has ended. The night ends there, and asks for no guide.
+    ///
+    /// Cancelled while the free space is asked for: nothing is told of it. So with a USB disk in the slot that
+    /// takes recordings and a recorder that will not say its own space: the USB disk's space, which the slot
+    /// had answered, is not told. And cancelled while the slot is read once more after the guide -- which a
+    /// night does while the disk known did not answer the first read -- the disk it then answers is not told
+    /// either; that a guide was fetched had been told before the time was up. A telling kept back ends the
+    /// night, which then hands back that nothing was stored, though a type of that guide gave programmes:
+    /// nothing reads what a night hands back once the system has ended it.
+    func testANightWhoseTimeIsUpTellsNothingOfTheSpaceItWasAskingFor() async throws {
+        let (recorder, store, _) = try await home()
+        var ran = try await nightCancelled(of: recorder, store, at: Ask.freeSpace)
+        XCTAssertEqual(ran.told.names, ["flushed"], "the free space was told, the night's time being up")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace])
+        XCTAssertFalse(ran.stored)
+
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()))
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        ran = try await nightCancelled(of: recorder, store, at: Ask.freeSpace)
+        XCTAssertEqual(ran.told.names, ["flushed"], "the USB disk's space was told, the night's time being up")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace])
+
+        // A disk known that takes recordings, which the slot does not answer at first: read again after the
+        // guide, and held then. It answers the disk once the night's time is up.
+        try await store.keep(knownUSBDisk: USBDiskTests.disk)
+        await recorder.answer(Ask.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        ran = try await nightHeld(of: recorder, store, at: Ask.freeSpace) { run in
+            let read = await recorder.asked(Ask.slot)
+            await recorder.holdTheNext(Ask.slot)
+            await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()))
+            await recorder.letGo(only: Ask.freeSpace)
+            try await until("the slot was never read again") { await recorder.asked(Ask.slot) == read + 1 }
+            run.cancel()
+        }
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"],
+                       "the USB disk's space, read again after the guide, was told once the night's time was up")
+        XCTAssertEqual(ran.heard,
+                       Self.beforeTheGuide + [Ask.guide[0], Ask.logos[0]] + Ask.guide.dropFirst() + [Ask.slot])
+        XCTAssertFalse(ran.stored, "a guide was handed back as stored by a night that had kept a telling back")
+    }
+
+    /// A night whose time is up asks nothing after the request of its own that was out, also where it has
+    /// nothing to tell that the time would keep back.
+    ///
+    /// Cancelled while the USB slot is read: the free space is not asked for. Cancelled while the free space
+    /// is asked for, of a recorder that then will not say it, so that there is nothing to tell: the guide's
+    /// files are not looked for. And cancelled while the first file of the guide is out, which the recorder
+    /// has not built, so that no type has answered and nothing is told of the guide: no further file is asked
+    /// for, and the slot, which a night reads once more after its guide while the disk known does not answer,
+    /// is not read again. With that file a guide: its programmes are stored, and its logos, which a night asks
+    /// for after a type's guide, are not asked for; that a guide was fetched is not told.
+    func testANightWhoseTimeIsUpAsksNothingAfterTheRequestThatWasOut() async throws {
+        let (recorder, store, _) = try await home()
+        var ran = try await nightCancelled(of: recorder, store, at: Ask.slot)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot],
+                       "the free space was asked for by a night whose time ran out as it read the slot")
+        XCTAssertEqual(ran.told.names, ["flushed"])
+        XCTAssertFalse(ran.stored)
+
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        ran = try await nightCancelled(of: recorder, store, at: Ask.freeSpace)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
+                       "the guide was looked for by a night whose time ran out as it asked for the free space")
+        XCTAssertEqual(ran.told.names, ["flushed"])
+        XCTAssertFalse(ran.stored)
+
+        // A disk known that takes recordings, which the slot does not answer: read again after a guide.
+        try await store.keep(knownUSBDisk: USBDiskTests.disk)
+        await recorder.answer(Ask.guide[0], with: .status(500))
+        ran = try await nightCancelled(of: recorder, store, at: Ask.guide[0])
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0]],
+                       "a further file was asked for, or the slot read again, once the night's time was up")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "something was told of a guide of which no type answered")
+        XCTAssertFalse(ran.stored)
+
+        await recorder.answer(Ask.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        ran = try await nightCancelled(of: recorder, store, at: Ask.guide[0])
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0]],
+                       "the logos of the type that came were asked for once the night's time was up")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "a guide was said to be fetched once the night's time was up")
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await store.counts()["td"]?.programs, 4, "the type whose file was out is not in the cache")
+    }
+
+    /// A night tells nothing once the cache is another recorder's: made over, as the screens make it over when
+    /// they take a recorder up, while a request of the night's was out. What the night found is of a recorder
+    /// that is the reader's no longer. Made over here by a connection of the test's own while the request named
+    /// is held, and back to the first recorder after each night.
+    ///
+    /// While a reservation is being made: the reservation goes, its request being out, and what became of the
+    /// queue is not told; the night ends there. While what became of the queue is being told, which is where
+    /// the app posts its notification -- made over here by the telling itself: the night ends there, and the
+    /// slot is not read. While the free space is asked for: nothing is told of it, and no
+    /// guide is asked for. So with a USB disk in the slot that takes recordings and a recorder that will not
+    /// say its own space: the USB disk's is not told, and no guide is asked for. So with no disk in the slot
+    /// and a recorder that will not say its own space, where there is nothing to tell: the guide's files are
+    /// not looked for, the cache being asked whose it is before the guide as well. And while the second file of
+    /// the guide is out, the first having given a guide: the cache takes nothing of the second, which ends the
+    /// guide, and the night neither tells that a guide was fetched nor hands back that one was stored -- the
+    /// first type's programmes went with the make-over.
+    func testANightTellsNothingOnceTheCacheIsAnotherRecorders() async throws {
+        let (recorder, store, path) = try await home()
+        func makeOver(to last: Int) async throws {
+            let description = try await aClient(of: NamedRecorder(last)).describe()
+            expectEqual(try await GuideStore(path: path).claim(for: description), .another,
+                        "the cache was meant to be made over")
+        }
+
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        var ran = try await nightHeld(of: recorder, store, at: Ask.create) { _ in try await makeOver(to: 2) }
+        XCTAssertEqual(ran.told.names, [], "what became of the queue was told over a cache made over meanwhile")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create],
+                       "the night went on over a cache made over while a reservation was being made")
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store), [], "the reservation that was out did not go")
+        try await makeOver(to: 1)
+
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        let told = Tellings()
+        var tell = telling(told)
+        let flushed = tell.flushed
+        tell.flushed = { outcome in
+            await flushed(outcome)
+            let another = try? await aClient(of: NamedRecorder(2)).describe()
+            guard let another, let screens = try? GuideStore(path: path) else { return }
+            _ = try? await screens.claim(for: another)
+        }
+        let (client, count, tellingIt) = (aClient(of: recorder), await recorder.heard.count, tell)
+        let stored = await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tellingIt)
+        XCTAssertEqual(told.names, ["flushed"])
+        expectEqual(await recorder.heard(since: count), [Ask.description, Ask.reservations, Ask.create],
+                    "the night went on over a cache made over as what became of the queue was told")
+        XCTAssertFalse(stored)
+        try await makeOver(to: 1)
+
+        ran = try await nightHeld(of: recorder, store, at: Ask.freeSpace) { _ in try await makeOver(to: 2) }
+        XCTAssertEqual(ran.told.names, ["flushed"], "the free space was told over a cache made over meanwhile")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
+                       "the night went on over a cache made over while the free space was asked for")
+        XCTAssertFalse(ran.stored)
+        try await makeOver(to: 1)
+
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()))
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        ran = try await nightHeld(of: recorder, store, at: Ask.freeSpace) { _ in try await makeOver(to: 2) }
+        XCTAssertEqual(ran.told.names, ["flushed"], "the USB disk's space was told over a cache made over meanwhile")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
+                       "the night went on over a cache made over, the USB disk's space untold")
+        try await makeOver(to: 1)
+
+        await recorder.answer(Ask.freeSpace, with: .fault(402))
+        ran = try await nightHeld(of: recorder, store, at: Ask.freeSpace) { _ in try await makeOver(to: 2) }
+        XCTAssertEqual(ran.told.names, ["flushed"])
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
+                       "the guide was looked for over a cache made over, there having been nothing to tell")
+        XCTAssertFalse(ran.stored)
+        try await makeOver(to: 1)
+
+        await recorder.answer(Ask.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+        ran = try await nightHeld(of: recorder, store, at: Ask.guide[1]) { _ in try await makeOver(to: 2) }
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "a guide was said to be fetched that the cache, made over, had ended")
+        XCTAssertFalse(ran.stored, "a guide was handed back as stored whose programmes went with the make-over")
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + [Ask.guide[0], Ask.logos[0], Ask.guide[1]],
+                       "a file was asked for after the one the cache would not take")
+    }
+
+    /// A cache whose owner cannot be read just then silences nothing: no other recorder is known to have taken
+    /// the cache, and what the night found is still of the recorder it knew as it began. The cache's own table
+    /// is put out of reach here while a request of the night's is held, and back once the night is over.
+    ///
+    /// While a reservation is being made, the create then meeting silence: what became of the queue is told,
+    /// the reservation held. While the free space is asked for: it is told, and the night goes on to its guide.
+    /// Nothing is told of that guide here, which is the staging's doing and no rule's: each type is asked for,
+    /// and none can be marked as answered for, the marks being kept in the table that is out of reach.
+    ///
+    /// And while a reservation is being made that then goes, so that the table is out of reach as what became
+    /// of the queue has been told: the night goes on from there, to the slot, the free space, which it tells,
+    /// and its guide.
+    func testANightIsNotSilencedByACacheWhoseOwnerCannotBeReadJustThen() async throws {
+        let (recorder, store, path) = try await home()
+        func untilTheNightIsOver(_ run: Task<Bool, Never>) async {
+            let meta = MetaOutOfReach(in: path)
+            await recorder.letGo()
+            _ = await run.value
+            meta.putBack()
+        }
+
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        await recorder.goQuiet(on: Ask.create)
+        var ran = try await nightHeld(of: recorder, store, at: Ask.create, untilTheNightIsOver)
+        XCTAssertEqual(ran.told.names, ["flushed"], "an owner that could not be read silenced the queue's telling")
+        XCTAssertEqual(posted(ran.told.rounds.first), Said.heldAfterSilence)
+        expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
+
+        // That row is held now, so nothing is read or sent for the queue.
+        ran = try await nightHeld(of: recorder, store, at: Ask.freeSpace, untilTheNightIsOver)
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "an owner that could not be read silenced the free space's telling")
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + Ask.guide, "the night did not go on to its guide")
+        XCTAssertFalse(ran.stored)
+
+        // One more waits, and goes: the table out of reach from its create on, and so as its round is told.
+        let noon = waiting("昼の番組", startingIn: 150, programme: 4322)
+        try await store.queue(noon)
+        ran = try await nightHeld(of: recorder, store, at: Ask.create, untilTheNightIsOver)
+        XCTAssertEqual(ran.told.rounds.map { $0.sent.map(\.id) }, [[noon.id]], "the reservation was meant to go")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot, Ask.freeSpace,
+                                   Ask.portOfTheGuide] + Ask.guide,
+                       "an owner that could not be read as the queue was told ended the night there")
+        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace"],
+                       "an owner that could not be read as the queue was told silenced what came after")
     }
 
     /// A night that comes to its guide while another refresh is out waits its turn: one refresh at a time, the

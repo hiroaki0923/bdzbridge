@@ -15,7 +15,8 @@ public enum GuideRefresh {
         /// The types that could not be fetched or stored, in the order they were tried. What the cache held
         /// for them is left as it was, and nothing marks them fetched, so the next refresh asks for them again.
         public var failed: [Failure] = []
-        /// Set when the caller's task was cancelled, and the types after the one under way were left.
+        /// Set when the caller's task was cancelled, and what came after the file under way was left: the
+        /// types after it, and its own type's logos where it was that type's guide.
         public var cancelled = false
         /// Why it ended before its types did, nil when it did not. The rest is what came before: the types
         /// answered and failed until then, and what was stored of them.
@@ -47,8 +48,9 @@ public enum GuideRefresh {
         /// is handed.
         case fetch(client: any GuideSource, store: GuideStore, from: RecorderDescription?)
         /// The refresh is not to be made after all, and why (`Stop.turnedAway`). Nil where whoever asked has
-        /// nothing to say of it, which is never so once the turn has come: the screens' step says it of a
-        /// refresh that is out and not to go on (`beforeAFile`), with this same value.
+        /// nothing to say of it: the overnight run, which tells nobody of a guide it did not ask for. The
+        /// screens' step has a sentence whenever it turns a refresh away once the turn has come, and says nil
+        /// only of a refresh that is out and not to go on (`beforeAFile`), with this same value.
         case turnedAway(String?)
     }
 
@@ -80,10 +82,13 @@ public enum GuideRefresh {
     /// has stopped answering will not answer for the next type, and each file asked of it costs a two-minute
     /// timeout.
     ///
-    /// Cancellation is looked at before each type. The request under way is finished rather than abandoned
-    /// (see `SerialQueue`), and each type is stored in one transaction, so stopping there leaves nothing half
-    /// written. Only the overnight run is meant to be stopped this way. The wait for the turn is not cut short
-    /// by it, and the first look comes after that wait: a refresh cancelled while it waited asks for no file.
+    /// Cancellation is looked at before each file: before each type, and before each type's logos, which
+    /// follow its guide. The request under way is finished rather than abandoned (see `SerialQueue`), and each
+    /// type is stored in one transaction, so stopping there leaves nothing half written: a type whose guide
+    /// was the file under way is in the cache with the logos it had, and is reported as stored (`onStored`).
+    /// Only the overnight run is meant to be stopped this way; the screens' step fetches in a task of its own
+    /// that nothing cancels (`RecorderDriver.refreshGuide`). The wait for the turn is not cut short by it, and
+    /// the first look comes after that wait: a refresh cancelled while it waited asks for no file.
     ///
     /// A guide goes only into the cache of the recorder it was fetched from. `recorder` is the one `client`
     /// asks, as it described itself to whoever asks for the refresh, and is handed on with everything written
@@ -113,8 +118,9 @@ public enum GuideRefresh {
     /// the client it had in hand then may be in hand no longer. So the screens' step makes sure of its
     /// recorder here and not before the wait, and fetches through the client it finds in hand here, into the
     /// cache and of the recorder it finds with it (`RecorderDriver.refreshGuide`). A refresh ended there has
-    /// asked for nothing and gives its turn back (`Stop.turnedAway`). The overnight run, which has no link to
-    /// make sure of, fetches with what it came with.
+    /// asked for nothing and gives its turn back (`Stop.turnedAway`). The overnight run has no link to make
+    /// sure of, and fetches with what it came with; what it looks at here is what it looked at before the
+    /// wait, its own task and whose cache it is by now (`RecorderDriver.refreshWithNoScreen`).
     ///
     /// `beforeAFile` is called on the main actor before each file after the first that is asked for -- before
     /// each type after the first, ahead of `onType`, and before each type's logos, once its programmes are in
@@ -181,6 +187,12 @@ public enum GuideRefresh {
                 }
                 outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder)
                 outcome.answered.append(broadcasting)
+                if Task.isCancelled {
+                    // The programmes are in: the type is reported as stored, with the logos it had.
+                    await onStored?(broadcasting)
+                    outcome.cancelled = true
+                    break
+                }
                 if let stop = await beforeAFile?(client) {
                     // The programmes are in: the type is reported as stored, with the logos it had.
                     await onStored?(broadcasting)
