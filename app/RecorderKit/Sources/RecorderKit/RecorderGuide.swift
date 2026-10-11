@@ -24,8 +24,8 @@ public enum GuideAsked: Sendable {
 public struct GuideRefreshed: Sendable, Equatable {
     /// Whether the refresh ran to its end, types that failed among it or not, though nothing may have been
     /// behind: one that comes to fetch and finds every type answered for already asks for no file, and went
-    /// through. False when it was turned away -- at the door, or by the check before it -- when silence
-    /// stopped it, and when the recorder was let go of while it was out.
+    /// through. False when it was turned away -- at the door, once its turn had come, or before a later file
+    /// -- when silence stopped it, and when the recorder was let go of while it was out.
     public var wentThrough = false
     /// How many programmes were stored, over every type; the types the recorder answered for; and the types
     /// that could not be fetched or stored, each with why (`GuideRefresh.Outcome`). Of a refresh stopped by
@@ -45,9 +45,15 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// what an earlier operation left. That is the reservations' rule (`Reserved`), and no more is promised of
     /// it: a check that ends waiting for the local network permission empties the line. And where that check
     /// heard something in place of the recorder saying which it is, nothing having been asked for: what it
-    /// heard, in the recorder's words, as the step wrote it on the host's line. Of a refresh whose recorder
-    /// was let go of while it was out, the check before it included, and whatever it had come to: what a write
-    /// says then (`RecorderDriver.whyLetGo`), and nothing of the types.
+    /// heard, in the recorder's words, as the step wrote it on the host's line. Stopped before a later file,
+    /// the recorder made sure of there and not to be asked: a line for each type that failed before it, and
+    /// then why it stopped, in the sentence it would have been turned away with once its turn had come. But
+    /// ended because another client than the one its files were asked of is in hand for the same recorder, a
+    /// connect having been made meanwhile -- found so before a later file, whether that connect has gone
+    /// through or is under way still, or as a file that was out on the client before met silence: a line for
+    /// each type that failed before it, and nothing of a door or of that silence; nil where none had failed.
+    /// Of a refresh whose recorder was let go of while it was out, the check before it included, and whatever
+    /// it had come to: what a write says then (`RecorderDriver.whyLetGo`), and nothing of the types.
     public var said: String?
 
     /// What a refresh comes to that was not asked for at all, its host having no recorder's driver to ask:
@@ -90,7 +96,7 @@ extension RecorderDriver {
     /// says its own (`say(stopped:on:)`): as any read's, the recorder lost, while the recorder is not known to
     /// be away already (`takesSilenceOnARead`). The line of what went wrong is not cleared then, and holds the
     /// silence alone, or what it held where the silence is not said; the types that failed before it are said
-    /// in what is handed back.
+    /// in what is handed back. Only silence on the client still in hand is the recorder in play's (below).
     ///
     /// Nothing is asked without a recorder's client, without the host's cache, with the recorder known to be
     /// away, or of a recorder that has not said which it is (`canBeAsked`) -- a connect under way, or the last
@@ -143,6 +149,49 @@ extension RecorderDriver {
     /// found to have moved (`findElsewhere`), and lets go of nobody: the files then go to that client, and none
     /// to the one before it. Which types are fetched is judged after that (`GuideAsked`).
     ///
+    /// Before each file after the first the recorder is made sure of again, by the same asking, as a run asks
+    /// again before each of its requests (`delete(_:in:)`): before each type after the first, and before each
+    /// type's logos, which follow its guide. A refresh is as many requests as it has files, and a file can be
+    /// minutes in coming. A no stops the refresh there, with what was stored before it handed back, and says
+    /// what it would have said once the turn had come: what a check left on the line, what stands on the line
+    /// at a door found shut, or what was heard, which goes on the line as well. Before it comes a line for
+    /// each type that failed before the stop, which are not on the line, as a refresh that silence stopped
+    /// says them. It is not said as a recorder let go of, unless that is what it was. Stopped before a type's
+    /// logos, the type is in the cache with the logos it had, and is reported as stored. As in a run, a
+    /// recorder free again by the time the check asks is heard saying which it is, and the refresh goes on.
+    /// The answer to a file counts as the recorder's last answer, like any other, so this check asks nothing
+    /// as a rule: who answers is asked only after something was heard in the recorder's place, or once ninety
+    /// seconds have gone by since the last file came.
+    ///
+    /// The door has one thing more to it there: the client in hand is still the one the files are asked of. A
+    /// connect made meanwhile lets go of nobody and has a client of its own, as every connect has, in hand
+    /// from before its first ask (`DeviceLink.connect`): at another address, where it found the recorder to
+    /// have moved, or at the same. The refresh then ends, and nothing more is asked through either client. So
+    /// it is where that connect has gone through, and where it is under way still, its client not having
+    /// heard yet which recorder answers it: the client in hand is asked about ahead of the door on the
+    /// recorder there, which is shut until it has. The refresh ends with nothing of a door said, unlike one
+    /// that finds a door shut on a recorder that cannot be asked: nothing is known to be wrong with the
+    /// recorder, which has just been connected to or is being connected to, and no sentence there is says
+    /// what happened. That connect says its own failure on the line, should it fail. The refresh did not go
+    /// through; what it hands back says a line for each type that failed before it, as a refresh that silence
+    /// stopped says them, and nothing where none had; and the line of what went wrong is left as it stands. A
+    /// connect that has ended with its client not having heard which recorder answers it -- answered busy
+    /// with somebody else -- is under way no longer and has said why on the line: the door on the recorder
+    /// is asked first then, as ever, is shut, and says what stands there.
+    ///
+    /// Silence met by a file is the recorder in play's only on the client still in hand. A file that was out
+    /// on the client before -- where the recorder no longer is, a connect having found it at another address
+    /// -- and meets silence there says nothing of the recorder in play, by the rule the question of what a
+    /// reservation would clash with and a recording's details keep (`conflicts`, `detail(of:)`): nobody is
+    /// lost, nothing goes on the line, and the refresh ends as it does before a file with another client in
+    /// hand, with the types that failed before it said and nothing of the silence.
+    ///
+    /// The types a refresh ended so had not come to are left as they were. A connect that goes through asks
+    /// for what is behind as any connect does (`LinkHost.reached`), inside the connect, and that refresh
+    /// waits its turn behind this one: where the marks are behind, it fetches them. A press for every type
+    /// over marks that are fresh, of which that connect finds nothing behind, ends with the types it had not
+    /// come to as they were, and nothing said of them.
+    ///
     /// The turn never waits for itself, though a check is heard out inside it and another made. A check that
     /// is out is whoever's asked for it -- a list's read, a write, a run, a look at the network -- and is a
     /// task of the link's own (`DeviceLink.check`), which waits for the recorder alone: its ask of who answers,
@@ -164,18 +213,30 @@ extension RecorderDriver {
         // Read once, as `DeviceLink.run` reads it: what went wrong is cleared on the host the refresh began under.
         let owner = link.owner
         let outcome = await link.underALine(Self.guideLine) { line -> GuideRefresh.Outcome in
+            // The client the files are asked of, noted once the turn has come.
+            var asked: (any GuideSource)?
             // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
             // connected is cancelled when its screen goes away, and the refresh stops between types when it
             // is cancelled -- which is for the overnight run, whose time runs out.
             let refresh = Task {
-                await GuideRefresh.run(asked: which, onTurn: { await self.mayFetch(on: link, since: began) },
-                                       onType: { broadcasting in
+                await GuideRefresh.run(asked: which, onTurn: { @MainActor in
+                    let turn = await self.mayFetch(on: link, since: began)
+                    if case .fetch(let client, _, _) = turn { asked = client }
+                    return turn
+                }, beforeAFile: { client in
+                    guard case .turnedAway(let why) = await self.mayFetch(on: link, since: began, through: client)
+                    else { return nil }
+                    return .turnedAway(why)
+                }, onType: { broadcasting in
                     guard !link.letGo(since: began) else { return false }
                     if let line { link.owner?.updateActivity(line, to: Self.guideLine(for: broadcasting)) }
                     return true
                 }, onStored: stored)
             }
-            let outcome = await refresh.value
+            var outcome = await refresh.value
+            // Silence on a client the link asks through no longer is not the recorder in play's: ended as
+            // before a file with another client in hand.
+            if outcome.stopped == .silent, let asked, asked !== link.client { outcome.stopped = .turnedAway(nil) }
             switch outcome.stopped {
             case .silent: _ = link.say(.silentOnARead(sentence: self.noAnswerLine), since: began)
             // The line is whoever's let go of the recorder, or the check's, which has said why.
@@ -193,15 +254,13 @@ extension RecorderDriver {
             refreshed.said = whyLetGo(on: link)
             return refreshed
         }
-        if case .turnedAway(let why) = outcome.stopped {
-            refreshed.said = why
-            return refreshed
-        }
         var lines = outcome.failed.map(Self.guideFailed)
-        if outcome.stopped == nil {
-            if !lines.isEmpty { link.owner?.problem = lines.joined(separator: "\n") }
-        } else {
-            lines.append(noAnswerLine)
+        switch outcome.stopped {
+        case nil: if !lines.isEmpty { link.owner?.problem = lines.joined(separator: "\n") }
+        case .turnedAway(let why?): lines.append(why)
+        // Another client is in hand: nothing of a door, and the types that failed before it as any stop says them.
+        case .turnedAway(nil): break
+        case .silent, .letGo: lines.append(noAnswerLine)
         }
         if !lines.isEmpty { refreshed.said = lines.joined(separator: "\n") }
         return refreshed
@@ -214,22 +273,43 @@ extension RecorderDriver {
     /// (`inHandForTheGuide`). A door found shut leaves the line of what went wrong as it is and says what
     /// stands there, or that the app is not connected where nothing does, as a check that said no is said
     /// (`whatTheLinkSaid`). A yes hands over what is in hand in the turn it is said in.
-    private func mayFetch(on link: DeviceLink, since began: Int) async -> GuideRefresh.OnTurn {
+    ///
+    /// Asked once a refresh has its turn, and again before each file after its first, then with the client
+    /// its files are asked of (`asking`), which is to be in hand still. That is asked at the door and is told
+    /// apart from what the door asks of the recorder: with another client in hand the refresh is turned away
+    /// with nothing to say (`refreshGuide`). It is asked behind what the door asks of the recorder, and so
+    /// found only where the recorder can be asked, the connect that put that client in hand having gone
+    /// through; but ahead of it while a connect is under way, the door on the recorder being shut until that
+    /// connect's client has heard which recorder answers.
+    private func mayFetch(on link: DeviceLink, since began: Int,
+                          through asking: (any GuideSource)? = nil) async -> GuideRefresh.OnTurn {
+        var anotherInHand = false
         let stop = await mayGoOn(since: began) { link in
-            self.inHandForTheGuide(on: link) == nil ? self.whatTheLinkSaid(on: link) : nil
+            // A connect under way has a client of its own in hand, which has yet to hear which recorder
+            // answers it: asked about ahead of the door on the recorder, which is shut until then.
+            if let asking, link.session.connecting, asking !== link.client { anotherInHand = true }
+            guard !anotherInHand, let inHand = self.inHandForTheGuide(on: link) else {
+                return self.whatTheLinkSaid(on: link)
+            }
+            anotherInHand = asking.map { $0 !== inHand.client } ?? false
+            // Stopped at the door all the same, before anything is asked through either client.
+            return anotherInHand ? self.whatTheLinkSaid(on: link) : nil
         }
+        if anotherInHand { return .turnedAway(nil) }
         // That asking stops with a sentence. Silence is not what it comes to.
         if let stop { return .turnedAway(stop.said ?? link.owner?.problem ?? whyNotConnected) }
         guard let (client, store, recorder) = inHandForTheGuide(on: link) else {
             return .turnedAway(link.owner?.problem ?? whyNotConnected)
         }
+        if let asking, asking !== client { return .turnedAway(nil) }
         return .fetch(client: client, store: store, from: recorder)
     }
 
     /// The step's door: the recorder's client and the host's cache, for a refresh to ask and to write to, and
     /// the recorder in play as it described itself, which the guide is fetched from; or nil where nothing is
     /// to be asked -- no recorder's client in hand, no cache, the recorder known to be away, or one that has not
-    /// said which it is (`canBeAsked`).
+    /// said which it is (`canBeAsked`). Whether that client is the one a refresh that is out asks its files of
+    /// is not asked here (`mayFetch`).
     private func inHandForTheGuide(on link: DeviceLink)
         -> (client: RecorderClient, store: GuideStore, recorder: RecorderDescription)? {
         guard let client = link.client as? RecorderClient, let store = link.owner?.cache,

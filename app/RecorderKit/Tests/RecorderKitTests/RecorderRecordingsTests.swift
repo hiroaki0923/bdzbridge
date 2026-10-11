@@ -1434,7 +1434,8 @@ final class RecorderRecordingsTests: XCTestCase {
     /// for after the type that met it.
     ///
     /// Where the silence is not said -- the recorder known to be away by then, something else having met its
-    /// silence first -- the line stays as it was: a refresh that silence stopped does not clear it.
+    /// silence first, while the file was out -- the line stays as it was: a refresh that silence stopped does
+    /// not clear it.
     func testAGuideRefreshStoppedBySilenceHandsBackWhatCameBeforeItAndSaysItOnce() async throws {
         func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
         let (world, driver, recorder) = try await Self.serving(["bs": true, "cs": false])
@@ -1456,10 +1457,12 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await Self.guideFiles(asked: recorder), ["td", "bs", "cs"], "a silent recorder was asked for more")
         expectEqual(try await world.cache?.counts()["bs"]?.programs, 4, "the type stored before the silence stays")
 
-        // Lost by something else while the first type was being stored, with its own sentence left on the line.
-        let (dark, ofTheLost, quiet) = try await Self.serving(["td": true, "bs": false])
+        // Lost by something else as the second type's file is asked for, with its own sentence left on the line.
+        let (dark, ofTheLost, quiet) = try await Self.serving(["td": true, "bs": false]) { type, link in
+            if type == "bs" { link.lost() }
+        }
         dark.cache = try temporaryStore()
-        let unsaid = await ofTheLost.refreshGuide(.all) { _ in ofTheLost.link?.lost() }
+        let unsaid = await ofTheLost.refreshGuide(.all) { dark.put("stored \($0)") }
         XCTAssertFalse(unsaid.wentThrough)
         XCTAssertEqual(unsaid.answered, ["td"])
         XCTAssertEqual(unsaid.said, ofTheLost.noAnswerLine)
@@ -1772,6 +1775,285 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertNil(world.line, "the line was left up")
     }
 
+    /// Each file of the guide after the first is asked for only of a recorder made sure of, as each request of
+    /// a run is: a refresh is as many requests as it has files, a type's guide and then its logos. Each refresh
+    /// here has its first type's file out, held at the recorder, while something happens beside it; the file
+    /// then comes, and the refresh comes to its next.
+    ///
+    /// A check asked for beside the file hears the recorder busy with somebody else as it asks who it is, and
+    /// the recorder is busy still. The file comes with a guide, which is stored: the refresh asks again who
+    /// answers, through its tries, hears busy, and asks for nothing more -- not the logos of the type it has
+    /// just stored, and no further type. It did not go through; the type is reported as stored, with the logos
+    /// it had, and handed back with what was stored of it; and what the refresh says is what was heard, in the
+    /// recorder's words, which is on the line of what went wrong as well. It is not said as a recorder let go
+    /// of. With the first type's file not built instead, there are no logos to ask for and the refresh stops
+    /// before its second type: what it says is the first type's line and then what was heard, the line of what
+    /// went wrong holding what was heard alone.
+    ///
+    /// The recorder free again by the time the refresh asks: it hears the recorder say which it is, having
+    /// asked once more, asks for the logos, and goes on through every type to its end.
+    ///
+    /// Each of those three is staged in both orders the check and the refresh can come in. The check's ask of
+    /// who answers waits its turn behind the file on the one client, so as a rule the check has ended by the
+    /// time the refresh, with the file's programmes to store first, asks before its next file; nothing here
+    /// can make that order certain, and nothing rests on it. In the other, the check's ask is held at the
+    /// recorder once the file has been answered, until the refresh has stored the type and has had its turns
+    /// to come to its asking, so that the refresh is waiting for the check as it ends. The refresh asks who
+    /// answers itself either way, the same number of times, and comes to the same end: a check that has
+    /// ended is joined by nobody.
+    ///
+    /// The recorder lost meanwhile, by something else that met its silence: nothing more is asked, of who
+    /// answers or for a file, the line of what went wrong is left as it was, and the refresh says what stands
+    /// on it, where whatever lost the recorder has said why -- and that the app is not connected only over a
+    /// line that holds nothing.
+    ///
+    /// The recorder found at another address meanwhile, by a connect that attaches there with a client of its
+    /// own and lets go of nobody: nothing more is asked for, through the client the file went out on or
+    /// through the one in hand now, and the refresh ends there with nothing of a door said. It did not go
+    /// through, and what it hands back says nothing of what stands on the line of what went wrong, which is
+    /// left as it stands: nothing is wrong with a recorder just connected to. The type that came is stored
+    /// and reported so; one that failed before the stop is handed back and said, in its line and no more; and
+    /// the recorder is kept. So it is where a check has since heard the recorder busy with somebody else at
+    /// its new address, after which whatever makes sure of it asks who answers: the refresh ends at its door
+    /// all the same, ahead of any check of its own, and asks nothing there either.
+    ///
+    /// And the file that was out then meeting silence where the recorder no longer is, in place of an answer:
+    /// that silence is not the recorder in play's. The recorder just connected to is kept, nothing is said
+    /// and nothing written on the line, and nothing more is asked at either address.
+    ///
+    /// A connect that is under way still as the file comes, its ask of who answers held at the recorder: the
+    /// client in hand is that connect's own by then, and has not heard which recorder answers it. The
+    /// refresh ends there as well with nothing said, the line an earlier failure left neither said nor
+    /// touched, the type that came stored and reported, and nothing more asked for; the connect is under way
+    /// still as the refresh comes back, and then goes through.
+    ///
+    /// A recorder let go of meanwhile is held where a refresh is kept to the recorder it began with
+    /// (`testAGuideRefreshIsForTheRecorderInPlayAtItsDoorAndNothingOfItGoesOnAcrossALetGo`), and says what it
+    /// said.
+    func testAFileOfTheGuideAfterTheFirstIsAskedForOnlyOfARecorderMadeSureOfAsARunsRequestIs() async throws {
+        func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
+        let sample = try Vectors.load("epg-sample.json").string("file")
+        let guide = HTTPResponse(statusCode: 200,
+                                 body: try Data(contentsOf: Vectors.directory.appendingPathComponent(sample)))
+        let busy = RecorderError.busy(action: "description.xml").explanation
+        let first = ["EPG_TRDEPG_FILE.dat", "EPG_TRDLOGO_FILE.dat"]
+        /// A refresh of every type begun on a link of its own, its first file held at the recorder.
+        func refreshing(wakeable: Bool = false) async throws
+            -> (world: LinkWorld, link: DeviceLink, recorder: HoldingAFile, refresh: Task<GuideRefreshed, Never>) {
+            let (world, driver, link, recorder) = try await holdingAFile(wakeable: wakeable)
+            let refresh = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
+            var turns = 0
+            while await !recorder.isHolding, turns < 100_000 {
+                turns += 1
+                await Task.yield()
+            }
+            guard await recorder.isHolding else {
+                XCTFail("the refresh was meant to have its first file out")
+                throw NothingHeld()
+            }
+            return (world, link, recorder, refresh)
+        }
+        /// The same with a check asked for beside the file, which hears the recorder busy for `times` asks.
+        /// `waitedFor` has that check's own ask held at the recorder when it comes, which is once the file
+        /// has been answered (`comeToItsAsking`).
+        func refreshingBesideABusyCheck(times: Int = .max, waitedFor: Bool) async throws
+            -> (world: LinkWorld, link: DeviceLink, recorder: HoldingAFile, refresh: Task<GuideRefreshed, Never>,
+                check: Task<Bool, Never>, asked: Int) {
+            let (world, link, recorder, refresh) = try await refreshing()
+            let asked = await recorder.asksOfWhoItIs
+            await recorder.beBusyWhenAskedWhoItIs(times: times)
+            if waitedFor { await recorder.holdTheNextAskOfWhoItIs() }
+            let check = Task { await link.ensureUp(evenIfRecent: true) }
+            for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+            XCTAssertNotNil(link.wakeCheck, "the check was meant to be out beside the file")
+            return (world, link, recorder, refresh, check, asked)
+        }
+        /// The file having been let go, with the check's ask held behind it: waits until that ask is held and,
+        /// where the file gave a guide, until its programmes are in the cache; gives the refresh its turns to
+        /// come to its asking, where it finds the check out and waits for it; and lets the ask go. Each wait a
+        /// counted loop of turns that ends in a failure, thrown on.
+        func comeToItsAsking(_ world: LinkWorld, _ recorder: HoldingAFile, stored: Bool) async throws {
+            var turns = 0
+            while await !recorder.isHoldingAnAsk, turns < 100_000 {
+                turns += 1
+                await Task.yield()
+            }
+            turns = 0
+            while stored, try await world.cache?.counts()["td"]?.programs != 4, turns < 100_000 {
+                turns += 1
+                await Task.yield()
+            }
+            guard await recorder.isHoldingAnAsk, turns < 100_000 else {
+                XCTFail("the check's ask was never held, or the type never stored")
+                throw NothingHeld()
+            }
+            for _ in 0..<10_000 { await Task.yield() }
+            await recorder.letTheAskGo()
+        }
+
+        for waitedFor in [false, true] {
+            let order = waitedFor ? "the refresh waiting for the check as it ends" : "the check asked for and left to end"
+
+            // Busy with somebody else, and busy still as the refresh comes to the logos of the type it has stored.
+            var beside = try await refreshingBesideABusyCheck(waitedFor: waitedFor)
+            await beside.recorder.letGo(with: .success(guide))
+            if waitedFor { try await comeToItsAsking(beside.world, beside.recorder, stored: true) }
+            expectTrue(await beside.check.value, "a recorder that answered busy was taken for gone")
+            var refreshed = await beside.refresh.value
+            XCTAssertFalse(refreshed.wentThrough, "a refresh went on after a check that heard the recorder busy")
+            XCTAssertEqual(refreshed.answered, ["td"], "what came before the stop was not handed back")
+            XCTAssertEqual(refreshed.stored, 5)
+            XCTAssertEqual(refreshed.failed, [])
+            XCTAssertEqual(refreshed.said, busy, "the stop was not said as what was heard: \(order)")
+            XCTAssertEqual(beside.world.problem, busy, "what was heard is not on the line")
+            expectEqual(await beside.recorder.files, [first[0]],
+                        "the logos, or a further type, were asked for after a check that heard busy: \(order)")
+            expectEqual(await beside.recorder.asksOfWhoItIs - beside.asked, 6,
+                        "who answers was meant to be asked by the check and again before the logos, each thrice: \(order)")
+            XCTAssertTrue(beside.world.events.contains("stored td"), "the type stored before the stop was not reported")
+            expectEqual(try await beside.world.cache?.counts()["td"]?.programs, 4,
+                        "the type that came is not in the cache")
+            XCTAssertTrue(beside.link.session.connected, "a recorder that answered busy was given up on")
+            XCTAssertNil(beside.world.line, "the line was left up")
+
+            // The same with the first type's file not built: stopped before the second type.
+            beside = try await refreshingBesideABusyCheck(waitedFor: waitedFor)
+            await beside.recorder.letGo(with: .success(HTTPResponse(statusCode: 500)))
+            if waitedFor { try await comeToItsAsking(beside.world, beside.recorder, stored: false) }
+            _ = await beside.check.value
+            refreshed = await beside.refresh.value
+            XCTAssertFalse(refreshed.wentThrough)
+            XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["td"])
+            XCTAssertEqual(refreshed.said, "地上デジタルの番組表：\(missing(first[0]))\n\(busy)")
+            XCTAssertEqual(beside.world.problem, busy, "the type that failed before the stop was written on the line")
+            expectEqual(await beside.recorder.files, [first[0]],
+                        "a further type was asked for after a check that heard busy: \(order)")
+            expectEqual(await beside.recorder.asksOfWhoItIs - beside.asked, 6,
+                        "who answers was meant to be asked by the check and again before the next type: \(order)")
+
+            // Busy as the check asks, through its tries, and free again by the time the refresh asks.
+            beside = try await refreshingBesideABusyCheck(times: 3, waitedFor: waitedFor)
+            await beside.recorder.letGo(with: .success(guide))
+            if waitedFor { try await comeToItsAsking(beside.world, beside.recorder, stored: true) }
+            expectTrue(await beside.check.value)
+            refreshed = await beside.refresh.value
+            XCTAssertTrue(refreshed.wentThrough, "\(order): \(refreshed.said ?? "nothing said")")
+            XCTAssertEqual(refreshed.answered, ["td"])
+            XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["bs", "cs", "bs4k"])
+            expectEqual(await beside.recorder.files,
+                        first + ["EPG_BSEPG_FILE.dat", "EPG_CSEPG_FILE.dat", "EPG_ADVBSDEPG_FILE.dat"],
+                        "the refresh was meant to go on through every file once the recorder said which it is: \(order)")
+            expectEqual(await beside.recorder.asksOfWhoItIs - beside.asked, 4,
+                        "who answers was meant to be asked once more: \(order)")
+            XCTAssertFalse(beside.link.checksAgain)
+        }
+        var refreshed: GuideRefreshed
+
+        // Lost meanwhile, by something else: with a line left, and with the line empty.
+        for (left, said) in [(Self.left as String?, Self.left), (nil, RecorderDriver.notConnected)] {
+            let what = left == nil ? "the line empty" : "a line left"
+            let (world, link, recorder, refresh) = try await refreshing()
+            let asked = await recorder.asksOfWhoItIs
+            link.lost()
+            world.problem = left
+            await recorder.letGo(with: .success(guide))
+            refreshed = await refresh.value
+            XCTAssertFalse(refreshed.wentThrough, "\(what): a refresh went on for a recorder known to be away")
+            XCTAssertEqual(refreshed.answered, ["td"], what)
+            XCTAssertEqual(refreshed.stored, 5, what)
+            XCTAssertEqual(refreshed.said, said, "\(what): the refresh does not say what stands on the line")
+            XCTAssertEqual(world.problem, left, "\(what): a refresh turned away at a door wrote on the line")
+            expectEqual(await recorder.files, [first[0]], "\(what): a file was asked of a recorder known to be away")
+            expectEqual(await recorder.asksOfWhoItIs, asked,
+                        "\(what): a recorder known to be away was asked who answers")
+            XCTAssertTrue(world.events.contains("stored td"), "\(what): the type that came was not reported")
+        }
+
+        // Found at another address meanwhile, by a connect: a client of its own, and nobody let go of. With the
+        // file that was out a guide and a line left since; with it not built and nothing on the line; with the
+        // recorder heard busy by a check since, where it is now; and with the file that was out meeting silence
+        // where the recorder was.
+        let cameAs: [Came: Result<HTTPResponse, RecorderError>] = [
+            .guide: .success(guide), .notBuilt: .success(HTTPResponse(statusCode: 500)),
+            .nothing: .failure(.transport("timed out")),
+        ]
+        for (came, left, heardBusy) in [(Came.guide, Self.left as String?, false), (.notBuilt, nil, false),
+                                        (.guide, Self.left, true), (.nothing, nil, false)] {
+            let what = "\(came.rawValue), \(left == nil ? "the line empty" : "a line left")"
+                + (heardBusy ? ", heard busy since" : "")
+            let (world, link, recorder, refresh) = try await refreshing(wakeable: true)
+            let moved = DeviceLinkTests.moved
+            let began = link.generation
+            await recorder.sayNothingOfWhoItIs()
+            let there = DeviceLinkTests.Recorder(at: moved, udn: DeviceLinkTests.udn, world: world)
+            world.devices[moved] = there
+            world.near = [moved]
+            world.found = try await RecorderClient(host: moved, transport: there).describe()
+            await link.connect()
+            XCTAssertEqual(link.client?.host, moved, world.problem ?? "the recorder was meant to be found where it moved")
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            XCTAssertFalse(link.letGo(since: began), "a recorder that moved was meant not to be let go of")
+            XCTAssertNil(world.problem, "the connect was meant to leave nothing on the line")
+            if heardBusy {
+                await there.goBusy()
+                expectTrue(await link.ensureUp(evenIfRecent: true), "a recorder that answered busy was taken for gone")
+                XCTAssertTrue(link.checksAgain, "the check was meant to have heard the recorder busy")
+            }
+            world.problem = left
+            world.events = []
+            await recorder.letGo(with: try XCTUnwrap(cameAs[came]))
+            refreshed = await refresh.value
+            XCTAssertFalse(refreshed.wentThrough, "\(what): a refresh went on through a client that is in hand no longer")
+            XCTAssertEqual(refreshed.answered, came == .guide ? ["td"] : [], what)
+            XCTAssertEqual(refreshed.failed.map(\.broadcasting), came == .notBuilt ? ["td"] : [], what)
+            XCTAssertEqual(refreshed.said, came == .notBuilt ? "地上デジタルの番組表：\(missing(first[0]))" : nil,
+                           "\(what): a refresh ended for another client in hand says the types that failed, and no more")
+            expectEqual(await recorder.files, [first[0]], "\(what): a file was asked for where the recorder no longer is")
+            XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") }, [],
+                           "\(what): something was asked where the recorder is now")
+            XCTAssertEqual(world.events.contains("stored td"), came == .guide,
+                           "\(what): the type that came was not reported")
+            XCTAssertEqual(world.problem, left, "\(what): a refresh ended for another client in hand wrote on the line")
+            XCTAssertTrue(link.session.connected, "\(what): the recorder just connected to was given up on")
+            XCTAssertFalse(link.session.unreachable, "\(what): the recorder just connected to was lost")
+            XCTAssertNil(world.line, "\(what): the line was left up")
+        }
+
+        // A connect under way as the file comes, its ask of who answers held at the recorder: its own client
+        // in hand, which has not heard which recorder answers it.
+        let (world, link, recorder, refresh) = try await refreshing()
+        await recorder.holdTheNextAskOfWhoItIs()
+        let connecting = Task { await link.connect() }
+        var turns = 0
+        while await !recorder.isHoldingAnAsk, turns < 100_000 {
+            turns += 1
+            await Task.yield()
+        }
+        expectTrue(await recorder.isHoldingAnAsk, "the connect's ask of who answers was meant to be held")
+        XCTAssertFalse(link.clientIsAttached, "the connect's own client was meant to be in hand, unheard")
+        world.events = []
+        await recorder.letGo(with: .success(guide))
+        refreshed = await refresh.value
+        XCTAssertTrue(link.session.connecting, "the connect was meant to be under way still as the refresh ended")
+        XCTAssertFalse(refreshed.wentThrough, "a refresh went on beside a connect with a client of its own in hand")
+        XCTAssertEqual(refreshed.answered, ["td"])
+        XCTAssertNil(refreshed.said, "a refresh ended for the client of a connect under way said something")
+        XCTAssertEqual(world.problem, Self.left, "a refresh ended for the client of a connect under way wrote on the line")
+        XCTAssertTrue(world.events.contains("stored td"), "the type that came was not reported")
+        expectEqual(await recorder.files, [first[0]], "a file was asked for beside a connect under way")
+        await recorder.letTheAskGo()
+        await connecting.value
+        XCTAssertTrue(link.clientIsAttached, world.problem ?? "the connect was meant to go through")
+        XCTAssertNil(world.line, "a line was left up")
+    }
+
+    /// What the file a refresh has out comes to, once it is let go.
+    private enum Came: String {
+        case guide = "a guide"
+        case notBuilt = "not built"
+        case nothing = "nothing at all"
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
@@ -1831,25 +2113,30 @@ final class RecorderRecordingsTests: XCTestCase {
     /// A link as `playing` makes one, connected a moment ago with an earlier failure's line left, to a recorder
     /// that says who it is and gives the guide's files as `files` says, by the type each is of: the sample
     /// guide for a type listed as true, nothing at all for one listed as false, and for the rest, as for
-    /// everything else it is asked, a 500, as for a file it has not built.
-    private static func serving(_ files: [String: Bool]) async throws -> (LinkWorld, RecorderDriver, StubTransport) {
+    /// everything else it is asked, a 500, as for a file it has not built. `asEachIsAsked` is done on the main
+    /// actor as the guide of a type listed is asked for, before it is answered, with that type and the link:
+    /// for a test in which something else happens to the link while a file is out.
+    private static func serving(_ files: [String: Bool],
+                                asEachIsAsked: (@MainActor @Sendable (String, DeviceLink) -> Void)? = nil)
+        async throws -> (LinkWorld, RecorderDriver, StubTransport) {
         let description = try Vectors.descriptionXML(udn: DeviceLinkTests.udn)
         let sample = try Vectors.load("epg-sample.json").string("file")
         let guide = try Data(contentsOf: Vectors.directory.appendingPathComponent(sample))
+        let world = LinkWorld()
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
         let recorder = StubTransport { request, _ in
             let name = request.url.lastPathComponent
             if name == "description.xml" { return HTTPResponse(statusCode: 200, body: Data(description.utf8)) }
             guard let type = Codes.epgFiles.first(where: { $0.value == name })?.key, let gives = files[type] else {
                 return HTTPResponse(statusCode: 500)
             }
+            if let asEachIsAsked { await asEachIsAsked(type, link) }
             guard gives else { throw RecorderError.transport("timed out") }
             return HTTPResponse(statusCode: 200, body: guide)
         }
-        let world = LinkWorld()
         world.devices[Stub.host] = recorder
-        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
-        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
-                              environment: world.environment)
         link.owner = world
         await link.connect()
         XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
@@ -1860,21 +2147,30 @@ final class RecorderRecordingsTests: XCTestCase {
 
     /// A link as `playing` makes one, connected a moment ago to a recorder that says who it is and holds the
     /// first file of the guide asked of it (`HoldingAFile`), with a cache in hand that the connect has put that
-    /// recorder down as the owner of, and an earlier failure's line left.
-    private func holdingAFile() async throws -> (LinkWorld, RecorderDriver, DeviceLink, HoldingAFile) {
+    /// recorder down as the owner of, and an earlier failure's line left. `wakeable` has a MAC known for the
+    /// recorder, so that a connect which finds it silent wakes it and then looks for it elsewhere. What the
+    /// recorder still holds as the test is torn down is let go then.
+    private func holdingAFile(wakeable: Bool = false) async throws
+        -> (LinkWorld, RecorderDriver, DeviceLink, HoldingAFile) {
         let world = LinkWorld()
         let recorder = try HoldingAFile(udn: DeviceLinkTests.udn)
         world.devices[Stub.host] = recorder
         world.cache = try temporaryStore()
         let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
-        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
-                              environment: world.environment)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: wakeable ? DeviceLinkTests.mac : nil),
+                              driver: driver, environment: world.environment)
         link.owner = world
         await link.connect()
         XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
         expectEqual(try await world.cache?.owner(), DeviceLinkTests.udn, "the cache was meant to be this recorder's")
         world.problem = Self.left
         Self.links.append(link)
+        // The guide's turn is the whole process's: a file, or an ask of who answers, left held by a test that
+        // failed part-way would keep its refresh in the turn, and every later refresh waiting.
+        addTeardownBlock {
+            await recorder.letTheAskGo()
+            await recorder.letGo(with: .success(HTTPResponse(statusCode: 500)))
+        }
         return (world, driver, link, recorder)
     }
 
@@ -2061,12 +2357,20 @@ private struct TurnHeld {
 /// A recorder that says who it is as the vectors' recorder does, and holds the first file of the guide it is
 /// asked for until the test lets it go, with what that file then gets: an answer, or nothing at all. Every file
 /// after it, and everything else it is asked, gets a 500, as from a recorder that has not built its files. It
-/// puts down the guide's files it was asked for, by name.
+/// puts down the guide's files it was asked for, by name, and counts how often it was asked who it is; it can
+/// be told to be busy with somebody else when asked that, for so many asks or from then on, or to say nothing
+/// to it from then on, as a recorder that is no longer at the address; and to hold the next ask of who it is
+/// until that is let go, which then gets whatever it would get.
 private actor HoldingAFile: HTTPTransport {
     private let description: String
     private var holds = true
     private var held: CheckedContinuation<Result<HTTPResponse, RecorderError>, Never>?
     private(set) var files: [String] = []
+    private(set) var asksOfWhoItIs = 0
+    private var busyFor = 0
+    private var saysWhoItIs = true
+    private var holdsTheNextAsk = false
+    private var heldAsk: CheckedContinuation<Void, Never>?
 
     init(udn: String) throws {
         description = try Vectors.descriptionXML(udn: udn)
@@ -2081,9 +2385,46 @@ private actor HoldingAFile: HTTPTransport {
         held = nil
     }
 
+    /// Busy with somebody else to the next `times` asks of who it is, a 503 to each: from now on, unless told
+    /// how many.
+    func beBusyWhenAskedWhoItIs(times: Int = .max) {
+        busyFor = times
+    }
+
+    /// Says nothing from now on when asked who it is. The file held stays held.
+    func sayNothingOfWhoItIs() {
+        saysWhoItIs = false
+    }
+
+    /// The next ask of who it is gets no answer until `letTheAskGo`.
+    func holdTheNextAskOfWhoItIs() {
+        holdsTheNextAsk = true
+    }
+
+    /// Whether an ask of who it is is being held now.
+    var isHoldingAnAsk: Bool { heldAsk != nil }
+
+    func letTheAskGo() {
+        holdsTheNextAsk = false
+        heldAsk?.resume()
+        heldAsk = nil
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let name = request.url.lastPathComponent
-        if name == "description.xml" { return HTTPResponse(statusCode: 200, body: Data(description.utf8)) }
+        if name == "description.xml" {
+            asksOfWhoItIs += 1
+            if holdsTheNextAsk {
+                holdsTheNextAsk = false
+                await withCheckedContinuation { heldAsk = $0 }
+            }
+            guard saysWhoItIs else { throw RecorderError.transport("timed out") }
+            guard busyFor == 0 else {
+                busyFor -= 1
+                return HTTPResponse(statusCode: 503)
+            }
+            return HTTPResponse(statusCode: 200, body: Data(description.utf8))
+        }
         guard Codes.epgFiles.values.contains(name) || Codes.logoFiles.values.contains(name) else {
             return HTTPResponse(statusCode: 500)
         }

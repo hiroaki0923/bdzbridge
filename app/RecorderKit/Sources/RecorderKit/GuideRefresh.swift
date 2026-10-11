@@ -33,19 +33,23 @@ public enum GuideRefresh {
         /// asked said before a type not to go on (`onType`). The write that was refused changed nothing.
         case letGo
         /// Whoever asked for the refresh would not have it made once its turn had come (`OnTurn.turnedAway`),
-        /// nothing having been asked for: why, in the asker's own words, for the asker to say.
-        case turnedAway(String)
+        /// nothing having been asked for, or would not have it go on to its next file (`beforeAFile`): why, in
+        /// the asker's own words, for the asker to say, or nil where the asker has nothing to say of it. Not
+        /// that the recorder was let go of, which is `letGo`.
+        case turnedAway(String?)
     }
 
     /// What whoever asked for a refresh says once its turn has come
-    /// (`run(asked:onTurn:onType:onStored:)`).
+    /// (`run(asked:onTurn:beforeAFile:onType:onStored:)`).
     enum OnTurn: Sendable {
         /// Fetch: the files are asked of `client`, what comes goes into `store`, and `from` is the recorder
         /// `client` asks, as it described itself -- the three `run(client:store:from:types:onType:onStored:)`
         /// is handed.
         case fetch(client: any GuideSource, store: GuideStore, from: RecorderDescription?)
-        /// The refresh is not to be made after all, and why (`Stop.turnedAway`).
-        case turnedAway(String)
+        /// The refresh is not to be made after all, and why (`Stop.turnedAway`). Nil where whoever asked has
+        /// nothing to say of it, which is never so once the turn has come: the screens' step says it of a
+        /// refresh that is out and not to go on (`beforeAFile`), with this same value.
+        case turnedAway(String?)
     }
 
     public struct Failure: Sendable, Equatable {
@@ -65,9 +69,10 @@ public enum GuideRefresh {
     /// that client. Two refreshes asked together would ask the recorder for the same files at once. So a
     /// refresh waits its turn behind one that is out (`Turn`), and is run in the task that asked for it, as
     /// before: it is a wait, and not a queue's task, since cancellation is looked at here (below). Which types
-    /// to fetch can be left to be judged once the turn has come (`run(asked:onTurn:onType:onStored:)`), by
-    /// what the refresh before it left in the cache, and whoever asks can be asked there first whether the
-    /// refresh is still to be made, and through which client.
+    /// to fetch can be left to be judged once the turn has come
+    /// (`run(asked:onTurn:beforeAFile:onType:onStored:)`), by what the refresh before it left in the cache,
+    /// and whoever asks can be asked there first whether the refresh is still to be made, and through which
+    /// client, and before each file after the first whether it is to go on.
     ///
     /// A type that fails is passed over and the next one is tried. The recorder answers 500 for a file it
     /// has not built yet -- after a restart or a channel scan, until the small hours. Silence is the exception
@@ -110,7 +115,18 @@ public enum GuideRefresh {
     /// cache and of the recorder it finds with it (`RecorderDriver.refreshGuide`). A refresh ended there has
     /// asked for nothing and gives its turn back (`Stop.turnedAway`). The overnight run, which has no link to
     /// make sure of, fetches with what it came with.
+    ///
+    /// `beforeAFile` is called on the main actor before each file after the first that is asked for -- before
+    /// each type after the first, ahead of `onType`, and before each type's logos, once its programmes are in
+    /// the cache -- with the client the files are asked of, and says what the refresh ends there with, why
+    /// included where there is something to say (`Stop.turnedAway`), or nil for it to go on: a refresh is as
+    /// many requests as it has files, a file of the guide takes its time, and what was made sure of before
+    /// the first is not what stands before the last. The screens' step makes sure of its recorder there as a
+    /// run does before each of its requests (`RecorderDriver.mayGoOn`). A refresh ended there hands back what
+    /// came before. Ended before a type's logos, that type is among what was answered for and stored, and is
+    /// reported as stored (`onStored`), with the logos it had. The overnight run passes none.
     static func run(asked which: GuideAsked, onTurn: @Sendable () async -> OnTurn,
+                    beforeAFile: (@MainActor @Sendable (any GuideSource) async -> Stop?)? = nil,
                     onType: (@MainActor @Sendable (String) -> Bool)? = nil,
                     onStored: (@MainActor @Sendable (String) async -> Void)? = nil) async -> Outcome {
         await turn.take()
@@ -120,7 +136,7 @@ public enum GuideRefresh {
             outcome.stopped = .turnedAway(why)
         case .fetch(let client, let store, let recorder):
             outcome = await fetch(await types(which, by: store), client: client, store: store, from: recorder,
-                                  onType: onType, onStored: onStored)
+                                  beforeAFile: beforeAFile, onType: onType, onStored: onStored)
         }
         await turn.giveBack()
         return outcome
@@ -140,12 +156,17 @@ public enum GuideRefresh {
     /// The refresh itself, by whoever has the turn.
     private static func fetch(_ types: [String], client: some GuideSource, store: GuideStore,
                               from recorder: RecorderDescription?,
+                              beforeAFile: (@MainActor @Sendable (any GuideSource) async -> Stop?)?,
                               onType: (@MainActor @Sendable (String) -> Bool)?,
                               onStored: (@MainActor @Sendable (String) async -> Void)?) async -> Outcome {
         var outcome = Outcome()
-        for broadcasting in types {
+        for (index, broadcasting) in types.enumerated() {
             if Task.isCancelled {
                 outcome.cancelled = true
+                break
+            }
+            if index > 0, let stop = await beforeAFile?(client) {
+                outcome.stopped = stop
                 break
             }
             if let onType, await !onType(broadcasting) {
@@ -160,6 +181,12 @@ public enum GuideRefresh {
                 }
                 outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder)
                 outcome.answered.append(broadcasting)
+                if let stop = await beforeAFile?(client) {
+                    // The programmes are in: the type is reported as stored, with the logos it had.
+                    await onStored?(broadcasting)
+                    outcome.stopped = stop
+                    break
+                }
                 do {
                     if let logos = try await client.logos(broadcasting) {
                         try await store.replaceLogos(logos, broadcasting: broadcasting, from: recorder)

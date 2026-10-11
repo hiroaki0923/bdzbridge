@@ -1197,6 +1197,83 @@ final class FunnelGateTests: XCTestCase {
         }
     }
 
+    /// Each file of the guide after the first is asked for only of a recorder made sure of, as each request of a
+    /// run is: a refresh is as many requests as it has files, a type's guide and then its logos. Here the first
+    /// type's file is out, held at the recorder, when a check is asked for beside it. The check waits its turn
+    /// behind the file on the one client. The file comes with a guide, which is stored and on screen.
+    ///
+    /// The check hears the recorder busy with somebody else as it asks who it is, and the recorder is busy
+    /// still: before the logos of the type it has stored the press asks again who answers, hears busy through
+    /// its tries, and asks for no further file, not those logos either. It did not go through, and says what
+    /// it heard, on the line and in what it hands back. The recorder is kept.
+    ///
+    /// That is so in both orders the check and the press can come in. Left to itself the check has as a rule
+    /// ended by the time the press, with the file's programmes to store first, asks before the logos. In the
+    /// row after it the check's ask is held at the recorder once the file has been answered, until the type
+    /// is in the cache and the press has had its turns to come to its asking, so that the press is waiting
+    /// for the check as it ends: it asks who answers itself all the same, as often.
+    ///
+    /// The check meets silence, with nothing to wake the recorder with: the recorder is lost, and that check
+    /// says so on the line. The press asks for no further file and not who answers, and what it hands back
+    /// says what the line says, not that the app is not connected.
+    func testNoFurtherFileOfTheGuideIsAskedForOfARecorderHeardBusyOrLostBesideTheFirst() async throws {
+        let waitedFor = "busy, the press waiting for the check as it ends"
+        for row in ["busy", waitedFor, "silent"] {
+            let (bench, recorder, model) = try await connectedHome(guide: false)
+            let before = await recorder.asked
+            await recorder.answer(Kind.guide[0], with: .body(try vectorFile("epg-sample.dat")))
+            await recorder.holdTheNext(Kind.guide[0])
+            addTeardownBlock { await recorder.letGo() }
+            let pressing = Task { await refreshTheGuideByHand(model) }
+            try await until("the guide was never asked for") { await recorder.asked(Kind.guide[0], since: before) == 1 }
+
+            if row == "silent" { await recorder.goQuiet(on: Kind.description) } else { await recorder.busyAtTheDoor() }
+            if row == waitedFor { await recorder.hold(only: Kind.description) }
+            let check = Task { await makeSure(model) }
+            try await until("the recorder was never made sure of") { isMakingSure(model) }
+            let count = await recorder.heard.count
+            if row == waitedFor {
+                // The file alone, and the check's ask held behind it until the press has come to its asking.
+                await recorder.letGo(only: Kind.guide[0])
+                let cache = try GuideStore(path: bench.guidePath)
+                try await until("the check never asked who answers, or the type was never stored") {
+                    let asked = await recorder.asked(Kind.description, since: before)
+                    let stored = (try? await cache.counts())?["td"]?.programs ?? 0
+                    return asked == 1 && stored > 0
+                }
+                for _ in 0..<10_000 { await Task.yield() }
+                XCTAssertTrue(isMakingSure(model), "the check was meant to be out still")
+            }
+            await recorder.letGo()
+            expectEqual(await check.value, row != "silent", "\(row): the check did not end as it was meant to")
+            expectFalse(await pressing.value, "\(row): a guide went on after a check beside its first file")
+
+            let heard = await recorder.heard(since: count)
+            XCTAssertEqual(heard.filter { (Kind.guide + Ask.logos).contains($0) }, [],
+                           "\(row): a further file was asked for")
+            if row != "silent" {
+                XCTAssertEqual(heard.filter { $0 == Kind.description }.count, 6,
+                               "\(row): who answers was meant to be asked by the check and again before the logos, "
+                                   + "each thrice")
+                XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.description))
+                XCTAssertEqual(whyNotJustNow(model), Said.busy(Kind.description),
+                               "what was handed back does not say what was heard")
+                XCTAssertTrue(model.connected, "a recorder that answered busy was given up on")
+                await recorder.comeFree()
+            } else {
+                XCTAssertEqual(heard, [Kind.description], "a recorder known to be away was asked once it was lost")
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the line is not as the check left it")
+                XCTAssertEqual(whyNotJustNow(model), Said.noAnswer,
+                               "what was handed back does not say what the line says")
+                XCTAssertTrue(model.gaveUp)
+            }
+            XCTAssertGreaterThan(model.counts["td"]?.programs ?? 0, 0,
+                                 "\(row): the type stored before the stop is not on screen")
+            XCTAssertEqual(model.guideDownloads, 0, row)
+            XCTAssertNil(model.busy, row)
+        }
+    }
+
     /// A connect asks for the guide only where the cache says a type is behind. Over marks that are fresh it
     /// asks for none: no line goes up and no refresh is counted as out -- every connect would otherwise flash
     /// 番組表を取得中, and wait for whatever refresh is out. Here one is out, on a recorder and into a cache of
