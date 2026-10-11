@@ -13,6 +13,8 @@ struct SettingsScreen: View {
     /// The television's sheet: its section asks for it (`TVSection`), and so does a television the search
     /// found, tapped (`FoundTelevisionsSection`); this screen puts it up.
     @State private var tvSheet: TVSheetRequest?
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuide`), until it is dismissed.
+    @State private var guideFailure: String?
     @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
@@ -202,7 +204,7 @@ struct SettingsScreen: View {
                         LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
-                        Task { await model.refreshGuide() }
+                        Task { guideFailure = await model.refreshGuide().said }
                     }
                     .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }
@@ -245,6 +247,12 @@ struct SettingsScreen: View {
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.
             .sheet(item: $tvSheet) { TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce) }
+            .alert("エラー",
+                   isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(guideFailure ?? "")
+            }
         }
     }
 

@@ -8,7 +8,10 @@ public enum GuideAsked: Sendable {
     case only([String])
 }
 
-/// What a refresh of the guide came to (`RecorderDriver.refreshGuide`), for the app to keep and a screen to say.
+/// What a refresh of the guide came to (`RecorderDriver.refreshGuide`), for the app to keep and a screen to say:
+/// the screen it was asked for on says `said`, in an alert, the line of what went wrong not being on every
+/// screen that asks. What was sent and failed is on that line as well, as for any operation, and stays there for
+/// the refresh a connect makes with nobody having pressed.
 public struct GuideRefreshed: Sendable, Equatable {
     /// Whether the recorder was asked and the refresh ran to its end, types that failed among it or not. False
     /// when nothing was asked -- turned away at the door, or by the check before it -- and when silence stopped it.
@@ -25,8 +28,15 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// the host's line, and then that the recorder did not answer, as a read says it. Otherwise -- the check
     /// before it said no -- whatever stands on the host's line of what went wrong, or that the app is not
     /// connected where the line is empty: what the check wrote there if it wrote, and if it did not, what an
-    /// earlier operation left.
+    /// earlier operation left. That is the reservations' rule (`Reserved`), and no more is promised of it: a
+    /// check that ends on a recorder let go of meanwhile writes nothing, and one that ends waiting for the
+    /// local network permission empties the line.
     public var said: String?
+
+    /// What a refresh comes to that was not asked for at all, its host having no recorder's driver to ask:
+    /// nothing asked, and that the app is not connected (`RecorderDriver.notConnected`). Only the driver makes
+    /// any other.
+    public static let notConnected = GuideRefreshed(said: RecorderDriver.notConnected)
 }
 
 /// The guide fetched from the recorder by hand and at a connect: the step, and what it says on the host's

@@ -628,10 +628,12 @@ final class FunnelGateTests: XCTestCase {
     }
 
     /// A guide asked for by hand passes over a type the recorder has no file for -- it answers 500 until it has
-    /// built its files again -- fetches the rest, keeps the recorder and says a line for each type that failed.
+    /// built its files again -- fetches the rest, keeps the recorder and says a line for each type that failed,
+    /// on the line of what went wrong and in what it hands back for its screen to say.
     /// The task that asked being cancelled does not stop it between types: the guide is the app's rather than a
     /// screen's, and a pull-down's task goes with its screen. Silence stops it there, loses the recorder and
-    /// says the read's sentence alone. The count of downloads comes back to nought either way.
+    /// says the read's sentence alone on the line; what it hands back says the type that failed before the
+    /// silence and then the silence. The count of downloads comes back to nought either way.
     ///
     /// Whatever comes to fetch the guide's types in turn has to say so by name if it lets the cancellation
     /// through.
@@ -648,10 +650,12 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.guideDownloads, 1)
         asking.cancel()
         await recorder.letGo()
-        await asking.value
+        expectTrue(await asking.value, "a refresh that passed two types over was said not to have gone through")
         for file in Kind.guide { expectEqual(await recorder.asked(file, since: before), 1, file) }
         XCTAssertEqual(model.problem(for: .recorder),
                        "地上デジタルの番組表：\(missing(Kind.guide[0]))\nBS の番組表：\(missing(Kind.guide[1]))")
+        XCTAssertEqual(whyNotJustNow(model), model.problem(for: .recorder),
+                       "what was handed back does not say what the line says")
         XCTAssertTrue(model.connected, "a file the recorder has not built was taken for the recorder going")
         XCTAssertEqual(model.guideDownloads, 0)
         XCTAssertNil(model.busy)
@@ -659,12 +663,61 @@ final class FunnelGateTests: XCTestCase {
         before = await recorder.asked
         await recorder.answer(Kind.guide[0], with: .status(500))
         await recorder.goQuiet(on: Kind.guide[2])
-        await refreshTheGuideByHand(model)
+        expectFalse(await refreshTheGuideByHand(model), "a refresh that silence stopped was said to have gone through")
         for file in Kind.guide.prefix(3) { expectEqual(await recorder.asked(file, since: before), 1, file) }
         expectEqual(await recorder.asked(Kind.guide[3], since: before), 0, "a silent recorder was asked for more")
         XCTAssertTrue(model.gaveUp)
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the type that failed was said over the silence")
+        XCTAssertEqual(whyNotJustNow(model), "地上デジタルの番組表：\(missing(Kind.guide[0]))\n\(Said.noAnswer)",
+                       "what was handed back does not say the type that failed before the silence, and the silence")
         XCTAssertEqual(model.guideDownloads, 0)
+    }
+
+    /// What 番組表を更新 came to is handed back to the screen it was pressed on, which says it in an alert. The
+    /// guide's tab shows the line of what went wrong only where it has no guide to show: over a guide, a type
+    /// that failed was said where nobody reads it, and the press seemed to do nothing.
+    ///
+    /// Over a guide on screen, with two types the recorder has not built: the refresh went through, and what it
+    /// hands back to say is a line for each, the two the line of what went wrong holds; the guide on screen
+    /// stays. Pressed again with every type answered for, it went through and has nothing to say.
+    ///
+    /// Pressed while the recorder is being made sure of, by a check that then meets silence: nothing is asked
+    /// for, it did not go through, and what it hands back to say is what that check left on the line, that the
+    /// recorder did not answer. What is said after a check's no is whatever stands on that line once the check
+    /// has ended, and that the app is not connected where nothing does: the rest of that is held in the package
+    /// (`RecorderRecordingsTests`), the bench's recorder having no other way to end a check than this one.
+    func testWhatAGuideAskedForByHandCameToIsHandedBackForItsScreenToSay() async throws {
+        let (_, recorder, model) = try await connectedHome()
+        func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
+        let shown = model.counts[model.broadcasting]?.programs ?? 0
+        XCTAssertGreaterThan(shown, 0, "a guide was meant to be on screen")
+
+        let before = await recorder.asked
+        await recorder.answer(Kind.guide[0], with: .status(500))
+        await recorder.answer(Kind.guide[1], with: .status(500))
+        expectTrue(await refreshTheGuideByHand(model), "a refresh that passed two types over did not go through")
+        let lines = "地上デジタルの番組表：\(missing(Kind.guide[0]))\nBS の番組表：\(missing(Kind.guide[1]))"
+        XCTAssertEqual(whyNotJustNow(model), lines, "what was handed back does not say the two types that failed")
+        XCTAssertEqual(model.problem(for: .recorder), lines)
+        for file in Kind.guide { expectEqual(await recorder.asked(file, since: before), 1, file) }
+        XCTAssertEqual(model.counts[model.broadcasting]?.programs, shown,
+                       "the guide on screen went with a type that failed")
+
+        expectTrue(await refreshTheGuideByHand(model))
+        XCTAssertNil(whyNotJustNow(model), "a refresh that went through with nothing failed had something to say")
+        XCTAssertNil(model.problem(for: .recorder))
+
+        leaveALine(on: model)
+        let count = await recorder.heard.count
+        let (there, went) = try await duringACheck(by: model, of: recorder, endingIn: .silence, "the guide",
+                                                   waitingFor: { model.busy == "番組表を取得中" }) {
+            await refreshTheGuideByHand(model)
+        }
+        XCTAssertFalse(there)
+        XCTAssertFalse(went, "a refresh turned away by its check was said to have gone through")
+        expectEqual(await recorder.heard(since: count), [Kind.description], "a file was asked for")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
+        XCTAssertEqual(whyNotJustNow(model), Said.noAnswer, "what was handed back does not say what the check left")
     }
 
     /// The guide asked for by hand beside a check, and after one. While the recorder is being made sure of, the
@@ -1902,7 +1955,7 @@ private struct Funnelled {
         ask: { model, subjects in await removeACondition(model, subjects.rule) },
         holds: { model, subjects in !model.recorderRules.contains { $0.id == subjects.rule.id } })
     static let guide = Funnelled(name: "the guide", kind: Kind.guide[0], line: "番組表を取得中 (地上デジタル)",
-                                 reads: true, ask: { model, _ in await refreshTheGuideByHand(model); return nil })
+                                 reads: true, ask: { model, _ in await refreshTheGuideByHand(model) })
 
     /// Every one, in an order in which each can follow the one before it on one recorder.
     static let all = [reservations, recordings, conditions, protect, unprotect, delete, play, pause, stop, power,

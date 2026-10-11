@@ -74,15 +74,24 @@ extension AppModel {
     /// Each type goes on screen as soon as it is stored, so that the first run does not wait for BS, CS and
     /// BS4K behind the terrestrial programmes it opens on. A type that fails is passed over (see
     /// `GuideRefresh.run`), said on screen a line per type, and fetched again at the next connect.
-    func refreshGuide(_ which: GuideAsked = .all) async {
-        guard let recorderDriver, client != nil, store != nil, !unreachable else { return }
+    ///
+    /// What it came to is handed back as the driver hands it over, for the screen that asked to say
+    /// (`GuideRefreshed.said`): the two 番組表を更新 buttons show it in an alert, the guide's tab having no line
+    /// of what went wrong while a guide is on screen. Turned away here, with nothing asked and nothing counted,
+    /// it says that the app is not connected, in the package's own answer for a refresh not asked for
+    /// (`GuideRefreshed.notConnected`): no button is live then to show it. A connect asks with nobody having
+    /// pressed, and lets the answer go: what failed is on the line.
+    @discardableResult
+    func refreshGuide(_ which: GuideAsked = .all) async -> GuideRefreshed {
+        guard let recorderDriver, client != nil, store != nil, !unreachable else { return .notConnected }
         guideDownloads += 1
         defer { guideDownloads -= 1 }
-        _ = await recorderDriver.refreshGuide(which) { _ in await self.reloadFromCache() }
+        let refreshed = await recorderDriver.refreshGuide(which) { _ in await self.reloadFromCache() }
         // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
         // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
         // not be asked for again, and which the model goes by.
         await reloadFromCache()
+        return refreshed
     }
 
     func reloadFromCache() async {

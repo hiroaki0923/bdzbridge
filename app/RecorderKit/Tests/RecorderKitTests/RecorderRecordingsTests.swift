@@ -1167,6 +1167,60 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(driver.link?.session.connected == true, "a file not built was taken for the recorder going")
     }
 
+    /// What a refresh of the guide says when the check before it said no, nothing having been asked for:
+    /// whatever stands on the line of what went wrong once that check has ended, and that the app is not
+    /// connected where nothing stands there. That is all that is promised of it (`GuideRefreshed.said`), and it
+    /// is what a screen then shows. Each refresh here is asked beside a check that is out, its ask of who answers
+    /// held at the recorder, and each check then meets silence.
+    ///
+    /// With nothing to wake the recorder with, the check writes that it did not answer, and the refresh says
+    /// that. With the local network permission in the way, the check empties the line, and the refresh says
+    /// that access to the local network is not allowed. Those are the two ends a check's no decides. A check
+    /// that ends on a recorder let go of meanwhile is not held here: what a refresh says of a recorder let go
+    /// of is a rule of its own, held where a refresh is kept to the recorder it began with.
+    func testWhatAGuideRefreshSaysAfterACheckThatSaidNoIsWhatStandsOnTheLine() async throws {
+        /// A refresh asked while a check is out, the check's ask held at the recorder: `meanwhile` is done once
+        /// the refresh waits for that check, and the check then meets silence. What the refresh came to, with
+        /// its world and its driver.
+        func refreshedBesideASilentCheck(_ meanwhile: @MainActor (LinkWorld) -> Void = { _ in })
+            async throws -> (GuideRefreshed, LinkWorld, RecorderDriver) {
+            let (world, driver, link) = try Self.linked()
+            let recorder = try XCTUnwrap(world.devices[Stub.host] as? ScriptedRecorder)
+            // Held by the driver weakly: kept for as long as the tests run.
+            Self.links.append(link)
+            await link.connect()
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            world.cache = try temporaryStore()
+            world.problem = Self.left
+            world.events = []
+            await recorder.hold()
+            let check = Task { await link.ensureUp(evenIfRecent: true) }
+            try await Self.whenHeld(recorder)
+            let refreshing = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
+            for _ in 0..<100_000 where world.line != "番組表を取得中" { await Task.yield() }
+            XCTAssertEqual(world.line, "番組表を取得中", "the refresh was meant to be waiting for the check")
+            meanwhile(world)
+            await recorder.answer(.silence)
+            await recorder.letGo()
+            expectEqual(await check.value, false, "the check was meant to meet silence")
+            let refreshed = await refreshing.value
+            XCTAssertFalse(refreshed.wentThrough)
+            XCTAssertEqual(world.events.filter { $0.hasPrefix("ask") }, ["ask description.xml at \(Stub.host)"],
+                           "a file was asked for after a check that said no")
+            XCTAssertNil(world.line, "the line was left up")
+            return (refreshed, world, driver)
+        }
+
+        var (refreshed, world, driver) = try await refreshedBesideASilentCheck()
+        XCTAssertEqual(world.problem, driver.noAnswerLine, "the check was meant to say that nothing answered")
+        XCTAssertEqual(refreshed.said, driver.noAnswerLine)
+
+        (refreshed, world, driver) = try await refreshedBesideASilentCheck { $0.blocked = true }
+        XCTAssertNil(world.problem, "a check that ended waiting for the permission was meant to empty the line")
+        XCTAssertEqual(refreshed.said, LocalNetwork.accessNotAllowed)
+        XCTAssertEqual(driver.whyNotConnected, LocalNetwork.accessNotAllowed)
+    }
+
     /// A refresh of the guide that silence stops hands back what came before the silence: the type that
     /// failed, the type that was stored and reported so, and what was stored of it. It did not go through. What
     /// it says is a line for the type that failed and then that the recorder did not answer, while the line of
@@ -1297,6 +1351,21 @@ final class RecorderRecordingsTests: XCTestCase {
     private static func guideFiles(asked recorder: StubTransport) async -> [String] {
         await recorder.requests.compactMap { request in
             Codes.epgFiles.first { $0.value == request.url.lastPathComponent }?.key
+        }
+    }
+
+    /// Waits, a bounded while, for `recorder` to be holding an ask of who it is: a counted loop of turns, and a
+    /// failure, thrown on, when none has come by then. The recorder's own wait for it has no bound.
+    private static func whenHeld(_ recorder: ScriptedRecorder) async throws {
+        let noted = Noted()
+        Task {
+            await recorder.whenHeld()
+            noted.back = true
+        }
+        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        guard noted.back else {
+            XCTFail("the ask that was to be held never came")
+            throw NothingHeld()
         }
     }
 

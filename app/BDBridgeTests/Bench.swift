@@ -1399,7 +1399,8 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
 
 /// Why the last reservation or change on the recorder asked through the two above was not done, as its result
 /// said it, or the last of the recordings' and the keyword conditions' writes asked through the helpers below;
-/// nil when it was made, kept or done.
+/// nil when it was made, kept or done. And what the last guide asked for by hand had to say
+/// (`refreshTheGuideByHand`), nil for nothing.
 @MainActor
 func whyNotJustNow(_ model: AppModel) -> String? {
     reasons.first { $0.model === model }?.why
@@ -1476,9 +1477,14 @@ private func noted(_ altered: Altered, of model: AppModel) -> Bool {
 // MARK: - what the tests ask of the guide
 
 /// The guide fetched as 番組表を更新 asks for it, on the guide's tab and in Settings: every broadcasting type.
+/// Whether it went through. What it had to say, which its button shows in an alert, is noted for
+/// `whyNotJustNow`, nil for nothing: one that went through says the types that failed.
 @MainActor
-func refreshTheGuideByHand(_ model: AppModel) async {
-    await model.refreshGuide()
+@discardableResult
+func refreshTheGuideByHand(_ model: AppModel) async -> Bool {
+    let refreshed = await model.refreshGuide()
+    note(refreshed.said, of: model)
+    return refreshed.wentThrough
 }
 
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands

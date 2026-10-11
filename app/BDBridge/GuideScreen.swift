@@ -10,6 +10,8 @@ struct GuideScreen: View {
     @State private var tapped: GuideProgramRow?
     @State private var welcoming = false
     @State private var arranging = false
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuide`), until it is dismissed.
+    @State private var failure: String?
 
     private var grid: Bool { mode == "grid" }
 
@@ -114,7 +116,7 @@ struct GuideScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await model.refreshGuide() }
+                        Task { failure = await model.refreshGuide().said }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -125,6 +127,13 @@ struct GuideScreen: View {
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
+            // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
+            .alert("エラー",
+                   isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(failure ?? "")
+            }
         }
         .welcomesHere($welcoming)
     }
