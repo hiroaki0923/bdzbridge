@@ -1189,6 +1189,73 @@ final class FunnelGateTests: XCTestCase {
         await recorder.comeFree()
     }
 
+    /// The free space is read after a delete, and with the recordings, only where a check of the recorder made
+    /// then would have nothing to ask: that read makes no check of its own. A check asked for while a delete is
+    /// out waits its turn behind it; its ask of who answers is held at the recorder, so that the check is still
+    /// out once the delete has been answered, and then hears the recorder busy with somebody else. The delete
+    /// has gone through and says so, and its row has left the list; the free space is not asked for behind that
+    /// check, of a recorder that has not said which it is, and what is shown stays as it was last read. So it is
+    /// with the recordings, read a row shorter after a delete on the recorder's own screen: the list is on
+    /// screen, and no free space is asked for after it. The next read of the recordings, the recorder saying
+    /// which it is again, reads it.
+    func testTheFreeSpaceIsNotReadBehindACheckThatCameInBehindADeleteOrTheRecordings() async throws {
+        let (_, recorder, model, subjects) = try await settled()
+        let room = try XCTUnwrap(model.storage?.free, "the recorder never said how much room it has")
+
+        // A delete.
+        await recorder.hold(only: Kind.deleteRecording)
+        var before = await recorder.asked
+        let deleting = Task { await deleteARecording(model, subjects.spare) }
+        try await until("the delete never got to the recorder") {
+            await recorder.asked(Kind.deleteRecording, since: before) == 1
+        }
+        await recorder.holdTheNext(Kind.description)
+        var check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.letGo(only: Kind.deleteRecording)
+        try await until("the delete was never answered") { !model.titles.contains { $0.id == subjects.spare.id } }
+        await recorder.busyAtTheDoor()
+        await recorder.letGo()
+        expectTrue(await deleting.value, "a check that came in behind a delete failed it")
+        expectTrue(await check.value, "a recorder that answered busy was taken for gone")
+        expectEqual(await recorder.asked(Kind.description, since: before), 3,
+                    "the check was meant to ask who answers, through the client's tries")
+        expectEqual(await recorder.asked(Kind.freeSpace, since: before), 0,
+                    "the free space was read after a delete, behind a check that heard the recorder busy")
+        XCTAssertEqual(model.storage?.free, room, "the free space shown is not as it was last read")
+        await recorder.comeFree()
+        expectTrue(await makeSure(model), "the recorder was meant to say which it is again")
+
+        // The recordings, a row shorter than they were last read.
+        try await aClient(of: recorder).deleteTitle(id: subjects.title.id)
+        await recorder.hold(only: Kind.recordings)
+        before = await recorder.asked
+        let reading = Task { await model.loadTitles(force: true) }
+        try await until("the recordings were never asked for") {
+            await recorder.asked(Kind.recordings, since: before) == 1
+        }
+        await recorder.holdTheNext(Kind.description)
+        check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.letGo(only: Kind.recordings)
+        try await until("the recordings were never read") { !model.titles.contains { $0.id == subjects.title.id } }
+        await recorder.busyAtTheDoor()
+        await recorder.letGo()
+        await reading.value
+        expectTrue(await check.value, "a recorder that answered busy was taken for gone")
+        XCTAssertTrue(model.titlesLoaded, "a check that came in behind the recordings failed their read")
+        expectEqual(await recorder.asked(Kind.description, since: before), 3,
+                    "the check was meant to ask who answers, through the client's tries")
+        expectEqual(await recorder.asked(Kind.freeSpace, since: before), 0,
+                    "the free space was read with the recordings, behind a check that heard the recorder busy")
+        XCTAssertEqual(model.storage?.free, room, "the free space shown is not as it was last read")
+
+        // Read again once the recorder says which it is: the free space with them.
+        await recorder.comeFree()
+        await model.loadTitles(force: true)
+        XCTAssertGreaterThan(model.storage?.free ?? 0, room, "the room the deleted recordings took is not shown")
+    }
+
     /// A write answered once another recorder has taken the place of the one it was asked of, which emptied the
     /// lists in that turn: queued on the last recorder's client behind a list read that was out when the
     /// newcomer described itself, it goes to the address once that read is back, and so to the newcomer -- what

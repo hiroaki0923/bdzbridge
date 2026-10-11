@@ -697,6 +697,127 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await recorder.actions, [], "the free space was asked of a recorder known to be away")
     }
 
+    /// The free space is read only where a check of the recorder made then would have nothing to ask, whoever
+    /// asks for it -- the end of a run, a single delete, the list of recordings -- since that read makes no
+    /// check of its own. Beside a check that is out, here waiting its turn behind a question held at the
+    /// recorder, nothing is asked: the read would have waited behind the check's ask and gone whatever that
+    /// heard. After a check that heard the recorder busy with somebody else nothing is asked, and the line is
+    /// left as it was. What the session holds stays as it was last read, and once the recorder has said which it
+    /// is again, the next that asks reads it.
+    ///
+    /// A single delete, and the list, with a check behind its request that hears the recorder busy, goes
+    /// through all the same -- the row taken out, the list handed over -- and no free space is asked for after
+    /// it. And on a client the recorder has not answered yet, put in hand here as a connect puts its own in
+    /// hand before its first ask, nothing is asked: there is no answer to go by.
+    func testTheFreeSpaceIsReadOnlyWhereACheckWouldHaveNothingToAsk() async throws {
+        let space = "X_HDLnkGetRecordDestinationInfo"
+        let listed = "<xsrs>" + Self.listed("0x1", protected: false, recording: false) + "</xsrs>"
+        let (world, driver, recorder) = try await Self.playing([
+            space: [Self.space(free: 10), Self.space(free: 30)],
+            "X_GetTitleDetail": [Stub.soap("X_GetTitleDetail", result: "<detail/>")],
+            "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+            "X_GetTitleList": [Stub.soap("X_GetTitleList", result: listed, totalMatches: 1)],
+        ])
+        let link = try XCTUnwrap(driver.link)
+        let title = try await Self.title()
+        let run = try driver.beginRun(.delete).get()
+        let noted = Noted()
+        XCTAssertEqual(link.session.storage?.free, 10, "the connect was meant to read the free space")
+
+        // Beside a check that is out, its ask waiting its turn behind a question held at the recorder.
+        await recorder.holdTheNext("X_GetTitleDetail")
+        let asking = Task { await driver.detail(of: title) }
+        try await recorder.whenHeld()
+        let check = Task { await link.ensureUp(evenIfRecent: true) }
+        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the question")
+        let ending = Task {
+            await driver.end(run, deleted: 1, stopped: nil)
+            noted.back = true
+        }
+        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        await recorder.letGo()
+        _ = await asking.value
+        await ending.value
+        expectEqual(await check.value, true, "the recorder was meant to say which it is")
+        expectEqual(await recorder.actions, ["X_GetTitleDetail", "description.xml"],
+                    "the free space was asked for beside a check that was out")
+        XCTAssertEqual(link.session.storage?.free, 10, "the free space kept is not as it was last read")
+
+        // After a check that heard the recorder busy with somebody else.
+        await recorder.beBusyWhenAskedWhoItIs()
+        var up = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(up, "a recorder that answered busy was taken for gone")
+        await recorder.forget()
+        await driver.end(run, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [],
+                    "the free space was asked for after a check that heard the recorder busy")
+        XCTAssertEqual(link.session.storage?.free, 10, "the free space kept is not as it was last read")
+        XCTAssertEqual(world.problem, Self.left, "a free space not asked for wrote on the line")
+
+        // The recorder says which it is again: read, and kept.
+        await recorder.sayWhoItIs()
+        up = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(up, "the recorder was meant to say which it is again")
+        await recorder.forget()
+        await driver.end(run, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [space], "the free space was not read once nothing was in the way")
+        XCTAssertEqual(link.session.storage?.free, 30)
+
+        // A single delete, with a check behind it that hears the recorder busy.
+        await recorder.forget()
+        await recorder.holdTheNext("X_DeleteTitle")
+        let deleting = Task { await driver.delete(title) { noted.rowsTakenOut += 1 } }
+        try await recorder.whenHeld()
+        await recorder.beBusyWhenAskedWhoItIs()
+        var behind = Task { await link.ensureUp(evenIfRecent: true) }
+        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the delete")
+        await recorder.letGo()
+        let deleted = await deleting.value
+        expectEqual(await behind.value, true, "a recorder that answered busy was taken for gone")
+        XCTAssertEqual(deleted.altered, .done(saying: nil), "a check that came in behind a delete failed it")
+        XCTAssertEqual(noted.rowsTakenOut, 1, "the row of a delete that went through was not taken out")
+        var asked = await recorder.actions
+        XCTAssertEqual(asked.first, "X_DeleteTitle")
+        XCTAssertEqual(Set(asked.dropFirst()), ["description.xml"],
+                       "the free space was asked for after a delete, behind a check that heard busy: \(asked)")
+        XCTAssertEqual(link.session.storage?.free, 30, "the free space kept is not as it was last read")
+
+        // The list, the same.
+        await recorder.sayWhoItIs()
+        up = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(up, "the recorder was meant to say which it is again")
+        await recorder.forget()
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { await driver.titles { noted.list = $0.map(\.id) } }
+        try await recorder.whenHeld()
+        await recorder.beBusyWhenAskedWhoItIs()
+        behind = Task { await link.ensureUp(evenIfRecent: true) }
+        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the list")
+        await recorder.letGo()
+        expectEqual(await reading.value, true, "a check that came in behind the list failed its read")
+        expectEqual(await behind.value, true, "a recorder that answered busy was taken for gone")
+        XCTAssertEqual(noted.list, ["0x1"], "the list read was not handed over")
+        asked = await recorder.actions
+        XCTAssertEqual(asked.first, "X_GetTitleList")
+        XCTAssertEqual(Set(asked.dropFirst()), ["description.xml"],
+                       "the free space was asked for with the list, behind a check that heard busy: \(asked)")
+        XCTAssertEqual(link.session.storage?.free, 30, "the free space kept is not as it was last read")
+
+        // On a client the recorder has not answered yet.
+        await recorder.sayWhoItIs()
+        up = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(up, "the recorder was meant to say which it is again")
+        link.client = RecorderClient(host: Stub.host, transport: recorder)
+        await recorder.forget()
+        await driver.end(run, deleted: 1, stopped: nil)
+        expectEqual(await recorder.actions, [],
+                    "the free space was asked for on a client the recorder has not answered")
+        XCTAssertEqual(link.session.storage?.free, 30)
+    }
+
     // MARK: - one recording of a run
 
     // The decisions a run makes about each recording. The recorder's traps are the point: it refuses a protected
@@ -1177,6 +1298,16 @@ final class RecorderRecordingsTests: XCTestCase {
         let rules = try await client.recorderRules()
         return try XCTUnwrap(rules.first, "the vectors list no condition")
     }
+}
+
+/// What a test's own tasks and closures noted, for a test that sets something going and looks afterwards at
+/// what it did.
+@MainActor
+private final class Noted {
+    /// Whether what was set going has come back.
+    var back = false
+    var rowsTakenOut = 0
+    var list: [String]?
 }
 
 /// A recorder that says who it is as the vectors' recorder does, and answers each SOAP action with the answers a

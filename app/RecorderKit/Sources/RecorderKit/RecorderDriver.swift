@@ -1143,15 +1143,14 @@ public final class RecorderDriver: LinkDriver {
     private typealias ListRead = Result<[Reservation], OperationFailure>
 
     /// The recorder's list, read on the client in hand from inside the queue's turn, as a round's opening read
-    /// is, with no line and no check; nil when it is not read. Only while nothing would make the check before
-    /// asking it: the client is the one whose attach went through, the recorder is connected and not known to
-    /// be away, nothing was heard in its place (`DeviceLink.mayBeSent`), no check is out -- the read would wait
-    /// behind its probe, and its waking -- and the recorder answered within the time after which it is made
-    /// sure of (`LinkRules.needsCheck`). Nil too for a recorder let go of while the read was out.
+    /// is, with no line and no check; nil when it is not read. Only while the client is the one whose attach
+    /// went through and the recorder is connected (`DeviceLink.mayBeSent`), and a check before the read would
+    /// have nothing to ask (`checkWouldAskNothing`): the recorder not known to be away, nothing heard in its
+    /// place, no check out -- the read would wait behind its probe, and its waking -- and an answer within the
+    /// time after which the recorder is made sure of. Nil too for a recorder let go of while the read was out.
     private func listInTheTurn(_ link: DeviceLink, since began: Int) async -> ListRead? {
-        guard link.mayBeSent, !link.session.unreachable, link.wakeCheck == nil,
-              let client = link.client as? RecorderClient,
-              !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date()) else { return nil }
+        guard link.mayBeSent, let client = link.client as? RecorderClient,
+              await checkWouldAskNothing(of: client, on: link) else { return nil }
         let read: ListRead
         do {
             read = .success(try await client.reservations())
@@ -1827,6 +1826,23 @@ public final class RecorderDriver: LinkDriver {
         } catch {
             return ((error as? any DeviceError)?.failure ?? .unexpected(String(describing: error)), false)
         }
+    }
+
+    /// Whether a check of the recorder made now, before something asked on `client`, would have nothing to ask
+    /// (`DeviceLink.check`): what a request that makes no check of its own goes by -- the list read from inside
+    /// the queue's turn (`listInTheTurn`), whose check could wake the recorder and wait for that very turn, and
+    /// the free space read as a step of another operation (`learnTheFreeSpace`). So it is while the recorder is
+    /// not known to be away; no check is out, behind whose ask, and whose waking, the request would wait its
+    /// turn; the last check heard nothing in place of the recorder saying which it is, after which whatever is
+    /// asked next asks who answers again (`DeviceLink.checksAgain`); and the recorder answered this client
+    /// within the time after which it is made sure of (`LinkRules.needsCheck`).
+    ///
+    /// When the client last answered is asked of it first, which takes a turn, and the link is looked at once
+    /// that is in hand: a check begun meanwhile is seen, and the caller sends in the turn it is answered in.
+    func checkWouldAskNothing(of client: RecorderClient, on link: DeviceLink) async -> Bool {
+        let lastAnswer = await client.lastAnswer
+        return !link.session.unreachable && link.wakeCheck == nil && !link.checksAgain
+            && !LinkRules.needsCheck(lastAnswer: lastAnswer, now: Date())
     }
 
     /// Said at the door of something sent after the check before it, when it may not be sent

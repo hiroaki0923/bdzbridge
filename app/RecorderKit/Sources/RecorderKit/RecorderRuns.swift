@@ -369,15 +369,20 @@ extension RecorderDriver {
     ///
     /// Nothing is read after a run that deleted nothing, which has freed nothing, nor after one the recorder
     /// stopped, whatever it had deleted: that read makes no check of its own, and would go straight behind a
-    /// check that heard the recorder busy, or wait out its timeout on a recorder that has just gone silent. Nor
-    /// of a recorder known to be away, which would cost the read its timeout.
+    /// check that heard the recorder busy, or wait out its timeout on a recorder that has just gone silent.
+    ///
+    /// Nor is a run that nothing stopped sure of its recorder as it ends: nothing has made sure of it since
+    /// the run's last request was answered. So the read is made only where a check would have nothing to ask,
+    /// which is the read's own rule, for whoever asks (`learnTheFreeSpace`): not beside a check that is out or
+    /// after one that heard something in the recorder's place, and not of a recorder known to be away or quiet
+    /// a long while. The free space shown then stays as it was last read, until the recordings are next read.
     ///
     /// Not for a recorder the run did not begin with (`Run`): let go of since, nothing is read, the free space
     /// being another recorder's or nobody's to ask. Let go of while the read is out, what comes back is not
     /// kept in the session, which is the newcomer's by then, and its silence is neither said nor taken.
     public func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
         guard case .delete = run.kind, deleted > 0, stopped == nil, let link, !link.letGo(since: run.began),
-              !link.session.unreachable, let client = link.client as? RecorderClient else { return }
+              let client = link.client as? RecorderClient else { return }
         await learnTheFreeSpace(on: client, link, since: run.began)
     }
 }
