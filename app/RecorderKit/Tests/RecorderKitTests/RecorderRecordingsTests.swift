@@ -1167,6 +1167,160 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(driver.link?.session.connected == true, "a file not built was taken for the recorder going")
     }
 
+    /// The guide is fetched only from a recorder that has said which it is. After a reconnect the recorder
+    /// answered busy with somebody else, the app is connected from the attach before, beside a client that has
+    /// not heard which recorder answers it. A refresh as a connect asks for it is turned away there: nothing is
+    /// asked, no line goes up, the line an earlier failure left stays, and it says that the app is not
+    /// connected.
+    ///
+    /// 番組表を更新 pressed there connects first. With the recorder busy still, that connect comes to no
+    /// recorder that can be asked, and nothing is fetched after it: the press says what the connect left on
+    /// the line of what went wrong, that the recorder is busy, as after a check that said no. With the recorder
+    /// free, who answers is asked once, and then each file once. Pressed again, the recorder to be asked, it
+    /// fetches with no connect. Pressed with the recorder known to be away, it is turned away as a refresh is,
+    /// and makes no connect.
+    ///
+    /// And where the press's connect is answered by another recorder, which is taken up, the press fetches
+    /// nothing: the guide is the newcomer's connect's to fetch, and the press says that another recorder
+    /// answered.
+    ///
+    /// Where the press's connect left nothing on the line, the press says that the app is not connected: here
+    /// a connect is under way as it is pressed, its ask of who answers held at the recorder, so that the press's
+    /// own does nothing beside it, nothing is asked, and the press is back before that connect is.
+    func testAGuideIsFetchedOnlyFromARecorderThatHasSaidWhichItIsAndAPressConnectsFirst() async throws {
+        func files(_ recorder: PlayingRecorder) async -> Int { await recorder.actions.filter(\.isEmpty).count }
+        func asksOfWhoAnswers(_ recorder: PlayingRecorder) async -> Int {
+            await recorder.actions.filter { $0 == "description.xml" }.count
+        }
+        /// Connected, and then a reconnect answered busy, the recorder busy still: with a cache in hand, an
+        /// earlier failure's line left and nothing put down.
+        func afterABusyReconnect() async throws -> (LinkWorld, RecorderDriver, PlayingRecorder, DeviceLink) {
+            let (world, driver, recorder) = try await Self.playing([:])
+            let link = try XCTUnwrap(driver.link)
+            world.cache = try temporaryStore()
+            await recorder.beBusyWhenAskedWhoItIs()
+            await link.connect()
+            XCTAssertTrue(link.session.connected, "the attach before was meant to stand")
+            XCTAssertFalse(link.clientIsAttached, "the client in hand was meant not to have heard who answers")
+            XCTAssertFalse(driver.canBeAsked)
+            await recorder.forget()
+            world.problem = Self.left
+            return (world, driver, recorder, link)
+        }
+
+        let (world, driver, recorder, link) = try await afterABusyReconnect()
+        let begun = world.begun.count
+        let turnedAway = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+        XCTAssertFalse(turnedAway.wentThrough)
+        XCTAssertEqual(turnedAway.said, RecorderDriver.notConnected)
+        expectEqual(await recorder.actions, [], "something was asked of a recorder that has not said which it is")
+        XCTAssertEqual(world.begun.count, begun, "a line went up for a refresh turned away at its door")
+        XCTAssertEqual(world.problem, Self.left, "a refresh turned away at its door wrote on the line")
+
+        let stillBusy = await driver.refreshGuideByHand { world.put("stored \($0)") }
+        let busy = RecorderError.busy(action: "description.xml").explanation
+        XCTAssertFalse(stillBusy.wentThrough)
+        XCTAssertEqual(world.problem, busy, "the press's connect was meant to say what it heard on the line")
+        XCTAssertEqual(stillBusy.said, busy, "the press does not say what its connect left on the line")
+        expectEqual(await asksOfWhoAnswers(recorder), 3, "the press was meant to connect, busy through its tries")
+        expectEqual(await files(recorder), 0, "a file was asked for after a connect the recorder answered busy")
+        XCTAssertTrue(link.session.connected, "the attach before was meant to stand")
+
+        await recorder.sayWhoItIs()
+        await recorder.forget()
+        let pressed = await driver.refreshGuideByHand { world.put("stored \($0)") }
+        XCTAssertTrue(pressed.wentThrough, pressed.said ?? "nothing said")
+        XCTAssertEqual(pressed.failed.map(\.broadcasting), GuideRefresh.broadcastingTypes)
+        expectEqual(await asksOfWhoAnswers(recorder), 1, "the press was meant to connect once")
+        expectEqual(await files(recorder), 4, "each file was meant to be asked for once")
+        expectEqual(await recorder.actions.first, "description.xml", "something was asked before who answers")
+        XCTAssertTrue(driver.canBeAsked)
+
+        await recorder.forget()
+        let again = await driver.refreshGuideByHand { world.put("stored \($0)") }
+        XCTAssertTrue(again.wentThrough)
+        expectEqual(await asksOfWhoAnswers(recorder), 0, "a press connected for a recorder that can be asked")
+        expectEqual(await files(recorder), 4)
+
+        link.lost()
+        await recorder.forget()
+        world.problem = Self.left
+        let away = await driver.refreshGuideByHand { world.put("stored \($0)") }
+        XCTAssertFalse(away.wentThrough)
+        XCTAssertEqual(away.said, RecorderDriver.notConnected)
+        expectEqual(await recorder.actions, [], "a press connected, or fetched, for a recorder known to be away")
+        XCTAssertEqual(world.problem, Self.left)
+
+        // Another recorder answers the press's connect.
+        let (home, ofTheFirst, first, toTheFirst) = try await afterABusyReconnect()
+        let newcomer = try PlayingRecorder([:], udn: Self.anotherUDN)
+        home.devices[Stub.host] = newcomer
+        let answeredByAnother = await ofTheFirst.refreshGuideByHand { home.put("stored \($0)") }
+        XCTAssertEqual(toTheFirst.session.info?.udn, Self.anotherUDN, "the newcomer was meant to be taken up")
+        XCTAssertFalse(answeredByAnother.wentThrough)
+        XCTAssertEqual(answeredByAnother.said, RecorderDriver.anotherAnswered)
+        expectEqual(await files(newcomer), 0, "the press fetched from a recorder it was not pressed for")
+        expectEqual(await files(first), 0)
+
+        // Pressed while a connect is under way, which leaves nothing on the line for the press to say.
+        let (waiting, ofTheWaiting, toTheWaiting) = try Self.linked()
+        let scripted = try XCTUnwrap(waiting.devices[Stub.host] as? ScriptedRecorder)
+        Self.links.append(toTheWaiting)
+        waiting.cache = try temporaryStore()
+        await toTheWaiting.connect()
+        XCTAssertTrue(toTheWaiting.session.connected, waiting.problem ?? "no reason given")
+        await scripted.hold()
+        let connecting = Task { await toTheWaiting.connect() }
+        try await Self.whenHeld(scripted)
+        waiting.problem = nil
+        waiting.events = []
+        let noted = Noted()
+        let pressing = Task {
+            let came = await ofTheWaiting.refreshGuideByHand { waiting.put("stored \($0)") }
+            noted.back = true
+            return came
+        }
+        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        XCTAssertTrue(noted.back, "the press waits for the connect that is under way")
+        XCTAssertEqual(waiting.events.filter { $0.hasPrefix("ask") }, [], "something was asked beside a connect")
+        await scripted.letGo()
+        await connecting.value
+        let beside = await pressing.value
+        XCTAssertFalse(beside.wentThrough)
+        XCTAssertEqual(beside.said, RecorderDriver.notConnected, "with nothing on the line")
+    }
+
+    /// A refresh that comes to fetch and finds nothing to -- every type answered for since the moment it was
+    /// asked with -- asks the recorder for no file. It went through, has nothing to say, and leaves the line of
+    /// what went wrong as it stands: nothing was asked that could have put right what the line says. With one
+    /// type's mark older than the moment, that type alone is asked for, and going through clears the line.
+    ///
+    /// The marks are the test's own, a day ahead of now and two days back.
+    func testAGuideRefreshThatFindsNothingToFetchLeavesTheLineAsItStands() async throws {
+        let (world, driver, recorder) = try await Self.serving(["td": true])
+        let cache = try temporaryStore()
+        world.cache = cache
+        let ahead = Date().addingTimeInterval(86_400), longAgo = Date().addingTimeInterval(-2 * 86_400)
+        for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: ahead) }
+        let asked = await recorder.requests.count
+
+        let nothing = await driver.refreshGuide(.notAnsweredSince(Date())) { world.put("stored \($0)") }
+        XCTAssertTrue(nothing.wentThrough, "a refresh with nothing left to fetch was said not to have gone through")
+        XCTAssertNil(nothing.said)
+        XCTAssertEqual(nothing.answered, [])
+        XCTAssertEqual(nothing.failed, [])
+        expectEqual(await recorder.requests.count, asked, "the recorder was asked, with nothing to fetch")
+        XCTAssertEqual(world.problem, Self.left, "a refresh that asked the recorder for nothing cleared the line")
+        XCTAssertNil(world.line, "the line was left up")
+
+        try await cache.noteNoGuide(broadcasting: "td", at: longAgo)
+        let one = await driver.refreshGuide(.notAnsweredSince(Date())) { world.put("stored \($0)") }
+        XCTAssertTrue(one.wentThrough, one.said ?? "nothing said")
+        XCTAssertEqual(one.answered, ["td"])
+        expectEqual(await Self.guideFiles(asked: recorder), ["td"], "the one type behind was meant to be asked for")
+        XCTAssertNil(world.problem, "a refresh that fetched a type and went through left the line up")
+    }
+
     /// What a refresh of the guide says when the check before it said no, nothing having been asked for:
     /// whatever stands on the line of what went wrong once that check has ended, and that the app is not
     /// connected where nothing stands there. That is all that is promised of it (`GuideRefreshed.said`), and it

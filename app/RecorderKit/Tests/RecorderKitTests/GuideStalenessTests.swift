@@ -51,6 +51,26 @@ final class GuideStalenessTests: XCTestCase {
         XCTAssertEqual(GuideRefresh.staleTypes(all, now: now, types: ["td", "bs", "cs", "bs4k"]), ["bs", "bs4k"])
     }
 
+    /// By a moment in place of the rebuild: a type is asked for again only when its mark is earlier than the
+    /// moment, and one never answered for always. The cache keeps a mark to the whole second, so a moment that
+    /// is to be told from the marks written after it is taken to the whole second too: with its fraction it is
+    /// later than a mark written within its own second, which would count as from before it.
+    func testATypeIsNotAnsweredSinceAMomentWhenItsMarkIsOfAnEarlierSecond() async throws {
+        let pressed = try time("2026-10-01T08:00:00+09:00").addingTimeInterval(0.4)
+        let moment = GuideRefresh.toTheSecond(pressed)
+        XCTAssertEqual(moment, try time("2026-10-01T08:00:00+09:00"))
+        let store = try GuideStore(path: ":memory:")
+        try await store.noteNoGuide(broadcasting: "td", at: pressed.addingTimeInterval(0.5))
+        try await store.noteNoGuide(broadcasting: "bs", at: pressed.addingTimeInterval(-1))
+        try await store.noteNoGuide(broadcasting: "cs", at: pressed.addingTimeInterval(1))
+        let counts = try await store.counts()
+
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, since: moment), ["bs", "bs4k"])
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, since: pressed), ["td", "bs", "bs4k"],
+                       "with its fraction the moment was meant to be later than a mark of its own second")
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, since: moment, types: ["cs", "td"]), [])
+    }
+
     func testATypeNeverAskedForIsStale() throws {
         let now = try time("2026-10-01T08:00:00+09:00")
         XCTAssertEqual(GuideRefresh.staleTypes([:], now: now), GuideRefresh.broadcastingTypes)

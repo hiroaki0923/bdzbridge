@@ -1482,7 +1482,7 @@ private func noted(_ altered: Altered, of model: AppModel) -> Bool {
 @MainActor
 @discardableResult
 func refreshTheGuideByHand(_ model: AppModel) async -> Bool {
-    let refreshed = await model.refreshGuide()
+    let refreshed = await model.refreshGuideByHand()
     note(refreshed.said, of: model)
     return refreshed.wentThrough
 }

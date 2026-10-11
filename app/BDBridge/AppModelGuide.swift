@@ -67,26 +67,39 @@ extension AppModel {
         await refreshGuide(.only(stale))
     }
 
-    /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
-    /// the cache holds for each: the driver's step (`RecorderDriver.refreshGuide`), counted while it is out
-    /// (`guideDownloads`).
-    ///
-    /// Each type goes on screen as soon as it is stored, so that the first run does not wait for BS, CS and
-    /// BS4K behind the terrestrial programmes it opens on. A type that fails is passed over (see
-    /// `GuideRefresh.run`), said on screen a line per type, and fetched again at the next connect.
-    ///
-    /// What it came to is handed back as the driver hands it over, for the screen that asked to say
-    /// (`GuideRefreshed.said`): the two 番組表を更新 buttons show it in an alert, the guide's tab having no line
-    /// of what went wrong while a guide is on screen. Turned away here, with nothing asked and nothing counted,
-    /// it says that the app is not connected, in the package's own answer for a refresh not asked for
-    /// (`GuideRefreshed.notConnected`): no button is live then to show it. A connect asks with nobody having
-    /// pressed, and lets the answer go: what failed is on the line.
+    /// Downloads the broadcasting types told and replaces what the cache holds for each, as a connect asks for
+    /// it: the driver's step (`RecorderDriver.refreshGuide`). A connect asks with nobody having pressed, and
+    /// lets what it came to go: what failed is on the line.
     @discardableResult
-    func refreshGuide(_ which: GuideAsked = .all) async -> GuideRefreshed {
-        guard let recorderDriver, client != nil, store != nil, !unreachable else { return .notConnected }
+    func refreshGuide(_ which: GuideAsked) async -> GuideRefreshed {
+        await fetchingTheGuide { driver, stored in await driver.refreshGuide(which, stored: stored) }
+    }
+
+    /// 番組表を更新, on the guide's tab and in Settings: every broadcasting type, the driver's to fetch and to
+    /// connect for first where the recorder cannot be asked (`RecorderDriver.refreshGuideByHand`). What it came
+    /// to is handed back as the driver hands it over, for the screen that asked to say (`GuideRefreshed.said`):
+    /// the two buttons show it in an alert, the guide's tab having no line of what went wrong while a guide is
+    /// on screen.
+    func refreshGuideByHand() async -> GuideRefreshed {
+        await fetchingTheGuide { driver, stored in await driver.refreshGuideByHand(stored: stored) }
+    }
+
+    /// A refresh of the guide as the screens have it, whichever asks: counted while it is out
+    /// (`guideDownloads`), each type on screen as soon as it is stored, so that the first run does not wait for
+    /// BS, CS and BS4K behind the terrestrial programmes it opens on, and the cache read once more as it ends.
+    /// A type that fails is passed over (see `GuideRefresh.run`), said on screen a line per type, and fetched
+    /// again at the next connect.
+    ///
+    /// Whether anything is asked is the driver's to say, at its own doors: the app keeps no copy of them. One
+    /// turned away there comes back in the turn it was asked in, and ends in the read of the cache like any
+    /// other.
+    private func fetchingTheGuide(
+        _ refresh: @MainActor (RecorderDriver, @escaping @MainActor @Sendable (String) async -> Void) async
+            -> GuideRefreshed) async -> GuideRefreshed {
+        guard let recorderDriver else { return .notConnected }
         guideDownloads += 1
         defer { guideDownloads -= 1 }
-        let refreshed = await recorderDriver.refreshGuide(which) { _ in await self.reloadFromCache() }
+        let refreshed = await refresh(recorderDriver) { _ in await self.reloadFromCache() }
         // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
         // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
         // not be asked for again, and which the model goes by.

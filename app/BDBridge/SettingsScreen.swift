@@ -13,7 +13,7 @@ struct SettingsScreen: View {
     /// The television's sheet: its section asks for it (`TVSection`), and so does a television the search
     /// found, tapped (`FoundTelevisionsSection`); this screen puts it up.
     @State private var tvSheet: TVSheetRequest?
-    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuide`), until it is dismissed.
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
     @State private var guideFailure: String?
     @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
@@ -204,7 +204,7 @@ struct SettingsScreen: View {
                         LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
-                        Task { guideFailure = await model.refreshGuide().said }
+                        Task { guideFailure = await model.refreshGuideByHand().said }
                     }
                     .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
                 }

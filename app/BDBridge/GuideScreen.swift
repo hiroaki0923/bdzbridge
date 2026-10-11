@@ -10,7 +10,7 @@ struct GuideScreen: View {
     @State private var tapped: GuideProgramRow?
     @State private var welcoming = false
     @State private var arranging = false
-    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuide`), until it is dismissed.
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
     @State private var failure: String?
 
     private var grid: Bool { mode == "grid" }
@@ -116,7 +116,7 @@ struct GuideScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { failure = await model.refreshGuide().said }
+                        Task { failure = await model.refreshGuideByHand().said }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }

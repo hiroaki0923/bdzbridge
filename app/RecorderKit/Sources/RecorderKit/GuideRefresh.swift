@@ -115,11 +115,24 @@ public enum GuideRefresh {
     /// fetch all four. A type it answered with no file for is marked as asked (`GuideCounts.checked`).
     public static func staleTypes(_ counts: [String: GuideCounts], now: Date = Date(),
                                   types: [String] = broadcastingTypes) -> [String] {
-        let rebuilt = lastRebuild(before: now)
-        return types.filter { broadcasting in
+        staleTypes(counts, since: lastRebuild(before: now), types: types)
+    }
+
+    /// The same by any moment in place of the last rebuild: the types the recorder has not been asked for and
+    /// answered since `moment`, or never. A type whose mark is of that very moment counts as answered since.
+    /// The marks are kept to the whole second (`RecorderTime.format`), so a moment that is to be told from a
+    /// mark written just after it is taken to the whole second as well (`toTheSecond`).
+    public static func staleTypes(_ counts: [String: GuideCounts], since moment: Date,
+                                  types: [String] = broadcastingTypes) -> [String] {
+        types.filter { broadcasting in
             guard let answered = counts[broadcasting]?.lastAnswered else { return true }
-            return answered < rebuilt
+            return answered < moment
         }
+    }
+
+    /// `moment` as a mark of the cache would hold it (`GuideStore.noteNoGuide`): to the whole second.
+    static func toTheSecond(_ moment: Date) -> Date {
+        RecorderTime.parse(RecorderTime.format(moment)) ?? moment
     }
 
     static func reason(for error: any Error) -> String {
