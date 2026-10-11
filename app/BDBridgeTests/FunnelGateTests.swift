@@ -731,12 +731,13 @@ final class FunnelGateTests: XCTestCase {
     /// asked for and no probe is sent beside the check's, what is said is the check's, and the count of
     /// downloads comes back to nought.
     ///
-    /// After a check that heard the recorder busy with somebody else as it was asked who it is, the guide is
-    /// fetched all the same, as it is today: nobody is asked again who answers, each file is asked for once, and
-    /// going through clears the line. The recordings and the conditions are not read after such a check, and each
-    /// asks again (`testNothingIsSentOrReadAfterACheckThatHeardTheRecorderBusyAndEachAsksAgain`, which leaves the
-    /// guide out). A later change has the guide do as they do, and rewrites this half.
-    func testAGuideAskedForByHandWaitsForTheCheckAndIsFetchedAfterOneThatHeardTheRecorderBusy() async throws {
+    /// After a check that heard the recorder busy with somebody else as it was asked who it is, nothing is
+    /// fetched, as no list is read after one: busy says nothing of which recorder answered, and the files' own
+    /// server names none. The press asks again who answers, however lately the recorder answered, hears busy
+    /// again, and says so on the line and in what it hands back; the recorder is kept. Pressed once more with
+    /// the recorder free, it asks who answers once more -- the one request this costs -- hears it, and fetches
+    /// each file once, which clears the line.
+    func testAGuideAskedForByHandWaitsForTheCheckAndIsNotFetchedAfterOneThatHeardTheRecorderBusy() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
 
         leaveALine(on: model)
@@ -758,16 +759,25 @@ final class FunnelGateTests: XCTestCase {
         await recorder.busyAtTheDoor()
         expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
         leaveALine(on: model)
-        let before = await recorder.asked
-        await refreshTheGuideByHand(model)
-        for file in Kind.guide {
-            expectEqual(await recorder.asked(file, since: before), 1, "\(file), after a check that heard busy")
-        }
-        expectEqual(await recorder.asked(Kind.description, since: before), 0, "the guide asked again who answers")
-        XCTAssertNil(model.problem(for: .recorder), "the guide went through and left an earlier failure up")
-        XCTAssertTrue(model.connected)
+        var heard = await recorder.heard.count
+        expectFalse(await refreshTheGuideByHand(model), "a guide went through after a check that heard busy")
+        expectEqual(await recorder.heard(since: heard), [Kind.description, Kind.description, Kind.description],
+                    "the guide was meant to ask again who answers, through its tries, and for no file")
+        XCTAssertEqual(model.problem(for: .recorder), Said.busy(Kind.description))
+        XCTAssertEqual(whyNotJustNow(model), Said.busy(Kind.description),
+                       "what was handed back does not say what the check heard")
+        XCTAssertTrue(model.connected, "a recorder that answered busy was given up on")
         XCTAssertEqual(model.guideDownloads, 0)
+        XCTAssertNil(model.busy)
+
         await recorder.comeFree()
+        heard = await recorder.heard.count
+        expectTrue(await refreshTheGuideByHand(model), whyNotJustNow(model) ?? "nothing said")
+        expectEqual(await recorder.heard(since: heard), [Kind.description, Ask.portOfTheGuide] + Kind.guide,
+                    "who answers was meant to be asked once more, and then each file once")
+        XCTAssertNil(model.problem(for: .recorder), "the guide went through and left what the check heard up")
+        XCTAssertNil(whyNotJustNow(model))
+        XCTAssertEqual(model.guideDownloads, 0)
     }
 
     /// A reconnect the recorder answered busy with somebody else leaves the app connected from the attach before,
@@ -1310,8 +1320,11 @@ final class FunnelGateTests: XCTestCase {
     /// power are not sent, and the recordings and the conditions are not read. Each asks again who answers,
     /// however lately the recorder answered -- busy says nothing of which recorder it is -- hears busy again, and
     /// says so on the line, where it stays once the operation is over, and in its result. The lists are left as
-    /// they were. A recording's details and the question of what a reservation would clash with, which have no
-    /// line, go on after such a check and are answered, asking nothing again, and leave the line as it was.
+    /// they were. Nor is the guide fetched: what its press hands back is held where the guide is asked for after
+    /// such a check by itself
+    /// (`testAGuideAskedForByHandWaitsForTheCheckAndIsNotFetchedAfterOneThatHeardTheRecorderBusy`). A
+    /// recording's details and the question of what a reservation would clash with, which have no line, go on
+    /// after such a check and are answered, asking nothing again, and leave the line as it was.
     func testNothingIsSentOrReadAfterACheckThatHeardTheRecorderBusyAndEachAsksAgain() async throws {
         let (_, recorder, model, subjects) = try await settled(guide: true)
         let program = try await programmesNotReserved(model, 1)[0]
@@ -1320,7 +1333,7 @@ final class FunnelGateTests: XCTestCase {
         let busy = Said.busy(Kind.description)
         let lists = Lists(model)
 
-        for row in Funnelled.all where row.kind != Kind.reservations && row.kind != Kind.guide[0] {
+        for row in Funnelled.all where row.kind != Kind.reservations {
             leaveALine(on: model)
             let count = await recorder.asked
             let answer = await row.ask(model, subjects)

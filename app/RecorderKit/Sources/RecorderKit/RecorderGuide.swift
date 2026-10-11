@@ -39,7 +39,8 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// check wrote there if it wrote, and if it did not, what an earlier operation left. That is the
     /// reservations' rule (`Reserved`), and no more is promised of it: a check that ends on a recorder let go
     /// of meanwhile writes nothing, and one that ends waiting for the local network permission empties the
-    /// line.
+    /// line. And where that check heard something in place of the recorder saying which it is, nothing having
+    /// been asked for: what it heard, in the recorder's words, as the step wrote it on the host's line.
     public var said: String?
 
     /// What a refresh comes to that was not asked for at all, its host having no recorder's driver to ask:
@@ -89,9 +90,15 @@ extension RecorderDriver {
     /// a write, though the guide is read: what is fetched goes into the cache for good, and the files' own
     /// server names no recorder. Turned away, the refresh says that the app is not connected
     /// (`whyNotConnected`), and the line of what went wrong is left as it was. The files are asked of the client
-    /// in hand at that door, and what comes goes into the cache in hand there. After a check that heard
-    /// something in place of the recorder saying which it is, the guide is fetched all the same, and nobody is
-    /// asked again who answers.
+    /// in hand at that door, and what comes goes into the cache in hand there.
+    ///
+    /// After a check that heard something in place of the recorder saying which it is -- busy with somebody
+    /// else, a fault (`DeviceLink.heardInstead`) -- nothing is fetched, as no list is read after one
+    /// (`reservations`): the files' server names no recorder either, and an answer that does not say which
+    /// device gave it says nothing of the device asked next. The refresh fails with what was heard, which the
+    /// link says on the line as a read's failure (`DeviceLink.say`) and the refresh says again in what it
+    /// hands back. The check after such a check asks who answers however lately the recorder answered
+    /// (`DeviceLink.checksAgain`).
     ///
     /// `stored` is called with each type once its programmes and logos are in the cache, and waited for before
     /// the next type is asked for, so that a screen can show the type without waiting for the rest. A type
@@ -103,8 +110,13 @@ extension RecorderDriver {
         }
         // Read once, as `DeviceLink.run` reads it: what went wrong is cleared on the host the refresh began under.
         let owner = link.owner
-        let ran = await link.underALine(Self.guideLine) { line -> GuideRefresh.Outcome? in
-            guard case .up = await link.check() else { return nil }
+        let ran = await link.underALine(Self.guideLine) { line -> Result<GuideRefresh.Outcome, OperationFailure> in
+            if case .notUp(let why) = await link.check(evenIfRecent: link.checksAgain) {
+                return .failure(.notSent(why))
+            }
+            if let heard = link.heardInstead {
+                return .failure(link.say(OperationFailure(heard, sending: nil), ofARead: true))
+            }
             // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
             // connected is cancelled when its screen goes away, and the refresh stops between types when it
             // is cancelled -- which is for the overnight run, whose time runs out.
@@ -120,10 +132,16 @@ extension RecorderDriver {
             } else if !(outcome.answered.isEmpty && outcome.failed.isEmpty) {
                 owner?.problem = nil
             }
-            return outcome
+            return .success(outcome)
         }
-        // The check said no, and has said why.
-        guard let outcome = ran else { return GuideRefreshed(said: link.owner?.problem ?? whyNotConnected) }
+        let outcome: GuideRefresh.Outcome
+        switch ran {
+        case .success(let fetched):
+            outcome = fetched
+        case .failure(let failure):
+            // What the link said of what the check heard; or the check said no, and has said why.
+            return GuideRefreshed(said: failure.sentence ?? link.owner?.problem ?? whyNotConnected)
+        }
         var refreshed = GuideRefreshed(wentThrough: outcome.stopped == nil, stored: outcome.stored,
                                        answered: outcome.answered, failed: outcome.failed)
         var lines = outcome.failed.map(Self.guideFailed)

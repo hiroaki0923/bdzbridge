@@ -1415,6 +1415,45 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await Self.guideFiles(asked: quiet), ["td", "bs"])
     }
 
+    /// No guide is fetched after a check that heard something in place of the recorder saying which it is. The
+    /// recorder answers busy with somebody else as a check asks who it is: it is there, and connected to still.
+    /// A refresh asked then puts its line up, asks again who answers, however lately the recorder answered,
+    /// hears busy through its tries, and asks for no file: it did not go through, and what it says is what was
+    /// heard, in the recorder's words, which is on the line of what went wrong as well. With the recorder
+    /// saying who it is again, the next refresh asks once who answers and then for each file.
+    func testNoGuideIsFetchedAfterACheckThatHeardTheRecorderBusyAndTheNextAsksAgainWhoAnswers() async throws {
+        let (world, driver, recorder) = try await Self.playing([:])
+        let link = try XCTUnwrap(driver.link)
+        world.cache = try temporaryStore()
+        await recorder.beBusyWhenAskedWhoItIs()
+        expectTrue(await link.ensureUp(evenIfRecent: true), "a recorder that answered busy was taken for gone")
+        XCTAssertTrue(link.checksAgain, "the check was meant to have heard the recorder busy")
+        await recorder.forget()
+        world.problem = Self.left
+        let begun = world.begun.count
+        let busy = RecorderError.busy(action: "description.xml").explanation
+
+        let refreshed = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+
+        XCTAssertFalse(refreshed.wentThrough, "a guide went through after a check that heard busy")
+        XCTAssertEqual(refreshed.said, busy)
+        XCTAssertEqual(world.problem, busy, "what the check heard was not said on the line")
+        expectEqual(await recorder.actions, ["description.xml", "description.xml", "description.xml"],
+                    "who answers was meant to be asked again, through the tries, and no file")
+        XCTAssertEqual(Array(world.begun.dropFirst(begun)), ["番組表を取得中"])
+        XCTAssertNil(world.line, "the line was left up")
+        XCTAssertTrue(link.session.connected, "a recorder that answered busy was given up on")
+
+        await recorder.sayWhoItIs()
+        await recorder.forget()
+        let again = await driver.refreshGuide(.all) { world.put("stored \($0)") }
+        XCTAssertTrue(again.wentThrough, again.said ?? "nothing said")
+        expectEqual(await recorder.actions.first, "description.xml", "who answers was not asked again first")
+        expectEqual(await recorder.actions.filter { $0 == "description.xml" }.count, 1)
+        expectEqual(await recorder.actions.filter(\.isEmpty).count, 4, "each file was meant to be asked for once")
+        XCTAssertFalse(link.checksAgain)
+    }
+
     // MARK: - what the tests start from
 
     /// A run of `kind` begun on a link of the test's own (`playing`), to a recorder that answers each action as
