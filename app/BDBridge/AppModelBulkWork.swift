@@ -81,10 +81,17 @@ extension AppModel {
     private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ run: Run, _ driver: RecorderDriver) async {
         var stopped: RunStop?
         for id in ids {
+            // Before the wait for the app to come back: a run the reader stopped on the way out, a recording's
+            // request still out, ends here, in the turn after that recording, and does not wait for the return
+            // to say so.
+            if job?.cancelled == true { break }
             await readyForNextStep()
+            // And before the recorder is made sure of: a run stopped while it waited for the app is not worth
+            // asking who answers for, nor waking a recorder gone to sleep.
+            if job?.cancelled == true { break }
             stopped = await driver.mayGoOn(run)
             guard stopped == nil else { break }
-            // after the wait, so that 中止 tapped while the recorder was being woken is heeded
+            // and after the wait, so that 中止 tapped while the recorder was being woken is heeded
             if job?.cancelled == true { break }
             stopped = await keepingAlive { () -> RunStop? in
                 switch kind {
@@ -179,18 +186,23 @@ extension AppModel {
         if let known = try? await store.titleSummaries(ids), timesForgotten == forgotten {
             summaries.merge(known) { _, new in new }
         }
-        // The recorder is needed only for what the cache does not already hold, and made sure of only then.
+        // The recorder is needed only for what the cache does not already hold, and made sure of only then,
+        // and not for a scan that 中止 has stopped already.
         var stopped: RunStop?
-        if ids.contains(where: { summaries[$0] == nil }) { stopped = await driver.mayGoOn(run) }
+        if job?.cancelled != true, ids.contains(where: { summaries[$0] == nil }) {
+            stopped = await driver.mayGoOn(run)
+        }
 
         scan: for group in candidates {
             for title in group {
                 if stopped != nil || job?.cancelled == true { break scan }
                 if summaries[title.id] == nil {
                     await readyForNextStep()
+                    // before the recorder is made sure of, and after, as in `runBulk`: 中止 may have been tapped
+                    // while the app was away, and a check heard out meanwhile may have stopped the scan
+                    if job?.cancelled == true { break scan }
                     stopped = await driver.mayGoOn(run)
                     if stopped != nil { break scan }
-                    // after the wait, as in `runBulk`: a check heard out meanwhile may have stopped the scan
                     if job?.cancelled == true { break scan }
                     switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):

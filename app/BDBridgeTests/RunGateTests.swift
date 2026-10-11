@@ -1124,6 +1124,198 @@ final class RunGateTests: XCTestCase {
         XCTAssertNil(model.problem(for: .recorder), "the line is not as the waking left it")
     }
 
+    /// 中止 is heeded before the recorder is made sure of. A run stopped while it waits for the app to come back
+    /// asks nothing at all once it is back, not even who answers -- and here it would have asked: a look at the
+    /// network taken while the app was away heard the recorder busy with somebody else as it was asked who it is,
+    /// after which whatever is asked next asks again, however lately the recorder answered. A run that has been
+    /// stopped is not worth that ask, nor the waking of a recorder gone to sleep meanwhile. The job says that it
+    /// was stopped, with no reason of the recorder's under it. A bulk delete, and a scan for duplicates.
+    ///
+    /// A bulk delete that had deleted a recording before it waited asks nothing either once it is back, the
+    /// free space no more than who answers: that read makes no check of its own, and is not made after a check
+    /// that heard something in place of the recorder saying which it is.
+    ///
+    /// And a scan stopped in the very turn it was asked for, after such a look, asks nothing either: it makes
+    /// sure of the recorder once before its first candidate, and not when it has been stopped by then.
+    func testARunStoppedByTheReaderIsNotMadeSureOfBeforeItEnds() async throws {
+        /// A look at the network that hears the recorder busy with somebody else, which is then free again.
+        func hearItBusy(_ bench: Bench, _ recorder: NamedRecorder, _ model: AppModel, _ what: String) async {
+            await recorder.busyAtTheDoor()
+            let before = await recorder.asked
+            bench.network = "away"
+            await lookAtTheNetwork(model)
+            expectEqual(await recorder.asked(Ask.description, since: before), 3,
+                        "\(what): the look was meant to ask who answers, through the client's tries")
+            XCTAssertTrue(model.connected, "\(what): a recorder that answered busy was taken for gone")
+            await recorder.comeFree()
+        }
+
+        for scanning in [false, true] {
+            let what = scanning ? "the scan" : "the bulk delete"
+            let (bench, recorder, model, idle) = try await settled(withACopy: scanning)
+            model.wentToBackground()
+            if scanning {
+                model.startDuplicateScan()
+            } else {
+                model.startBulk(.delete, ids: [idle[0].id])
+            }
+            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+            await hearItBusy(bench, recorder, model, what)
+
+            model.cancelBulk()
+            let count = await recorder.heard.count
+            await model.returnedToForeground()
+            try await untilTheRunEnds(model, "\(what) never ended once the app was back")
+            expectEqual(await recorder.heard(since: count), [],
+                        "\(what), stopped while the app was away, asked the recorder something once it was back")
+            XCTAssertEqual(model.job?.outcome, scanning ? "0 件まで調べて中止しました" : "0 件を削除したところで中止しました")
+            XCTAssertNil(model.job?.stopped, "\(what) stopped by 中止 says a reason of the recorder's")
+        }
+
+        // A bulk delete that had deleted a recording before it waited for the app.
+        do {
+            let (bench, recorder, model, idle) = try await settled()
+            await recorder.hold(only: Ask.deleteRecording)
+            let before = await recorder.asked
+            model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+            try await until("the run never came to its first delete") {
+                await recorder.asked(Ask.deleteRecording, since: before) == 1
+            }
+            model.wentToBackground()
+            await recorder.letGo()
+            try await until("the run never waited for the app to come back") { model.backInFront != nil }
+            XCTAssertEqual(model.job?.changed, [idle[0].id])
+            await hearItBusy(bench, recorder, model, "a bulk delete that had deleted one")
+
+            model.cancelBulk()
+            let count = await recorder.heard.count
+            await model.returnedToForeground()
+            try await untilTheRunEnds(model, "the bulk delete never ended once the app was back")
+            expectEqual(await recorder.heard(since: count), [],
+                        "a bulk delete that had deleted one, stopped while the app was away, asked something once back")
+            XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+            XCTAssertNil(model.job?.stopped, "a run stopped by 中止 says a reason of the recorder's")
+        }
+
+        // A scan stopped in the turn it was asked for.
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        await hearItBusy(bench, recorder, model, "a scan stopped at once")
+        let count = await recorder.heard.count
+        model.startDuplicateScan()
+        model.cancelBulk()
+        try await untilTheRunEnds(model, "the scan never ended")
+        expectEqual(await recorder.heard(since: count), [],
+                    "a scan stopped in the turn it was asked for asked the recorder something")
+        XCTAssertEqual(model.job?.outcome, "0 件まで調べて中止しました")
+        XCTAssertNil(model.job?.stopped)
+    }
+
+    /// 中止 is looked at again once the recorder has been made sure of, since that can take a while: tapped while
+    /// a run back from waiting for the app hears out a check that is waking the recorder, it is heeded when the
+    /// recorder answers, and the recording the run was about to ask for is not asked about, nor sent. The job
+    /// says that it was stopped, with no reason of the recorder's under it. A bulk delete, and a scan.
+    func testStoppingARunWhileItHearsOutACheckThatIsWakingTheRecorderSendsNothingOnceItAnswers() async throws {
+        for scanning in [false, true] {
+            let what = scanning ? "the scan" : "the bulk delete"
+            let (_, recorder, model, idle) = try await settled(wakeable: true, withACopy: scanning)
+            model.wentToBackground()
+            if scanning {
+                model.startDuplicateScan()
+            } else {
+                model.startBulk(.delete, ids: [idle[0].id])
+            }
+            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+            // A check whose own ask meets silence, and the first ask of its waking held.
+            await recorder.hold(only: Ask.description)
+            let before = await recorder.asked
+            let check = Task { await makeSure(model) }
+            try await until("the check never asked who answers") {
+                await recorder.asked(Ask.description, since: before) == 1
+            }
+            await recorder.goQuiet(on: Ask.description)
+            await recorder.letTheFirstGo(of: Ask.description)
+            try await until("the recorder was never being woken") {
+                await recorder.asked(Ask.description, since: before) == 2
+            }
+            XCTAssertTrue(model.waking, "the recorder was meant to be being woken")
+
+            // Back in front the run is not stopped yet, and hears the check out; 中止 comes meanwhile.
+            await model.returnedToForeground()
+            model.cancelBulk()
+            await recorder.letGo()
+            expectTrue(await check.value, "the recorder was meant to answer once woken")
+            try await untilTheRunEnds(model, "\(what) never ended")
+            expectEqual(await recorder.asked(Ask.details, since: before), 0,
+                        "\(what) asked about a recording after 中止, tapped while the recorder was being woken")
+            expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 0)
+            XCTAssertEqual(model.job?.outcome, scanning ? "0 件まで調べて中止しました" : "0 件を削除したところで中止しました")
+            XCTAssertNil(model.job?.stopped, "\(what) stopped by 中止 says a reason of the recorder's")
+        }
+    }
+
+    /// A bulk delete stopped by 中止 beside a recorder that was lost meanwhile asks nothing as it ends, the free
+    /// space no more than who answers. Its first recording is deleted as the reader leaves; while it waits for
+    /// the app, a look at the network meets silence and 中止 is tapped. Back in front it ends as stopped by the
+    /// reader, with no reason of the recorder's under what it says, and reads no free space of a recorder known
+    /// to be away, which would only wait out the read's timeout.
+    func testARunStoppedByTheReaderBesideARecorderLostMeanwhileReadsNoFreeSpace() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.deleteRecording)
+        let before = await recorder.asked
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never came to its first delete") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        model.wentToBackground()
+        await recorder.letGo()
+        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+        bench.network = "away"
+        await recorder.goQuiet(for: 1)
+        await lookAtTheNetwork(model)
+        XCTAssertTrue(model.gaveUp, "the look at the network was meant to lose the recorder")
+
+        model.cancelBulk()
+        let count = await recorder.heard.count
+        await model.returnedToForeground()
+        try await untilTheRunEnds(model)
+        expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked as the run ended")
+        XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+        XCTAssertNil(model.job?.stopped, "a run stopped by 中止 says a reason of the recorder's")
+    }
+
+    /// A run the reader stops on the way out of the app has ended by the time they are back. 中止 tapped while
+    /// a recording's delete is out, and the app left before the recorder answers: the delete is finished under
+    /// its background task and counted, and the run ends there, in the turn after it, the free space read once
+    /// -- the recorder answered a moment ago, and no check is out that the read would wait behind. It does not
+    /// go round to wait for the app to come back, its job still running and the recorder kept to it all the
+    /// while, only to say then that it was stopped.
+    func testARunStoppedAsTheAppLeavesEndsThereAndDoesNotWaitForItsReturn() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        await recorder.hold(only: Ask.deleteRecording)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
+        try await until("the run never came to its first delete") {
+            await recorder.asked(Ask.deleteRecording, since: before) == 1
+        }
+        model.cancelBulk()
+        model.wentToBackground()
+        await recorder.letGo()
+        try await until("the run neither ended nor waited for the app to come back") {
+            !model.jobRunning || model.backInFront != nil
+        }
+
+        XCTAssertFalse(model.jobRunning, "a run stopped as the app left waits for its return")
+        XCTAssertNil(model.backInFront, "a run stopped as the app left waits for its return")
+        expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording, Ask.freeSpace],
+                    "a recording after 中止 was asked about, or the free space was not read once")
+        XCTAssertEqual(model.job?.changed, [idle[0].id])
+        XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+        XCTAssertNil(model.job?.stopped, "a run stopped by 中止 says a reason of the recorder's")
+        XCTAssertEqual(model.stepTask, .invalid, "the background task was kept once the run had ended")
+    }
+
     // MARK: - the list under a run
 
     /// A run looks each recording up in the list as it is when the run comes to it, not as it was when the run
