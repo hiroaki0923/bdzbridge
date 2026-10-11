@@ -77,6 +77,29 @@ final class NoScreenReachTests: XCTestCase {
         XCTAssertEqual(events.all, ["packet"], "asked, or waited for, at an address that is not one")
     }
 
+    /// Whether the recorder that answered a run with no screen is the one the phone's cache is of is answered
+    /// three ways. One that has not said who it is cannot be told apart: it is taken neither for the cache's own
+    /// nor for another. The first a cache hears from, and the one the cache is of, are the one known. One that
+    /// says which it is, over a cache that is another's, is another.
+    func testWhetherTheRecorderThatAnsweredIsTheOneKnownIsAnsweredThreeWays() async throws {
+        let description = HTTPResponse(statusCode: 200, body: Data(try Vectors.descriptionXML().utf8))
+        let client = RecorderClient(host: Stub.host, transport: StubTransport(always: description))
+        let store = try temporaryStore()
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .cannotBeTold,
+                    "a recorder that has not said who it is")
+
+        let recorder = try await client.describe()
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .yes, "the first a cache hears from")
+        expectEqual(try await store.claim(for: recorder), .first)
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .yes, "the recorder the cache is of")
+
+        var other = recorder
+        other.udn = "uuid:00000000-0000-0000-0000-f84e17000002"
+        expectEqual(try await store.claim(for: other), .another)
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .another,
+                    "a recorder over a cache that is another's")
+    }
+
     /// A night's packet goes once, before the recorder is asked who it is, and no other follows a recorder that
     /// answers that first ask: the rest of the night -- the slot, the free space, the guide's files, each
     /// refused here -- sends none. The packet is put down in the same list as what the recorder is asked.

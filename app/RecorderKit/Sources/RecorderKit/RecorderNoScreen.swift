@@ -16,6 +16,18 @@ public enum NightFound: Sendable {
     case fetched(Date)
 }
 
+/// Whether the recorder that answered a run with no screen is the one the phone's cache is of
+/// (`RecorderDriver.isTheOneKnown`).
+public enum TheOneKnown: Sendable, Equatable {
+    /// The recorder the cache is of, or the first the cache has heard from.
+    case yes
+    /// Another recorder: it says which it is, and the cache is not its own.
+    case another
+    /// It cannot be told: the device did not describe itself, or whose cache this is could not be read. No
+    /// other recorder is known to have answered, and it is not known to be the cache's own either.
+    case cannotBeTold
+}
+
 /// The recorder's runs with no screen -- the overnight run and the Shortcuts action -- which have no link: the
 /// one attempt each makes at the recorder, whether the recorder that answered is the one known, the order of
 /// each run, what each came to and what is said of it. The television's are in `TVNoScreen.swift`, and what a
@@ -68,13 +80,16 @@ extension RecorderDriver {
     /// heard from (`GuideStore.recognises`). The saved address may be answered by another: one the reader has
     /// typed and not yet seen answer, or one the router has handed the address to. The screens take such a
     /// recorder up (`attach`); with no screen nothing is taken up and nothing sent, since the queue was made for
-    /// the recorder known and the guide would go into a cache that is still its own. Nor when it cannot be told:
-    /// an owner that cannot be read, a device that did not describe itself.
-    public nonisolated static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {
+    /// the recorder known and the guide would go into a cache that is still its own. Nor when it cannot be told
+    /// -- an owner that cannot be read, a device that did not describe itself -- which is answered apart from
+    /// another recorder: nothing is sent to it either, but no other recorder has answered as far as anybody
+    /// knows, and none is to be said to have.
+    public nonisolated static func isTheOneKnown(_ client: RecorderClient,
+                                                 to store: GuideStore) async -> TheOneKnown {
         guard let answering = await client.info, let who = try? await store.recognises(answering) else {
-            return false
+            return .cannotBeTold
         }
-        return who != .another
+        return who == .another ? .another : .yes
     }
 
     // MARK: - the overnight run
@@ -104,11 +119,18 @@ extension RecorderDriver {
                                                        found: @Sendable (NightFound) async -> Void) async -> Bool {
         guard await reachWithNoScreen(client, sendPacket: sendPacket), !Task.isCancelled else { return false }
         // Another recorder than the one this cache is of is left alone: see `isTheOneKnown`.
-        // Said only when something was waiting to go to it, which is what the reader would otherwise miss.
-        guard await isTheOneKnown(client, to: store) else {
+        // Said only when something was waiting to go to it, which is what the reader would otherwise miss. One
+        // that cannot be told apart is left alone too, and nothing is said of it: what is said is that another
+        // recorder answered, which is not known.
+        switch await isTheOneKnown(client, to: store) {
+        case .yes:
+            break
+        case .another:
             if PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? []) {
                 await found(.heldBack)
             }
+            return false
+        case .cannotBeTold:
             return false
         }
 
@@ -173,15 +195,24 @@ extension RecorderDriver {
     /// and most of them have nothing to send: a recorder woken for nothing is half a minute of a box
     /// starting up in the living room for no reason. The screens may be sending the same queue at the same
     /// moment -- the app open as the Wi-Fi comes back -- which `PendingQueue.flush` takes one at a time.
-    /// `sendPacket` is `reachWithNoScreen`'s.
+    ///
+    /// A recorder that answered and cannot be told from the one the queue was made for (`isTheOneKnown`) is
+    /// sent nothing, and the sending comes to what it does when nobody was reached: of the answers there are,
+    /// the one that does not say another recorder answered. `sendPacket` is `reachWithNoScreen`'s.
     public nonisolated static func sendWithNoScreen(_ client: RecorderClient, store: GuideStore, now: Date = Date(),
                                                     sendPacket: @escaping @Sendable () -> Bool) async
         -> NoScreenSending {
         let waiting = (try? await store.pendingReservations()) ?? []
         guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return .nothingWaiting }
         guard await reachWithNoScreen(client, sendPacket: sendPacket) else { return .unreachable }
-        guard await isTheOneKnown(client, to: store) else { return .anotherAnswered }
-        return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+        switch await isTheOneKnown(client, to: store) {
+        case .yes:
+            return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+        case .another:
+            return .anotherAnswered
+        case .cannotBeTold:
+            return .unreachable
+        }
     }
 
     /// What a sending came to, in words, for the Shortcuts action's answer when it is run by hand. Nil when
@@ -204,10 +235,13 @@ extension RecorderDriver {
 
     /// Said when another recorder than the one the queue was made for answered a run with no screen, in the
     /// notification and by the Shortcuts action when it is run by hand. The state the reader will find, in the
-    /// words used when the recorder could not be reached.
+    /// words used when the recorder could not be reached. Not said of a recorder that merely could not be told
+    /// from that one (`TheOneKnown.cannotBeTold`).
     public nonisolated static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。"
         + "アプリを開いて確かめてください。"
-    /// Said by the Shortcuts action when the recorder was not reached.
+    /// Said by the Shortcuts action when the recorder was not reached, and when one answered that could not be
+    /// told from the recorder the queue was made for: the nearer of the two sentences there are, though it is
+    /// not the cause when it is the phone's cache that could not be read.
     public nonisolated static let notReachedWithNoScreen = "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"
     /// Said by the Shortcuts action when its round was cut short by silence and the queue has nothing to say
     /// of it.

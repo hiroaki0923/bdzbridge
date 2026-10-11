@@ -286,27 +286,28 @@ final class BenchRecorderTests: XCTestCase {
     }
 
     /// With the cache's `meta` table out of reach, whose cache it is cannot be read, by a store opened before or
-    /// by the rule the runs with no screen ask (`RecorderDriver.isTheOneKnown`), which takes that for a recorder
-    /// it does not know; the queue is read as ever. Put back, the cache is the recorder's it was.
+    /// by the rule the runs with no screen ask (`RecorderDriver.isTheOneKnown`), which answers that it cannot be
+    /// told, and not that the recorder is another; the queue is read as ever. Put back, the cache is the
+    /// recorder's it was.
     func testWhoseCacheItIsCannotBeReadWhileItsTableIsOutOfReach() async throws {
         let (bench, recorder, _) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
         let client = aClient(of: recorder)
         try await client.describe()
         expectEqual(try await store.owner(), NamedRecorder.udn(1))
-        expectTrue(await RecorderDriver.isTheOneKnown(client, to: store))
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .yes)
 
         let meta = MetaOutOfReach(in: bench.guidePath)
         do {
             let owner = try await store.owner()
             XCTFail("the owner was read from a table out of reach: \(owner ?? "none")")
         } catch {}
-        expectFalse(await RecorderDriver.isTheOneKnown(client, to: store))
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .cannotBeTold)
         expectEqual(try await store.pendingReservations(), [], "the queue went out of reach with it")
 
         meta.putBack()
         expectEqual(try await store.owner(), NamedRecorder.udn(1))
-        expectTrue(await RecorderDriver.isTheOneKnown(client, to: store))
+        expectEqual(await RecorderDriver.isTheOneKnown(client, to: store), .yes)
     }
 
     /// What a run with no screen tells is on the bench's record by the time each telling returns, as it was told

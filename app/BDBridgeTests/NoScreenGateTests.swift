@@ -363,9 +363,9 @@ final class NoScreenGateTests: XCTestCase {
     /// Another recorder than the cache's, with only a reservation held for the reader and one whose programme
     /// is over waiting: nothing is told either, there being nothing that would have gone, and neither row is
     /// touched. A recorder whose cache does not say whose it is -- the owner cannot be read -- with a
-    /// reservation waiting that could be sent: it is told as a recorder the cache is not of is, that the queue
-    /// was held back, as it is today. A later change tells nothing of a recorder that merely could not be told
-    /// apart, and rewrites that row.
+    /// reservation waiting that could be sent: nothing is sent to it, since it cannot be told to be the cache's
+    /// own, and nothing is told. That the queue was held back is told of another recorder answering, with such
+    /// a reservation waiting (`WhichRecorderTests`), and none is known to have answered here.
     func testANightWithNobodyThereOrARecorderItCannotTakeForItsOwnSendsNothing() async throws {
         let (recorder, store, path) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
@@ -383,7 +383,7 @@ final class NoScreenGateTests: XCTestCase {
         ran = await night(of: recorder, store)
         meta.putBack()
         XCTAssertFalse(ran.stored)
-        XCTAssertEqual(ran.told.names, ["heldBack"], "with the cache's owner out of reach")
+        XCTAssertEqual(ran.told.names, [], "with the cache's owner out of reach")
         XCTAssertEqual(ran.heard, [Ask.description], "with the cache's owner out of reach")
         expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
 
@@ -432,8 +432,9 @@ final class NoScreenGateTests: XCTestCase {
     /// action says there is nothing waiting.
     ///
     /// With a reservation to send and a cache that does not say whose it is -- the owner cannot be read --
-    /// nothing is sent, and the action says that another recorder answered, though none did, as it is today: a
-    /// later change takes that for a recorder not reached, with that sentence, and rewrites the row.
+    /// nothing is sent to a recorder that cannot be told to be the one the queue was made for, and the action
+    /// answers as it does of a recorder it did not reach, in that sentence: not that another recorder answered,
+    /// which none is known to have.
     ///
     /// And each end of the recorder's sending in the action's own words, letter for letter.
     func testTheActionAsksNothingWithNothingToSendAndSaysEachEndInItsOwnWords() async throws {
@@ -451,12 +452,13 @@ final class NoScreenGateTests: XCTestCase {
 
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
         try await store.queue(morning)
+        let notReached = "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"
         let meta = MetaOutOfReach(in: path)
         let unread = await action(on: recorder, store)
         meta.putBack()
-        XCTAssertEqual(unread.sending, .anotherRecorder)
+        XCTAssertEqual(unread.sending, .unreachable)
         XCTAssertEqual(unread.heard, [Ask.description], "something was sent with the cache's owner out of reach")
-        XCTAssertEqual(SendWaitingIntent.saying(unread.sending), Said.anotherAnsweredWithNoScreen)
+        XCTAssertEqual(SendWaitingIntent.saying(unread.sending), notReached)
         expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
 
         let sent = await action(on: recorder, store).sending
@@ -467,8 +469,7 @@ final class NoScreenGateTests: XCTestCase {
             (.demo, "サンプルデータの表示中は送りません。", "サンプルデータの表示中は送りません。"),
             (.noRecorder, "レコーダーが設定されていません。", "レコーダーが設定されていません。"),
             (.nothingWaiting, nothing, nothing),
-            (.unreachable, "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。",
-             "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"),
+            (.unreachable, notReached, notReached),
             (.anotherRecorder, Said.anotherAnsweredWithNoScreen, Said.anotherAnsweredWithNoScreen),
             (sent, Said.sent("朝の番組"), Said.sent("朝の番組", naming: "レコーダー")),
             (nothingToSay, nothing, nothing),
