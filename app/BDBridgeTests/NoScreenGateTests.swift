@@ -195,38 +195,48 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(told.names, ["flushed", "freeSpace"])
     }
 
-    /// Silence part-way through a night ends it at the USB slot and in the guide, and nowhere else, as it is
-    /// today.
+    /// A night ends at its first silence, wherever it meets it: whatever it asked next would wait the same silence
+    /// out again, of a recorder that has gone.
     ///
+    /// At the read of the recorder's list that opens the round of what waits: nothing was sent, the row is as
+    /// it was, the round is told as one that met silence, and the night ends there -- the slot is not read.
     /// At a reservation's create alone, the recorder answering again after it: the row is held for the reader
-    /// with its reason, what became of the queue is told, and the night goes on -- the slot is read, the free
-    /// space told, the guide fetched. From the create on: the round is told, the slot is asked, and its silence
-    /// ends the night. On the free space alone: nothing is told of it, and the guide is still asked for. In the
-    /// guide: the night ends there, and the slot is not read again after it; that a guide was fetched is told,
-    /// a type having answered before the silence, and what the night hands back is whether a programme was
-    /// stored before it -- none where the type that answered had no file to give, and one where it gave a guide.
-    ///
-    /// A later change ends a night at its first silence, which rewrites the first three.
-    func testSilencePartWayThroughANightEndsItAtTheSlotAndInTheGuideAndNowhereElse() async throws {
+    /// with its reason, what became of the queue is told, and the night ends there -- the slot is not read,
+    /// nothing is told of the free space and no guide is asked for. Silent from the create on, the same, and a
+    /// recorder that has gone is asked nothing after the create. On the free space alone: nothing is told of
+    /// it, and no guide is asked for. (Silent at the slot, which is read between the two, is the USB disk's
+    /// own test.) In the guide: the night ends there, and the slot is not read again after it; that a guide was
+    /// fetched is told, a type having answered before the silence, and what the night hands back is whether a
+    /// programme was stored before it -- none where the type that answered had no file to give, and one where it
+    /// gave a guide.
+    func testANightEndsAtItsFirstSilenceHavingToldWhatItHadFound() async throws {
         let (recorder, store, _) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
         try await store.queue(morning)
-        await recorder.goQuiet(on: Ask.create)
+        await recorder.goQuiet(on: Ask.reservations)
         var ran = await night(of: recorder, store)
-        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot, Ask.freeSpace,
-                                   Ask.portOfTheGuide] + Ask.guide, "silence at the create alone")
-        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"], "silence at the create alone")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations], "silence at the read that opens the round")
+        XCTAssertEqual(ran.told.names, ["flushed"], "silence at the read that opens the round")
+        XCTAssertEqual(ran.told.rounds.map(\.interrupted), [true], "silence at the read that opens the round")
+        XCTAssertFalse(ran.stored)
+        expectEqual(try await rows(in: store), ["朝の番組"], "the row is not as it was")
+
+        await recorder.goQuiet(on: Ask.create)
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create], "silence at the create alone")
+        XCTAssertEqual(ran.told.names, ["flushed"], "silence at the create alone")
         XCTAssertEqual(ran.told.rounds.map(\.interrupted), [true])
+        XCTAssertFalse(ran.stored)
         expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
 
-        // The row above is held now, and is not sent again: another, and silence from its create on.
+        // The row above is held now, and is not sent again: another, and silence from its create on -- after
+        // the recorder has said who it is and given its list.
         let noon = waiting("昼の番組", startingIn: 150, programme: 4322)
         try await store.queue(noon)
-        await recorder.answer(Ask.create, with: .silence)
-        await recorder.answer(Ask.slot, with: .silence)
+        await recorder.goQuiet(for: 1000, after: 2)
         ran = await night(of: recorder, store)
-        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot],
-                       "silence from the create on")
+        await recorder.goQuiet(for: 0)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create], "silence from the create on")
         XCTAssertEqual(ran.told.names, ["flushed"], "silence from the create on")
         XCTAssertEqual(ran.told.rounds.map(\.interrupted), [true])
         XCTAssertFalse(ran.stored)
@@ -236,8 +246,9 @@ final class NoScreenGateTests: XCTestCase {
         // Both rows are held, so nothing is read or sent for the queue from here on.
         await recorder.goQuiet(on: Ask.freeSpace)
         ran = await night(of: recorder, store)
-        XCTAssertEqual(ran.heard, Self.beforeTheGuide + Ask.guide, "silence on the free space alone")
-        XCTAssertEqual(ran.told.names, ["flushed", "fetched"], "silence on the free space alone")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace], "silence on the free space alone")
+        XCTAssertEqual(ran.told.names, ["flushed"], "silence on the free space alone")
+        XCTAssertFalse(ran.stored)
 
         // With a disk known that the slot does not answer, the slot is read again after a guide that ends.
         try await store.keep(knownUSBDisk: USBDiskTests.disk)
@@ -310,12 +321,11 @@ final class NoScreenGateTests: XCTestCase {
                        "what is free and what the disk holds were not each told as the recorder answered them")
     }
 
-    /// A recorder that will not say how much room it has: refused, nothing is told of the free space and the
-    /// guide is fetched as ever. A disk of no size is told as it was answered, a total of nought and nought free,
-    /// as it is today: the notice the app makes of it drops it, where no test sees. A later change reads the
-    /// night's free space through the rule the screens use, by which a disk of no size has not said, and
-    /// rewrites that half.
-    func testANightTellsNothingOfSpaceTheRecorderWillNotSayAndTellsADiskOfNoSizeAsItIs() async throws {
+    /// A recorder that will not say how much room it has, by the rule the screens read the free space by: one
+    /// that refuses, and one that answers a disk of no size, which is a recorder that has not said and not a
+    /// disk that is full. Nothing is told of the free space of either, so that no notice is made of it, and the
+    /// guide is fetched as ever: it answered, and the night goes on.
+    func testANightTellsNothingOfSpaceTheRecorderWillNotSayNorOfADiskOfNoSize() async throws {
         let (recorder, store, _) = try await home()
         await recorder.answer(Ask.freeSpace, with: .fault(402))
         var ran = await night(of: recorder, store)
@@ -326,9 +336,24 @@ final class NoScreenGateTests: XCTestCase {
                               with: .text("<recordDestinationInfo totalCapacity=\"0\" availableCapacity=\"0\" />",
                                           in: "RecordDestinationInfo"))
         ran = await night(of: recorder, store)
-        XCTAssertEqual(ran.told.names, ["flushed", "freeSpace", "fetched"])
-        XCTAssertEqual(ran.told.said.dropFirst().first, .freeSpace(free: 0, total: 0, naming: nil),
-                       "a disk of no size was not told as the recorder answered it")
+        XCTAssertEqual(ran.told.names, ["flushed", "fetched"], "a disk of no size was told as a disk")
+        XCTAssertEqual(ran.heard, Self.beforeTheGuide + Ask.guide, "a disk of no size")
+    }
+
+    /// A night that meets silence on the free space, the slot having just answered a USB disk that takes
+    /// recordings: the USB disk's space is told all the same -- it was heard before the silence, and telling it
+    /// asks nothing -- and the night ends there, with nothing told of the internal disk and no guide asked for.
+    func testANightSilentOnTheFreeSpaceTellsTheUSBDisksSpaceItHadHeardAndEnds() async throws {
+        let (recorder, store, _) = try await home()
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()))
+        await recorder.goQuiet(on: Ask.freeSpace)
+        let ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.names, ["flushed", "usbSpace"])
+        XCTAssertEqual(ran.told.said.last, .usbSpace(USBDiskTests.disk),
+                       "the USB disk's space, heard before the silence, was not told")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
+                       "the night went on after silence on the free space")
+        XCTAssertFalse(ran.stored)
     }
 
     /// A night that finds nobody at the address, and one answered by a recorder it cannot take for the cache's

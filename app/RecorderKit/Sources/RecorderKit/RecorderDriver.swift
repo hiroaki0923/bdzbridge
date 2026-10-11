@@ -240,7 +240,9 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// The free space as the screens show it, or nil when the recorder will not say. A disk of no size counts as
-    /// not saying: the screens would show it as a full disk. Throws only silence.
+    /// not saying: the screens would show it as a full disk. The one place that decides it, for the screens and
+    /// for the overnight run alike, whose low-space notice is therefore never asked about such a disk. Throws
+    /// only silence.
     public static func storage(of client: RecorderClient) async throws -> (free: Int, total: Int)? {
         guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
               capacity.totalBytes > 0 else { return nil }

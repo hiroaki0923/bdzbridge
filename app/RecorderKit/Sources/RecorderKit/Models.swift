@@ -385,11 +385,11 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// every night. There is one such disk, so its mark is a yes or a no, and the mark a warning hands back is
     /// its id.
     ///
-    /// A disk of no size is a recorder that has not said how full it is, not one that is full: nothing is said
-    /// about it, and whether the warning has been given is left as it was.
+    /// The size is not looked at. A disk of no size is a recorder that has not said how full it is, not one that
+    /// is full, and it does not come here: what reads the free space takes it for a recorder that will not say
+    /// (`RecorderDriver.storage(of:)`), and nothing is told of it.
     public static func internalSpace(freeBytes: Int, totalBytes: Int, warned: Bool,
                                      warnBelowGB: Double) -> SpaceNotice {
-        guard totalBytes > 0 else { return .nothing }
         let freeGB = Double(freeBytes) / 1e9
         if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
         return warned ? .nothing : .warn(freeGB: freeGB, mark: internalID)

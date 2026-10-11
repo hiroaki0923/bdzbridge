@@ -85,9 +85,16 @@ extension RecorderDriver {
     /// is handed to `found` as it finds it, each waited for before the next step: what became of the queue and
     /// the free space are told before a guide download that can outlast the task.
     ///
-    /// Silence in the guide ends the run: that a guide was fetched is told when a type answered before it, what
-    /// was stored before it is handed back, and nothing more is asked. So does a cache that is another
-    /// recorder's by the time a file has come (`GuideRefresh.Stop.letGo`): it takes nothing of the file.
+    /// Silence ends the run where it is first met: whatever came next would wait the same silence out again, of
+    /// a recorder that has gone. A round of what waits that met it is told, and nothing is asked after it. The
+    /// slot's ends it with nothing told. The free space's ends it once the USB disk's space has been told, where
+    /// the slot had answered a disk that takes recordings: that was heard before the silence, and telling it
+    /// asks nothing. In the guide, that a guide was fetched is told when a type answered before the silence, what
+    /// was stored before it is handed back, and nothing more is asked. A night whose one silence passed gives up
+    /// what it had not come to -- the free space, the guide -- until the next connect or the next night.
+    ///
+    /// A cache that is another recorder's by the time a file of the guide has come ends the run as well
+    /// (`GuideRefresh.Stop.letGo`): it takes nothing of the file.
     ///
     /// It runs in the caller's task, and stops between steps once that is cancelled, which is what the system
     /// does when the run's time is up: the request under way is waited for, and nothing is asked after it.
@@ -107,7 +114,8 @@ extension RecorderDriver {
 
         let outcome = await PendingQueue.flush(client: client, store: store)
         await found(.queue(outcome))
-        guard !Task.isCancelled else { return false }
+        // A round that met silence has been told, and ends the run: the slot would wait the silence out next.
+        guard !outcome.interrupted, !Task.isCancelled else { return false }
         // The slot first, so that the internal disk's notice can say which disk it is about once there are two.
         // Read through the one rule the screens use: only a disk the recorder registered counts. It lets only
         // silence out, and silence ends the run here: the free space and the guide would each wait it out again.
@@ -125,11 +133,22 @@ extension RecorderDriver {
         let second = usb?.takesRecordings == true ? usb : nil
         let known = usb == nil ? (try? await store.knownUSBDisk()) : nil
         let readAgain = known?.takesRecordings == true
-        if let capacity = try? await client.recordDestinationInfo() {
+        // The free space as the screens read it (`storage(of:)`): a recorder that will not say, or that says a
+        // disk of no size, has not said, and nothing is told of it. Its silence ends the run -- after the USB
+        // disk's space, which the slot answered before it.
+        let space: (free: Int, total: Int)?
+        let answered: Bool
+        do {
+            (space, answered) = (try await storage(of: client), true)
+        } catch {
+            (space, answered) = (nil, false)
+        }
+        if let space {
             let naming = second != nil || readAgain ? RecorderDisk.label(RecorderDisk.internalID, named: nil) : nil
-            await found(.freeSpace(free: capacity.freeBytes, total: capacity.totalBytes, naming: naming))
+            await found(.freeSpace(free: space.free, total: space.total, naming: naming))
         }
         if let second { await found(.usbSpace(second)) }
+        guard answered else { return false }
 
         // A broadcasting type that could not be fetched is passed over, and the screens fetch it at the next
         // connect: nothing marks it fetched. Handed the recorder that answered this run, as it described itself:
