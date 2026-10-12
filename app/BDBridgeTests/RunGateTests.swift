@@ -1855,6 +1855,180 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.outcome, "1 件まで調べて中止しました")
         XCTAssertEqual(model.job?.stopped, .said(Said.cacheNotMadeOver))
         XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver)
+        // The scan ended over a list that went with the recorder, so nothing is left to count as unread: the
+        // duplicates do not count as looked for, or their screen would say that there are none.
+        XCTAssertTrue(model.titles.isEmpty, "the recordings of the recorder let go of are still listed")
+        XCTAssertEqual(model.unreadDuplicates, 0)
+        XCTAssertFalse(model.scannedForDuplicates, "looked for, after a scan stopped by a recorder let go of")
+    }
+
+    // MARK: - what the screens go by for their buttons
+
+    /// A run may be started only with the recorder at rest, and one recording deleted or protected only while
+    /// the recorder does not work and no run is under way: what the screens go by for the buttons that start a
+    /// run and for a single recording's delete and protect.
+    ///
+    /// Neither while the recorder works, a line of its own on the strip -- the recordings read again, that read
+    /// out. No run while a connect is under way, the ask of who answers out. And neither while a run is under
+    /// way, a bulk delete or a scan with a request of its own out: a run puts no line on the strip, so the
+    /// recorder's work alone would let a second run be started beside it, and a single delete or protect be sent
+    /// into the list it walks. Each may be done again once what held it is over.
+    func testARunMayBeStartedOnlyWithTheRecorderAtRestAndARecordingAlteredOnlyWithNoRunUnderWay() async throws {
+        let (_, recorder, model, idle) = try await settled(withACopy: true)
+        addTeardownBlock { await recorder.letGo() }
+        // Not one of the two copies, which the scan below is to find still there.
+        let (first, second) = try copies(model)
+        let spare = try XCTUnwrap(idle.first { $0.id != first && $0.id != second },
+                                  "the demo was meant to hold a recording beside the copies")
+        /// Both may be done, nothing being under way.
+        func atRest(_ what: String) {
+            XCTAssertNil(model.busy, "\(what): something is still under way")
+            XCTAssertTrue(model.canStartARun, "\(what): no run can be started, with nothing under way")
+            XCTAssertTrue(model.canAlterARecording, "\(what): no recording can be altered, with nothing under way")
+        }
+        atRest("at the start")
+
+        // The recorder at work: the recordings pulled down, their read out.
+        await recorder.hold(only: Ask.recordings)
+        var before = await recorder.asked
+        let pulling = Task { await model.refreshTitles() }
+        try await until("the recordings were never read again") {
+            await recorder.asked(Ask.recordings, since: before) == 1
+        }
+        XCTAssertTrue(model.isBusy(for: .recorder), "the read was meant to have its line up")
+        XCTAssertFalse(isConnecting(model), "the pull-down was meant to read, not to connect")
+        XCTAssertFalse(model.canStartARun, "a run could be started while the recorder works")
+        XCTAssertFalse(model.canAlterARecording, "a recording could be altered while the recorder works")
+        await recorder.letGo()
+        await pulling.value
+        atRest("after the read")
+
+        // A connect under way: its ask of who answers out.
+        await recorder.hold(only: Ask.description)
+        before = await recorder.asked
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertTrue(isConnecting(model), "the connect was meant to be under way")
+        XCTAssertFalse(model.canStartARun, "a run could be started while a connect is under way")
+        await recorder.letGo()
+        await connecting.value
+        try await untilConnected(model)
+        atRest("after the connect")
+
+        // A bulk delete under way, the question it asks first out: nothing on the strip.
+        await recorder.hold(only: Ask.details)
+        before = await recorder.asked
+        model.startBulk(.delete, ids: [spare.id])
+        try await until("the run never asked about its recording") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        XCTAssertFalse(model.isBusy(for: .recorder), "a run was meant to put no line on the strip")
+        XCTAssertFalse(model.canStartARun, "a second run could be started beside a bulk delete")
+        XCTAssertFalse(model.canAlterARecording, "a recording could be altered beside a bulk delete")
+        await recorder.letGo()
+        try await untilTheRunEnds(model)
+        atRest("after the bulk delete")
+
+        // And a scan, a candidate's text out.
+        await recorder.hold(only: Ask.details)
+        before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        XCTAssertFalse(model.isBusy(for: .recorder), "a scan was meant to put no line on the strip")
+        XCTAssertFalse(model.canStartARun, "a second run could be started beside a scan")
+        XCTAssertFalse(model.canAlterARecording, "a recording could be altered beside a scan")
+        await recorder.letGo()
+        try await untilTheRunEnds(model, "the scan never ended")
+        atRest("after the scan")
+    }
+
+    /// The television's work holds neither: while a television attaches, its line on the strip and the recorder
+    /// at rest, a run may be started and a recording deleted or protected. It is on a client of its own, and what
+    /// the recorder's buttons go by is the recorder's work (`isBusy(for:)`), which the two 番組表を更新 buttons go
+    /// by as well, and Settings' 再接続 with a run beside it.
+    func testTheTelevisionsWorkHoldsNeitherARunNorARecordingsDeleteOrProtect() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let television = HeldTelevision(DemoTV())
+        addTeardownBlock { await television.letGo() }
+        let model = bench.model(recorder: DemoRecorder(), television: television, credentials: MemoryTVCredentials())
+        await model.start()
+        try await until("the television's attach was never under way") { await television.isHolding }
+        try await until("the recorder's side never came to rest", within: 20) {
+            model.connected && !isConnecting(model) && !model.isBusy(for: .recorder)
+        }
+
+        XCTAssertEqual(model.busy, TVDriver.connectingLine, "the television's line was meant to be on the strip")
+        XCTAssertFalse(model.isBusy(for: .recorder), "the television's attach made the recorder busy")
+        XCTAssertTrue(model.canStartARun, "the television's attach kept a run from being started")
+        XCTAssertTrue(model.canAlterARecording, "the television's attach kept a recording from being altered")
+
+        await television.letGo()
+        try await until("the television's attach never ended") { model.tvHost?.isBusy == false }
+        XCTAssertTrue(model.canStartARun)
+        XCTAssertTrue(model.canAlterARecording)
+    }
+
+    /// The duplicates count as looked for, for their screen to say that none were found, only once a scan has
+    /// come to its end or 中止 has stopped one: either has worked the sets out from what it read. Not before any
+    /// scan, a bulk run having ended meanwhile or not; not while a scan is under way; and not after a scan the
+    /// recorder stopped -- silence at a candidate's text -- or one kept from reading its first text, the recorder
+    /// known to be away. Such a scan says why under what it came to, and its screen offers the scan as if none
+    /// had been made: the recorder may have been let go of under it, with nothing left to count as unread.
+    func testTheDuplicatesCountAsLookedForOnlyAfterAScanTheRecorderDidNotStop() async throws {
+        let (_, recorder, model, idle) = try await settled(withACopy: true)
+        addTeardownBlock { await recorder.letGo() }
+        let (first, second) = try copies(model)
+        let spare = try XCTUnwrap(idle.first { $0.id != first && $0.id != second },
+                                  "the demo was meant to hold a recording beside the copies")
+        XCTAssertFalse(model.scannedForDuplicates, "looked for before any scan")
+
+        // A bulk run that came to its end is not a scan: the recording is unprotected already, and nothing is sent.
+        try await run(model, .protecting(false), [spare.id])
+        XCTAssertEqual(model.job?.finished, true)
+        XCTAssertNil(model.job?.stopped)
+        XCTAssertFalse(model.scannedForDuplicates, "a bulk run that ended was taken for a scan")
+
+        // Silence at the first candidate's text.
+        await recorder.answer(Ask.details, with: .silence)
+        try await scan(model)
+        XCTAssertEqual(model.job?.stopped, .silent(afterSending: false), "the scan was meant to be stopped by silence")
+        XCTAssertFalse(model.scannedForDuplicates, "looked for, after a scan that silence stopped")
+
+        // The recorder known to be away since: the scan pressed next is kept from reading its first text.
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to be known to be away")
+        var count = await recorder.heard.count
+        try await scan(model)
+        expectEqual(await recorder.heard(since: count), [], "a recorder known to be away was asked")
+        XCTAssertEqual(model.job?.stopped, .said(Said.notConnected))
+        XCTAssertFalse(model.scannedForDuplicates, "looked for, after a scan that read nothing")
+        await reconnect(model)
+
+        // A scan under way, its first text out, and 中止 tapped meanwhile.
+        await recorder.hold(only: Ask.details)
+        let before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never asked what its first candidate is about") {
+            await recorder.asked(Ask.details, since: before) == 1
+        }
+        XCTAssertFalse(model.scannedForDuplicates, "looked for, with the scan still under way")
+        model.cancelBulk()
+        await recorder.letGo()
+        try await untilTheRunEnds(model, "the scan never ended")
+        XCTAssertEqual(model.job?.outcome, "1 件まで調べて中止しました")
+        XCTAssertNil(model.job?.stopped)
+        XCTAssertTrue(model.scannedForDuplicates, "not looked for, after a scan that 中止 stopped")
+
+        // And a scan that came to its end, reading the text still unread.
+        count = await recorder.heard.count
+        try await scan(model)
+        expectEqual(await recorder.heard(since: count), [Ask.details])
+        XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
+        XCTAssertTrue(model.scannedForDuplicates, "not looked for, after a scan that came to its end")
     }
 }
 

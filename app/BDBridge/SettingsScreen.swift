@@ -72,8 +72,10 @@ struct SettingsScreen: View {
                         }
                         .disabled(!RecorderAddress.isUsable(tidied.host) || !model.canChangeRecorder)
                     } else if !model.connected, !model.host.isEmpty {
+                        // Held while the recorder works, and while a run is under way, when connecting does
+                        // nothing (`connect()`); by nothing the television does.
                         Button("再接続") { Task { await model.connect() } }
-                            .disabled(model.busy != nil || model.jobRunning)
+                            .disabled(model.isBusy(for: .recorder) || model.jobRunning)
                     }
                 } header: {
                     Text("レコーダー")
@@ -206,7 +208,8 @@ struct SettingsScreen: View {
                     Button("番組表を更新") {
                         Task { guideFailure = await model.refreshGuideByHand().said }
                     }
-                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
+                    // Held while the recorder works, and by nothing the television does.
+                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
                 }
 
                 notificationsSection

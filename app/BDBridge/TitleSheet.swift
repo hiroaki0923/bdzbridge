@@ -94,14 +94,17 @@ struct TitleSheet: View {
                 }
 
                 Section {
+                    // Held while a run is under way as well as while the recorder works
+                    // (`AppModel.canAlterARecording`): a run walks the list these two write to. Playback and the
+                    // power above are not: a playback has to be stoppable through a long scan.
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in ask { await model.setProtected(current, on) } }))
-                    .disabled(model.isBusy(for: .recorder) || asking)
+                    .disabled(!model.canAlterARecording || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
                     let whyNot = RecorderDriver.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(whyNot != nil || model.isBusy(for: .recorder) || asking)
+                        .disabled(whyNot != nil || !model.canAlterARecording || asking)
                     if let whyNot {
                         Text(whyNot)
                             .font(.caption)
@@ -142,7 +145,7 @@ struct TitleSheet: View {
                             return came
                         }
                     }
-                    .disabled(model.isBusy(for: .recorder))
+                    .disabled(!model.canAlterARecording)
                     Button("キャンセル", role: .cancel) {}
                 } else {
                     Button("OK", role: .cancel) {}

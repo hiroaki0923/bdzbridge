@@ -43,6 +43,32 @@ extension AppModel {
 
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
 
+    /// Whether a run may be started now, for the buttons that start one -- a bulk delete, a bulk protect, the
+    /// scan for duplicates: only with the recorder at rest. Not beside another run, which `startBulk` and
+    /// `startDuplicateScan` refuse themselves. Nor while the recorder works or a connect is under way: a run
+    /// started then would write beside what is out, or be turned away as it begins for a recorder that has not
+    /// yet said which it is (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a
+    /// connect has between two lines of its own, as in `canChangeRecorder`. The television's work does not
+    /// count: it is on a client of its own.
+    var canStartARun: Bool { !jobRunning && !isBusy && !connecting }
+
+    /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
+    /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
+    /// write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them writes
+    /// the list, and a playback begun before a long scan has to be stoppable from the app.
+    var canAlterARecording: Bool { !isBusy && !jobRunning }
+
+    /// Whether the duplicates have been looked for, for their screen to say that none were found: the job that
+    /// stands is a scan that came to its end, or that 中止 stopped, either of which has worked the sets out from
+    /// what it read and counted what it left unread. Not a scan the recorder stopped or kept from reading
+    /// (`BulkJob.stopped`): the recorder may have been let go of under it, its recordings gone from memory, and
+    /// there is then nothing left to count as unread -- that scan would have the screen say of a recorder never
+    /// looked at that it holds no duplicates.
+    var scannedForDuplicates: Bool {
+        guard let job, case .scanning = job.kind else { return false }
+        return job.finished && job.stopped == nil
+    }
+
     /// A run the driver will not begin (`RecorderDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
     func startBulk(_ kind: BulkJob.Kind, ids: [String]) {

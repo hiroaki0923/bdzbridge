@@ -122,7 +122,8 @@ struct GuideScreen: View {
                     }
                     .accessibilityLabel("番組表を更新")
                     // Not for a model that has no guide to give, which the empty guide says in so many words.
-                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
+                    // Held while the recorder works, and by nothing the television does.
+                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
                 }
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
