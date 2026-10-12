@@ -173,8 +173,11 @@ enum BackgroundWork {
               let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
             return false
         }
+        let told = UserDefaults.standard.data(forKey: DefaultsKey.recorderTold)
+            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
         return await refresh(client: RecorderClient(host: host), store: store,
-                             mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system)
+                             mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system,
+                             told: told, nextRun: nextNightlyRun())
     }
 
     /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
@@ -261,6 +264,10 @@ enum BackgroundWork {
         var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
         /// The USB disk's, when it takes recordings.
         var usbSpace: @Sendable (RecorderDisk) async -> Void
+        /// What is told once (`NightFound.told`): the notice of reservations that have not reached the recorder
+        /// in time, whether the last such notice is taken away, and what has been told, to keep for the next
+        /// run. Nothing, unless said: a run handed no next run tells none of it.
+        var kept: @Sendable (_ notYet: String?, _ withdraws: Bool, _ told: TVTold) async -> Void = { _, _, _ in }
         /// A guide was fetched, at this time.
         var fetched: @Sendable (Date) -> Void
 
@@ -270,6 +277,12 @@ enum BackgroundWork {
             flushed: { await Notify.queueFlushed($0) },
             freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
             usbSpace: { await Notify.lowSpace(on: $0) },
+            kept: { notYet, withdraws, told in
+                await Notify.recorder(notYet: notYet, withdraws: withdraws)
+                if let kept = try? JSONEncoder().encode(told) {
+                    UserDefaults.standard.set(kept, forKey: DefaultsKey.recorderTold)
+                }
+            },
             fetched: {
                 UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
             })
@@ -280,12 +293,14 @@ enum BackgroundWork {
     ///
     /// The run and its order are the driver's (`RecorderDriver.refreshWithNoScreen`): the packet is handed to
     /// it, and each thing it finds is told here as it finds it.
-    static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling) async -> Bool {
-        await RecorderDriver.refreshWithNoScreen(client, store: store,
+    static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling,
+                        told: TVTold = TVTold(), nextRun: Date? = nil) async -> Bool {
+        await RecorderDriver.refreshWithNoScreen(client, store: store, told: told, nextRun: nextRun,
                                                  sendPacket: packet(for: client, mac: mac)) { found in
             switch found {
             case .heldBack: await telling.heldBack()
             case .queue(let outcome): await telling.flushed(outcome)
+            case .told(let notYet, let withdraws, let kept): await telling.kept(notYet, withdraws, kept)
             case .freeSpace(let free, let total, let naming): await telling.freeSpace(free, total, naming)
             case .usbSpace(let disk): await telling.usbSpace(disk)
             case .fetched(let at): telling.fetched(at)
@@ -314,10 +329,17 @@ enum BackgroundWork {
               let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
             return .noRecorder
         }
-        let sending = await sendWaiting(client: RecorderClient(host: host), store: store,
-                                        mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac))
+        let told = UserDefaults.standard.data(forKey: DefaultsKey.recorderTold)
+            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
+        let (sending, news) = await sendWaiting(client: RecorderClient(host: host), store: store,
+                                                mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac),
+                                                told: told, nextRun: nextNightlyRun())
         if case .sent(let outcome) = sending { await Notify.queueFlushed(outcome) }
-        if sending == .anotherRecorder { await Notify.queueHeldBack() }
+        if news.heldBackIsNews { await Notify.queueHeldBack() }
+        await Notify.recorder(notYet: news.notYet, withdraws: news.withdrawsNotYet)
+        if let kept = news.kept.flatMap({ try? JSONEncoder().encode($0) }) {
+            UserDefaults.standard.set(kept, forKey: DefaultsKey.recorderTold)
+        }
         return sending
     }
 
@@ -329,13 +351,25 @@ enum BackgroundWork {
     /// before anything goes on the network; what it came to is said here as the action's own `Sending`.
     static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
                             now: Date = Date()) async -> Sending {
-        switch await RecorderDriver.sendWithNoScreen(client, store: store, now: now,
-                                                     sendPacket: packet(for: client, mac: mac)) {
+        await sendWaiting(client: client, store: store, mac: mac, told: TVTold(), nextRun: nil, now: now).sending
+    }
+
+    /// The same, handing back with the sending what it has to tell once (`NoScreenTold`), against what was
+    /// `told` before and for the reservations that start before `nextRun`: whether another recorder answering
+    /// is news, the notice of reservations that have not reached the recorder in time and its withdrawal, and
+    /// what to keep. The entry reads and writes what is kept and posts; whether there is anything to tell is
+    /// the driver's (`RecorderDriver.sendWithNoScreen`).
+    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?, told: TVTold, nextRun: Date?,
+                            now: Date = Date()) async -> (sending: Sending, news: NoScreenTold) {
+        let (came, news) = await RecorderDriver.sendWithNoScreen(client, store: store, told: told, nextRun: nextRun,
+                                                                 now: now, sendPacket: packet(for: client, mac: mac))
+        let sending: Sending = switch came {
         case .nothingWaiting: .nothingWaiting
         case .unreachable: .unreachable
         case .anotherAnswered: .anotherRecorder
         case .sent(let outcome): .sent(outcome)
         }
+        return (sending, news)
     }
 
     /// The magic packet for the recorder the client asks, to the MAC the app wrote down the last time it

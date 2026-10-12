@@ -1149,6 +1149,9 @@ final class Tellings: @unchecked Sendable {
         case flushed(PendingQueue.Outcome)
         case freeSpace(free: Int, total: Int, naming: String?)
         case usbSpace(RecorderDisk)
+        /// What is told once: the notice of reservations not yet at the recorder, whether the last such notice
+        /// is taken away, and what to keep.
+        case told(notYet: String?, withdraws: Bool, kept: TVTold)
         /// Without its time, which is the moment it was told.
         case fetched
 
@@ -1159,6 +1162,7 @@ final class Tellings: @unchecked Sendable {
             case .flushed: "flushed"
             case .freeSpace: "freeSpace"
             case .usbSpace: "usbSpace"
+            case .told: "told"
             case .fetched: "fetched"
             }
         }
@@ -1190,6 +1194,7 @@ func telling(_ told: Tellings) -> BackgroundWork.Telling {
                            flushed: { told.say(.flushed($0)) },
                            freeSpace: { told.say(.freeSpace(free: $0, total: $1, naming: $2)) },
                            usbSpace: { told.say(.usbSpace($0)) },
+                           kept: { told.say(.told(notYet: $0, withdraws: $1, kept: $2)) },
                            fetched: { _ in told.say(.fetched) })
 }
 

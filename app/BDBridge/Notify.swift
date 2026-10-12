@@ -113,6 +113,20 @@ enum Notify {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionQueue])
     }
 
+    /// The recorder's warning of reservations that have not reached it in time, as a run with no screen hands
+    /// it over (`NightFound.told`, `NoScreenTold`), and its withdrawal once none of the reservations it told of
+    /// waits to go: as the television's (`television`), and under an identifier of its own, so that what became
+    /// of the queue (`queue-flushed`) does not take the place of a warning that may still hold.
+    static func recorder(notYet: String?, withdraws: Bool) async {
+        if withdraws {
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [recorderNotYet])
+        }
+        if let notYet { await post(id: recorderNotYet, title: "送信待ちの予約", body: notYet) }
+    }
+
+    /// The identifier of the recorder's warning of reservations not yet there. Not the queue's.
+    static let recorderNotYet = "not-yet-sent"
+
     /// The identifiers of the television's two notifications: what became of what waited for it, and the
     /// warning of reservations not yet there. Neither is the recorder's, nor the other's.
     static let televisionQueue = "tv-queue-flushed"

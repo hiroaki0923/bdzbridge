@@ -1016,4 +1016,339 @@ final class NoScreenGateTests: XCTestCase {
         expectEqual(try await rows(in: store),
                     ["朝の番組: " + Said.heldAfterSilence, "夜の番組: " + Said.heldAfterSilence])
     }
+
+    // MARK: - told once
+
+    /// Half past noon in Japan on 18 May 2033, when the reservations of these tests start unless said, and the
+    /// overnight run asked for next, an hour after it: a reservation here is never over at the hour the test is
+    /// run, and is due before the next run or not by what the test says.
+    private static let dueAt = Date(timeIntervalSince1970: 2_000_000_000)
+    private static let nextRun = dueAt + 3600
+
+    /// A reservation waiting for the recorder, half an hour on the demo's first channel, starting at `start`.
+    private func due(_ title: String, programme: Int, at start: Date = dueAt) -> PendingReservation {
+        let request = ReservationRequest(title: title, start: start, durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: 2, serviceID: 1024, qualityCode: 100, eventID: programme)
+        return PendingReservation(request: request, serviceName: "サンプルテレビ")
+    }
+
+    /// The notice of reservations that have not reached the recorder in time, of the one that starts at
+    /// `dueAt`, as far as what stands in its way.
+    private static func notYet(_ title: String) -> String {
+        "レコーダーにまだ届いていない予約があります（「\(title)」12:33 から）。"
+    }
+
+    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーが答えたときに送ります"
+
+    /// The overnight run handed what was told before and when the next is asked for, as the app's entry hands
+    /// them on: what it told, and what it asked of the recorder. With `kind`, its next request of that kind is
+    /// held while `meanwhile` runs, handed the night's task, and then let go with whatever else is held.
+    /// `asTheQueueIsTold` is run in the night's own task once what became of the queue has been told, as the app
+    /// would be posting its notification.
+    private func nightTellingOnce(of recorder: NamedRecorder, _ store: GuideStore, from told: TVTold = TVTold(),
+                                  heldAt kind: String? = nil,
+                                  _ meanwhile: (Task<Bool, Never>) async throws -> Void = { _ in },
+                                  asTheQueueIsTold: (@Sendable () async -> Void)? = nil) async throws
+        -> (told: Tellings, heard: [String]) {
+        let record = Tellings()
+        var asked = telling(record)
+        if let asTheQueueIsTold {
+            let flushed = asked.flushed
+            asked.flushed = { outcome in
+                await flushed(outcome)
+                await asTheQueueIsTold()
+            }
+        }
+        let tell = asked
+        let client = aClient(of: recorder)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        if let kind {
+            await recorder.holdTheNext(kind)
+            addTeardownBlock { await recorder.letGo() }
+        }
+        let run = Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: told,
+                                         nextRun: Self.nextRun)
+        }
+        if let kind {
+            try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
+            try await meanwhile(run)
+            await recorder.letGo()
+        }
+        _ = await run.value
+        return (record, await recorder.heard(since: count))
+    }
+
+    /// A night tells once of a reservation that starts before the next night and has not reached the recorder,
+    /// and hands that over as its sending ends, whichever way it ends, ahead of the free space and the guide.
+    ///
+    /// Nobody there: the notice, saying the recorder is not answering, and the reservation kept as told of. The
+    /// next such night, handed what the first kept, tells no notice again. So with a recorder that answers and
+    /// cannot be told to be the cache's own -- the owner out of reach -- which is told of as one not reached.
+    /// A round that meets silence at the read that opens it: what became of the queue, then the notice, and the
+    /// night ends. And a round that makes the reservation: what became of the queue, then that the notice is to
+    /// be taken away and nothing is told of any more, and only then the free space and the guide.
+    func testANightTellsOnceOfAReservationThatHasNotReachedTheRecorderInTimeBeforeTheSpaceAndTheGuide()
+        async throws {
+        let (recorder, store, path) = try await home()
+        let evening = due("夕方の番組", programme: 4331)
+        try await store.queue(evening)
+        let kept = TVTold(rows: [evening.id])
+        let notice = Self.notYet("夕方の番組") + Self.notAnswering
+
+        await recorder.goQuiet(for: 1000)
+        var ran = try await nightTellingOnce(of: recorder, store)
+        XCTAssertEqual(ran.told.said, [.told(notYet: notice, withdraws: false, kept: kept)], "nobody there")
+        ran = try await nightTellingOnce(of: recorder, store, from: kept)
+        XCTAssertEqual(ran.told.said, [.told(notYet: nil, withdraws: false, kept: kept)], "nobody there, again")
+        XCTAssertEqual(ran.heard, [Ask.description])
+        await recorder.goQuiet(for: 0)
+
+        let meta = MetaOutOfReach(in: path)
+        ran = try await nightTellingOnce(of: recorder, store)
+        meta.putBack()
+        XCTAssertEqual(ran.told.said, [.told(notYet: notice, withdraws: false, kept: kept)],
+                       "with the cache's owner out of reach")
+        XCTAssertEqual(ran.heard, [Ask.description], "with the cache's owner out of reach")
+
+        // Nobody there again, and the owner out of reach only once the night has begun: whose cache it is
+        // cannot be read as the telling is made, which keeps nothing back.
+        await recorder.goQuiet(for: 1000)
+        ran = try await nightTellingOnce(of: recorder, store, heldAt: Ask.description) { run in
+            let meta = MetaOutOfReach(in: path)
+            await recorder.letGo()
+            _ = await run.value
+            meta.putBack()
+        }
+        XCTAssertEqual(ran.told.said, [.told(notYet: notice, withdraws: false, kept: kept)],
+                       "nobody there, the cache's owner out of reach by the telling")
+        await recorder.goQuiet(for: 0)
+
+        await recorder.goQuiet(on: Ask.reservations)
+        ran = try await nightTellingOnce(of: recorder, store)
+        XCTAssertEqual(ran.told.names, ["flushed", "told"], "silence at the read that opens the round")
+        XCTAssertEqual(ran.told.said.last, .told(notYet: notice, withdraws: false, kept: kept),
+                       "silence at the read that opens the round")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations])
+
+        ran = try await nightTellingOnce(of: recorder, store, from: kept)
+        XCTAssertEqual(ran.told.names, ["flushed", "told", "freeSpace", "fetched"],
+                       "what is told once was not handed over ahead of the free space and the guide")
+        XCTAssertEqual(ran.told.said.dropFirst().first, .told(notYet: nil, withdraws: true, kept: TVTold()))
+        expectEqual(try await rows(in: store), [])
+    }
+
+    /// That another recorder answered is told once, not every night. With a reservation waiting that starts
+    /// after the next night: the queue held back, and what is kept says it was told; the next such night, handed
+    /// that, tells nothing of the queue. With one that starts before the next night as well, the notice of it
+    /// carries the sentence, and the queue held back is not told beside it. And a stranger with nothing waiting
+    /// that would go is told of by nothing, and what was told is forgotten.
+    func testANightTellsOnceThatAnotherRecorderAnsweredAndNotWithNothingWaiting() async throws {
+        let (recorder, store, _) = try await home()
+        let later = due("翌日の番組", programme: 4332, at: Self.nextRun + 3600)
+        try await store.queue(later)
+        await recorder.become(2)
+        let said = TVTold(stop: .another)
+
+        var ran = try await nightTellingOnce(of: recorder, store)
+        XCTAssertEqual(ran.told.said, [.heldBack, .told(notYet: nil, withdraws: false, kept: said)])
+        ran = try await nightTellingOnce(of: recorder, store, from: said)
+        XCTAssertEqual(ran.told.said, [.told(notYet: nil, withdraws: false, kept: said)], "told a second night")
+
+        let evening = due("夕方の番組", programme: 4331)
+        try await store.queue(evening)
+        ran = try await nightTellingOnce(of: recorder, store)
+        XCTAssertEqual(ran.told.said, [.told(notYet: Self.notYet("夕方の番組") + Said.anotherAnsweredWithNoScreen,
+                                             withdraws: false, kept: TVTold(stop: .another, rows: [evening.id]))])
+
+        for row in [later, evening] { try await store.setPendingProblem(row.id, "前に断られた理由") }
+        ran = try await nightTellingOnce(of: recorder, store, from: said)
+        XCTAssertEqual(ran.told.said, [.told(notYet: nil, withdraws: false, kept: TVTold())],
+                       "a stranger with nothing waiting that would go")
+        XCTAssertEqual(ran.heard, [Ask.description])
+    }
+
+    /// A night hands over nothing of what is told once, so that nothing of it is posted or kept, once its time
+    /// is up or the cache is another recorder's.
+    ///
+    /// Its time up while nobody answers: nothing. Nobody answering, and the cache made over to another recorder
+    /// while the one at the address is asked who it is, as the screens make it over when they take one up: the
+    /// night has heard nothing to hold against the cache, and whose cache it was as the night began is what
+    /// keeps the telling back -- nothing, where it would hand over what to keep of the recorder before. Its
+    /// time up while the first of two reservations is being made: both go, the round being finished row by
+    /// row, what became of the queue is told, and nothing after it. Its time up as what became of the queue is
+    /// being told, and the cache made over to another recorder just then: nothing after it, and the night
+    /// ends. The cache made over while a reservation is being made: nothing at all.
+    func testANightHandsOverNothingOfWhatIsToldOnceWhenItsTimeIsUpOrTheCacheIsAnotherRecorders() async throws {
+        let (recorder, store, path) = try await home()
+        try await store.queue(due("夕方の番組", programme: 4331))
+        await recorder.goQuiet(for: 1000)
+        var ran = try await nightTellingOnce(of: recorder, store, heldAt: Ask.description) { $0.cancel() }
+        XCTAssertEqual(ran.told.said, [], "nobody there, the night's time up")
+
+        ran = try await nightTellingOnce(of: recorder, store, heldAt: Ask.description) { _ in
+            let another = try await aClient(of: NamedRecorder(2)).describe()
+            expectEqual(try await GuideStore(path: path).claim(for: another), .another,
+                        "the cache was meant to be made over")
+        }
+        XCTAssertEqual(ran.told.said, [], "nobody there, the cache another recorder's than it was")
+        XCTAssertEqual(ran.heard, [Ask.description])
+        let itsOwn = try await aClient(of: NamedRecorder(1)).describe()
+        expectEqual(try await store.claim(for: itsOwn), .another, "the cache was meant to have been made over")
+        await recorder.goQuiet(for: 0)
+
+        try await store.queue(due("夜の番組", programme: 4333, at: Self.dueAt + 1800))
+        ran = try await nightTellingOnce(of: recorder, store, heldAt: Ask.create) { $0.cancel() }
+        XCTAssertEqual(ran.told.names, ["flushed"], "the night's time up while a reservation was being made")
+        expectEqual(try await rows(in: store), [])
+
+        try await store.queue(due("朝の番組", programme: 4336))
+        ran = try await nightTellingOnce(of: recorder, store, asTheQueueIsTold: {
+            withUnsafeCurrentTask { $0?.cancel() }
+        })
+        XCTAssertEqual(ran.told.names, ["flushed"], "the night's time up as what became of the queue was told")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create])
+
+        try await store.queue(due("昼の番組", programme: 4337))
+        ran = try await nightTellingOnce(of: recorder, store, asTheQueueIsTold: {
+            let another = try? await aClient(of: NamedRecorder(2)).describe()
+            guard let another, let screens = try? GuideStore(path: path) else { return }
+            _ = try? await screens.claim(for: another)
+        })
+        XCTAssertEqual(ran.told.names, ["flushed"],
+                       "the cache another recorder's as what became of the queue was told")
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations, Ask.create])
+        let first = try await aClient(of: NamedRecorder(1)).describe()
+        expectEqual(try await store.claim(for: first), .another, "the cache was meant to have been made over")
+
+        try await store.queue(due("深夜の番組", programme: 4334))
+        ran = try await nightTellingOnce(of: recorder, store, heldAt: Ask.create) { _ in
+            let another = try await aClient(of: NamedRecorder(2)).describe()
+            expectEqual(try await GuideStore(path: path)
+                .claim(for: another, holdingTheQueueWith: RecorderDriver.heldForAnotherRecorder), .another,
+                        "the cache was meant to be made over")
+        }
+        XCTAssertEqual(ran.told.said, [], "the cache another recorder's after the round")
+    }
+
+    /// The Shortcuts action hands back, with what its sending came to, what it has to tell once, for its entry
+    /// to post and keep: asked as that entry asks, with what was told before and when the next night is.
+    ///
+    /// Nobody there, a reservation waiting that starts before the next night: the notice, and the reservation
+    /// kept as told of; handed that, no notice again. Another recorder: that it answered is news, in the notice
+    /// where a reservation is due and by itself where none is, and is not news the next time. The recorder
+    /// known: the reservation goes, the notice is to be taken away and nothing is told of any more. And with no
+    /// next night handed in, as the action's tests ask it: another recorder answering is news each time, and
+    /// there is nothing to post or keep.
+    func testTheActionHandsBackWithItsSendingWhatItHasToTellOnce() async throws {
+        let (recorder, store, _) = try await home()
+        let evening = due("夕方の番組", programme: 4331)
+        try await store.queue(evening)
+        let kept = TVTold(rows: [evening.id])
+        func action(from told: TVTold = TVTold(), before nextRun: Date? = Self.nextRun) async
+            -> (sending: BackgroundWork.Sending, news: NoScreenTold) {
+            await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil, told: told,
+                                             nextRun: nextRun, now: Self.dueAt)
+        }
+
+        await recorder.goQuiet(for: 1000)
+        var came = await action()
+        XCTAssertEqual(came.sending, .unreachable)
+        XCTAssertEqual(came.news, NoScreenTold(notYet: Self.notYet("夕方の番組") + Self.notAnswering, kept: kept))
+        came = await action(from: kept)
+        XCTAssertEqual(came.news, NoScreenTold(kept: kept), "nobody there, again")
+        await recorder.goQuiet(for: 0)
+
+        let stranger = NamedRecorder(2)
+        func asked(of stranger: NamedRecorder, from told: TVTold, before nextRun: Date?) async -> NoScreenTold {
+            await BackgroundWork.sendWaiting(client: aClient(of: stranger), store: store, mac: nil, told: told,
+                                             nextRun: nextRun, now: Self.dueAt).news
+        }
+        let late = TVTold(stop: .another, rows: [evening.id])
+        expectEqual(await asked(of: stranger, from: kept, before: Self.nextRun),
+                    NoScreenTold(heldBackIsNews: true, kept: late), "another recorder, the reservation told of before")
+        expectEqual(await asked(of: stranger, from: TVTold(), before: Self.nextRun),
+                    NoScreenTold(notYet: Self.notYet("夕方の番組") + Said.anotherAnsweredWithNoScreen, kept: late))
+        expectEqual(await asked(of: stranger, from: TVTold(), before: Self.dueAt - 3600),
+                    NoScreenTold(heldBackIsNews: true, kept: TVTold(stop: .another)),
+                    "another recorder, the reservation not due before the next night")
+        expectEqual(await asked(of: stranger, from: TVTold(stop: .another), before: Self.dueAt - 3600),
+                    NoScreenTold(kept: TVTold(stop: .another)), "another recorder, told before")
+        expectEqual(await asked(of: stranger, from: TVTold(stop: .another), before: nil),
+                    NoScreenTold(heldBackIsNews: true), "another recorder, with no next night")
+        expectEqual(await stranger.asked(Ask.create), 0)
+
+        came = await action(from: late)
+        guard case .sent(let outcome) = came.sending else { return XCTFail("not sent: \(came.sending)") }
+        XCTAssertEqual(outcome.sent.map(\.id), [evening.id])
+        XCTAssertEqual(came.news, NoScreenTold(withdrawsNotYet: true, kept: TVTold()))
+        came = await action(before: nil)
+        XCTAssertEqual(came.sending, .nothingWaiting)
+        XCTAssertEqual(came.news, NoScreenTold(), "with no next night")
+    }
+
+    /// A sending of the screens' own, or a delete, takes the recorder's late notice away once none of the
+    /// reservations it told of waits to go, and they are told of no more: what the runs with no screen kept of
+    /// them is written again without them, the stop told left as it was. While one of them still waits, nothing
+    /// is written.
+    ///
+    /// Two told of: a connect's sending makes the first, the recorder being too busy for the second, which
+    /// still waits. That one deleted by the reader: none is told of any more. And one told of that the reader
+    /// sends again, which goes: the same. So with one told of whose programme the reader reserves by hand
+    /// from the guide: that reservation takes the waiting row's place, goes, and none is told of any more.
+    func testTheScreensOwnSendingOrADeleteForgetsTheRecordersLateNoticeOnceNoneOfItsReservationsWaits()
+        async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        let evening = due("夕方の番組", programme: 4331), night = due("夜の番組", programme: 4333, at: Self.dueAt + 1800)
+        func keep(_ told: TVTold) throws {
+            bench.defaults.set(try JSONEncoder().encode(told), forKey: DefaultsKey.recorderTold)
+        }
+        func kept() throws -> TVTold? {
+            try bench.defaults.data(forKey: DefaultsKey.recorderTold).map {
+                try JSONDecoder().decode(TVTold.self, from: $0)
+            }
+        }
+
+        try await store.queue(evening)
+        try await store.queue(night)
+        let warned = TVTold(stop: .another, rows: [evening.id, night.id])
+        try keep(warned)
+        await recorder.beBusy(with: Ask.create, after: 1)
+        await model.connect()
+        try await untilIdle(model)
+        XCTAssertEqual(model.pending.map(\.id), [night.id], "the second reservation was meant to wait still")
+        XCTAssertEqual(try kept(), warned, "the reservations warned of forgotten while one still waits")
+
+        await model.deleteWaiting(try XCTUnwrap(model.pending.first))
+        XCTAssertEqual(model.pending, [])
+        XCTAssertEqual(try kept(), TVTold(stop: .another), "the reservations warned of still told of once deleted")
+
+        let morning = due("朝の番組", programme: 4336)
+        try await store.queue(morning)
+        try keep(TVTold(rows: [morning.id]))
+        await model.loadPending()
+        await model.resend(try XCTUnwrap(model.pending.first))
+        XCTAssertEqual(model.pending, [])
+        XCTAssertEqual(try kept(), TVTold(), "the reservation warned of still told of once sent again")
+
+        try keep(warned)
+        try await store.queue(due("昼の番組", programme: 4337))
+        await model.connect()
+        try await untilIdle(model)
+        XCTAssertEqual(try kept(), TVTold(stop: .another), "the reservations warned of still told of once sent")
+
+        // One waiting that the attach's sending passed over, the recorder too busy, and was told of since.
+        let program = try await programmesNotReserved(model, 1)[0]
+        let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
+        let byHand = PendingReservation(request: request, serviceName: program.serviceName)
+        try await store.queue(byHand)
+        try keep(TVTold(rows: [byHand.id]))
+        await model.loadPending()
+        let reserved = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
+        XCTAssertEqual(reserved, .made(saying: nil))
+        XCTAssertEqual(model.pending, [], "the reservation made by hand still waits")
+        XCTAssertEqual(try kept(), TVTold(), "the reservation warned of still told of once reserved by hand")
+    }
 }

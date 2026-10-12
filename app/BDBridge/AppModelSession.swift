@@ -235,13 +235,18 @@ extension AppModel {
     }
 
     /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
-    /// the defaults keep about its disks and its guide go with it.
+    /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
+    /// told of it (`TVTold`): the next run tells what it finds afresh. Their warning of reservations not yet at
+    /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
+    /// are held for the reader now, and none of them waits to go.
     func cacheMadeOver() async {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
+        defaults.removeObject(forKey: DefaultsKey.recorderTold)
         await reloadFromCache()
         await loadPending()
+        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 
     /// It says so, and lets go of the client as well -- left in hand, a programme reserved from the guide still
@@ -256,12 +261,32 @@ extension AppModel {
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
     /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
     /// waking's attach that no connect reads after, is kept by the count noted here (`keepReservations`), and
-    /// what the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
+    /// what the round came to goes on the strip (`tellTheStrip`). A warning the runs with no screen left of
+    /// reservations not yet at the recorder goes once none of them waits to go
+    /// (`forgetTheRecordersWarningOnceSent`). Nothing here may await `start()`.
     func sendWhatWaits() async {
         let forgotten = timesForgotten
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }
         keepReservations(sent.list, since: forgotten)
         tellTheStrip(sent.round)
+        await forgetTheRecordersWarningOnceSent()
+    }
+
+    /// The warning the runs with no screen left of reservations not yet at the recorder is taken away once a
+    /// sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no more:
+    /// the television's rule in the recorder's words (`forgetTheWarningOnceSent`,
+    /// `TVTold.afterTheScreensSent`). Asked after each of them: what waits sent (`sendWhatWaits`), a row sent
+    /// again (`resend`), a reservation made by hand, which takes the place of a row that waited for its
+    /// programme (`reserve`), and a waiting row deleted (`deleteWaiting`). Not in the demo, whose queue is not
+    /// the one the warning was about.
+    func forgetTheRecordersWarningOnceSent() async {
+        guard !demo, let saved = defaults.data(forKey: DefaultsKey.recorderTold),
+              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let store, let waiting = try? await store.pendingReservations(),
+              let after = told.afterTheScreensSent(waiting: waiting, words: .recorder),
+              let kept = try? JSONEncoder().encode(after) else { return }
+        defaults.set(kept, forKey: DefaultsKey.recorderTold)
+        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 
     func queueWritten() async {

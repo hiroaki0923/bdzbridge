@@ -16,6 +16,9 @@ enum DefaultsKey {
     static let recorderMac = "recorderMac"
     /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
+    /// What the runs with no screen have told of it (`TVTold`, in the recorder's words), as JSON; forgotten
+    /// when the cache is made over to another recorder.
+    static let recorderTold = "recorderTold"
 
     // MARK: - the television
 
