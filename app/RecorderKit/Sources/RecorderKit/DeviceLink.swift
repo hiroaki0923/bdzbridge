@@ -241,8 +241,11 @@ public final class DeviceLink {
     public var mayBeSent: Bool { clientIsAttached && session.connected && heardInstead == nil }
     /// The check before an operation that is out, so that everything asked for while it runs waits for its
     /// answer -- and is given its reason -- rather than sending a probe, and a magic packet, of its own. Nil
-    /// from it when the device is up.
+    /// from it when the device is up. And nil again from the turn that check ends in: its own task takes it
+    /// down (`check`), so that no check stands here that is over.
     public private(set) var wakeCheck: Task<NotUp?, Never>?
+    /// Counts the checks begun, so that a check takes down only itself as it ends.
+    @ObservationIgnored private var checksBegun = 0
     /// A read the driver has left for later (`readLater`), while it waits or is out; nil otherwise. It goes with
     /// the device: when another describes itself and when the device is let go of (`endTheReadLeftForLater`).
     /// The app leaving ends it too, and a return that makes no attach leaves it for later again
@@ -435,6 +438,12 @@ public final class DeviceLink {
     /// What a check tells the host on the way -- that another device answered, the wait for the permission,
     /// the sentence of a silence -- it tells once, however many were waiting for its answer. That the app is
     /// not connected is said to each who asks.
+    ///
+    /// Only a check that is out is joined. One that has ended is no longer standing by the time anybody its
+    /// answer resumes has a turn (`wakeCheck`): whoever asks from then on asks for themselves, whether or not
+    /// the first to have asked for the ended one has gone on yet. So an asker that hears a check out and then
+    /// asks again (`RecorderDriver.mayGoOn`) is given a check of its own, with its own `evenIfRecent`, and not
+    /// once more the answer it has just heard.
     public func check(evenIfRecent: Bool = false) async -> LinkCheck {
         guard let client, !offline else {
             owner?.sayNotConnected()
@@ -444,11 +453,16 @@ public final class DeviceLink {
         // through here, and must not wait for itself.
         if session.connecting || session.waking { return .up(client) }
         if let wakeCheck { return LinkCheck(await wakeCheck.value, asking: client) }
-        let check = Task { await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent) }
+        checksBegun += 1
+        let this = checksBegun
+        let check = Task {
+            let why = await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent)
+            // Taken down here, in the turn the answer is made, and not by whoever asked once it has gone on.
+            if self.checksBegun == this { self.wakeCheck = nil }
+            return why
+        }
         wakeCheck = check
-        let why = await check.value
-        if wakeCheck == check { wakeCheck = nil }
-        return LinkCheck(why, asking: client)
+        return LinkCheck(await check.value, asking: client)
     }
 
     /// The check as a Bool: whether the device is there to ask.

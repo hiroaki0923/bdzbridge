@@ -497,6 +497,58 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(world.problem, busy, "what the check heard is not on the line")
     }
 
+    /// A run that has heard a check out asks who answers for itself, as it does after any check that heard
+    /// something in the recorder's place: however lately the recorder answered. A check is out, its ask of who
+    /// answers held at the recorder, as a run of each kind is asked whether it may go on, so that the run is
+    /// waiting for that check as it ends; and the check then hears the recorder busy with somebody else,
+    /// through the client's tries. The run is not handed that check's answer again in place of its own ask.
+    /// With the recorder free by then, it hears the recorder say which it is and goes on, nothing written on
+    /// the line; with the recorder busy still, it hears so itself, through its own tries, and stops with what
+    /// it heard, which goes on the line.
+    func testARunThatHeardACheckOutAsksAgainWhoAnswersAfterOneThatHeardTheRecorderBusy() async throws {
+        let busy = RecorderError.busy(action: "description.xml").explanation
+        for kind in [RunKind.delete, .protecting(true), .scanning] {
+            for freeAgain in [true, false] {
+                let what = "\(kind), the recorder \(freeAgain ? "free again" : "busy still")"
+                let (world, driver, link) = try Self.linked()
+                let recorder = try XCTUnwrap(world.devices[Stub.host] as? ScriptedRecorder)
+                Self.links.append(link)
+                await link.connect()
+                XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+                let run = try driver.beginRun(kind).get()
+                world.problem = Self.left
+                world.events = []
+
+                await recorder.hold()
+                addTeardownBlock { await recorder.letGo() }
+                let check = Task { await link.ensureUp(evenIfRecent: true) }
+                try await Self.whenHeld(recorder)
+                XCTAssertNotNil(link.wakeCheck, "the check was meant to be out: \(what)")
+                let noted = Noted()
+                let asking = Task {
+                    noted.begun = true
+                    return await driver.mayGoOn(run)
+                }
+                for _ in 0..<100_000 where !noted.begun { await Task.yield() }
+                XCTAssertTrue(noted.begun, "the run was meant to be waiting for the check: \(what)")
+                // Busy to the check, through both tries after the first; and then free, or busy still.
+                if freeAgain {
+                    await recorder.answerNext(.busy, .busy, .busy)
+                } else {
+                    await recorder.answer(.busy)
+                }
+                await recorder.letGo()
+
+                expectEqual(await check.value, true, "a recorder that answered busy was taken for gone: \(what)")
+                expectEqual(await asking.value, freeAgain ? nil : .said(busy), what)
+                XCTAssertEqual(world.count("ask description.xml"), freeAgain ? 4 : 6,
+                               "the run was meant to ask who answers itself, after the check's three: \(what)")
+                XCTAssertEqual(world.problem, freeAgain ? Self.left : busy, what)
+                XCTAssertEqual(link.checksAgain, !freeAgain, what)
+            }
+        }
+    }
+
     /// A run is for the recorder it began with. Once another recorder has described itself at the address and
     /// been taken up -- the link asks through a client that has heard the newcomer, and is connected to it --
     /// nothing of a run begun before goes to it: asked whether it may go on, a bulk delete, a bulk protect and a
@@ -1787,6 +1839,9 @@ final class RecorderRecordingsTests: XCTestCase {
 /// what it did.
 @MainActor
 private final class Noted {
+    /// Whether what was set going has begun: it notes that and goes on in the same turn, so by the time the
+    /// test sees it, what was set going has got as far as its first wait.
+    var begun = false
     /// Whether what was set going has come back.
     var back = false
     var rowsTakenOut = 0

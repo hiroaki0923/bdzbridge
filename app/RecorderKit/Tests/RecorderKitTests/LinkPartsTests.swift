@@ -196,6 +196,44 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertNil(link.wakeCheck)
     }
 
+    /// Nobody joins a check that has ended. A check is out, its probe held at the recorder, and a second asker
+    /// waits for it as whoever hears a check out does, by the check itself (`wakeCheck`), to ask for one of its
+    /// own after it, whatever the time since the last answer. The probe is then answered. As that answer
+    /// resumes the second asker no check is standing, whether or not the first to have asked has gone on, and
+    /// the check it asks for is its own: the recorder is asked a second time, where a check that had ended
+    /// and still stood would have handed it the answer it had just heard.
+    func testNobodyJoinsACheckThatHasEnded() async throws {
+        let (world, recorder, link) = try await connected()
+        await recorder.hold()
+        addTeardownBlock { await recorder.letGo() }
+        let first = Task { await link.check(evenIfRecent: true) }
+        let held = Begun()
+        Task {
+            await recorder.whenHeld()
+            held.note()
+        }
+        guard await held.came(1) else { return XCTFail("the probe that was to be held never came") }
+        let out = try XCTUnwrap(link.wakeCheck, "the check was meant to be out")
+
+        let waiting = Begun()
+        let second = Task {
+            waiting.note()
+            _ = await out.value
+            let stillStanding = link.wakeCheck != nil
+            return (stillStanding, await link.check(evenIfRecent: true))
+        }
+        guard await waiting.came(1) else { return XCTFail("the second asker never came to wait for the check") }
+        await recorder.letGo()
+
+        let (stillStanding, found) = await second.value
+        XCTAssertFalse(stillStanding, "a check that had ended was still standing as its answer came")
+        XCTAssertNotNil(found.client)
+        expectTrue(await first.value.client != nil)
+        XCTAssertEqual(world.count("ask description.xml"), 2,
+                       "who asked after a check had ended was handed that check's answer, and asked nothing")
+        XCTAssertNil(link.wakeCheck)
+    }
+
     /// A check asked for from inside a connect -- by the host, as it reads its lists once the device has been
     /// reached -- answers at once that the device is up, with the connect's client, and asks nothing: the
     /// connect is the making sure. Whatever the time since the last answer is to count for.
@@ -517,6 +555,13 @@ private final class Begun {
     func wait(for count: Int) async {
         guard self.count < count else { return }
         await withCheckedContinuation { waiting = (count, $0) }
+    }
+
+    /// Whether as many as `count` have begun, given a bounded number of turns to: for a test that is to fail
+    /// rather than wait where one never does.
+    func came(_ count: Int) async -> Bool {
+        for _ in 0..<100_000 where self.count < count { await Task.yield() }
+        return self.count >= count
     }
 }
 
