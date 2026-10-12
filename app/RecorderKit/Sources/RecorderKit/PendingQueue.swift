@@ -42,8 +42,9 @@ public enum PendingQueue {
         }
 
         /// Whether anything happened that the reader has not been told about. `deferred` and `held` are not
-        /// news: the first are waiting as they were, the second were reported when they were refused. One
-        /// found there already is: the reader made the reservation, and it is no longer waiting.
+        /// news: the first are waiting as they were, the second were reported when their reason was written
+        /// -- refused, held after silence, or held for another recorder. One found there already is: the
+        /// reader made the reservation, and it is no longer waiting.
         public var isEmpty: Bool { sent.isEmpty && expired.isEmpty && refused.isEmpty && alreadyThere.isEmpty }
     }
 

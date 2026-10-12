@@ -9,10 +9,21 @@ import XCTest
 /// and in which order, what it tells and what it leaves untold, and what being cancelled, silence part-way,
 /// nobody at the address and a recorder the cache is not of each come to.
 ///
-/// Gates, as `RunGateTests` is: each pins what the app does today, so that the order of a run can move into
-/// RecorderKit with the test's body unchanged, and where a test holds something that is still to be changed on
-/// purpose it says so, and that change rewrites it. What a night told is read from the bench's record
-/// (`Tellings`), which has each telling by the time it returns.
+/// They were written as gates, as `RunGateTests` was: each pinned what the app did, so that the order of a run
+/// could move into RecorderKit with the test's body unchanged (`RecorderDriver.refreshWithNoScreen`,
+/// `sendWithNoScreen`, `says`), and each change made on purpose afterwards rewrote the tests it changed. They
+/// hold the rules a run keeps now: a night ends at its first silence; once its time is up it tells only what
+/// became of the waiting reservations, and nothing once the cache is another recorder's; a recorder that
+/// cannot be told from the cache's own is not said to be another; a reservation whose create met silence is
+/// said to be held, and one still held is counted when a later round has news; a round acts on a reservation
+/// only as it read it; and another recorder answering, and a reservation that has not reached the recorder in
+/// time, are told once, what has been told being handed over to be kept, and the warning forgotten once a
+/// sending of the screens' own leaves none of its reservations waiting. What a night told is read from the
+/// bench's record (`Tellings`), which has each telling by the time it returns.
+///
+/// The entries the system calls -- `BackgroundWork.refreshNow` and the argument-less `sendWaiting()`, which
+/// read the app's own settings, send a real packet and post -- are reached by none of these, nor by any other
+/// test: what is behind each is tried with its surroundings handed in.
 ///
 /// No MAC is handed to either run, as in `WhichRecorderNoScreenTests`: a run with no screen sends its packet
 /// itself, not through the model, and a MAC would put one on the network this is run on.
@@ -73,8 +84,8 @@ final class NoScreenGateTests: XCTestCase {
     /// That last is told when a type answered, also with no file to give, which is all the demo's recorder
     /// answers; and what the run hands back is whether a programme was stored, which none was. With every file
     /// answered 500, as a recorder answers that has not built them, no type answered: nothing is told of the
-    /// guide, as it is today. With one type's file a guide, its logos are asked for after it, and the run hands
-    /// back that something was stored.
+    /// guide. With one type's file a guide, its logos are asked for after it, and the run hands back that
+    /// something was stored.
     func testANightSendsWhatWaitsReadsTheSlotAndTheSpaceAndAsksForEveryTypeOfTheGuide() async throws {
         let (recorder, store, _) = try await home()
         let morning = waiting("朝の番組", startingIn: 120, programme: 4321)
@@ -575,8 +586,8 @@ final class NoScreenGateTests: XCTestCase {
 
     /// A night that comes to its guide while another refresh is out waits its turn: one refresh at a time, the
     /// screens' and the night's. And a night whose time runs out while it waits asks for no file once the turn
-    /// is its own: the guide is fetched in the night's own task, also behind that wait, and looks for the
-    /// cancellation before its first type. Here the refresh that is out is one as the screens make it, on a
+    /// is its own: the guide is fetched in the night's own task, also behind that wait, and the night looks at
+    /// its task again once the turn has come. Here the refresh that is out is one as the screens make it, on a
     /// recorder and a client of its own, its first file held; the night has told the free space, which is the
     /// last thing before its guide, when its task is cancelled; and the other refresh is then let go. The
     /// night asked the recorder who it is, for the slot and for the free space, and for nothing after.

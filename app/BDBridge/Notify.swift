@@ -6,7 +6,9 @@ import UserNotifications
 ///
 /// Everything here happens with no screen in front of it -- the overnight run sends the reservations that
 /// were waiting, to the recorder and to the television, and finds out how much room is left; the Shortcuts
-/// action sends them too -- so a notification is the only way the reader learns of it.
+/// action sends them too -- so a notification is the only way the reader learns of it. What is worth saying
+/// of a run, and when it has been said already, is RecorderKit's (`RecorderDriver.tells`, `TVTold.after`):
+/// here it is posted, under an identifier that says what it takes the place of.
 ///
 /// Permission comes in two steps. Once the app has reached a real recorder, it asks for provisional permission,
 /// which shows no dialog and lets the notifications reach Notification Centre quietly, where the reader can
@@ -68,9 +70,13 @@ enum Notify {
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
-    /// What became of the reservations that were waiting. Nothing is said when nothing happened, and a
-    /// reservation refused on an earlier night is not news again: it is no longer sent (`PendingQueue.flush`).
-    /// With a television saved it says which device the reservations went to (`PendingQueue.Outcome.said`).
+    /// What became of the reservations that were waiting for the recorder, as a round with no screen tells it
+    /// (`RecorderDriver.tells`), which says whether there is news at all: nothing is posted when nothing
+    /// happened, and a reservation refused on an earlier night is not news again, since it is no longer sent
+    /// (`PendingQueue.flush`). A round that met silence at a reservation's create says that the reservation is
+    /// held, also when nothing else happened, and a round with news says how many are still held from an
+    /// earlier one. With a television saved the sentences say which device the reservations went to, by the
+    /// rule the strip names it by (`PendingQueue.Outcome.said(withATelevisionSaved:)`).
     static func queueFlushed(_ outcome: PendingQueue.Outcome) async {
         let device = BackgroundWork.televisionSaved() ? outcome.slot.label : nil
         guard let said = RecorderDriver.tells(outcome, naming: device) else { return }
@@ -78,19 +84,21 @@ enum Notify {
     }
 
     /// The queue was not sent, because another recorder than the one it was made for answered and with no
-    /// screen nothing is taken up (`RecorderDriver.isTheOneKnown`). Said so that the reader opens the app;
-    /// under the queue's own identifier, so that it is one entry however many nights it takes.
+    /// screen nothing is taken up (`RecorderDriver.isTheOneKnown`). Said so that the reader opens the app, and
+    /// once: the runs ask for it only when it is news, the stop they told last not having been this one
+    /// (`NightFound.heldBack`, `NoScreenTold.heldBackIsNews`). Under the queue's own identifier, so that what
+    /// the next round has to tell takes its place.
     static func queueHeldBack() async {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: anotherRecorderAnswered)
     }
 
     /// What a run with no screen has to tell of the television (`TVNotices`), each under an identifier of its
-    /// own: neither takes the place of the recorder's (`queue-flushed`) nor of the other. What became of the
-    /// queue is replaced by the next run's, as the recorder's is; a notice of reservations not yet there stays
-    /// until one of its kind replaces it or none of the reservations it told of waits to go, so that the news
-    /// of a sending does not take away a warning that may still hold.
+    /// own: neither takes the place of the recorder's two (`queue-flushed`, `recorderNotYet`) nor of the
+    /// other. What became of the queue is replaced by the next run's, as the recorder's is; a notice of
+    /// reservations not yet there stays until one of its kind replaces it or none of the reservations it told
+    /// of waits to go, so that the news of a sending does not take away a warning that may still hold.
     ///
-    /// That one replaces another is Apple's, for the recorder's notification as well: "If the identifier
+    /// That one replaces another is Apple's, for the recorder's notifications as well: "If the identifier
     /// matches a previously delivered notification, the system alerts the user again, replaces the old
     /// notification with the new one, and places the new notification at the top of the list."
     /// (`UNNotificationRequest.init(identifier:content:trigger:)`). So is taking a delivered one away by its
@@ -116,7 +124,10 @@ enum Notify {
     /// The recorder's warning of reservations that have not reached it in time, as a run with no screen hands
     /// it over (`NightFound.told`, `NoScreenTold`), and its withdrawal once none of the reservations it told of
     /// waits to go: as the television's (`television`), and under an identifier of its own, so that what became
-    /// of the queue (`queue-flushed`) does not take the place of a warning that may still hold.
+    /// of the queue (`queue-flushed`) does not take the place of a warning that may still hold. The screens
+    /// take it away as well, once a sending or a delete of their own leaves none of those reservations waiting
+    /// (`AppModel.forgetTheRecordersWarningOnceSent`), and when the cache is made over to another recorder
+    /// (`AppModel.cacheMadeOver`).
     static func recorder(notYet: String?, withdraws: Bool) async {
         if withdraws {
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [recorderNotYet])
@@ -142,8 +153,11 @@ enum Notify {
     /// It counts as said only when it could be heard, or allowing notifications afterwards would bring nothing
     /// until the disk had been cleared above the line and filled below it again.
     ///
-    /// What is to be done is the recorder's rule (`RecorderDisk.internalSpace`), which says nothing of a disk of
-    /// no size; here the mark is read and written and the notice posted.
+    /// What is to be done is the recorder's rule (`RecorderDisk.internalSpace`): the line, and once per fall.
+    /// Here the mark is read and written and the notice posted. A disk of no size does not come here: the
+    /// overnight run reads the free space as the screens do (`RecorderDriver.storage(of:)`), which takes such
+    /// an answer for a recorder that will not say, and tells nothing of it; `totalBytes` is handed on and
+    /// not looked at.
     ///
     /// `naming` is the internal disk's label, handed in only while a USB disk beside it takes recordings, so that
     /// each of the two notices says which disk it is about. With none it says what it always has.

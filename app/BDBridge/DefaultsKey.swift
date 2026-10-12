@@ -2,10 +2,10 @@ import Foundation
 
 /// Every name the app keeps something under in UserDefaults, in one place.
 ///
-/// Some are read in more than one file -- the overnight run reads the address and the MAC the screens write --
-/// where a slip on either side reads nothing, without a word. They are names on the reader's phone rather than
-/// in the code: renaming one forgets whatever was saved under it. The UI tests and the screenshots set several
-/// as launch arguments (`-startTab guide`) and spell them out there, since that is another target.
+/// Some are read in more than one file -- the runs with no screen read the address and the MAC the screens
+/// write -- where a slip on either side reads nothing, without a word. They are names on the reader's phone
+/// rather than in the code: renaming one forgets whatever was saved under it. The UI tests and the screenshots
+/// set several as launch arguments (`-startTab guide`) and spell them out there, since that is another target.
 enum DefaultsKey {
     // MARK: - the recorder
 
@@ -16,8 +16,13 @@ enum DefaultsKey {
     static let recorderMac = "recorderMac"
     /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
-    /// What the runs with no screen have told of it (`TVTold`, in the recorder's words), as JSON; forgotten
-    /// when the cache is made over to another recorder.
+    /// What the runs with no screen have told of it (`TVTold`, in the recorder's words), as JSON: the stop told
+    /// last, which for a recorder is another one answering, and the reservations warned of as not having
+    /// reached it in time. Read and written by the overnight run and the Shortcuts action
+    /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
+    /// written by the screens once none of the reservations warned of waits to go
+    /// (`AppModel.forgetTheRecordersWarningOnceSent`); forgotten when the cache is made over to another recorder
+    /// (`AppModel.cacheMadeOver`).
     static let recorderTold = "recorderTold"
 
     // MARK: - the television
@@ -28,7 +33,7 @@ enum DefaultsKey {
     /// The MAC it wakes on, which is what tells it from any other. Kept to recognise it, never to wake it.
     static let tvMac = "tvMac"
     /// What the runs with no screen have told of it (`TVTold`), as JSON; forgotten when a television is
-    /// registered or taken away.
+    /// registered or taken away. The recorder's is kept apart from it (`recorderTold`).
     static let tvTold = "tvTold"
 
     // MARK: - what the screens keep between launches
@@ -53,7 +58,10 @@ enum DefaultsKey {
 
     // MARK: - the overnight run
 
-    /// Shown on the settings screen, so that something invisible can still be seen to be working.
+    /// When the overnight run last fetched a guide. Shown on the settings screen, so that something invisible
+    /// can still be seen to be working. Written by a run that still has its time and whose cache is still its
+    /// recorder's, when a broadcasting type answered. This and the two marks below go with the cache when it
+    /// is made over to another recorder.
     static let lastBackgroundRefresh = "lastBackgroundRefresh"
     /// Whether the low-space warning has been given since the disk last had room. See `Notify.lowSpace`.
     static let warnedLowSpace = "warnedLowSpace"

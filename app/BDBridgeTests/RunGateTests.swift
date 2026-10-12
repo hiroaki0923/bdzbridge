@@ -9,11 +9,19 @@ import XCTest
 /// order, what its job says while it runs and once it has ended, and what silence, 中止, leaving the app, a check
 /// beside it and another recorder's arrival each do to it.
 ///
-/// Gates, as `FunnelGateTests` is and for the same kind of move: each pins what the app does today, so that a
-/// run's steps can move out of the model and into RecorderKit with the test's body unchanged, and where a test
-/// holds something that is still to be changed on purpose it says so, and that change rewrites it. A test asks
-/// only what a screen asks and reads only what a screen reads, with the bench's own words for the rest (`Said`,
-/// `Ask`, `makeSure`).
+/// They were written as gates, as `FunnelGateTests` was and for the same kind of move: each pinned what the app
+/// did, so that a run's steps could move out of the model and into RecorderKit with the test's body unchanged
+/// (`RecorderDriver.beginRun`, `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`), and each
+/// change made on purpose afterwards rewrote the tests it changed. They hold the rules a run keeps now, which
+/// are a single write's: why a run stopped is its job's to say; nothing of it goes to a recorder that has not
+/// said which it is, after a check that heard it busy, or once it was let go of; silence is said once, on the
+/// line; and the free space is read only after a run that deleted something and that the recorder did not
+/// stop, where a check would have nothing to ask. A test asks only what a screen asks and reads only what a
+/// screen reads, with the bench's own words for the rest (`Said`, `Ask`, `makeSure`).
+///
+/// The last section is not about a run but about what the screens go by for their buttons while one is under
+/// way or the recorder works (`AppModel.canStartARun`, `canAlterARecording`, `scannedForDuplicates`): the
+/// views that read those are reached by no test.
 ///
 /// The recorder is the bench's (`NamedRecorder`), told what to answer a request at a time.
 @MainActor

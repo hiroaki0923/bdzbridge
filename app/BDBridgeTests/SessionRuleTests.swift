@@ -147,7 +147,8 @@ final class SessionRuleTests: XCTestCase {
         expectEqual(await recorder.asked("description.xml"), 1)
     }
 
-    /// Nor beside a bulk job, which holds the client it started with: 再接続 and pulling down wait for it.
+    /// Nor beside a bulk job, whose requests go on the client in hand, beside which a connect's would be a
+    /// second conversation with the recorder: 再接続 and pulling down wait for it.
     func testNoConnectStartsWhileAJobIsRunning() async throws {
         let bench = try aBench()
         let recorder = NamedRecorder(1)
@@ -167,8 +168,8 @@ final class SessionRuleTests: XCTestCase {
         try await until("the job never finished") { model.job?.finished == true }
     }
 
-    /// Nor does a second job start over one that is running: the first holds the client and the list it
-    /// began with, and the line on the recordings screen is about it.
+    /// Nor does a second job start over one that is running: the first is for the recorder and walks the list
+    /// it began with, and the line on the recordings screen is about it.
     func testASecondJobIsNotStartedOverOneThatIsRunning() async throws {
         let bench = try aBench()
         let recorder = NamedRecorder(1)

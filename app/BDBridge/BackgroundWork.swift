@@ -164,8 +164,16 @@ enum BackgroundWork {
     /// it -- so this wakes it rather than give up. Whatever is waiting in the queue goes out while the recorder
     /// is up, and the reader is told.
     ///
+    /// What the runs with no screen told of the recorder before is read here (`DefaultsKey.recorderTold`) and
+    /// handed in with the hour of the next run, so that another recorder answering, and a reservation that
+    /// will start before that run and has not reached the recorder, are told once
+    /// (`RecorderDriver.refreshWithNoScreen`). What has been told from then on is written back as the run
+    /// hands it over (`Telling.system`), whether or not a notification could be heard, as the television's is
+    /// (`sendToTheTelevisionNow`).
+    ///
     /// Stops between steps once its time is up (see `register`): the task has been completed by then, and
-    /// what the system allows after that is not to be counted on.
+    /// what the system allows after that is not to be counted on. Nothing is told or written from then on but
+    /// what became of the waiting reservations, when that is news.
     private static func refreshTheRecorderNow() async -> Bool {
         // Nothing to fetch and nobody to wake while the demo is on the screen.
         guard !DemoData.on else { return false }
@@ -182,9 +190,9 @@ enum BackgroundWork {
 
     /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
     /// ask: read from what the screens saved, as the recorder's address is. With one saved, what became of the
-    /// recorder's queue says which device it went to (`PendingQueue.Outcome.said`), and the television's part
-    /// tells nothing of a television taken away while it was out. The defaults are handed in for a test of the
-    /// reading; a run reads the app's own.
+    /// recorder's queue says which device it went to (`Notify.queueFlushed`, `SendWaitingIntent.saying`), and
+    /// the television's part tells nothing of a television taken away while it was out. The defaults are handed
+    /// in for a test of the reading; a run reads the app's own.
     static func televisionSaved(in defaults: UserDefaults = .standard) -> Bool {
         !(defaults.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
     }
@@ -256,9 +264,13 @@ enum BackgroundWork {
     /// Handed in, so that the run can be tried without the notifications and the settings of whatever it is
     /// tried on (`refresh`).
     struct Telling: Sendable {
-        /// The queue was not sent, because the recorder that answered is not the one it was made for.
+        /// The queue was not sent, because the recorder that answered is not the one it was made for. Asked
+        /// only when the run has that to tell (`NightFound.heldBack`): with a next run handed in, not when it
+        /// was the stop told last.
         var heldBack: @Sendable () async -> Void
-        /// What became of the queue.
+        /// What became of the queue, from a night whose cache is still its recorder's: of every round while it
+        /// still has its time, and only of a round with news once that is up. Whether there is anything to say
+        /// of it is asked again where it is posted (`Notify.queueFlushed`).
         var flushed: @Sendable (PendingQueue.Outcome) async -> Void
         /// The internal disk's free space, with its label while a USB disk beside it takes recordings.
         var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
@@ -292,7 +304,10 @@ enum BackgroundWork {
     /// the reason they hand `sendWaiting` none.
     ///
     /// The run and its order are the driver's (`RecorderDriver.refreshWithNoScreen`): the packet is handed to
-    /// it, and each thing it finds is told here as it finds it.
+    /// it, and each thing it hands over is told here as it comes. What to tell, and what to keep back -- once
+    /// the task's time is up, once the cache is another recorder's -- is the driver's as well. `told` and
+    /// `nextRun` are handed on to it for what is told once; with no next run, as a test that does not look at
+    /// that hands none, nothing of it is done and nothing comes to `Telling.kept`.
     static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling,
                         told: TVTold = TVTold(), nextRun: Date? = nil) async -> Bool {
         await RecorderDriver.refreshWithNoScreen(client, store: store, told: told, nextRun: nextRun,
@@ -315,6 +330,8 @@ enum BackgroundWork {
         /// Nothing the recorder could be sent: the queue is empty, or holds only what it refused before, or
         /// what has finished. The recorder was not asked.
         case nothingWaiting
+        /// Nobody answered at the address, or a recorder did that could not be told from the one the queue and
+        /// the cache are of (`TheOneKnown.cannotBeTold`). Nothing was sent.
         case unreachable
         /// A recorder answered, and not the one the queue and the cache are of. Nothing was sent to it.
         case anotherRecorder
@@ -322,7 +339,16 @@ enum BackgroundWork {
     }
 
     /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`), which an automation
-    /// runs as the phone joins the home Wi-Fi. The reader hears the outcome the way the overnight run tells it.
+    /// runs as the phone joins the home Wi-Fi. The reader hears the outcome the way the overnight run tells it:
+    /// what became of a round, when it has news (`Notify.queueFlushed`); that another recorder answered, when
+    /// that is news; and the warning of reservations that have not reached the recorder in time, posted or
+    /// taken away (`Notify.recorder`).
+    ///
+    /// What was told before is read here (`DefaultsKey.recorderTold`) and handed in with the hour of the next
+    /// overnight run, and what the sending hands back to keep is written under the same key, whether or not a
+    /// notification could be heard. Whether each is told, and whether anything is kept, is the driver's
+    /// (`RecorderDriver.sendWithNoScreen`): nothing is written for a sending whose task was cancelled, or whose
+    /// cache became another recorder's while it was out.
     static func sendWaiting() async -> Sending {
         guard !DemoData.on else { return .demo }
         guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,

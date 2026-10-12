@@ -219,8 +219,8 @@ final class GuideRefreshTests: XCTestCase {
         expectEqual(try await store.counts()["bs"]?.programs, 4)
     }
 
-    /// Cancelled, it stops before the next type rather than going through all four: the overnight run's time
-    /// is up by then, and the task has been completed.
+    /// Cancelled, it stops before its next file rather than going through all four types: the overnight run's
+    /// time is up by then, and the task has been completed.
     func testACancelledRefreshStopsBeforeTheNextType() async throws {
         let (client, transport) = try recorder(serving: ["td", "bs", "cs", "bs4k"]) { _ in
             HTTPResponse(statusCode: 416)

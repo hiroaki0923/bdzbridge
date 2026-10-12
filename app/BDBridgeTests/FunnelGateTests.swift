@@ -3,17 +3,22 @@ import RecorderKit
 import XCTest
 @testable import BDBridge
 
-/// The recorder's operations, each asked for as a screen asks for it -- its recordings and its keyword
-/// conditions, which are the driver's steps (`RecorderDriver`), and the guide fetched by hand, which still goes
-/// through the app's funnel (`AppModel.run`): what is on screen while one is out, what silence, a refusal and not
-/// being connected each leave behind, and what a check, a connect or another recorder beside one does to it.
+/// The recorder's operations, each asked for as a screen asks for it -- its recordings, its keyword conditions
+/// and its guide, fetched by hand and at a connect, all of them the driver's steps (`RecorderDriver`): what is
+/// on screen while one is out, what silence, a refusal and not being connected each leave behind, and what a
+/// check, a connect or another recorder beside one does to it. Of the guide as well: what a refresh hands back
+/// for the screen that asked to say, which files it asks for and of which client, that it waits its turn behind
+/// another refresh and is made sure of once the turn has come and before each later file, and which cache
+/// takes what it fetched.
 ///
 /// They were written as gates: each pinned what the app did, so that the operations could be moved out of the
 /// model and into RecorderKit with the test's body unchanged, and each change made on purpose afterwards
 /// rewrote the tests it changed. Where a test holds something that is still to be changed on purpose, it says
 /// so, and that change rewrites it. So a test asks only what a screen asks and reads only what a screen reads,
 /// with the bench's own words for the rest (`Said`, `leaveALine`, `makeSure`): where an operation lives can
-/// change under it, as the guide's is still to.
+/// change under it, as the guide's did last. Every test that holds a file of the guide lets it go in its
+/// teardown: the turn for fetching the guide is the process's, and one left held would keep every later
+/// refresh waiting.
 ///
 /// The recorder is the bench's (`NamedRecorder`), told what to answer a request at a time. It is told just
 /// before the operation that is to meet it, since a connect asks for some of the same things.
@@ -484,8 +489,8 @@ final class FunnelGateTests: XCTestCase {
     /// A connect to the same recorder, made while an operation's request is out, makes a client of its own and
     /// takes nothing from the operation, which ends as it would have: a read that comes back is put in place,
     /// and a write that meets silence says it may have arrived, loses the recorder and marks its list unread.
-    /// The funnel does not ask whether the client it began with is still the one in hand, and whatever comes to
-    /// ask whether the recorder was let go of meanwhile has to leave this as it is: nothing was let go of.
+    /// An operation does not ask whether the client it began with is still the one in hand: what it asks is
+    /// whether the recorder was let go of meanwhile (`DeviceLink.letGo(since:)`), and nothing was let go of.
     func testAConnectMadeBesideAnOperationThatIsOutTakesNothingFromIt() async throws {
         let (bench, recorder, model) = try await connectedHome(guide: false)
 
@@ -637,7 +642,7 @@ final class FunnelGateTests: XCTestCase {
     /// A guide asked for by hand passes over a type the recorder has no file for -- it answers 500 until it has
     /// built its files again -- fetches the rest, keeps the recorder and says a line for each type that failed,
     /// on the line of what went wrong and in what it hands back for its screen to say.
-    /// The task that asked being cancelled does not stop it between types: the guide is the app's rather than a
+    /// The task that asked being cancelled does not stop it before a file: the guide is the app's rather than a
     /// screen's, and a pull-down's task goes with its screen. Silence stops it there, loses the recorder and
     /// says the read's sentence alone on the line; what it hands back says the type that failed before the
     /// silence and then the silence. The count of downloads comes back to nought either way.

@@ -30,7 +30,7 @@ actor SerialQueue {
 /// `SerialQueue` runs each piece of work in a task of its own, which is what makes a caller's cancellation
 /// change nothing there. Work that looks at its own cancellation to stop early would never see it from inside
 /// such a task: the guide's refresh, which the overnight run asks in the task the system cancels when its time
-/// is up, looks before each type (`GuideRefresh.run`), and behind a queue's task it would go on through every
+/// is up, looks before each file (`GuideRefresh.run`), and behind a queue's task it would go on through every
 /// file of a night already ended. So whoever has the turn runs its work itself.
 ///
 /// The wait for the turn is not cut short when the caller is cancelled: the work is what looks at that, once

@@ -412,10 +412,13 @@ extension DeviceSlot {
 }
 
 extension PendingQueue.Outcome {
-    /// What became of the queue, as the app says it: on the strip, in the notification and in the Shortcuts
-    /// action's answer. A home with a recorder alone has one device a sentence can be about, and reads the
-    /// sentences it has always read (`summary`). With a television saved the reader has two, so each sentence
-    /// says which device the round was for.
+    /// What became of the queue, as the app says it on the strip. A home with a recorder alone has one device a
+    /// sentence can be about, and reads the sentences it has always read (`summary`). With a television saved
+    /// the reader has two, so each sentence says which device the round was for. The notification and the
+    /// Shortcuts action's answer name the device by the same rule, and say of a recorder's round what a round
+    /// with no screen tells (`RecorderDriver.tells`, `says`), which is made of these sentences; the action
+    /// reads this for whether the recorder's round has anything to say beside the television's
+    /// (`SendWaitingIntent.saying`).
     func said(withATelevisionSaved televisionSaved: Bool) -> String? {
         televisionSaved ? says(naming: slot.label) : summary
     }

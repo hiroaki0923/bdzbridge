@@ -218,7 +218,7 @@ final class TVHost: LinkHost {
 
     /// Busy with the television: its own lines only.
     var isBusy: Bool { !(model?.televisionLines.isEmpty ?? true) }
-    /// A bulk job holds the recorder's client, not the television's.
+    /// A bulk job is the recorder's, on its link, not the television's.
     var holdsOffConnect: Bool { false }
     var isDemo: Bool { model?.demo ?? false }
     var cache: GuideStore? { model?.store }

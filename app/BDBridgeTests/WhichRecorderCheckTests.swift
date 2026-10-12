@@ -217,8 +217,9 @@ extension WhichRecorderTests {
         await lookAtTheNetwork(model)
         XCTAssertFalse(model.connected)
         XCTAssertTrue(model.titles.isEmpty)
-        // Stopped by the check, as 中止 stops one: a scan under way in front goes by this alone, since it
-        // asks by the numbers it began with and not from the list that has just gone.
+        // Stopped by the check, as 中止 stops one. A run in front is stopped by its own asking as well,
+        // which goes by the count of recorders let go of (`RecorderDriver.mayGoOn`): a scan asks by the
+        // numbers it began with and not from the list that has just gone.
         XCTAssertEqual(model.job?.cancelled, true)
 
         await model.returnedToForeground()

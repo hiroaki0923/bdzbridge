@@ -53,12 +53,18 @@ struct SendWaitingIntent: AppIntent {
     /// which is why what was sent is also a notification, as it is from the overnight run.
     ///
     /// `televisionSaved`: the reader has a television beside the recorder, and what became of the queue then
-    /// says which device it went to (`PendingQueue.Outcome.said`). Handed in, since nothing here has a model
+    /// says which device it went to: the recorder's word is handed to the driver's sentences, as the strip's
+    /// are named (`PendingQueue.Outcome.said(withATelevisionSaved:)`). Handed in, since nothing here has a model
     /// to ask; left out, it is a home with a recorder alone, whose sentences are as they have always been.
     ///
     /// What the recorder's sending came to is said in the driver's sentences (`RecorderDriver.says`), and
     /// 「送信待ちの予約はありません。」 where those have nothing to say; the demo and a home with no recorder are
-    /// the app's to say.
+    /// the app's to say. Of a round the driver says what the notification says of it
+    /// (`RecorderDriver.tells`), a reservation held after silence at its create among it, and beyond that
+    /// what a round with no news still has for whoever ran the action. `.unreachable` is also a recorder that
+    /// answered and could not be told from the one the queue was made for, said as one not reached. Nothing
+    /// is read, kept or written here: what is told once is the entry's (`BackgroundWork.sendWaiting`), and
+    /// is a notification, not part of the answer.
     static func saying(_ sending: BackgroundWork.Sending, televisionSaved: Bool = false) -> String {
         let recorders: NoScreenSending
         var device: String?

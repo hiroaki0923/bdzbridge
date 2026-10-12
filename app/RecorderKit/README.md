@@ -30,7 +30,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
 | `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `Recognition`, `RecorderRule`, `NetworkSettings` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
-| `SerialQueue.swift` | One request at a time, in the order the calls arrive |
+| `SerialQueue.swift` | One request at a time, in the order the calls arrive; and a turn that is waited for and given back, for work that has to stay in the task that asked for it |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
 | `DeviceFailure.swift` | What a failure means whichever device it came from: silent, busy, refused and the rest |
 | `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one, which reads its list first and leaves a row it holds already unsent |
@@ -39,13 +39,17 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
 | `LinkRules.swift` | Whether to give up, try once more or make sure of the device first; where it was last tried |
 | `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
-| `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission; the client whose attach heard which device answers, what a check heard in its place, and how often the device was let go of |
+| `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission; the client whose attach heard which device answers, what a check heard in its place, and how often the device was let go of. A check is joined only while it is out |
 | `LinkOperation.swift` | What something asked of a device through its link is made of, whichever device: the line on the screen while it is out, how it failed and the sentence for it (`OperationFailure`), what is said and done about that, and the whole in order for an operation of one request (`run`) |
 | `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted -- by the rules a television's keep, each answered with its sentence |
 | `RecorderRecordings.swift` | The recorder's recordings, by the same rules: the list with the free space, read once for everyone who asks together, a recording's details, protect and delete (and which recordings cannot be deleted), playback, turning a recorder in standby on to play and waiting for it, and the power; how one of these is asked of the recorder |
 | `RecorderConditions.swift` | The recorder's own keyword conditions, by the same rules: read with why they could not be, added (to the USB disk after the slot answers) and deleted, each under its one line, with the list read after an add that went through or a delete the recorder answered |
+| `RecorderRuns.swift` | The recorder's side of a run over many recordings -- the bulk delete, the bulk protect and the scan for duplicates -- by the same rules: its words, when a run may begin and go on, one recording asked a request at a time with the recorder's two traps, why a run stopped, and the free space read as it ends |
+| `RecorderGuide.swift` | The guide fetched by hand and at a connect, by the same rules: the step, the press that connects first where the recorder cannot be asked, the asking that makes sure of the recorder once a refresh has its turn and before each later file, and what a refresh came to, for its screen to say |
+| `RecorderNoScreen.swift` | The recorder's runs with no screen, which have no link: the one attempt at the recorder, whether the one that answered is the one the cache is of, the order of the overnight run and of the Shortcuts action's sending, what each tells and what it tells once, and the sentences |
 | `ScalarClient.swift` | A Sony BRAVIA's own control API: the JSON-RPC envelope, its errors, the registration by PIN and the cookie it hands out |
 | `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted |
+| `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what a sending came to, for either device, and what is said of it; and the rule of what is told once and kept between runs (`TVTold.after`), with a device's own words for it (`NoScreenWords`), which the recorder's runs tell by as well |
 | `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
@@ -53,13 +57,12 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
 | `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
-| `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, and which types are behind |
-| `PendingQueue.swift` | Sending the reservations that were made while their device could not be reached, a row at a time by the device's own way of sending one, and the sentences for what became of them |
+| `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, one refresh at a time in the process and only into the cache of the recorder it was fetched from; which types are behind, and when the overnight run is asked for |
+| `PendingQueue.swift` | Sending the reservations that were made while their device could not be reached, a row at a time by the device's own way of sending one and only as the round read the row, and the sentences for what became of them |
 | `ByProgram.swift` | Whether a device's list holds a reservation that answers for a waiting row: the same programme, a repeat that is all the row asks for, and not one the recorder made for itself |
 | `Logo.swift` | The station-logo file, and the broadcast colour table the PNGs rely on |
 | `Series.swift` | Programme names and grouping keys from recording titles |
 | `Titles.swift` | Watch states, and recordings gathered into programmes |
-| `BulkWork.swift` | What to do about one recording in a run of many, including the recorder's two traps |
 | `Duplicates.swift` | Copies of one broadcast, and which copy to keep |
 
 Every file in `docs/port/` is checked from here: `codes.json`, `xsrs.json`, `description.json`,

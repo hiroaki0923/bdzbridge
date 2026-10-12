@@ -216,8 +216,8 @@ extension RecorderDriver {
             // The client the files are asked of, noted once the turn has come.
             var asked: (any GuideSource)?
             // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
-            // connected is cancelled when its screen goes away, and the refresh stops between types when it
-            // is cancelled -- which is for the overnight run, whose time runs out.
+            // connected is cancelled when its screen goes away, and the refresh stops before its next file when
+            // it is cancelled -- which is for the overnight run, whose time runs out.
             let refresh = Task {
                 await GuideRefresh.run(asked: which, onTurn: { @MainActor in
                     let turn = await self.mayFetch(on: link, since: began)

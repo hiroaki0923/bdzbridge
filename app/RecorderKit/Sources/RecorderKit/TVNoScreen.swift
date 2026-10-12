@@ -6,7 +6,10 @@ import Foundation
 /// What the recorder's sending with no screen came to is the same four (`RecorderDriver.sendWithNoScreen`),
 /// read for a recorder: nothing waits that it could be sent, it was not reached or could not be told from the
 /// one the cache is of, another recorder than that one answered, or the round ran. What is said of each is the
-/// device's own: the recorder's is `RecorderDriver.says`, and `stop` and `inTheWay` below are the television's.
+/// device's own: the recorder's is `RecorderDriver.says`, and `inTheWay` below is the television's. `stop` and
+/// `learntNothing` are read by the rule of what is told once (`TVTold.after`) for either device: a recorder
+/// has the one stop, another recorder answering, and its run has learnt nothing where nobody was reached or
+/// its round met silence before any reservation was sent, found there, turned down or passed over.
 public enum NoScreenSending: Sendable, Equatable {
     /// Nothing waits that the television could be sent: no row of its, or only rows with a reason on them, or
     /// only rows whose programme is over. It was not asked, and nothing was dropped.
@@ -224,8 +227,8 @@ public struct TVTold: Codable, Sendable, Equatable {
     /// What became of the queue is told when it is news, as the recorder's run tells it, and so is a stop the
     /// reader was not told last, unless the late notice carries it already, and silence at a create when
     /// the queue said nothing. A television that does not answer, or answers with nothing that reads, is no
-    /// state it is known to be in, and is never told here on its own: the recorder's run says nothing of a
-    /// recorder that does not answer either.
+    /// state it is known to be in, and is never told here on its own; nor is a recorder that does not answer,
+    /// which its run tells of only at the end of a late notice.
     ///
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
     /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
