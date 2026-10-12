@@ -31,7 +31,8 @@ public enum PendingQueue {
         public var held: [PendingReservation] = []
         /// Found on the device already, and gone from the queue: nothing was made for them.
         public var alreadyThere: [PendingReservation] = []
-        /// Why the round ended before its rows did, or nil when it went through them all.
+        /// Why the round ended before its rows did, or nil when it went through them all. The rows it did not
+        /// come to that it would have passed over with their reason are in `held` all the same: see `flush`.
         public var stopped: SendingStop?
 
         /// True when the device stopped answering part way through, so the rest were left alone. Read from
@@ -99,6 +100,16 @@ public enum PendingQueue {
     /// nothing written on it. With none, as whatever sends what waits passes it, every row of the device
     /// is gone through.
     ///
+    /// A round that stops, as it opens or at a row, counts as held the rows behind the stop that it would have
+    /// passed over with their reason had it come to them: those that are not over and carry a reason the reader
+    /// has not consented to (`Outcome.held`). They are passed over with it all the same, and whoever tells of
+    /// the round how many reservations are held (`RecorderDriver.tells`) is to count them over the whole of
+    /// what the round read, not over as much of it as the device let it get through. They are counted as they
+    /// stand as the round breaks, the queue being read once more then: a row behind the stop that has gone
+    /// meanwhile, or no longer carries the reason it was read with, is not counted, and a queue that cannot be
+    /// read just then counts none. Behind the stop as ahead of it, nothing is said of a row on the strength of
+    /// what it was as the round began.
+    ///
     /// One flush at a time in the process, whoever asks and whichever device it is for: a second waits for the
     /// first and then reads the queue afresh. The screens and the overnight run each have a client and a
     /// connection of their own and can run at once: both could read the same waiting reservation and send it,
@@ -137,6 +148,21 @@ public enum PendingQueue {
 
     private static let oneAtATime = SerialQueue()
 
+    /// The rows of the round's reading behind `row`, where the round stopped, that it would have passed over
+    /// with their reason had it come to them: not over, and carrying a reason the reader has not consented
+    /// to. What a round that stops counts as held beside the rows it did pass over (`flush`). Each only as it
+    /// stands in `queue`, the queue read as the round breaks, nil where it could not be read: there still,
+    /// with the reason it was read with (`standing`).
+    private static func heldBehind(_ row: PendingReservation, in waiting: [PendingReservation],
+                                   asItStandsIn queue: [PendingReservation]?,
+                                   consenting: [String: String], now: Date) -> [PendingReservation] {
+        guard let stoppedAt = waiting.firstIndex(where: { $0.id == row.id }) else { return [] }
+        return waiting[(stoppedAt + 1)...].filter { behind in
+            guard case .asRead = standing(of: behind, in: queue) else { return false }
+            return behind.request.end >= now && behind.problem != nil && consenting[behind.id] != behind.problem
+        }
+    }
+
     private static func oneRound<Target: QueueTarget>(client: Target, store: GuideStore,
                                                       consenting: [String: String], only: String?,
                                                       now: Date) async -> Outcome {
@@ -159,6 +185,9 @@ public enum PendingQueue {
                 switch await client.openRound(for: waiting.filter { $0.request.end >= now }, keeping: store) {
                 case .stopped(let stop):
                     outcome.stopped = stop
+                    outcome.held += heldBehind(pending, in: waiting,
+                                               asItStandsIn: try? await store.pendingReservations(),
+                                               consenting: consenting, now: now)
                     break sending
                 case .open(let opened, let alreadyThere):
                     round = opened
@@ -238,6 +267,9 @@ public enum PendingQueue {
                 }
                 if passedOver { outcome.deferred.append(pending) }
                 outcome.stopped = stop
+                outcome.held += heldBehind(pending, in: waiting,
+                                           asItStandsIn: try? await store.pendingReservations(),
+                                           consenting: consenting, now: now)
                 break sending
             }
         }

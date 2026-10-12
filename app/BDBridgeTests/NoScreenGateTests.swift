@@ -189,6 +189,12 @@ final class NoScreenGateTests: XCTestCase {
         round.flatMap { RecorderDriver.tells($0, naming: nil) }
     }
 
+    /// What a round with news ends with while a reservation held after silence at an earlier create still waits,
+    /// passed over: how many such there are, in the notification and in the Shortcuts action's answer.
+    private static func stillHeld(_ count: Int) -> String {
+        "レコーダーに届いたか確かめていない予約が \(count) 件あります。予約一覧で確かめてください"
+    }
+
     /// Once its time is up a night tells of the reservations that waited only what is news, and says it so that
     /// it holds whatever it was that cut the run short.
     ///
@@ -883,6 +889,87 @@ final class NoScreenGateTests: XCTestCase {
             XCTAssertEqual(SendWaitingIntent.saying(sending), alone, "\(sending)")
             XCTAssertEqual(SendWaitingIntent.saying(sending, televisionSaved: true), withATelevision, "\(sending)")
         }
+    }
+
+    /// A reservation held after silence at its create is said to be held still by each later round that has
+    /// news, for as long as it waits: what is told of a round takes the place of what was told of the one
+    /// before, and the row, passed over with its reason, is no news.
+    ///
+    /// The action's round meets silence at the create, and says the reservation is held. With another
+    /// reservation waiting, the action's next round makes that one and passes the first over: it says what it
+    /// made, and then that one reservation is still held and where to look -- with a television saved the
+    /// same, the line naming the recorder as it always does. A night with nothing to send has no news, and
+    /// would post nothing. A night with a third to send posts what it made, and the same line.
+    func testARoundWithNewsSaysThatAReservationHeldAfterAnEarlierSilenceIsStillHeld() async throws {
+        let (recorder, store, _) = try await home()
+        try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
+        await recorder.goQuiet(on: Ask.create)
+        var came = await action(on: recorder, store)
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.heldAfterSilence, "silence at the create")
+        let held = "朝の番組: " + Said.heldAfterSilence
+
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        came = await action(on: recorder, store)
+        XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Self.stillHeld(1),
+                       "the reservation held before was not said to be held still")
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true),
+                       Said.sent("昼の番組", naming: "レコーダー") + "。" + Self.stillHeld(1), "with a television saved")
+        expectEqual(try await rows(in: store), [held])
+
+        var ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.told.names.first, "flushed")
+        XCTAssertNil(posted(ran.told.rounds.first), "a round with no news told of the reservation held before")
+
+        try await store.queue(waiting("夜の番組", startingIn: 180, programme: 4323))
+        ran = await night(of: recorder, store)
+        XCTAssertEqual(posted(ran.told.rounds.first), Said.sent("夜の番組") + "。" + Self.stillHeld(1),
+                       "the night did not say that the reservation held before is held still")
+        expectEqual(try await rows(in: store), [held])
+    }
+
+    /// So it is said by a round that never came to that reservation: one cut short at a read ahead of it. The
+    /// line is counted over the whole of what the round read, and of the rows behind the stop the queue's clause
+    /// for a round cut short -- that the rest goes the next time -- is not true of this one.
+    ///
+    /// Three reservations wait: one whose programme is over, one to go, and one that starts after it, held
+    /// after silence at an earlier create. The recorder is silent at the reservations' list, which a round
+    /// reads as it opens. A night's round drops the one that is over, which is news, and stops there: it tells
+    /// that, that the rest goes the next time the recorder answers, and that one reservation is held still.
+    /// The Shortcuts action, with another whose programme is over, answers the same. And a night whose time is
+    /// up meanwhile, which tells no round as cut short at a read, tells of the one it dropped and that one is
+    /// held still. The two that waited wait as they were.
+    func testARoundCutShortAheadOfAReservationHeldAfterAnEarlierSilenceSaysItIsStillHeld() async throws {
+        let (recorder, store, _) = try await home()
+        let cutShort = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
+        try await store.queue(waiting("終わった番組", startingIn: -120, programme: 4323))
+        try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
+        try await store.queue(waiting("夜の番組", startingIn: 300, programme: 4324, problem: Said.heldAfterSilence))
+        let asTheyWere = ["昼の番組", "夜の番組: " + Said.heldAfterSilence]
+
+        await recorder.goQuiet(on: Ask.reservations)
+        var ran = await night(of: recorder, store)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations])
+        XCTAssertEqual(posted(ran.told.rounds.first),
+                       Said.expired("終わった番組") + "。" + cutShort + "。" + Self.stillHeld(1),
+                       "the reservation held behind the read that met silence was not said to be held still")
+        expectEqual(try await rows(in: store), asTheyWere)
+
+        try await store.queue(waiting("終わった番組", startingIn: -120, programme: 4325))
+        await recorder.goQuiet(on: Ask.reservations)
+        let came = await action(on: recorder, store)
+        XCTAssertEqual(came.heard, [Ask.description, Ask.reservations])
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending),
+                       Said.expired("終わった番組") + "。" + cutShort + "。" + Self.stillHeld(1), "the action's answer")
+        expectEqual(try await rows(in: store), asTheyWere)
+
+        try await store.queue(waiting("終わった番組", startingIn: -120, programme: 4326))
+        await recorder.goQuiet(on: Ask.reservations)
+        ran = try await nightCancelled(of: recorder, store, at: Ask.reservations)
+        XCTAssertEqual(ran.heard, [Ask.description, Ask.reservations])
+        XCTAssertEqual(posted(ran.told.rounds.first), Said.expired("終わった番組") + "。" + Self.stillHeld(1),
+                       "a night whose time was up did not say that the reservation is held still")
+        expectEqual(try await rows(in: store), asTheyWere)
     }
 
     /// The action's round meets silence. At the read of the recorder's list that opens it, nothing was sent: the

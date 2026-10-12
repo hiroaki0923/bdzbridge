@@ -229,6 +229,76 @@ final class NoScreenReachTests: XCTestCase {
         XCTAssertEqual(RecorderDriver.heldAfterSilence, held, "the sentence written on the rows is another")
     }
 
+    /// A round with news that passed over a reservation held after silence at an earlier create ends by saying
+    /// how many such there are, and to look at the list: what is told of it takes the place of what the earlier
+    /// round told, which said that the reservation is held. One, and two. Counted by the reason on the row, as
+    /// it is matched there: a row passed over for another reason is not counted, and with only such rows
+    /// nothing is added. Last, after the queue's clause for a round cut short at a read. The recorder is named
+    /// in it whether the queue's sentences name a device or not.
+    ///
+    /// Not with no news -- only such a row passed over, or that and a reservation the recorder was too busy
+    /// for, or silence at a read -- where nothing is told. Not of a row the round found on the recorder, which
+    /// is held no longer: found there, it is said as found, and only what is still passed over is counted. And
+    /// not by a round that itself stopped at silence at a create, with such a row behind it: the sentence
+    /// written on the row says that a reservation is held, and is said once.
+    ///
+    /// The Shortcuts action answers with what the round tells, so it says the same; of a round with no news
+    /// and such a row it says what it said.
+    func testARoundWithNewsEndsBySayingHowManyReservationsAreStillHeldAfterSilenceAtAnEarlierCreate() {
+        let one = [pending("朝の番組", eventID: 1)], busy = [pending("昼の番組", eventID: 2)]
+        let before = [pending("夜の番組", eventID: 3, problem: RecorderDriver.heldAfterSilence)]
+        let another = [pending("深夜の番組", eventID: 4, problem: RecorderDriver.heldAfterSilence)]
+        let refused = [pending("夕方の番組", eventID: 5, problem: "前に断られた理由")]
+        let forAnother = [pending("早朝の番組", eventID: 6, problem: RecorderDriver.heldForAnotherRecorder)]
+        let (held, atACreate, atARead) = (Self.held, Self.atACreate, Self.atARead)
+        func still(_ count: Int) -> String { "レコーダーに届いたか確かめていない予約が \(count) 件あります。予約一覧で確かめてください" }
+        let clause = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
+        let sent = "送信待ちだった「朝の番組」を登録しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに登録しました"
+        let found = "「夜の番組」はすでに予約されていました", foundOn = "「夜の番組」はレコーダーにすでに予約がありました"
+        let passedOver = "「昼の番組」は送れなかったため、次の機会にもう一度送ります"
+        typealias Outcome = PendingQueue.Outcome
+        let rounds: [(name: String, outcome: Outcome, unnamed: String?, named: String?)] = [
+            ("sent, one held after silence passed over", Outcome(slot: .recorder, sent: one, held: before),
+             sent + "。" + still(1), sentTo + "。" + still(1)),
+            ("sent, two passed over", Outcome(slot: .recorder, sent: one, held: before + another),
+             sent + "。" + still(2), sentTo + "。" + still(2)),
+            ("sent, one held for other reasons passed over", Outcome(slot: .recorder, sent: one, held: refused),
+             sent, sentTo),
+            ("sent, one held for another recorder passed over",
+             Outcome(slot: .recorder, sent: one, held: forAnother), sent, sentTo),
+            ("sent, one of each passed over",
+             Outcome(slot: .recorder, sent: one, held: refused + before + forAnother),
+             sent + "。" + still(1), sentTo + "。" + still(1)),
+            ("sent, then silence at a read, one passed over",
+             Outcome(slot: .recorder, sent: one, held: before, stopped: atARead),
+             sent + "。" + clause + "。" + still(1), sentTo + "。" + clause + "。" + still(1)),
+            ("only one passed over", Outcome(slot: .recorder, held: before), nil, nil),
+            ("one the recorder was too busy for, one passed over",
+             Outcome(slot: .recorder, deferred: busy, held: before), nil, nil),
+            ("silence at a read, one passed over", Outcome(slot: .recorder, held: before, stopped: atARead),
+             nil, nil),
+            ("the one held found on the recorder", Outcome(slot: .recorder, alreadyThere: before), found, foundOn),
+            ("one found on the recorder, another passed over",
+             Outcome(slot: .recorder, held: another, alreadyThere: before),
+             found + "。" + still(1), foundOn + "。" + still(1)),
+            ("silence at a create, one passed over", Outcome(slot: .recorder, held: before, stopped: atACreate),
+             held, held),
+            ("sent, then silence at a create, one passed over",
+             Outcome(slot: .recorder, sent: one, held: before, stopped: atACreate),
+             sent + "。" + held, sentTo + "。" + held),
+        ]
+        for round in rounds {
+            XCTAssertEqual(RecorderDriver.tells(round.outcome, naming: nil), round.unnamed, round.name)
+            XCTAssertEqual(RecorderDriver.tells(round.outcome, naming: "レコーダー"), round.named, round.name)
+        }
+        XCTAssertEqual(RecorderDriver.says(.sent(Outcome(slot: .recorder, sent: one, held: before)), naming: nil),
+                       sent + "。" + still(1), "the action's answer")
+        XCTAssertNil(RecorderDriver.says(.sent(Outcome(slot: .recorder, held: before)), naming: nil),
+                     "the action's answer for a round with no news")
+        XCTAssertEqual(RecorderDriver.says(.sent(Outcome(slot: .recorder, deferred: busy, held: before)), naming: nil),
+                       passedOver, "the action's answer for a round with no news and a reservation passed over")
+    }
+
     /// The Shortcuts action's answer for a round is what the round tells. A round with no news is still
     /// answered for whoever ran the action: a reservation the recorder was too busy for as the queue says it,
     /// silence before anything was sent as what waits being left as it is, and nothing where nothing happened.

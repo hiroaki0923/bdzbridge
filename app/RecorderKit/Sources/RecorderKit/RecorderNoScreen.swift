@@ -320,13 +320,37 @@ extension RecorderDriver {
     /// round has held it for the reader (`PendingQueue.flush`), and nothing sends it again but the reader. A
     /// television's goes by itself, which is why the queue's own sentences cannot say this. The sentence is the
     /// one written on the row, read here as it stands.
+    ///
+    /// A round with news that passed over a reservation held after silence at an earlier create -- one whose
+    /// reason, as the row carries it, is that sentence (`heldAfterSilence(matches:)`) -- ends by saying how many
+    /// such there are (`stillHeldAfterSilence`). They are counted over the whole of what the round read: one
+    /// that stopped counts the rows behind its stop as passed over too (`PendingQueue.flush`), so that a round
+    /// cut short at a read says it of a reservation it never came to, where the queue's clause for a round cut
+    /// short -- that the rest goes the next time -- is not true of it. What is told of a round takes the place
+    /// of what was told of the round before: the notification is one, and a later round's would otherwise
+    /// stand where the one that said the reservation is held stood, reading as if all had gone, of a row that
+    /// is passed over with its reason and is no news. Not said by a round that itself stopped at silence at a
+    /// create: that one says that a reservation is held and where to look, there the reader finds each, and
+    /// one sentence about reservations held is enough. Not said with no news, where nothing is told and what
+    /// was told before stands. A row the round took out as found on the recorder is held no longer, and is not
+    /// counted.
     public nonisolated static func tells(_ outcome: PendingQueue.Outcome, naming device: String?) -> String? {
         let held = outcome.stopped == .silent(afterSending: true)
         guard held || !outcome.isEmpty else { return nil }
         var round = outcome
         // With no stop to it the queue says no clause for a round cut short.
         if held { round.stopped = nil }
-        return [round.says(naming: device), held ? heldAfterSilence : nil].compactMap { $0 }.joined(separator: "。")
+        let before = held ? 0 : outcome.held.filter { $0.problem.map(heldAfterSilence(matches:)) == true }.count
+        return [round.says(naming: device), held ? heldAfterSilence : nil,
+                before > 0 ? stillHeldAfterSilence(before) : nil].compactMap { $0 }.joined(separator: "。")
+    }
+
+    /// Said last by a round with no screen that has news, of the reservations it passed over that are held
+    /// after silence at an earlier create (`tells`): how many, and where to look. A line of the queue's kind,
+    /// with no full stop of its own. It names the recorder whether or not the round's sentences name a
+    /// device: only a recorder's reservation is held so.
+    private nonisolated static func stillHeldAfterSilence(_ count: Int) -> String {
+        "レコーダーに届いたか確かめていない予約が \(count) 件あります。予約一覧で確かめてください"
     }
 
     /// Said when another recorder than the one the queue was made for answered a run with no screen, in the
