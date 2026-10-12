@@ -1862,6 +1862,55 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [])
     }
 
+    /// A reservation made by hand takes the place of a row that waited for its programme on the television.
+    /// One the television takes, leaving none of the reservations a run with no screen warned of waiting,
+    /// takes that warning away and tells of them no more, the stop told kept, as a sending or a delete does.
+    /// One that leaves the row waiting -- the television given up on, the reservation kept to go by itself --
+    /// changes nothing.
+    func testAReservationMadeByHandForgetsTheWarningOnceNoneOfItsRowsWaits() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television, store) = (home.model, home.television, home.store)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let link = try XCTUnwrap(model.tv)
+        let programmes = try await programmesNotReserved(model, 2)
+        let (taken, kept) = (programmes[0], programmes[1])
+        await television.receives(programmes.map(station(of:)))
+        func told() throws -> TVTold? {
+            try model.defaults.data(forKey: DefaultsKey.tvTold).map { try JSONDecoder().decode(TVTold.self, from: $0) }
+        }
+        /// A reservation of `programme` waiting for the television, as one kept for it waits, told of by a
+        /// run with no screen as not yet there: what was told.
+        func warnedOf(_ programme: GuideProgramRow) async throws -> TVTold {
+            let request = try XCTUnwrap(ReservationRequest(program: programme, quality: TVDriver.recordsIn,
+                                                           repeating: "none"))
+            let row = PendingReservation(request: request, serviceName: programme.serviceName, target: .tv)
+            try await store.queue(row)
+            let warned = TVTold(stop: .disk, rows: [row.id])
+            model.defaults.set(try JSONEncoder().encode(warned), forKey: DefaultsKey.tvTold)
+            return warned
+        }
+
+        _ = try await warnedOf(taken)
+        let made = await model.reserve(taken, on: .tv, quality: "DR", repeating: "none")
+        XCTAssertEqual(made, .made(saying: nil))
+        expectEqual(await television.schedules.map(\.eventId), [taken.eventID])
+        expectEqual(try await store.pendingReservations(), [], "the reservation made by hand still waits")
+        XCTAssertEqual(try told(), TVTold(stop: .disk),
+                       "the reservation warned of still told of once reserved by hand")
+
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp, "the television was meant to be given up on")
+        let warned = try await warnedOf(kept)
+        let waiting = await model.reserve(kept, on: .tv, quality: "DR", repeating: "none")
+        let onThePhone = try await store.pendingReservations()
+        let row = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
+        XCTAssertEqual(waiting, .waiting(row, saying: TVDriver.waitsNotConnected))
+        XCTAssertNil(row.problem, "the reservation kept was meant to wait to go by itself")
+        XCTAssertEqual(try told(), warned, "forgotten while the reservation warned of still waits")
+    }
+
     /// Whether something begun in a task of its own has come back, for a test to look at meanwhile.
     @MainActor
     private final class Returned {

@@ -121,6 +121,10 @@ final class TVHost: LinkHost {
     /// is gone again once the television holds it. From a host the app has let go of nothing is kept or
     /// sent.
     ///
+    /// A reservation takes the place of a row that waited for the same programme on the television, so a
+    /// warning the runs with no screen left of reservations not yet at the television goes here too, once
+    /// none of them waits to go (`AppModel.forgetTheWarningOnceSent`), as it goes after a sending (`tell`).
+    ///
     /// A reservation kept to go by itself is heard of again in a notification, as one kept for the recorder
     /// is, so the system's dialog comes here as it does there: after the row is kept, before the result is
     /// said. Not for one held with a reason, which waits for the reader, nor in the demo, whose television
@@ -130,6 +134,7 @@ final class TVHost: LinkHost {
         let (reserved, list) = await driver.reserve(program, repeating: repeating)
         if let list { keep(list) }
         await model?.loadPending()
+        await model?.forgetTheWarningOnceSent()
         if case .waiting(let row, _) = reserved, row.problem == nil, !isDemo { await model?.askForNotifications() }
         return reserved
     }
