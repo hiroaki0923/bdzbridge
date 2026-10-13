@@ -96,7 +96,7 @@ final class DeviceSeamTests: XCTestCase {
     }
 
     /// A type the device has nothing for is noted, one that fails is passed over with the device's own words,
-    /// and silence ends the refresh there.
+    /// and silence ends the refresh there, handed back as what stopped it.
     func testTheRefreshReadsTheFailureAndNotTheKindOfError() async throws {
         let store = try temporaryStore()
         let start = Date(timeIntervalSince1970: 1_790_000_000)
@@ -108,18 +108,15 @@ final class DeviceSeamTests: XCTestCase {
                                           "cs": .failure(OtherError(failure: .unexpected("まだ用意できていません"))),
                                           "bs4k": .failure(OtherError(failure: .silent))])
 
-        let outcome = try await GuideRefresh.run(client: device, store: store, types: ["td", "bs", "cs"])
+        let outcome = await GuideRefresh.run(client: device, store: store, types: ["td", "bs", "cs"])
 
         XCTAssertEqual(outcome.stored, 1)
         XCTAssertEqual(outcome.answered, ["td", "bs"])
         XCTAssertEqual(outcome.failed, [GuideRefresh.Failure(broadcasting: "cs", reason: "まだ用意できていません")])
 
-        do {
-            _ = try await GuideRefresh.run(client: device, store: store, types: ["bs4k", "td"])
-            XCTFail("silence should end the refresh")
-        } catch let error as any DeviceError {
-            XCTAssertEqual(error.failure, .silent)
-        }
+        let stopped = await GuideRefresh.run(client: device, store: store, types: ["bs4k", "td"])
+        XCTAssertEqual(stopped.stopped, .silent, "silence should end the refresh")
+        XCTAssertEqual(stopped.answered, [])
         let asked = await device.guidesAsked
         XCTAssertEqual(asked, ["td", "bs", "cs", "bs4k"], "the type after the silent one was not asked for")
     }

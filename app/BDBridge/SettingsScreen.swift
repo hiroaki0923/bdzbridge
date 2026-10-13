@@ -13,6 +13,8 @@ struct SettingsScreen: View {
     /// The television's sheet: its section asks for it (`TVSection`), and so does a television the search
     /// found, tapped (`FoundTelevisionsSection`); this screen puts it up.
     @State private var tvSheet: TVSheetRequest?
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
+    @State private var guideFailure: String?
     @AppStorage(DefaultsKey.defaultQuality) private var defaultQuality = DefaultQuality.fallback
 
     /// The address field, tidied: what connecting would use.
@@ -70,8 +72,10 @@ struct SettingsScreen: View {
                         }
                         .disabled(!RecorderAddress.isUsable(tidied.host) || !model.canChangeRecorder)
                     } else if !model.connected, !model.host.isEmpty {
+                        // Held while the recorder works, and while a run is under way, when connecting does
+                        // nothing (`connect()`); by nothing the television does.
                         Button("再接続") { Task { await model.connect() } }
-                            .disabled(model.busy != nil || model.jobRunning)
+                            .disabled(model.isBusy(for: .recorder) || model.jobRunning)
                     }
                 } header: {
                     Text("レコーダー")
@@ -202,9 +206,10 @@ struct SettingsScreen: View {
                         LabeledContent("最終自動更新", value: Self.readable(overnight))
                     }
                     Button("番組表を更新") {
-                        Task { await model.refreshGuide() }
+                        Task { guideFailure = await model.refreshGuideByHand().said }
                     }
-                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
+                    // Held while the recorder works, and by nothing the television does.
+                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
                 }
 
                 notificationsSection
@@ -245,6 +250,12 @@ struct SettingsScreen: View {
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.
             .sheet(item: $tvSheet) { TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce) }
+            .alert("エラー",
+                   isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(guideFailure ?? "")
+            }
         }
     }
 

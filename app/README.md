@@ -11,8 +11,8 @@
   model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What an operation is made of,
   whichever device it is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why
   a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
-  kind of failure says and leaves behind. The funnel the guide fetched by hand still runs through
-  (`AppModel.run`) stands on it, and so does each device's read of its reservations, which is its driver's.
+  kind of failure says and leaves behind. Each device's read of its reservations, which is its driver's,
+  stands on it, and every other operation is written on its parts.
   The recorder's driver sends what waits for it in the phone's queue and deletes a row of it, makes, changes
   and deletes its reservations, and asks what a new one would clash with, as well (`RecorderDriver.reservations`,
   `refreshReservations`, `sendWhatWaits`, `resend`, `deleteWaiting`, `reserve`, `update`, `cancel`,
@@ -21,7 +21,16 @@
   playback and power -- and its own keyword conditions, read, added and deleted (`RecorderDriver.titles`,
   `detail`, `protect`, `delete`, `play`, `powerOn`, `recorderRules`, `addRule`, `removeRule`, and `refresh`
   for a pull-down; in `RecorderRecordings.swift` and `RecorderConditions.swift`), by the same rules, and
-  `AppModelRecordings` and `AppModelRecorderRules` keep what comes back. A television, once added in the
+  `AppModelRecordings` and `AppModelRecorderRules` keep what comes back. So is the recorder's side of a run
+  over many recordings -- the bulk delete, the bulk protect and the scan for duplicates: when a run may begin
+  and go on, what is asked for one recording, why it stopped and the free space as it ends (`beginRun`,
+  `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`, in `RecorderRuns.swift`), while
+  `AppModelBulkWork` keeps the loop, the job and the lists. So is the guide fetched by hand and at a connect
+  (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`), which `AppModelGuide` asks for and puts on
+  screen. And so are the recorder's two runs with no screen, the overnight run and the Shortcuts action's sending
+  (`refreshWithNoScreen`, `sendWithNoScreen`, and what each says, in `RecorderNoScreen.swift`):
+  `BackgroundWork`, `Notify` and `SendWaitingIntent` keep the entries the system calls, the magic packet, the
+  posting of notifications and the record of what was told. A television, once added in the
   settings, has a link of its own beside the recorder's,
   with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's silence,
   trouble or work is the other's. What the television said --
@@ -186,9 +195,10 @@ the Shortcuts action sending what is waiting, leaving it where it was when the r
 asking the recorder at all when nothing is waiting (`SendWaitingTests`). A test of something that used to wait
 for ever fails after a few seconds rather than waiting with it.
 
-`FunnelGateTests`, `ReservationGateTests` and `QueueGateTests` are gates rather than rules. The recorder's
-operations are to move out of the model and into RecorderKit with the app behaving as it did, and each of
-these pins what the app does today -- what an operation says and leaves behind when it goes through, is
+`FunnelGateTests`, `ReservationGateTests` and `QueueGateTests` were written as gates rather than rules, and so
+were `RunGateTests` and `NoScreenGateTests` after them. The recorder's
+operations were to move out of the model and into RecorderKit with the app behaving as it did, and each of
+these pinned what the app did then -- what an operation says and leaves behind when it goes through, is
 refused or meets silence; how a reservation is found again before it is changed or deleted; what becomes of
 the queue of waiting reservations and in what words -- so that the same can be shown afterwards with the
 test's body unchanged. That includes behaviour nobody would choose, and a test says so where it holds some.
@@ -229,6 +239,32 @@ is tried in RecorderKit (`RecorderRecordingsTests`), and so is playing a recordi
 moved from the client to the driver. The views' holds -- a recording's and a condition's sheet held while its
 own request is out, the recorder's buttons held while the recorder works -- are reached by no test.
 
+The recorder's work over many recordings, its guide and its two runs with no screen went the same way, and with
+the guide the last of the app's funnel went (`AppModel.run`): gates first -- `RunGateTests` for the bulk delete,
+the bulk protect and the scan for duplicates, `NoScreenGateTests` for the overnight run and the Shortcuts
+action, the guide's in `FunnelGateTests`, and `BenchRecorderTests` for the bench's own recorder, so that no gate
+passes because the fake said something other than it was told -- then the moves with no test's body changed,
+then the rules a commit at a time. The bench's recorder lets the request of a kind that it has held longest go
+by itself (`letTheFirstGo(of:)`), so that a test can stand between two requests of one kind, and can hold a copy
+of one broadcast for a scan to find (`haveACopy`); what a night told is read from a record that has each telling
+by the time it returns (`Tellings`); and the cache's own table can be put out of reach, for an owner that cannot
+be read (`MetaOutOfReach`). A test that holds a file of the guide lets it go in its teardown: the turn for
+fetching the guide is the process's, and one left held would keep every later test's refresh waiting.
+
+What the driver decides with no app around it is tried in RecorderKit: a run's asking and one recording's
+requests, and the guide's step with its doors (`RecorderRecordingsTests`); the refresh, its turn, which types it
+fetches and what cancelling it leaves (`GuideRefreshTests`, `GuideStalenessTests`); a guide's writes against a
+cache made over to another recorder (`GuideStoreTests`); that nobody joins a check that has ended
+(`LinkPartsTests`); a round acting on a row only as it read it, for either device
+(`ReasonWrittenMeanwhileTests`), and what a round that stops counts as held behind its stop
+(`HeldBehindAStopTests`); the one attempt a run with no screen makes at the recorder, the packet's place in each
+run, the sentences of a round and the rule of what is told once in the recorder's words (`NoScreenReachTests`);
+and what a night and an action hand over of it, and keep back once the cache is another recorder's
+(`RecorderToldOnceTests`). What the screens go by for a run's buttons is the model's, and held in `RunGateTests`
+(`canStartARun`, `canAlterARecording`, `scannedForDuplicates`); the views that read those, the line under what a
+run came to in the job bar and the two alerts of 番組表を更新 are reached by no test. Nor are the entries the system
+calls (below).
+
 `QueueWithATelevisionTests` holds what a television being saved changes about the queue. Its words: each
 sentence then says which device the reservations went to, on the strip and in the Shortcuts action's answer.
 `Said`'s sentences take the device's word for that, and with none they are the ones the gates compare with.
@@ -260,11 +296,11 @@ is tried in RecorderKit (`TVDriverTests`). And the runs with no screen, on the a
 action's answer for each pair of what the two devices came to; the screens and the action at once making a
 television's reservation once; what a run tells, read from the queue as the run left it; all of it forgotten
 on a registration again and on the television taken away, and the warning of rows not yet there forgotten once
-a sending of the app's own leaves none of them waiting; 外す and the delete of a television's row waiting for
-the action's sending, and a row that sending made said as made and not as deleted -- with the app's link
-unable to read the list too, and with the row still waiting after its create's answer was lost -- but not one
-dropped as over, nor one gone with the television; a recorder's row deleted the same way, waiting for that
-sending and said made when the sending made it; and the
+a sending of the app's own or a reservation made by hand leaves none of them waiting; 外す and the delete of a
+television's row waiting for the action's sending, and a row that sending made said as made and not as deleted
+-- with the app's link unable to read the list too, and with the row still waiting after its create's answer was
+lost -- but not one dropped as over, nor one gone with the television; a recorder's row deleted the same way,
+waiting for that sending and said made when the sending made it; and the
 identifiers of the television's two notifications. What such a run asks of a television, in what order, and
 what it tells once, is tried in RecorderKit (`TVNoScreenTests`).
 
@@ -313,7 +349,9 @@ recorder answered with nobody choosing it is said on the strip until the reader 
 one. A cache that cannot be made over to the newcomer is not connected over, and leaves nobody to ask: a
 programme reserved then waits. With no screen, the Shortcuts action's sending and the overnight run leave a
 recorder the cache is not of alone -- nothing sent, nothing fetched, nothing taken up -- and say so only when
-something was waiting. The demo leaves the real recorder's cache as it was.
+something was waiting, and once. One that answers and cannot be told from the cache's own -- it did not
+describe itself, or whose cache this is could not be read -- is left alone too, and not said to be another.
+The demo leaves the real recorder's cache as it was.
 
 `ScanTests` presses レコーダーとテレビを探す, which no test could while the search reached for the device's interfaces, the
 permission and a session of its own: a press finds the recorder and the television on the bench's Wi-Fi, each
@@ -447,8 +485,11 @@ answers for: what the model does around them is held, not they.
 Nor what a screen decides for itself: what sets its list loading,
 closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
 of the app's phase. Nor the two entries with no screen as the
-system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings and post
-its notifications: the work behind each is tried with those handed in.
+system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings, send the
+magic packet, post its notifications and write back what was told: the work behind each is tried with those
+handed in (`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:now:)`, and in RecorderKit
+`RecorderDriver.refreshWithNoScreen` and `sendWithNoScreen`). The task's registration, its handler and its
+expiry are behind those entries, and equally out of reach.
 
 The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
 it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would
@@ -901,14 +942,40 @@ The guide is fetched again overnight on its own, a little after the recorder reb
 the morning's eight days are current without opening the app or being at home. iOS decides whether to run it:
 never while the app is force-quit, Background App Refresh is off, or the battery is in Low Power Mode, and
 nothing breaks when a night is missed. The settings screen shows when it last succeeded. When the system's
-time for it runs out, the task is completed there and then, and the work stops before the next broadcasting
-type rather than going on to the end.
+time for it runs out, the task is completed there and then, and the work stops before the next file -- a
+broadcasting type's guide, or its logos -- rather than going on to the end. The night fetches every type
+whatever the cache's marks say; a connect only what is behind.
 
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A
 type that fails, such as the 500 the recorder answers for a file it has not built yet, is passed over, said on
 screen a line per type, and fetched again at the next connect; only silence stops the refresh
 (`RecorderKit/GuideRefresh.swift`, shared with the overnight run).
+
+番組表を更新, on the guide's tab and in the settings, fetches every type, and says what it came to where it was
+pressed, in an alert: a line for each type that failed, that the recorder did not answer, or why nothing was
+fetched. The guide's tab shows no line of what went wrong while a guide is on screen, and a press that failed
+there would seem to have done nothing. Pressed while the app is connected and nothing can be written to the
+recorder -- after a reconnect it answered busy -- it connects first, as pulling a list down does, and then asks
+only for the types that connect has not fetched. With the app not connected its buttons are not live. Both are
+held while the recorder works, and by nothing the television does.
+
+The guide is the recorder driver's to fetch (`RecorderKit/RecorderGuide.swift`), by the rules a write keeps,
+though it only reads: what is fetched stays in the cache, and the files' own server names no recorder. So it is
+fetched only from a recorder that has said which it is, and not after a check that heard the recorder busy or
+faulted. It goes only into the cache of the recorder it was fetched from -- the cache's writes ask whose it is
+inside their own transaction -- so another recorder taken up while a file is out gets nothing of the last one's
+guide. And one refresh runs at a time in the whole app, whoever asks: the screens and the overnight run each
+have a client of their own, and would otherwise ask the recorder for the same files at once. A refresh waits its
+turn behind the one that is out -- a connect's inside the connect, under 番組表を取得中, to fetch then only what is
+still behind. The wait can be as long as the refresh in front and a file can take minutes, so the recorder is
+made sure of once the turn has come and again before each later file, a type's logos included, by the asking a
+bulk run makes before each recording (below); inside a connect that asking's check is answered at once, and the
+rest of it makes sure. The night looks at its time and at whose cache it is as its turn comes. The files go to
+the client in hand once the turn has come. A reconnect made while a refresh is out has a client of its own: the
+refresh ends before its next file, or as a file out on the client before meets silence, saying only which types
+had failed, and a connect that goes through fetches what is behind in its turn. The recorder's own busy answer,
+which stops a refresh or a run, can be about the app's own overnight run, on its other client.
 
 The cache is in `Application Support/Guide/`, a folder left out of the phone's backups: the guide is some
 28 MB that the recorder hands over again every night. The same file keeps the channel settings and the
@@ -982,7 +1049,26 @@ and it lives outside the sheet that started it: closing the sheet neither stops 
 Leaving the app pauses it rather than breaking it: the step under way is finished under a background task,
 the job waits before the next one until the app is back, makes sure of the recorder, which has had all that
 time to fall asleep, and goes on. The job bar says so. Nothing reconnects while a job or the duplicate scan
-is running, since a second client beside the one the job holds would be answered 503.
+is running, since a second client beside the one in hand would be answered 503.
+
+What a run asks of the recorder, and when, is the recorder driver's (`RecorderKit/RecorderRuns.swift`), by the
+rules a single delete or protect keeps. Before each recording, and before the delete that follows the question
+asked first, the run asks whether it may go on (`RecorderDriver.mayGoOn`): a check of the recorder that is out
+is waited for, a waking with it, and heard; nothing goes to a recorder that has not said which it is, after a
+check that heard it busy or faulted, or once the recorder the run began with was let go of. A check that has
+ended is joined by nobody, so a run that waited for one which heard the recorder busy asks for itself, and goes
+on where the recorder is free again. A run that stops says why, under what it came to in the job bar, in the
+sentence a single delete would be turned away with. Silence is said on the line of what went wrong like any
+other, and only then does the bar say that the recorder stopped answering. A recording the recorder was too busy
+for is passed over and the run goes on, and so is one whose question -- is it still there -- failed: the
+recorder answers a delete of something it no longer has as done. One still being recorded, or protected, is
+passed over in the words the single delete's door has. The free space is read after a run that deleted something
+and that the recorder did not stop, and only where a check would have nothing to ask; otherwise the figure stays
+as it was until the recordings are next read. 中止 tapped on the way out of the app ends the run after the
+recording that was out, without waiting for the return or waking the recorder for it. The buttons that start a
+run are held while the recorder works or a connect is under way, and a single delete or protect while a run is
+under way; playback and the power are not, so that a playback begun before a long scan can still be stopped. The
+duplicates' screen says that there are none only after a scan the recorder did not stop.
 An episode opened from a programme's recordings comes up over them, and closing it goes back to them.
 
 Waking the recorder, without being asked to: a BDZ-FBT4100 leaves the LAN on its own after a while and
@@ -1169,12 +1255,49 @@ phone to go later, as the recorder's change does not and is not.
 
 ### Notifications
 
-Four things happen with nobody looking at the app, so they are the four it can notify about: the
-reservations that were waiting have gone to the recorder, some of them were refused or their programmes had
-finished, they were left unsent because another recorder than the one the phone knows answered at the saved
-address, and the disk is filling up. The overnight run can say all of them, and the Shortcuts action the ones
+What happens with nobody looking at the app is what it can notify about: the reservations that were waiting
+have gone to the recorder, some of them were refused or their programmes had finished, one is held because the
+recorder stopped answering as it was made, they were left unsent because another recorder than the one the
+phone knows answered at the saved address, one that starts before the next overnight run has not reached the
+recorder, and the disk is filling up. The overnight run can say all of them, and the Shortcuts action the ones
 about the queue; the notifications make no sound and do not light the screen, and wait in Notification
 Centre.
+
+The order of the overnight run and of the action's sending, and what each tells, are the recorder driver's
+(`RecorderKit/RecorderNoScreen.swift`); the app posts what it is handed. A night reaches the recorder, waking it
+if need be, sends what waits, reads the USB slot and the free space and fetches the guide, telling each thing as
+it finds it, so that the queue and the disk are told before a guide that can outlast the task. It ends at its
+first silence, having told what it had found: whatever came next would wait the same silence out again. A night
+whose one silence passed gives up what it had not come to -- the free space, the guide, the time the settings
+show -- until the next connect or the next night. Once the system's time for it is up it asks nothing after the
+request that is out, but for the round of what waits, which is finished row by row, and tells only what became
+of the waiting reservations, when that is news: a run the system has ended writes no mark and nothing of what
+was told, though the queue's rows are settled. Once the cache is another recorder's -- the screens took one up
+meanwhile -- it tells nothing at all. The action tells what its round came to whatever its task says.
+
+What a round with no screen tells is the queue's sentences, with two things the queue cannot say for a recorder
+(`RecorderDriver.tells`). A round that stopped at silence at a reservation's create says that the reservation is
+held -- the sentence written on its row -- where the queue would say that the rest goes the next time the
+recorder answers: that reservation may have been made, and nothing sends it again but the reader. It is said
+also when nothing else happened, and also once the night's time is up. And a round with news that passed over a
+reservation held so by an earlier round ends by saying how many there are, 「レコーダーに届いたか確かめていない予約が N
+件あります。予約一覧で確かめてください」: one notification takes the place of the last, and the one that said the reservation was
+held would otherwise be gone. A round that itself stopped at a create's silence does not: its own sentence says
+that a reservation is held, and where to look. The strip keeps the queue's own clause for such a round, beside
+the line of what went wrong, which says the held sentence.
+
+Two things are told once, by the rule the television's runs have (`TVTold.after`, in the recorder's words,
+`NoScreenWords.recorder`). That another recorder answered is told when something waits and it was not what was
+told last, not every night and every arrival home. And a reservation that starts before the next overnight run,
+carries no reason and has not reached the recorder is warned of in a notification of its own (`not-yet-sent`),
+「レコーダーにまだ届いていない予約があります（…）」, with what stands in its way: another recorder; the recorder not answering -- nobody
+reached, a round that silence stopped, or a recorder that could not be told apart; or nothing known, when
+opening the app sends it. The warning is of every such reservation whenever one is new, the first by its title
+and start and then how many more, and is taken away once none of them waits to go -- by the next run, or at once
+by a sending, a reservation made by hand or a delete of the app's own. What was told is kept between runs
+(`DefaultsKey.recorderTold`, apart from the television's), written whether or not a notification could be heard,
+and forgotten with the cache when another recorder is taken up. Nothing of it is handed over or written once the
+night's time is up, or once the cache is another recorder's than it was as the run began.
 
 Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
 which shows no dialog -- so nothing lands on the local network question that comes up around the first
@@ -1391,7 +1514,7 @@ That recorder, and not whichever answers at the address: the app knows a recorde
 says it is, and another one taking its place -- chosen in the settings, or found at the same address after
 a replacement or a new lease -- holds what was waiting with a reason on each row and a line on the strip
 saying how many, until もう一度送る sends one to the recorder in play. With no screen, the overnight run
-and the Shortcuts action leave such a recorder alone and say so in a notification when something was
+and the Shortcuts action leave such a recorder alone and say so in a notification, once, when something was
 waiting; opening the app settles it. A programme that has already finished is dropped rather than sent; one that is
 on air is still sent, since the recorder records what is left of it. A reservation the recorder refuses
 with a reason of its own (a SOAP fault with an `errorCode`, such as 831 for a channel it cannot receive)
@@ -1399,7 +1522,13 @@ keeps the reason on the row and is not sent again until the reader asks, with �
 on the programme's sheet; a 503 or an answer with no code says nothing about the reservation, so that one
 is simply sent again next time. (The client itself sends a request answered 503 twice more, half a second to
 a second apart, before it gives up on it.) Only one flush runs at a time in the app, whoever asks, so the
-screens and the overnight run cannot both send the same reservation. Each row says which device it waits
+screens and the overnight run cannot both send the same reservation. A round reads the queue once, as it
+begins, and reads a row again in the turn it acts on it, for either device: before the device is asked for it,
+and before it is taken out as found there. A row gone meanwhile is left alone and counted nowhere; one that
+carries another reason than it was read with -- another recorder's arrival writes one on every row waiting for
+a recorder -- is neither sent nor taken out, and is counted as held. The read comes before the device's own
+steps for the row, so a reason written while a recorder's round waits for its USB slot is not seen.
+Each row says which device it waits
 for, and a device is sent only its own: whose rows a client takes is said by its kind (`QueueTarget.slot`).
 The guide, the search results and the programme's sheet mark a waiting reservation 送信待ち, and the
 sheet offers to send it again or delete it rather than the reservation form. What became of the queue is
@@ -1407,7 +1536,8 @@ said in one line at the top of the screen when the app sent it, and in a notific
 run did. The sentences are beside the queue's outcome (`PendingQueue.Outcome.summary`, `says(naming:)`). In
 a home with a recorder alone they name no device. With a television saved the reader has two, and the app
 has each sentence say which device the reservations went to (`said(withATelevisionSaved:)`): on the strip,
-in the notification and in the Shortcuts action's answer.
+in the notification and in the Shortcuts action's answer, the last two saying of a recorder's round what a
+round with no screen tells (above, under the notifications).
 
 A reservation waiting for a television is sent by the television's driver (`TVDriver.sendWhatWaits`), in the
 round RecorderKit has for it: when a connect has reached the television, in the background as well, and
@@ -1457,16 +1587,16 @@ disk away, a registration wanted, another television, when that is not what was 
 starts before the next overnight run and has not reached the television, once, with what stands in its way,
 taken away again once none of its rows waits. Whenever such a row is new, that warning names every such row
 still waiting, so that it does not take the place of one about an earlier row that is still late. A sending
-of the app's own, or a delete, that leaves none of the rows warned of waiting takes the warning away at once
-and tells of them no more (`TVTold.afterTheScreensSent`): the next run may come after their programmes have
-begun. A registration again, and taking the television away, forget all of it and take the warning away at
-once, and the notice of what became of the rows as well when the stop told last was a registration wanted,
-so that a notice asking for the registration does not outlive it. A television that does not answer is said
-only there and in the action's answer, never on its own: the recorder's run says nothing of a recorder that
-does not answer. A run whose time ran out tells only what the queue says, less its sentence for a round that
-silence cut short, and keeps nothing: a request the suspension cut would read as silence, which is inferred
-and not seen. With a television saved, the settings' footers about notifications and arriving home speak of
-both devices.
+of the app's own, a reservation made by hand or a delete that leaves none of the rows warned of waiting takes
+the warning away at once and tells of them no more (`TVTold.afterTheScreensSent`): the next run may come after
+their programmes have begun. A registration again, and taking the television away, forget all of it and take the
+warning away at once, and the notice of what became of the rows as well when the stop told last was a
+registration wanted, so that a notice asking for the registration does not outlive it. A television that does
+not answer is said only there and in the action's answer, never on its own, as a recorder that does not answer
+is said by its run only at the end of such a warning. A run whose time ran out tells only what the queue says,
+less its sentence for a round that silence cut short, and keeps nothing: a request the suspension cut would read
+as silence, which is inferred and not seen. With a television saved, the settings' footers about notifications
+and arriving home speak of both devices.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is
@@ -1477,8 +1607,9 @@ because it would stop reservations from recording that the reason on the row nam
 the television could not be asked or its round stopped; or neither made nor kept. A television that cannot be
 asked is not connected to for it, and what is turned away before anything is sent -- a repeat a television
 is not sent, a programme that is over -- is said in the result and leaves the television's line
-alone. The host (`TVHost.reserve`) keeps the list read after a reservation that was made and reads the queue
-on screen again; it puts nothing on the strip, since the result is what says it.
+alone. The host (`TVHost.reserve`) keeps the list read after a reservation that was made, reads the queue on
+screen again and takes the warning of rows not yet there away once none of them waits; it puts nothing on the
+strip, since the result is what says it.
 
 A reservation on the recorder goes the same way (`RecorderDriver.reserve`): under 予約を登録中, once the recorder
 has been made sure of and the USB slot waited for where it names the USB disk, it is written to the phone's queue

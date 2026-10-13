@@ -51,33 +51,6 @@ extension AppModel {
     static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
         + "操作の途中だった場合は、確かめてからやり直してください。"
 
-    /// The free space read again, after a bulk delete. It is only shown, so a recorder that will not say is not
-    /// an error, and the delete it follows is not reported as failed. Silence is still silence, and loses the
-    /// recorder here without a word on the line until the bulk work goes to the driver: a single delete and the
-    /// list read it through the driver, which says that silence on the line as any read's.
-    func refreshStorage(_ client: RecorderClient) async {
-        do {
-            session.learned(storage: try await RecorderDriver.storage(of: client))
-        } catch {
-            lostTheRecorder()
-        }
-    }
-
-    /// Leaves the app where a connect that got no answer leaves it (`DeviceLink.lost`). A request the model
-    /// sends by hand comes here when it meets silence; one through the funnel is lost by the link as it says
-    /// the failure (`DeviceLink.say`), which comes to the same. Nothing is sent again from here, nor by the
-    /// callers once the recorder is back: a write that met silence may have arrived all the same.
-    func lostTheRecorder() {
-        recorder.lost()
-    }
-
-    /// Makes sure the recorder is up before something the reader asked for is sent to it, and wakes it if it
-    /// is not (`DeviceLink.ensureUp`). When it is not, nothing has been sent, and the app has been left offline
-    /// with `problem` saying why, or waiting for the local network permission (`connectBlocked`).
-    func wakeIfDozing(evenIfRecent: Bool = false) async -> Bool {
-        await recorder.ensureUp(evenIfRecent: evenIfRecent)
-    }
-
     /// True once a MAC is known, which is what a magic packet needs.
     var canWake: Bool { session.canWake }
 
@@ -262,13 +235,18 @@ extension AppModel {
     }
 
     /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
-    /// the defaults keep about its disks and its guide go with it.
+    /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
+    /// told of it (`TVTold`): the next run tells what it finds afresh. Their warning of reservations not yet at
+    /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
+    /// are held for the reader now, and none of them waits to go.
     func cacheMadeOver() async {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
+        defaults.removeObject(forKey: DefaultsKey.recorderTold)
         await reloadFromCache()
         await loadPending()
+        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 
     /// It says so, and lets go of the client as well -- left in hand, a programme reserved from the guide still
@@ -283,12 +261,32 @@ extension AppModel {
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
     /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
     /// waking's attach that no connect reads after, is kept by the count noted here (`keepReservations`), and
-    /// what the round came to goes on the strip (`tellTheStrip`). Nothing here may await `start()`.
+    /// what the round came to goes on the strip (`tellTheStrip`). A warning the runs with no screen left of
+    /// reservations not yet at the recorder goes once none of them waits to go
+    /// (`forgetTheRecordersWarningOnceSent`). Nothing here may await `start()`.
     func sendWhatWaits() async {
         let forgotten = timesForgotten
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }
         keepReservations(sent.list, since: forgotten)
         tellTheStrip(sent.round)
+        await forgetTheRecordersWarningOnceSent()
+    }
+
+    /// The warning the runs with no screen left of reservations not yet at the recorder is taken away once a
+    /// sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no more:
+    /// the television's rule in the recorder's words (`forgetTheWarningOnceSent`,
+    /// `TVTold.afterTheScreensSent`). Asked after each of them: what waits sent (`sendWhatWaits`), a row sent
+    /// again (`resend`), a reservation made by hand, which takes the place of a row that waited for its
+    /// programme (`reserve`), and a waiting row deleted (`deleteWaiting`). Not in the demo, whose queue is not
+    /// the one the warning was about.
+    func forgetTheRecordersWarningOnceSent() async {
+        guard !demo, let saved = defaults.data(forKey: DefaultsKey.recorderTold),
+              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let store, let waiting = try? await store.pendingReservations(),
+              let after = told.afterTheScreensSent(waiting: waiting, words: .recorder),
+              let kept = try? JSONEncoder().encode(after) else { return }
+        defaults.set(kept, forKey: DefaultsKey.recorderTold)
+        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 
     func queueWritten() async {
@@ -316,8 +314,10 @@ extension AppModel {
 
     /// Its lists go at once, and the newcomer is taken up by a connect of its own, which reads its reservations
     /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
-    /// its next step, and the connect waits for it to end, since one does not start beside a job. Said twice:
-    /// the failure line for whoever asked, which the connect takes away, and the strip after that.
+    /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
+    /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
+    /// beside a job. Said twice: the failure line for whoever asked, which the connect takes away, and the strip
+    /// after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
         cancelBulk()

@@ -55,51 +55,60 @@ extension AppModel {
 
     /// Fetching the guide is what connecting is for, so it happens without being asked: the first run would
     /// otherwise land on an empty guide, and a cache the overnight run never got to would stay a day behind.
-    /// A cache that is already current costs nothing, which is what makes this safe on every launch.
+    /// A cache that is already current costs nothing, which is what makes this safe on every launch: with
+    /// nothing behind, no refresh is asked for, so that no line goes up and none is counted as out.
+    ///
+    /// What is fetched is what is behind once the refresh has its turn (`GuideAsked.whatIsBehind`), and not
+    /// what was behind here: a refresh that is out as the connect is made -- the overnight run's -- is waited
+    /// for, and what it fetched meanwhile is not fetched again.
     func refreshGuideIfStale() async {
         guard connected else { return }
         // Judged by what the cache holds now, not by what this model read from it last, which would fetch
         // every type again each morning: the overnight run writes the cache without going through the model,
         // in this very process when the app was kept alive behind it. What it wrote goes on screen as well.
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
-        let stale = staleBroadcastingTypes
-        guard !stale.isEmpty else { return }
-        await refreshGuide(only: stale)
+        guard guideIsStale else { return }
+        await refreshGuide(.whatIsBehind)
     }
 
-    /// Downloads the broadcasting types the recorder has -- every one unless told which -- and replaces what
-    /// the cache holds for each.
+    /// Downloads the broadcasting types told and replaces what the cache holds for each, as a connect asks for
+    /// it: the driver's step (`RecorderDriver.refreshGuide`). A connect asks with nobody having pressed, and
+    /// lets what it came to go: what failed is on the line.
+    @discardableResult
+    func refreshGuide(_ which: GuideAsked) async -> GuideRefreshed {
+        await fetchingTheGuide { driver, stored in await driver.refreshGuide(which, stored: stored) }
+    }
+
+    /// 番組表を更新, on the guide's tab and in Settings: every broadcasting type, the driver's to fetch and to
+    /// connect for first where the recorder cannot be asked (`RecorderDriver.refreshGuideByHand`). What it came
+    /// to is handed back as the driver hands it over, for the screen that asked to say (`GuideRefreshed.said`):
+    /// the two buttons show it in an alert, the guide's tab having no line of what went wrong while a guide is
+    /// on screen.
+    func refreshGuideByHand() async -> GuideRefreshed {
+        await fetchingTheGuide { driver, stored in await driver.refreshGuideByHand(stored: stored) }
+    }
+
+    /// A refresh of the guide as the screens have it, whichever asks: counted while it is out
+    /// (`guideDownloads`), each type on screen as soon as it is stored, so that the first run does not wait for
+    /// BS, CS and BS4K behind the terrestrial programmes it opens on, and the cache read once more as it ends.
+    /// A type that fails is passed over (see `GuideRefresh.run`), said on screen a line per type, and fetched
+    /// again at the next connect.
     ///
-    /// Each type goes on screen as soon as it is stored, so that the first run does not wait for BS, CS and
-    /// BS4K behind the terrestrial programmes it opens on. A type that fails is passed over (see
-    /// `GuideRefresh.run`), said on screen a line per type, and fetched again at the next connect.
-    func refreshGuide(only types: [String] = GuideRefresh.broadcastingTypes) async {
-        guard let client, let store, !unreachable else { return }
+    /// Whether anything is asked is the driver's to say, at its own doors: the app keeps no copy of them. One
+    /// turned away there comes back in the turn it was asked in, and ends in the read of the cache like any
+    /// other.
+    private func fetchingTheGuide(
+        _ refresh: @MainActor (RecorderDriver, @escaping @MainActor @Sendable (String) async -> Void) async
+            -> GuideRefreshed) async -> GuideRefreshed {
+        guard let recorderDriver else { return .notConnected }
         guideDownloads += 1
         defer { guideDownloads -= 1 }
-        var failed: [GuideRefresh.Failure] = []
-        await run("番組表を取得中") { activity in
-            // In a task of its own, because the guide is the app's rather than a screen's. A pull-down that
-            // connected is cancelled when its screen goes away, and the refresh stops between types when it
-            // is cancelled -- which is for the overnight run, whose time runs out.
-            let refresh = Task {
-                try await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
-                    let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
-                    self.activities.update(activity, to: "番組表を取得中 (\(label))")
-                }, onStored: { _ in
-                    await self.reloadFromCache()
-                })
-            }
-            failed = try await refresh.value.failed
-        }
-        if !failed.isEmpty {
-            problem = failed.map { "\(GuideEmptyView.inSentence($0.broadcasting))の番組表：\($0.reason)" }
-                .joined(separator: "\n")
-        }
+        let refreshed = await refresh(recorderDriver) { _ in await self.reloadFromCache() }
         // Whatever happened. A type stored before the recorder fell silent over its logos was never reported
         // stored, and a type the recorder had no file for changed only its mark -- which is what says it need
         // not be asked for again, and which the model goes by.
         await reloadFromCache()
+        return refreshed
     }
 
     func reloadFromCache() async {

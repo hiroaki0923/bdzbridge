@@ -976,13 +976,8 @@ enum DriverCheck {
 
         // 2. The terrestrial guide put into the cache by a refresh, and the programme taken from it as a sheet is
         // handed one: the first four or more hours ahead at a time no reservation overlaps.
-        // What a fetch that met nothing throws names the address it was sent to, so it is said in words.
-        let refreshed: GuideRefresh.Outcome
-        do {
-            refreshed = try await GuideRefresh.run(client: client, store: cache, types: ["td"])
-        } catch {
-            throw Failed(description: "no terrestrial guide: \(said(LiveRecorderTests.code(error)))")
-        }
+        let refreshed = await GuideRefresh.run(client: client, store: cache, types: ["td"])
+        if refreshed.stopped == .silent { throw Failed(description: "no terrestrial guide: no answer") }
         if let failed = refreshed.failed.first {
             throw Failed(description: "no terrestrial guide: \(said(failed.reason))")
         }

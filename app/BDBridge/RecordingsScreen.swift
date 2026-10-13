@@ -115,7 +115,7 @@ struct RecordingsScreen: View {
                     Button("削除する", role: .destructive) {
                         Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
                     }
-                    .disabled(model.isBusy(for: .recorder))
+                    .disabled(!model.canAlterARecording)
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -184,7 +184,7 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, held: model.isBusy(for: .recorder), ask: { removing = title.id }, unprotect: {
+                .titleSwipe(title, held: !model.canAlterARecording, ask: { removing = title.id }, unprotect: {
                     Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
                 })
             }
@@ -201,8 +201,9 @@ extension View {
     /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
     /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
     /// first. `title` is nil where the row should not be swipeable at all. Both are held while the recorder works
-    /// (`held`), and on a programme's sheet while its own request is out: a second delete or protect of a row
-    /// while one is out, and nothing held by the television's work.
+    /// or a run is under way (`held`, `AppModel.canAlterARecording`), and on a programme's sheet while its own
+    /// request is out: a second delete or protect of a row while one is out, or beside a run that walks the
+    /// list, and nothing held by the television's work.
     func titleSwipe(_ title: RecordedTitle?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -397,7 +398,10 @@ struct GroupSheet: View {
                         Image(systemName: "ellipsis.circle")
                     }
                     .accessibilityLabel("保護をまとめて変更")
-                    .disabled(model.jobRunning || members.isEmpty)
+                    // What starts a run is held while one is under way, and while the recorder works or
+                    // connects (`AppModel.canStartARun`): here, on the bar under the selection, and on the
+                    // confirm of the bulk delete.
+                    .disabled(!model.canStartARun || members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
             }
@@ -414,14 +418,15 @@ struct GroupSheet: View {
                 case .bulk:
                     Button("\(chosen.count) 件を削除する", role: .destructive) {
                         model.startBulk(.delete,
-                                        ids: chosen.filter { !$0.protected && !$0.recording }.map(\.id))
+                                        ids: chosen.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
                         selecting = false
                         selected = []
                     }
+                    .disabled(!model.canStartARun)
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
                     Button("削除する", role: .destructive) { ask { await model.delete(title) } }
-                        .disabled(model.isBusy(for: .recorder) || asking)
+                        .disabled(!model.canAlterARecording || asking)
                     Button("キャンセル", role: .cancel) {}
                 case .failed:
                     Button("OK", role: .cancel) {}
@@ -467,8 +472,11 @@ struct GroupSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     if selecting {
+                        // Grey where a bulk delete would pass the recording over, by the delete's own door: a
+                        // protected one, and one still being recorded.
+                        let deletable = RecorderDriver.whyNot(deleting: title) == nil
                         Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(title.protected ? .secondary : Color.accentColor)
+                            .foregroundStyle(deletable ? Color.accentColor : .secondary)
                             .accessibilityHidden(true)
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title),
@@ -480,7 +488,7 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, held: model.isBusy(for: .recorder) || asking,
+            .titleSwipe(selecting ? nil : title, held: !model.canAlterARecording || asking,
                         ask: { removing = title.id }, unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
@@ -489,7 +497,7 @@ struct GroupSheet: View {
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
-                selected = Set(members.filter { !$0.protected && !$0.recording }.map(\.id))
+                selected = Set(members.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
             }
             Button("選択解除") { selected = [] }
             Spacer()
@@ -516,7 +524,7 @@ struct GroupSheet: View {
             }
             .buttonStyle(.bordered)
         }
-        .disabled(model.jobRunning)
+        .disabled(!model.canStartARun)
         .padding(12)
         .background(.regularMaterial)
     }

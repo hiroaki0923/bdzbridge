@@ -9,6 +9,13 @@ public enum Codes {
         "td": "地上デジタル", "bs": "BS", "cs": "CS", "bs4k": "BS4K", "cs4k": "CS4K",
     ]
 
+    /// A broadcasting type's name at the start of a sentence: 地上デジタル as it is, a Latin one set off from the
+    /// Japanese after it by a space, as the app writes GB and Wi-Fi.
+    public static func broadcastingInSentence(_ broadcasting: String) -> String {
+        let label = broadcastingLabel[broadcasting] ?? broadcasting
+        return label.last?.isASCII == true ? label + " " : label
+    }
+
     public static let epgFiles: [String: String] = [
         "td": "EPG_TRDEPG_FILE.dat",
         "bs": "EPG_BSEPG_FILE.dat",

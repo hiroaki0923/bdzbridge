@@ -10,10 +10,8 @@ struct DuplicatesView: View {
 
     @State private var confirming = false
 
-    private var scanned: Bool {
-        guard let job = model.job, case .scanning = job.kind else { return false }
-        return job.finished
-    }
+    /// Whether a scan has looked: not one the recorder stopped (`AppModel.scannedForDuplicates`).
+    private var scanned: Bool { model.scannedForDuplicates }
 
     /// What a delete would take: the ticked copies the recorder will part with.
     private var chosen: [RecordedTitle] {
@@ -44,6 +42,7 @@ struct DuplicatesView: View {
                 Button("\(chosen.count) 件を削除する", role: .destructive) {
                     model.startBulk(.delete, ids: chosen.map(\.id))
                 }
+                .disabled(!model.canStartARun)
                 Button("キャンセル", role: .cancel) {}
             } else {
                 Button("OK", role: .cancel) {}
@@ -85,9 +84,11 @@ struct DuplicatesView: View {
                      + "1 件ずつ取得するため、初回は時間がかかります。")
             }
         } actions: {
+            // What starts a run is held while one is under way, and while the recorder works or connects
+            // (`AppModel.canStartARun`): the scan here and in the list, the delete at the foot and its confirm.
             Button(scanned ? "もう一度調べる" : "検出を開始") { model.startDuplicateScan() }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.jobRunning || model.titles.isEmpty)
+                .disabled(!model.canStartARun || model.titles.isEmpty)
         }
     }
 
@@ -104,7 +105,7 @@ struct DuplicatesView: View {
                 Section {
                     Text(unread).font(.caption).foregroundStyle(.secondary)
                     Button("もう一度調べる") { model.startDuplicateScan() }
-                        .disabled(model.jobRunning)
+                        .disabled(!model.canStartARun)
                 }
             }
             ForEach(model.duplicates) { set in
@@ -134,7 +135,7 @@ struct DuplicatesView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.jobRunning)
+                .disabled(!model.canStartARun)
                 .padding(12)
                 .background(.regularMaterial)
             }
@@ -160,7 +161,8 @@ struct DuplicatesView: View {
             }
             .buttonStyle(.plain)
             // The recorder would refuse to delete it. And while a job runs the ticks stay as they are: a delete
-            // is working from them, and a scan builds the sets again when it ends.
+            // is working from them, and a scan builds the sets again when it ends. Not held by the recorder's
+            // other work, as what starts a run is: a tick sends nothing.
             .disabled(!deletable || model.jobRunning)
             // Read out as what the tick does, and whether it is on, rather than as the name of a circle. Worded
             // as a choice: a double tap only marks the recording for the delete at the foot of the screen.

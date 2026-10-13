@@ -2,6 +2,14 @@ import Foundation
 
 /// What sending what waits for the television came to in a run with no screen -- the overnight run, the
 /// Shortcuts action -- which has no link: it asks once, as far as it can, and the app says what it found.
+///
+/// What the recorder's sending with no screen came to is the same four (`RecorderDriver.sendWithNoScreen`),
+/// read for a recorder: nothing waits that it could be sent, it was not reached or could not be told from the
+/// one the cache is of, another recorder than that one answered, or the round ran. What is said of each is the
+/// device's own: the recorder's is `RecorderDriver.says`, and `inTheWay` below is the television's. `stop` and
+/// `learntNothing` are read by the rule of what is told once (`TVTold.after`) for either device: a recorder
+/// has the one stop, another recorder answering, and its run has learnt nothing where nobody was reached or
+/// its round met silence before any reservation was sent, found there, turned down or passed over.
 public enum NoScreenSending: Sendable, Equatable {
     /// Nothing waits that the television could be sent: no row of its, or only rows with a reason on them, or
     /// only rows whose programme is over. It was not asked, and nothing was dropped.
@@ -137,26 +145,52 @@ public extension TVDriver {
     nonisolated static let opensToSend = "アプリを開くと送ります"
 
     /// The notice's first sentence: the first of `rows` by its title and its start in Japan, and how many
-    /// more. The start is written out here and not by a formatter, as `ScalarClient.said` writes one, so that
-    /// nothing of the phone's clock style gets in.
+    /// more (`TVTold.named`).
     nonisolated static func notYetAtTheTelevision(_ rows: [PendingReservation]) -> String {
-        guard let first = rows.first else { return "" }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = RecorderTime.timeZone
-        let parts = calendar.dateComponents([.hour, .minute], from: first.request.start)
-        let start = String(format: "%d:%02d", parts.hour ?? 0, parts.minute ?? 0)
-        let more = rows.count > 1 ? "、ほか \(rows.count - 1) 件" : ""
-        return "テレビにまだ届いていない予約があります（「\(first.request.title)」\(start) から\(more)）"
+        rows.isEmpty ? "" : "テレビにまだ届いていない予約があります（\(TVTold.named(rows))）"
     }
 }
 
+/// What in the rule of what is told once (`TVTold.after`) is a device's own, in one value: whose rows it is
+/// about and the device's words for them. The television's is `television`, which the rule takes unless it is
+/// handed another; the recorder's is `recorder` (`RecorderNoScreen.swift`).
+public struct NoScreenWords: Sendable {
+    /// The device whose rows are told of.
+    let slot: DeviceSlot
+    /// The first sentence of the notice of reservations that have not reached the device in time.
+    let notYet: @Sendable (_ rows: [PendingReservation]) -> String
+    /// What stands in the way of what still waits after a run that came to this; nil when nothing known does.
+    let inTheWay: @Sendable (NoScreenSending) -> String?
+    /// A stop's sentence.
+    let stop: @Sendable (TVTold.Stop) -> String
+    /// What is told of a round that ran, naming the device where a word for it is handed in; nil for nothing.
+    /// `late` when the same run posts a notice of reservations that have not reached the device in time.
+    let round: @Sendable (_ outcome: PendingQueue.Outcome, _ device: String?, _ late: Bool) -> String?
+}
+
+public extension NoScreenWords {
+    /// The television's. Of a round: what the queue says of it when it is news, and silence at a create, in
+    /// its own sentence, only when the queue said nothing and no late notice carries it.
+    static let television = NoScreenWords(
+        slot: ScalarClient.slot,
+        notYet: { TVDriver.notYetAtTheTelevision($0) },
+        inTheWay: { $0.inTheWay },
+        stop: { $0.said },
+        round: { outcome, device, late in
+            if !outcome.isEmpty, let said = outcome.says(naming: device) { return said }
+            return !late && outcome.stopped == .silent(afterSending: true) ? TVDriver.createMetSilence : nil
+        })
+}
+
 /// What the runs with no screen have told the reader of the television, kept between runs by the app: the
-/// stop told last, and the rows told of as not having reached it in time.
+/// stop told last, and the rows told of as not having reached it in time. What they have told of the recorder
+/// is one of these too, kept apart from the television's (`RecorderDriver.refreshWithNoScreen`).
 public struct TVTold: Codable, Sendable, Equatable {
     public enum Stop: String, Codable, Sendable {
         case another, registration, disk
 
-        /// Its sentence, the one the screens say for it.
+        /// Its sentence for the television, the one the screens say for it. The recorder has the first of the
+        /// three alone, and its own sentence for it (`NoScreenWords.recorder`).
         public var said: String {
             switch self {
             case .another: TVDriver.anotherAnswered
@@ -177,7 +211,9 @@ public struct TVTold: Codable, Sendable, Equatable {
 
     /// What to tell after a run that came to `sending`, and what is told from then on. `waiting` is the
     /// phone's queue read after the run (nil when it could not be read); `nextRun` is when the next overnight
-    /// run is asked for; `device` the word for the television in a sentence.
+    /// run is asked for; `device` the word for the device in the queue's sentences, nil where they name none.
+    /// The rule is one for both devices, and is written here of the television: whose rows it is about and
+    /// every sentence are `words`, the television's unless the recorder's are handed in.
     ///
     /// A row is late when it waits for the television with no reason on it, is not over, starts before the
     /// next run and is not one this round made or found there -- whose removal from the queue can fail
@@ -191,33 +227,31 @@ public struct TVTold: Codable, Sendable, Equatable {
     /// What became of the queue is told when it is news, as the recorder's run tells it, and so is a stop the
     /// reader was not told last, unless the late notice carries it already, and silence at a create when
     /// the queue said nothing. A television that does not answer, or answers with nothing that reads, is no
-    /// state it is known to be in, and is never told here on its own: the recorder's run says nothing of a
-    /// recorder that does not answer either.
+    /// state it is known to be in, and is never told here on its own; nor is a recorder that does not answer,
+    /// which its run tells of only at the end of a late notice.
     ///
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
     /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
     /// is said each time and never kept.
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
-                      now: Date, naming device: String) -> (notices: TVNotices, told: TVTold) {
+                      now: Date, naming device: String?, words: NoScreenWords = .television)
+        -> (notices: TVNotices, told: TVTold) {
         var outcome: PendingQueue.Outcome?
         if case .sent(let round) = sending { outcome = round }
         let settled = Set(((outcome?.sent ?? []) + (outcome?.alreadyThere ?? [])).map(\.id))
         let late = waiting?.filter { row in
-            Self.waitsToGo(row, now: now) && row.request.start < nextRun && !settled.contains(row.id)
+            Self.waitsToGo(row, to: words.slot, now: now) && row.request.start < nextRun
+                && !settled.contains(row.id)
         }
         let new = late?.filter { !rows.contains($0.id) } ?? []
 
         var notices = TVNotices()
         if let late, !new.isEmpty {
-            notices.notYet = TVDriver.notYetAtTheTelevision(late) + "。"
-                + (sending.inTheWay ?? TVDriver.opensToSend)
+            notices.notYet = words.notYet(late) + "。" + (words.inTheWay(sending) ?? TVDriver.opensToSend)
         }
         var queue: [String] = []
-        if let outcome, !outcome.isEmpty, let said = outcome.says(naming: device) { queue.append(said) }
-        if notices.notYet == nil {
-            if let stop = sending.stop, stop != self.stop { queue.append(stop.said) }
-            if sending.metSilenceAtACreate, queue.isEmpty { queue.append(TVDriver.createMetSilence) }
-        }
+        if let outcome, let said = words.round(outcome, device, notices.notYet != nil) { queue.append(said) }
+        if notices.notYet == nil, let stop = sending.stop, stop != self.stop { queue.append(words.stop(stop)) }
         notices.queue = queue.isEmpty ? nil : queue.joined(separator: "。")
 
         var told = self
@@ -239,17 +273,32 @@ public struct TVTold: Codable, Sendable, Equatable {
     /// Otherwise the same with none told of, and the warning about them is to be taken away at once: none of
     /// what it was about waits any more, and the next run with no screen, which would take it away, may come
     /// after their programmes have begun. The stop told is left as it was, for the runs with no screen to
-    /// hold against what they find.
-    public func afterTheScreensSent(waiting: [PendingReservation], now: Date = Date()) -> TVTold? {
-        guard !rows.isEmpty,
-              !waiting.contains(where: { rows.contains($0.id) && Self.waitsToGo($0, now: now) }) else { return nil }
+    /// hold against what they find. The rows are those of the device `words` is of, as in `after`.
+    public func afterTheScreensSent(waiting: [PendingReservation], now: Date = Date(),
+                                    words: NoScreenWords = .television) -> TVTold? {
+        guard !rows.isEmpty, !waiting.contains(where: {
+            rows.contains($0.id) && Self.waitsToGo($0, to: words.slot, now: now)
+        }) else { return nil }
         return TVTold(stop: stop)
     }
 
-    /// Whether a row is still to go to the television by itself: one of its, with no reason on it, whose
-    /// programme is not over.
-    private static func waitsToGo(_ row: PendingReservation, now: Date) -> Bool {
-        row.target == ScalarClient.slot && row.problem == nil && row.request.end >= now
+    /// Whether a row is still to go to the device in `slot` by itself: one of its, with no reason on it,
+    /// whose programme is not over.
+    private static func waitsToGo(_ row: PendingReservation, to slot: DeviceSlot, now: Date) -> Bool {
+        row.target == slot && row.problem == nil && row.request.end >= now
+    }
+
+    /// The rows a notice of reservations not yet at a device names them by: the first by its title and its
+    /// start in Japan, and how many more. The start is written out here and not by a formatter, as
+    /// `ScalarClient.said` writes one, so that nothing of the phone's clock style gets in.
+    static func named(_ rows: [PendingReservation]) -> String {
+        guard let first = rows.first else { return "" }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = RecorderTime.timeZone
+        let parts = calendar.dateComponents([.hour, .minute], from: first.request.start)
+        let start = String(format: "%d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        let more = rows.count > 1 ? "、ほか \(rows.count - 1) 件" : ""
+        return "「\(first.request.title)」\(start) から\(more)"
     }
 }
 

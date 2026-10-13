@@ -1150,35 +1150,6 @@ final class ReservationGateTests: XCTestCase {
         }
     }
 
-    /// Asks `something` of the model while the check before an operation is out, and has that check end the one
-    /// way that leaves the recorder there and not connected to: silent to the check's own ask, answering the
-    /// first ask of the waking that follows -- so that nothing waits a second for it to come up -- and then busy
-    /// with somebody else, through both tries after the first, as the waking's attach asks who it is. What
-    /// `something` came to, and what the recorder was asked from the check on besides who it is.
-    private func duringACheckTurnedAwayAfterAWaking<T: Sendable>(by model: AppModel, of recorder: NamedRecorder,
-                                                                 _ something: @escaping @MainActor () async -> T)
-        async throws -> (came: T, heard: [String]) {
-        await recorder.hold(only: Kind.description)
-        let before = await recorder.asked
-        let count = await recorder.heard.count
-        let check = Task { await makeSure(model) }
-        try await until("the recorder was never made sure of") {
-            await recorder.asked(Kind.description, since: before) == 1
-        }
-        let asking = Task { await something() }
-        try await until("what was asked for was never begun") { model.busy != nil }
-        await recorder.goQuiet(on: Kind.description)
-        await recorder.answer(Kind.description, with: .status(503), times: 3, after: 1)
-        await recorder.letGo()
-        let there = await check.value
-        let came = await asking.value
-
-        XCTAssertFalse(there, "a recorder that turned the attach away was taken for one to ask")
-        XCTAssertFalse(model.connected, "the recorder was meant not to have said which it is")
-        XCTAssertFalse(model.offline, "the recorder was meant to have answered, if only as busy")
-        return (came, await recorder.heard(since: count).filter { $0 != Kind.description })
-    }
-
     /// A check before an operation whose question of who answers is answered busy with somebody else, through
     /// both tries after the first, has not heard which recorder answers, and nothing is written on its strength
     /// until a check hears it say which it is. The check writes nothing on the line itself: the question of

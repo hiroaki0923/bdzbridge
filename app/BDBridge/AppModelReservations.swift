@@ -257,7 +257,10 @@ extension AppModel {
     /// down, or held after silence at its create; or not done with its reason, the driver's result saying which;
     /// with no driver, that the app is not connected. The list it hands back after a reservation made is kept by
     /// the count noted here (`keepReservations`): a reservation for a recorder let go of meanwhile leaves the list
-    /// of the one after it alone. A television has no disk to choose, and `disk` is not read for one.
+    /// of the one after it alone. A television has no disk to choose, and `disk` is not read for one. A
+    /// reservation takes the place of a row that waited for the same programme, so a warning the runs with no
+    /// screen left of reservations not yet at the recorder goes here too, once none of them waits to go
+    /// (`forgetTheRecordersWarningOnceSent`).
     ///
     /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
     /// dialog comes here, as it comes in the television's host (`TVHost.reserve`): after the row is kept, before
@@ -276,6 +279,7 @@ extension AppModel {
         guard let came = await recorderDriver?.reserve(program, quality: quality, repeating: repeating, disk: disk)
         else { return .notDone(RecorderDriver.notConnected) }
         keepReservations(came.list, since: forgotten)
+        await forgetTheRecordersWarningOnceSent()
         if case .waiting(let row, _) = came.reserved, row.problem == nil, !isDemo { await askForNotifications() }
         return came.reserved
     }
@@ -317,7 +321,8 @@ extension AppModel {
     /// does: `deviceSaid`). So a row has one delete at a time: a second one, asked for while the first waits its
     /// turn -- the row is still listed then, and the reader can confirm again -- would find the row gone and say
     /// it was made, and it comes back with nil at once instead. The warning of reservations not yet at the
-    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`).
+    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`), and so is the
+    /// recorder's (`forgetTheRecordersWarningOnceSent`).
     ///
     /// Nil when the row was deleted, when nothing was done while its device works or while the row has a
     /// delete under way already, and when the row has gone and nothing says it was made.
@@ -331,6 +336,7 @@ extension AppModel {
             let deleted = await recorderDriver?.deleteWaiting(waiting)
             keepReservations(deleted?.list, since: forgotten)
             await loadPending()
+            await forgetTheRecordersWarningOnceSent()
             return deleted?.made == true
                 ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
         }
@@ -375,7 +381,8 @@ extension AppModel {
     /// rest the next time the recorder answers: the driver's steps (`RecorderDriver.resend`). The list read
     /// after a sending is kept by the count noted here (`keepReservations`), and what the round came to goes on
     /// the strip (`tellTheStrip`). What the row came to is handed back, as the driver says it, nil where there
-    /// is nothing to say of the row.
+    /// is nothing to say of the row. A warning the runs with no screen left of reservations not yet at the
+    /// recorder goes once none of them waits to go (`forgetTheRecordersWarningOnceSent`).
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
@@ -389,6 +396,7 @@ extension AppModel {
         guard let sent = await recorderDriver?.resend(waiting) else { return nil }
         keepReservations(sent.list, since: forgotten)
         tellTheStrip(sent.round)
+        await forgetTheRecordersWarningOnceSent()
         return sent.came
     }
 

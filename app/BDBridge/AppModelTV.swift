@@ -313,7 +313,8 @@ extension AppModel {
     }
 
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
-    /// a sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no
+    /// a sending of the app's own, a reservation made by hand, which takes the place of a row that waited for
+    /// its programme (`TVHost.reserve`), or a delete leaves none of them waiting to go, and they are told of no
     /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.

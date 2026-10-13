@@ -56,6 +56,28 @@ extension WhichRecorderTests {
         XCTAssertTrue(model.anotherTookOver, "nothing says why the lists under the reader are other ones")
     }
 
+    /// What the runs with no screen told of a recorder -- that another answered in its place, which
+    /// reservations had not reached it in time -- is of that recorder. It stands while the recorder the phone
+    /// knows answers a connect, and is forgotten when another takes the cache, with the marks of its disks and
+    /// its guide: the next run with no screen tells what it finds of the newcomer afresh.
+    func testWhatTheRunsWithNoScreenToldOfARecorderGoesWithItsCache() async throws {
+        let (bench, recorder, model) = try await atHome()
+        let told = try JSONEncoder().encode(TVTold(stop: .another))
+        bench.defaults.set(told, forKey: DefaultsKey.recorderTold)
+
+        await model.connect()
+        try await untilIdle(model)
+        XCTAssertEqual(bench.defaults.data(forKey: DefaultsKey.recorderTold), told,
+                       "forgotten at a connect the recorder the phone knows answered")
+
+        await recorder.become(2)
+        await model.connect()
+        try await untilIdle(model)
+        try await expect(bench, keeps: .nothing(nowOf: 2))
+        XCTAssertNil(bench.defaults.data(forKey: DefaultsKey.recorderTold),
+                     "what was told of the first recorder is held against the second")
+    }
+
     /// What was held back is said even when the attach that held it got no further: the newcomer described
     /// itself, the cache was made over and the queue held, and then it said nothing more. The line is read
     /// from the rows by whichever attach does get through.

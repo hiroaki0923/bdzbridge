@@ -451,16 +451,18 @@ actor NotARecorder: HTTPTransport {
 /// `stopSayingWhich` has it go on as itself with no UDN in its description.
 /// `hold` keeps every request waiting until `letGo()` -- or only the requests of one kind, or with `holdTheNext`
 /// only the next of one kind -- for a test that looks at the app in between; `letGo(only:)` lets those of one
-/// kind go and keeps the rest. `goQuiet` has it say nothing to a few requests, as a recorder that has left the
-/// network does: the next ones, or the ones after it has answered so many, or the next of one kind. A request
-/// held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is asked who
-/// it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving another -- and
-/// answering everything else: there, and not saying which it is, until `comeFree()`.
+/// kind go and keeps the rest, and `letTheFirstGo(of:)` lets one request go and holds on, for a test that holds
+/// one request of a kind and then the next. `goQuiet` has it say nothing to a few requests, as a recorder that
+/// has left the network does: the next ones, or the ones after it has answered so many, or the next of one kind.
+/// A request held and then let go is one of them. `busyAtTheDoor` has it busy with somebody else whenever it is
+/// asked who it is -- a 503 to its description, as a BDZ answers a request that arrives while it is serving
+/// another -- and answering everything else: there, and not saying which it is, until `comeFree()`.
 ///
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
-/// kind -- a fault with a code, a bare status, a `Result` -- `beBusy` is that for one whole call that fails as
-/// busy, and `beAMomentBehind` has the list after its next delete or change be the one from before it. `heard` is
-/// everything it was asked, in the order it arrived, and `elements(of:)` what the last of one kind carried.
+/// kind -- a fault with a code, a bare status, a `Result`, a whole body, or nothing at all -- `beBusy` is that
+/// for one whole call that fails as busy, and `beAMomentBehind` has the list after its next delete or change be
+/// the one from before it. `haveACopy` puts one broadcast on its disk twice. `heard` is everything it was asked,
+/// in the order it arrived, and `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -488,6 +490,8 @@ actor NamedRecorder: HTTPTransport {
     private var staleList: HTTPResponse?
     /// The `Elements` argument of the last request of each kind that carried one (`elements(of:)`).
     private var lastElements: [String: String] = [:]
+    /// Whether its list of recordings gives one broadcast twice (`haveACopy`).
+    private var hasACopy = false
 
     init(_ last: Int) {
         udn = Self.udn(last)
@@ -505,7 +509,8 @@ actor NamedRecorder: HTTPTransport {
     func become(_ last: Int) {
         udn = Self.udn(last)
         recorder = DemoRecorder()
-        // The list it was behind with was the other recorder's. What a test told it with `answer` stays.
+        // The list it was behind with was the other recorder's. What a test told it with `answer` stays, and so
+        // does a copy on its disk (`haveACopy`), the second recorder numbering its recordings as the first did.
         (behind, lastList, staleList) = (false, nil, nil)
     }
 
@@ -542,6 +547,15 @@ actor NamedRecorder: HTTPTransport {
         held.removeAll { $0.what == what }
     }
 
+    /// Lets the request of one kind that has been held longest go, and nothing else: whatever hold is set stays
+    /// set. With every request of a kind held (`hold(only:)`), the next of that kind is therefore held as it
+    /// arrives, which `letGo(only:)` would let through; with `holdTheNext` asked for again first, likewise. It
+    /// does nothing while none of that kind is held: a test waits for the request to have arrived (`asked`).
+    func letTheFirstGo(of what: String) {
+        guard let first = held.firstIndex(where: { $0.what == what }) else { return }
+        held.remove(at: first).request.resume()
+    }
+
     func goQuiet(for requests: Int, after answering: Int = 0) {
         quiet = requests
         answersBeforeQuiet = answering
@@ -563,6 +577,8 @@ actor NamedRecorder: HTTPTransport {
     /// Answers the next `times` requests of one kind -- a SOAP action, or a file by its name -- with `answer` in
     /// place of the demo's, once it has let `skipping` more of that kind through. One script to a kind. A request
     /// held and then let go meets it; one `goQuiet` took does not count. Counted in `asked` like any other.
+    /// With `.silence` it says nothing to them: to the third of a kind, say, where `goQuiet(on:)` is the next
+    /// alone.
     func answer(_ what: String, with answer: Answer, times: Int = 1, after skipping: Int = 0) {
         told[what] = (answer, times, skipping)
     }
@@ -571,6 +587,14 @@ actor NamedRecorder: HTTPTransport {
     /// makes after it, which is three in `asked`. Fewer than three is a call that goes through late.
     func beBusy(with what: String, after skipping: Int = 0) {
         answer(what, with: .status(503), times: 3, after: skipping)
+    }
+
+    /// One broadcast on its disk twice, from now on: its list gives two of its recordings one title, and what it
+    /// says each is about is the same, as it is for every recording of the demo's (`RecorderWithACopy`, which
+    /// can be told nothing else). A scan for duplicates therefore finds one set, on a recorder whose answers a
+    /// test can still hold, script and silence.
+    func haveACopy() {
+        hasACopy = true
     }
 
     /// A moment behind itself, once: the list it gives after the next reservation it deletes or changes still has
@@ -633,7 +657,7 @@ actor NamedRecorder: HTTPTransport {
             } else {
                 script.times -= 1
                 told[what] = script.times > 0 ? script : nil
-                return script.answer.response
+                return try script.answer.response
             }
         }
         if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
@@ -648,6 +672,10 @@ actor NamedRecorder: HTTPTransport {
         if what == "X_DeleteRecordSchedule" || what == "X_UpdateRecordSchedule", behind {
             behind = false
             staleList = lastList
+        }
+        if hasACopy, what == "X_GetTitleList" {
+            let twice = response.text.replacingOccurrences(of: "第３話", with: "第４話")
+            return HTTPResponse(statusCode: response.statusCode, body: Data(twice.utf8))
         }
         guard request.url.path == "/description.xml" else { return response }
         let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
@@ -664,7 +692,8 @@ extension NamedRecorder {
     /// busy with somebody else, a 500 for a guide file it has not built. The rest stand in for a recorder that
     /// turns something down, or answers oddly, where none has been seen to: 402 to anything but a request of
     /// the wrong shape -- to a read, above all -- a `Result` that is not XML, and the list a moment behind
-    /// (`beAMomentBehind`).
+    /// (`beAMomentBehind`). Silence is a recorder that has left the network, and a body is whatever the test
+    /// hands it: a guide file as a recorder serves one, or an answer a recorder is not known to give.
     enum Answer: Sendable, Equatable {
         /// A SOAP fault as a BDZ gives one: HTTP 500 with the UPnP error code in its body.
         case fault(Int)
@@ -672,26 +701,49 @@ extension NamedRecorder {
         case status(Int)
         /// HTTP 200 and this text as the `Result` of a SOAP answer, escaped as the recorder sends one.
         case result(String)
+        /// HTTP 200 and these bytes, as they are: a guide file, or a SOAP answer the test wrote out (`text`).
+        case body(Data)
+        /// Nothing: the request fails as one does that nobody answered.
+        case silence
+
+        /// HTTP 200 and this text in `element` of a SOAP answer, escaped as the recorder sends one: for what a
+        /// recorder answers in another element than `Result`, as it does the free space
+        /// (`RecordDestinationInfo`).
+        static func text(_ text: String, in element: String) -> Answer {
+            .body(Data(answering("<\(element)>\(Soap.escape(text))</\(element)>").utf8))
+        }
 
         /// The fault's body is the one the package's own tests use (`StubTransport.fault`), and the code in it
         /// has nothing around it: it is compared as text. The `Result` is in the envelope the demo builds.
+        /// Silence is thrown, as a transport throws it.
         var response: HTTPResponse {
-            let open = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
-                + "<s:Body>"
-            let close = "</s:Body></s:Envelope>"
-            switch self {
-            case .status(let status):
-                return HTTPResponse(statusCode: status)
-            case .fault(let code):
-                let fault = "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>"
-                    + "<UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>\(code)</errorCode></UPnPError>"
-                    + "</detail></s:Fault>"
-                return HTTPResponse(statusCode: 500, body: Data((open + fault + close).utf8))
-            case .result(let text):
-                let result = "<u:Response xmlns:u=\"\(Upnp.xsrsService)\"><Result>\(Soap.escape(text))</Result>"
-                    + "</u:Response>"
-                return HTTPResponse(statusCode: 200, body: Data((open + result + close).utf8))
+            get throws {
+                let open = "<?xml version=\"1.0\"?>"
+                    + "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+                let close = "</s:Body></s:Envelope>"
+                switch self {
+                case .status(let status):
+                    return HTTPResponse(statusCode: status)
+                case .fault(let code):
+                    let fault = "<s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring>"
+                        + "<detail><UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>\(code)</errorCode>"
+                        + "</UPnPError></detail></s:Fault>"
+                    return HTTPResponse(statusCode: 500, body: Data((open + fault + close).utf8))
+                case .result(let text):
+                    return HTTPResponse(statusCode: 200,
+                                        body: Data(Self.answering("<Result>\(Soap.escape(text))</Result>").utf8))
+                case .body(let body):
+                    return HTTPResponse(statusCode: 200, body: body)
+                case .silence:
+                    throw RecorderError.transport("The request timed out.")
+                }
             }
+        }
+
+        /// A SOAP answer with `inner` in it, in the envelope the demo builds.
+        private static func answering(_ inner: String) -> String {
+            "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+                + "<u:Response xmlns:u=\"\(Upnp.xsrsService)\">\(inner)</u:Response></s:Body></s:Envelope>"
         }
     }
 }
@@ -785,6 +837,29 @@ final class QueueOutOfReach {
 
     func putBack() {
         XCTAssertEqual(run("ALTER TABLE out_of_reach RENAME TO pending_reservations"), SQLITE_OK)
+    }
+
+    private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
+
+    deinit { sqlite3_close(connection) }
+}
+
+/// Another connection that has put the cache's `meta` table out of the app's reach, until it puts it back: whose
+/// cache this is (`GuideStore.owner`) cannot be read meanwhile, nor anything else kept there -- what was fetched
+/// and when, the USB disk known -- each read failing at once, as the queue's does behind `QueueOutOfReach`. The
+/// only way to an owner that cannot be read: a writer's lock stops no read. The queue beside it is read and
+/// written as ever. A store opened meanwhile would make itself an empty table of that name and read no owner
+/// from it, with no failure: the test opens its store first, and `putBack` fails if one was.
+final class MetaOutOfReach {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(run("ALTER TABLE meta RENAME TO meta_out_of_reach"), SQLITE_OK)
+    }
+
+    func putBack() {
+        XCTAssertEqual(run("ALTER TABLE meta_out_of_reach RENAME TO meta"), SQLITE_OK)
     }
 
     private func run(_ statement: String) -> Int32 { sqlite3_exec(connection, statement, nil, nil, nil) }
@@ -979,6 +1054,69 @@ extension XCTestCase {
         let why = model.problem(for: .recorder) ?? "no reason given"
         XCTAssertTrue(model.connected, "the recorder did not come back: \(why)", file: file, line: line)
     }
+
+    /// Asks `something` of the model while the check before an operation is out, and then has that check end as
+    /// `end` says. The recorder is made sure of, and that ask is held; `something` is asked meanwhile, and has
+    /// got as far as the check once `begun` says so; then the ask is let go, into silence or into a recorder busy
+    /// as it is asked who it is. What the check found, and what `something` came to.
+    @MainActor
+    func duringACheck<T: Sendable>(by model: AppModel, of recorder: NamedRecorder, endingIn end: CheckEnd,
+                                   _ what: String, waitingFor begun: @MainActor () -> Bool,
+                                   _ something: @escaping @MainActor () async -> T) async throws
+        -> (there: Bool, came: T) {
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        let asking = Task { await something() }
+        try await until("\(what) was never begun") { begun() }
+        switch end {
+        case .silence: await recorder.goQuiet(on: Ask.description)
+        case .busy: await recorder.busyAtTheDoor()
+        }
+        await recorder.letGo()
+        return (await check.value, await asking.value)
+    }
+
+    /// Asks `something` of the model while the check before an operation is out, and has that check end the one
+    /// way that leaves the recorder there and not connected to: silent to the check's own ask, answering the
+    /// first ask of the waking that follows -- so that nothing waits a second for it to come up -- and then busy
+    /// with somebody else, through both tries after the first, as the waking's attach asks who it is.
+    /// `something` has got as far as the check once the strip has a line, or once `begun` says so, for what
+    /// puts no line up. What `something` came to, and what the recorder was asked from the check on besides who
+    /// it is.
+    @MainActor
+    func duringACheckTurnedAwayAfterAWaking<T: Sendable>(by model: AppModel, of recorder: NamedRecorder,
+                                                         waitingFor begun: (@MainActor () -> Bool)? = nil,
+                                                         _ something: @escaping @MainActor () async -> T)
+        async throws -> (came: T, heard: [String]) {
+        await recorder.hold(only: Ask.description)
+        let before = await recorder.asked
+        let count = await recorder.heard.count
+        let check = Task { await makeSure(model) }
+        try await until("the recorder was never made sure of") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        let asking = Task { await something() }
+        try await until("what was asked for was never begun") { begun?() ?? (model.busy != nil) }
+        await recorder.goQuiet(on: Ask.description)
+        await recorder.answer(Ask.description, with: .status(503), times: 3, after: 1)
+        await recorder.letGo()
+        let there = await check.value
+        let came = await asking.value
+
+        XCTAssertFalse(there, "a recorder that turned the attach away was taken for one to ask")
+        XCTAssertFalse(model.connected, "the recorder was meant not to have said which it is")
+        XCTAssertFalse(model.offline, "the recorder was meant to have answered, if only as busy")
+        return (came, await recorder.heard(since: count).filter { $0 != Ask.description })
+    }
+}
+
+/// How the check before an operation ends: the recorder says nothing, or says it is busy with somebody else.
+enum CheckEnd {
+    case silence, busy
 }
 
 /// A client of the test's own asking `recorder`, with no pause before a 503 is sent again: the recorder's own
@@ -986,6 +1124,105 @@ extension XCTestCase {
 @MainActor
 func aClient(of recorder: any HTTPTransport) -> RecorderClient {
     RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0)
+}
+
+/// A file of the conformance vectors (docs/port) as a recorder serves one: `epg-sample.dat` is a guide file that
+/// decodes, its programmes of days long past, and `logo-sample.dat` its stations' logos. Read from the
+/// repository by this file's own path, which a test in the simulator can do while it runs on the machine that
+/// built it.
+func vectorFile(_ name: String) throws -> Data {
+    var url = URL(fileURLWithPath: #filePath)
+    // .../app/BDBridgeTests/Bench.swift -> the repository's root
+    for _ in 0..<3 { url.deleteLastPathComponent() }
+    return try Data(contentsOf: url.appendingPathComponent("docs/port").appendingPathComponent(name))
+}
+
+// MARK: - what a run with no screen tells
+
+/// What a run with no screen told the reader and kept for the screens (`BackgroundWork.Telling`), each telling
+/// as it was told and in the order it was. Written under a lock by the telling itself, with no task in between
+/// -- `fetched` too, which is not `async` -- so that everything told is here by the time its telling returns:
+/// a test can say what was not told, and in which order the rest was.
+final class Tellings: @unchecked Sendable {
+    enum Told: Equatable, Sendable {
+        case heldBack
+        case flushed(PendingQueue.Outcome)
+        case freeSpace(free: Int, total: Int, naming: String?)
+        case usbSpace(RecorderDisk)
+        /// What is told once: the notice of reservations not yet at the recorder, whether the last such notice
+        /// is taken away, and what to keep.
+        case told(notYet: String?, withdraws: Bool, kept: TVTold)
+        /// Without its time, which is the moment it was told.
+        case fetched
+
+        /// The member of `BackgroundWork.Telling` it was told through.
+        var name: String {
+            switch self {
+            case .heldBack: "heldBack"
+            case .flushed: "flushed"
+            case .freeSpace: "freeSpace"
+            case .usbSpace: "usbSpace"
+            case .told: "told"
+            case .fetched: "fetched"
+            }
+        }
+    }
+
+    private let lock = NSLock()
+    private var told: [Told] = []
+
+    /// Everything told so far, in order.
+    var said: [Told] { lock.withLock { told } }
+
+    /// The same by name alone, for a test that looks at what was told and in which order.
+    var names: [String] { said.map(\.name) }
+
+    /// What became of the queue, as each round was told.
+    var rounds: [PendingQueue.Outcome] {
+        said.compactMap { if case .flushed(let outcome) = $0 { outcome } else { nil } }
+    }
+
+    fileprivate func say(_ what: Told) {
+        lock.withLock { told.append(what) }
+    }
+}
+
+/// What a run with no screen is handed to tell with (`BackgroundWork.refresh`): each telling goes on `told`'s
+/// record, and nowhere else.
+func telling(_ told: Tellings) -> BackgroundWork.Telling {
+    BackgroundWork.Telling(heldBack: { told.say(.heldBack) },
+                           flushed: { told.say(.flushed($0)) },
+                           freeSpace: { told.say(.freeSpace(free: $0, total: $1, naming: $2)) },
+                           usbSpace: { told.say(.usbSpace($0)) },
+                           kept: { told.say(.told(notYet: $0, withdraws: $1, kept: $2)) },
+                           fetched: { _ in told.say(.fetched) })
+}
+
+// MARK: - what the recorder is asked
+
+/// What the recorder is asked, as its fake on the bench names a kind of request: a SOAP action, or a file by its
+/// name. Named once, for the bench's own helpers and for the tests that keep no list of their own: a name
+/// misspelt in a test that looks for nothing having been asked would pass.
+enum Ask {
+    /// What a connect asks first, and the check before an operation.
+    static let description = "description.xml"
+    static let reservations = "X_GetRecordScheduleList"
+    static let create = "X_CreateRecordSchedule"
+    static let recordings = "X_GetTitleList"
+    /// What is asked of one recording before it is deleted, and the text a scan for duplicates reads.
+    static let details = "X_GetTitleDetail"
+    static let deleteRecording = "X_DeleteTitle"
+    static let changeRecording = "X_UpdateTitle"
+    static let freeSpace = "X_HDLnkGetRecordDestinationInfo"
+    /// The USB slot.
+    static let slot = "X_GetMediaInfo"
+    /// What a client asks, once, to find the port of the guide's files before its first.
+    static let portOfTheGuide = "Browse"
+    /// The guide's files in the order they are fetched: 地上デジタル, BS, CS, BS4K.
+    static let guide = ["EPG_TRDEPG_FILE.dat", "EPG_BSEPG_FILE.dat", "EPG_CSEPG_FILE.dat", "EPG_ADVBSDEPG_FILE.dat"]
+    /// The stations' logos, each asked for after its type's guide was stored, in the same order.
+    static let logos = ["EPG_TRDLOGO_FILE.dat", "EPG_BSLOGO_FILE.dat", "EPG_CSLOGO_FILE.dat",
+                        "EPG_ADVBSDLOGO_FILE.dat"]
 }
 
 // MARK: - what the app says
@@ -1091,7 +1328,7 @@ func clearTheLine(on model: AppModel) { model.problem = nil }
 /// last answered. Whether it is there to ask.
 @MainActor
 func makeSure(_ model: AppModel) async -> Bool {
-    await model.wakeIfDozing(evenIfRecent: true)
+    await model.recorder.ensureUp(evenIfRecent: true)
 }
 
 /// One look at the network, of the kind the app takes after a change is reported. Whether it led to an attempt
@@ -1167,7 +1404,8 @@ func changeOnTheRecorder(_ model: AppModel, _ row: Reservation, quality: String,
 
 /// Why the last reservation or change on the recorder asked through the two above was not done, as its result
 /// said it, or the last of the recordings' and the keyword conditions' writes asked through the helpers below;
-/// nil when it was made, kept or done.
+/// nil when it was made, kept or done. And what the last guide asked for by hand had to say
+/// (`refreshTheGuideByHand`), nil for nothing.
 @MainActor
 func whyNotJustNow(_ model: AppModel) -> String? {
     reasons.first { $0.model === model }?.why
@@ -1239,6 +1477,19 @@ private func noted(_ altered: Altered, of model: AppModel) -> Bool {
     note(why, of: model)
     if case .done = altered { return true }
     return false
+}
+
+// MARK: - what the tests ask of the guide
+
+/// The guide fetched as 番組表を更新 asks for it, on the guide's tab and in Settings: every broadcasting type.
+/// Whether it went through. What it had to say, which its button shows in an alert, is noted for
+/// `whyNotJustNow`, nil for nothing: one that went through says the types that failed.
+@MainActor
+@discardableResult
+func refreshTheGuideByHand(_ model: AppModel) async -> Bool {
+    let refreshed = await model.refreshGuideByHand()
+    note(refreshed.said, of: model)
+    return refreshed.wentThrough
 }
 
 /// What the last reservation on the recorder of each model kept on the phone (`keptJustNow`): the result hands

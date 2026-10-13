@@ -4,15 +4,16 @@ import Foundation
 /// address by the MAC at the end of its UDN, recognised by that UDN, and read on every attach for its firmware,
 /// its MAC, its free space and the disk in its USB slot, which are only shown or kept and must not fail the
 /// attach; a USB disk known is not let go of on one answer of none (`learnTheSlot`). The runs with no screen,
-/// which have no link, make their attempt here too (`reachWithNoScreen`, `isTheOneKnown`).
+/// which have no link, are in `RecorderNoScreen.swift`.
 ///
 /// What is asked of the recorder's reservations after its attach is here as well, as a television's is its
 /// driver's: reading them (`reservations`, `refreshReservations`), sending what waits for the recorder in the
 /// phone's queue (`sendWhatWaits`, `resend`) and deleting a row of it (`deleteWaiting`), deleting and changing
 /// one (`cancel`, `update`), what a new one would clash with (`conflicts`), and making one, or keeping it on the
 /// phone when the recorder cannot be asked (`reserve`) -- the steps, and what each hands back for the app to
-/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, and its own keyword conditions in
-/// `RecorderConditions.swift`, beside this.
+/// keep. Its recordings, playback and power are in `RecorderRecordings.swift`, its own keyword conditions in
+/// `RecorderConditions.swift`, its side of a run over many recordings in `RecorderRuns.swift`, and the guide
+/// fetched by hand and at a connect in `RecorderGuide.swift`, beside this.
 @MainActor
 public final class RecorderDriver: LinkDriver {
     /// The link holds the driver, so weak; it is set once, as the link is made. Each operation asked of the
@@ -22,7 +23,8 @@ public final class RecorderDriver: LinkDriver {
     /// goes through on the link's check and its silence (`ensureUp`, `lost`), as it did in the app, and so does
     /// a recording's details; the check before a reservation is read for its reason (`check`). The recordings',
     /// playback's, the power's and the keyword conditions' operations go through on the same parts, each as
-    /// `DeviceLink.run` makes one (`asked`). The guide fetched by hand is still the app's.
+    /// `DeviceLink.run` makes one (`asked`), and so does the guide's refresh, which says its own silence
+    /// (`refreshGuide`).
     public weak var link: DeviceLink?
     /// Written on each reservation that was waiting when another recorder took the place of the one it was made
     /// for (`GuideStore.claim`): `heldForAnotherRecorder`, unless a test gives a sentence of its own.
@@ -238,7 +240,9 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// The free space as the screens show it, or nil when the recorder will not say. A disk of no size counts as
-    /// not saying: the screens would show it as a full disk. Throws only silence.
+    /// not saying: the screens would show it as a full disk. The one place that decides it, for the screens and
+    /// for the overnight run alike, whose low-space notice is therefore never asked about such a disk. Throws
+    /// only silence.
     public static func storage(of client: RecorderClient) async throws -> (free: Int, total: Int)? {
         guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
               capacity.totalBytes > 0 else { return nil }
@@ -1142,15 +1146,14 @@ public final class RecorderDriver: LinkDriver {
     private typealias ListRead = Result<[Reservation], OperationFailure>
 
     /// The recorder's list, read on the client in hand from inside the queue's turn, as a round's opening read
-    /// is, with no line and no check; nil when it is not read. Only while nothing would make the check before
-    /// asking it: the client is the one whose attach went through, the recorder is connected and not known to
-    /// be away, nothing was heard in its place (`DeviceLink.mayBeSent`), no check is out -- the read would wait
-    /// behind its probe, and its waking -- and the recorder answered within the time after which it is made
-    /// sure of (`LinkRules.needsCheck`). Nil too for a recorder let go of while the read was out.
+    /// is, with no line and no check; nil when it is not read. Only while the client is the one whose attach
+    /// went through and the recorder is connected (`DeviceLink.mayBeSent`), and a check before the read would
+    /// have nothing to ask (`checkWouldAskNothing`): the recorder not known to be away, nothing heard in its
+    /// place, no check out -- the read would wait behind its probe, and its waking -- and an answer within the
+    /// time after which the recorder is made sure of. Nil too for a recorder let go of while the read was out.
     private func listInTheTurn(_ link: DeviceLink, since began: Int) async -> ListRead? {
-        guard link.mayBeSent, !link.session.unreachable, link.wakeCheck == nil,
-              let client = link.client as? RecorderClient,
-              !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date()) else { return nil }
+        guard link.mayBeSent, let client = link.client as? RecorderClient,
+              await checkWouldAskNothing(of: client, on: link) else { return nil }
         let read: ListRead
         do {
             read = .success(try await client.reservations())
@@ -1828,6 +1831,23 @@ public final class RecorderDriver: LinkDriver {
         }
     }
 
+    /// Whether a check of the recorder made now, before something asked on `client`, would have nothing to ask
+    /// (`DeviceLink.check`): what a request that makes no check of its own goes by -- the list read from inside
+    /// the queue's turn (`listInTheTurn`), whose check could wake the recorder and wait for that very turn, and
+    /// the free space read as a step of another operation (`learnTheFreeSpace`). So it is while the recorder is
+    /// not known to be away; no check is out, behind whose ask, and whose waking, the request would wait its
+    /// turn; the last check heard nothing in place of the recorder saying which it is, after which whatever is
+    /// asked next asks who answers again (`DeviceLink.checksAgain`); and the recorder answered this client
+    /// within the time after which it is made sure of (`LinkRules.needsCheck`).
+    ///
+    /// When the client last answered is asked of it first, which takes a turn, and the link is looked at once
+    /// that is in hand: a check begun meanwhile is seen, and the caller sends in the turn it is answered in.
+    func checkWouldAskNothing(of client: RecorderClient, on link: DeviceLink) async -> Bool {
+        let lastAnswer = await client.lastAnswer
+        return !link.session.unreachable && link.wakeCheck == nil && !link.checksAgain
+            && !LinkRules.needsCheck(lastAnswer: lastAnswer, now: Date())
+    }
+
     /// Said at the door of something sent after the check before it, when it may not be sent
     /// (`DeviceLink.mayBeSent`): what that check heard in place of the recorder saying which it is, in the
     /// recorder's words, or else that the app is not connected.
@@ -1846,61 +1866,6 @@ public final class RecorderDriver: LinkDriver {
         guard let heard = link.heardInstead else { return whyNotConnected }
         link.owner?.problem = heard.explanation
         return heard.explanation
-    }
-
-    // MARK: - the runs with no screen
-
-    /// One attempt at the recorder for a run with no screen -- the overnight refresh and the Shortcuts action,
-    /// which have no link -- in the order `Reach.run` keeps. Unlike the screens it waits for a recorder that
-    /// answered the first ask with an error too -- one still starting up may answer anything, and nobody is
-    /// watching the wait -- except at an address that is not one, where nothing could be asked. There is no
-    /// screen to explain the local network permission on, and nowhere else is looked.
-    ///
-    /// `sendPacket` sends the magic packet and says whether one went out: nothing here puts one on the LAN by
-    /// itself. Without one there is nothing coming up to wait for. The wait is the screens' (`Waking`), with the
-    /// longer limit and the next packet timed from the first; `limit` and `interval` are given only by the tests.
-    public nonisolated static func reachWithNoScreen(_ client: RecorderClient,
-                                                     limit: TimeInterval = Waking.backgroundLimit,
-                                                     interval: Duration = .seconds(1),
-                                                     sendPacket: @escaping @Sendable () -> Bool) async -> Bool {
-        // Both are set as the packet goes, which is the first step.
-        var wentAt = Date()
-        var went = false
-        let outcome = await Reach.run(Reach.Steps(
-            sendPacket: {
-                wentAt = Date()
-                went = sendPacket()
-            },
-            probe: {
-                do {
-                    try await client.describe(timeout: RecorderClient.probeTimeout)
-                    return nil
-                } catch let error as any DeviceError {
-                    return error.failure
-                } catch {
-                    return .unexpected(String(describing: error))
-                }
-            },
-            wake: {
-                guard went else { return .silent }
-                let waited = await Waking.waitForAnswer(from: client, limit: limit, interval: interval,
-                                                        packetSentAt: wentAt, resend: { _ = sendPacket() })
-                return waited == .answered ? nil : .silent
-            }), wakesAfterRefusal: true)
-        return outcome == .answered
-    }
-
-    /// Whether the recorder that has just answered is the one this phone's cache is of, or the first it has
-    /// heard from (`GuideStore.recognises`). The saved address may be answered by another: one the reader has
-    /// typed and not yet seen answer, or one the router has handed the address to. The screens take such a
-    /// recorder up (`attach`); with no screen nothing is taken up and nothing sent, since the queue was made for
-    /// the recorder known and the guide would go into a cache that is still its own. Nor when it cannot be told:
-    /// an owner that cannot be read, a device that did not describe itself.
-    public nonisolated static func isTheOneKnown(_ client: RecorderClient, to store: GuideStore) async -> Bool {
-        guard let answering = await client.info, let who = try? await store.recognises(answering) else {
-            return false
-        }
-        return who != .another
     }
 }
 

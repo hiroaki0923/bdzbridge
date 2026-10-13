@@ -10,12 +10,11 @@ import UserNotifications
 /// recorder, which serialises its own requests, and one `GuideStore` on disk, so the guide can be read while
 /// away from home.
 ///
-/// This file holds the state, how the model is made and started, and the funnel the guide fetched by hand runs
-/// through; the recorder's other operations are its driver's (`RecorderDriver`). What it does is in extensions
-/// beside it, one file to a concern: `AppModelSession` (the app's side of the connection: what the link tells
-/// it, what the link reaches, coming and going from the foreground), `AppModelSetup` (the demo, the address,
-/// the scan), `AppModelGuide`, `AppModelReservations` (with the queue), `AppModelRecorderRules`,
-/// `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
+/// This file holds the state and how the model is made and started; the recorder's operations are its driver's
+/// (`RecorderDriver`). What it does is in extensions beside it, one file to a concern: `AppModelSession` (the
+/// app's side of the connection: what the link tells it, what the link reaches, coming and going from the
+/// foreground), `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`, `AppModelReservations` (with
+/// the queue), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
 ///
 /// An extension in another file cannot reach what is private, so much of the state below is internal and
 /// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
@@ -322,10 +321,10 @@ final class AppModel: LinkHost {
     /// Not while anything is under way with the one in play: a connect or a load carries on with the client
     /// it started with, and what it reads lands on the screens of whichever recorder came after it. `busy`
     /// alone leaves gaps inside a connect, such as the check of the local network permission, so `connecting`
-    /// counts as well. Nor while a bulk job runs, which holds the client and the list it started from. Nor
-    /// while the recorder is being made sure of (`wakeIfDozing`), whose first ask has no line of its own: a
-    /// recorder it wakes would be attached as whichever recorder is in play by then. The television's work
-    /// does not count: it is on a client of its own.
+    /// counts as well. Nor while a bulk job runs, which is for the recorder it began with and walks the list it
+    /// was started from. Nor while the recorder is being made sure of (`DeviceLink.ensureUp`), whose first ask
+    /// has no line of its own: a recorder it wakes would be attached as whichever recorder is in play by then.
+    /// The television's work does not count: it is on a client of its own.
     var canChangeRecorder: Bool { !isBusy && !connecting && !jobRunning && wakeCheck == nil }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
@@ -479,31 +478,4 @@ final class AppModel: LinkHost {
     /// in the morning is yesterday's. Kept rather than worked out each time they are read, and replaced by
     /// `followTheClock` only when that first day changes, so that the day strip keeps its chips and its place.
     var days: [Date]
-
-    /// Runs one action, keeping whatever went wrong on screen. The message is cleared only by something
-    /// that works: clearing it on the way in meant a failure could be wiped by the very next request.
-    ///
-    /// A recorder that has been quiet a while is made sure of first, under the action's own line, so the
-    /// screen says what the reader asked for from the moment they asked. Silence on the way leaves the app
-    /// offline. `sending` marks an action that changes something on the recorder, which silence leaves
-    /// unknown rather than undone, and the reader is told so.
-    ///
-    /// The check, the clearing and what each failure says and leaves behind are the link's
-    /// (`DeviceLink.run`), which a television's operations go through as well. What is the recorder's is
-    /// handed to it: the sentence for a write that met silence. The work is handed its own line, so that it can
-    /// say how far it has got.
-    @discardableResult
-    func run(_ what: String, sending: Bool = false,
-                     _ work: (Activities.Token) async throws -> Void) async -> Bool {
-        // The line is put up here rather than by the link, whose token is nil where it has no host: the work
-        // always has a line to say how far it has got on. Nor is the link's client taken: each action asks
-        // the one its caller had in hand, which is the one the check is asked with.
-        let activity = activities.begin(what)
-        defer { activities.end(activity) }
-        let ran = await recorder.run(sending: sending ? RecorderDriver.mayHaveArrived : nil) { _ in
-            try await work(activity)
-        }
-        if case .success = ran { return true }
-        return false
-    }
 }

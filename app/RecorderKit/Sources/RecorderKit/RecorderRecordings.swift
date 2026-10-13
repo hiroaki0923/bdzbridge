@@ -21,7 +21,8 @@ extension RecorderDriver {
     /// is the list from the moment it is read; the line of what went wrong is cleared then. The free space is a
     /// step after it, under the same line, and is only shown: it cannot fail the list, a recorder that will not
     /// say leaves it unknown (`storage(of:)`), and its silence is said as any read's (`learnTheFreeSpace`), on
-    /// the line the list cleared, where it stays.
+    /// the line the list cleared, where it stays. It is asked only where a check would have nothing to ask
+    /// (`learnTheFreeSpace`); where it is not, the list is read all the same.
     ///
     /// Nothing is asked when there is no recorder's client; whether to ask at all -- the recorder known to be
     /// away, the list read already -- is the app's to say.
@@ -64,7 +65,19 @@ extension RecorderDriver {
     /// (`DeviceLink.say`, `takesSilenceOnARead`): the recorder lost, and the line saying that it did not answer,
     /// where nothing clears it after. What comes back once the recorder has been let go of since `began` is about
     /// that one: nothing is learned of it, and its silence is neither said nor taken.
+    ///
+    /// The step makes no check of the recorder, and is not to go where one would have been needed. It asks only
+    /// where a check made now would have nothing to ask (`checkWouldAskNothing`): not beside a check that is
+    /// out, behind whose ask it would wait its turn and then go whatever that check heard; not after one that
+    /// heard something in place of the recorder saying which it is; not of a recorder known to be away, or one
+    /// that has not answered for as long as it takes to be made sure of, where the read would wait out its
+    /// timeout and lose a recorder a check would have woken. Then nothing is asked, and the figure stays as it
+    /// was last read until the list of recordings is next read. So for all who come here: the list, a single
+    /// delete, and the end of a run (`end`). They look at the count before they come; it is looked at again
+    /// once the client has said when it last answered, a turn later, so that nothing is asked at the address
+    /// for a recorder let go of meanwhile.
     func learnTheFreeSpace(on client: RecorderClient, _ link: DeviceLink, since began: Int) async {
+        guard await checkWouldAskNothing(of: client, on: link), !link.letGo(since: began) else { return }
         do {
             let storage = try await Self.storage(of: client)
             guard !link.letGo(since: began) else { return }
@@ -199,7 +212,8 @@ extension RecorderDriver {
     /// whether the recordings are to be read again, as for `protect`; `keep` takes the row out of the app's list,
     /// called once the recorder has taken it, and the line of what went wrong is cleared then, before the free
     /// space is read again under the same line (`learnTheFreeSpace`), which cannot fail the delete: it has
-    /// happened whatever that says, and silence on it is said on the line, where it stays.
+    /// happened whatever that says, and silence on it is said on the line, where it stays. It is read only
+    /// where a check would have nothing to ask; where it is not, the delete is done all the same.
     ///
     /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
     /// turned away before anything is sent, the result saying why and the line left as it was, and the
@@ -409,7 +423,13 @@ extension RecorderDriver {
     /// failure is said by that count (`DeviceLink.say(_:since:ofARead:)`), silence on something sent losing
     /// nobody. `work` reads the count too, for what it keeps. A client made anew for the same recorder meanwhile
     /// lets go of nothing.
+    ///
+    /// `leavingTheLine` is for a request of a run over many recordings (`asked(in:_:_:)`), whose recordings come
+    /// and go under whatever the line of what went wrong holds: going through does not clear it, and a refusal
+    /// is handed back and not said, being the run's to list beside that recording. Everything else is as for
+    /// any request: what the check says, what was heard in place of the recorder, and silence, which is said.
     func asked<T>(_ line: String?, _ asking: Asking, on link: DeviceLink, since began: Int,
+                  leavingTheLine: Bool = false,
                   _ work: @MainActor (Activities.Token?, RecorderClient) async throws -> T) async -> Asked<T> {
         let owner = link.owner
         let read: Bool
@@ -433,12 +453,14 @@ extension RecorderDriver {
                     if read, let heard = link.heardInstead { throw heard }
                     let value = try await work(token, client)
                     if link.letGo(since: began) { return read ? .failed(.letGoMeanwhile) : .went(value) }
-                    owner?.problem = nil
+                    if !leavingTheLine { owner?.problem = nil }
                     return .went(value)
                 } catch let away as TurnedAway {
                     return .notSent(away.why)
                 } catch {
-                    return .failed(link.say(OperationFailure(error, sending: sending), since: began, ofARead: read))
+                    let failure = OperationFailure(error, sending: sending)
+                    if leavingTheLine, case .refused = failure { return .failed(failure) }
+                    return .failed(link.say(failure, since: began, ofARead: read))
                 }
             }
         }

@@ -358,6 +358,42 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         guard let disk else { return "残り \(left) GB です。" + advice }
         return "\(disk)の残りが \(left) GB です。" + advice
     }
+
+    /// What is to be done about a disk's space, for the low-space notice.
+    public enum SpaceNotice: Equatable, Sendable {
+        case nothing
+        /// The disk warned about has room again: its mark goes, and the next fall is worth saying.
+        case roomAgain
+        /// Below the line and not yet warned about: the warning, and `mark`, what is kept as the disk warned about.
+        case warn(freeGB: Double, mark: String)
+    }
+
+    /// The USB disk's space against `marked`, the disk last warned about: a disk below the line is warned about
+    /// unless it is that disk, and that disk with room again takes the mark away. A disk that takes no recordings
+    /// says nothing of its room, and the mark is left as it was. The mark a warning leaves is the disk's identity,
+    /// so that another disk in the slot has not been warned about. The line is `warnBelowGB`, in GB.
+    public static func usbSpace(_ disk: RecorderDisk, marked: String?, warnBelowGB: Double) -> SpaceNotice {
+        guard disk.takesRecordings, let free = disk.freeBytes else { return .nothing }
+        let freeGB = Double(free) / 1e9
+        let warned = marked == disk.identity
+        if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
+        return warned ? .nothing : .warn(freeGB: freeGB, mark: disk.identity)
+    }
+
+    /// The same for the recorder's own disk, from its free space and its size in bytes, against `warned`,
+    /// whether the warning has been given since the disk last had room: warned once per fall below the line, not
+    /// every night. There is one such disk, so its mark is a yes or a no, and the mark a warning hands back is
+    /// its id.
+    ///
+    /// The size is not looked at. A disk of no size is a recorder that has not said how full it is, not one that
+    /// is full, and it does not come here: what reads the free space takes it for a recorder that will not say
+    /// (`RecorderDriver.storage(of:)`), and nothing is told of it.
+    public static func internalSpace(freeBytes: Int, totalBytes: Int, warned: Bool,
+                                     warnBelowGB: Double) -> SpaceNotice {
+        let freeGB = Double(freeBytes) / 1e9
+        if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
+        return warned ? .nothing : .warn(freeGB: freeGB, mark: internalID)
+    }
 }
 
 /// What `description.xml` says about a recorder found on the LAN.

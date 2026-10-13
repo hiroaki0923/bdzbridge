@@ -695,6 +695,133 @@ final class GuideStoreTests: XCTestCase {
         expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
     }
 
+    /// A guide goes only into the cache of the recorder it was fetched from. Each of the three writes a refresh
+    /// makes -- a type's programmes, the mark for a type the recorder had no file for, a type's logos -- says
+    /// which recorder it was fetched from, and a cache that has been made over to another recorder since takes
+    /// none of them: the write is refused, and the newcomer's cache holds no programme, no station, no logo
+    /// and no mark of the last recorder's. The same three from the recorder the cache is of go in. So do they
+    /// with no recorder named, which asks nothing: the demo's invented guide is written so, and a test's.
+    func testAGuideFetchedFromARecorderGoesIntoNoCacheThatIsAnothers() async throws {
+        let store = try GuideStore(path: ":memory:")
+        try await store.claim(for: recorder(1))
+        let services = try sampleServices()
+        let logo = [(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))]
+        let at = jst("2026-09-14T03:00:00+09:00")
+
+        expectEqual(try await store.replace(services, broadcasting: "td", from: recorder(1), at: at), 5)
+        try await store.replaceLogos(logo, broadcasting: "td", from: recorder(1))
+        try await store.noteNoGuide(broadcasting: "bs", from: recorder(1), at: at)
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "its own recorder's guide was not taken")
+        XCTAssertEqual(counts["bs"]?.checked, "2026-09-14T03:00:00+09:00")
+        expectEqual(try await store.channels(broadcasting: "td").first?.logo, Data([1, 2, 3]))
+
+        try await store.claim(for: recorder(2))
+        do {
+            try await store.replace(services, broadcasting: "td", from: recorder(1), at: at)
+            XCTFail("the last recorder's programmes were taken into the newcomer's cache")
+        } catch {
+            XCTAssertTrue(error is CacheIsAnothers, "\(error)")
+        }
+        do {
+            try await store.noteNoGuide(broadcasting: "bs", from: recorder(1), at: at)
+            XCTFail("a type was marked in the newcomer's cache for what the last recorder answered")
+        } catch {
+            XCTAssertTrue(error is CacheIsAnothers, "\(error)")
+        }
+        do {
+            try await store.replaceLogos(logo, broadcasting: "td", from: recorder(1))
+            XCTFail("the last recorder's logos were taken into the newcomer's cache")
+        } catch {
+            XCTAssertTrue(error is CacheIsAnothers, "\(error)")
+        }
+        counts = try await store.counts()
+        for type in ["td", "bs"] {
+            XCTAssertEqual(counts[type]?.programs, 0, type)
+            XCTAssertEqual(counts[type]?.channels, 0, type)
+            XCTAssertNil(counts[type]?.lastAnswered, "\(type) is marked as answered for")
+        }
+        expectEqual(try await store.owner(), "uuid:00000000-0000-0000-0000-f84e17000002")
+
+        // The newcomer's own, and then with no recorder named.
+        expectEqual(try await store.replace(services, broadcasting: "td", from: recorder(2), at: at), 5)
+        try await store.replaceLogos(logo, broadcasting: "td", from: recorder(2))
+        try await store.noteNoGuide(broadcasting: "bs", from: recorder(2), at: at)
+        expectEqual(try await store.replace(services, broadcasting: "cs", at: at), 5)
+        try await store.replaceLogos(logo, broadcasting: "cs")
+        try await store.noteNoGuide(broadcasting: "bs4k", at: at)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4)
+        XCTAssertEqual(counts["cs"]?.programs, 4, "a write that names no recorder was asked whose it is")
+        XCTAssertNotNil(counts["bs"]?.lastAnswered)
+        XCTAssertNotNil(counts["bs4k"]?.lastAnswered)
+        expectEqual(try await store.channels(broadcasting: "cs").first?.logo, Data([1, 2, 3]))
+    }
+
+    /// A cache that does not say whose it is takes a guide from whoever it was fetched: one from before owners
+    /// were written down, or one no recorder has answered for on the screens, where the first to answer is
+    /// put down -- the overnight run puts nobody down, and fetches into such a cache as it is. And a recorder
+    /// that gives no UDN cannot be told from the one the cache is of, and is taken for it, as at a connect.
+    func testACacheThatDoesNotSayWhoseItIsTakesAGuideAndSoDoesOneAskedByARecorderWithNoUDN() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let services = try sampleServices()
+        expectNil(try await store.owner())
+        expectEqual(try await store.replace(services, broadcasting: "td", from: recorder(1)), 5)
+        try await store.noteNoGuide(broadcasting: "bs", from: recorder(2))
+        try await store.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1]))], broadcasting: "td",
+                                     from: recorder(2))
+        expectNil(try await store.owner(), "a write of the guide put an owner down")
+        expectEqual(try await store.counts()["td"]?.programs, 4)
+        expectTrue(try await store.counts()["bs"]?.lastAnswered != nil)
+
+        try await store.claim(for: recorder(1))
+        var nameless = recorder(2)
+        nameless.udn = ""
+        expectEqual(try await store.replace(services, broadcasting: "cs", from: nameless), 5)
+    }
+
+    /// Whose the cache is is asked inside each write's own transaction, once the write has its turn: another
+    /// connection can make the cache over between a look taken before it and the write. Here that connection
+    /// holds the cache while it writes another recorder down, so that each of the three writes -- from a
+    /// connection of its own, as the screens and the overnight run each have one -- is waiting behind it; a
+    /// look taken before the wait would have found the cache its own recorder's, and written into it.
+    func testAWriteOfTheGuideThatWaitedForAnotherWriterLooksAtWhoseTheCacheIsOnceItHasItsTurn() async throws {
+        let path = temporaryPath()
+        let replacing = try GuideStore(path: path)
+        let noting = try GuideStore(path: path)
+        let withLogos = try GuideStore(path: path)
+        try await replacing.claim(for: recorder(1))
+        let services = try sampleServices()
+        let first = recorder(1)
+
+        let other = try Sqlite(path: path)
+        try other.execute("BEGIN IMMEDIATE")
+        async let replaced = Result { try await replacing.replace(services, broadcasting: "td", from: first) }
+        async let noted = Result { try await noting.noteNoGuide(broadcasting: "bs", from: first) }
+        async let logos = Result {
+            try await withLogos.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1]))], broadcasting: "td",
+                                             from: first)
+        }
+        // Long enough for each to be waiting for its write; should one not have got that far, it finds the
+        // other recorder on any look and the outcome is the same.
+        try await Task.sleep(for: .milliseconds(300))
+        try other.execute("INSERT OR REPLACE INTO meta (key, value) VALUES "
+            + "('recorder_udn', 'uuid:00000000-0000-0000-0000-f84e17000002')")
+        try other.execute("COMMIT")
+
+        for (write, came) in [("the programmes", await replaced.map { _ in }), ("the mark", await noted),
+                              ("the logos", await logos)] {
+            switch came {
+            case .success: XCTFail("\(write) went in on a look taken before the cache was made over")
+            case .failure(let error): XCTAssertTrue(error is CacheIsAnothers, "\(write): \(error)")
+            }
+        }
+        let counts = try await replacing.counts()
+        XCTAssertEqual(counts["td"]?.programs, 0)
+        XCTAssertNil(counts["bs"]?.lastAnswered)
+        expectEqual(try await replacing.channels(broadcasting: "td", includeHidden: true).count, 0)
+    }
+
     /// The vectors' guide, stored and read back, tells the same fixed texts as it does handed over directly,
     /// and the store looks only at the titles asked about.
     func testFixedBlurbsAreReadFromTheCachedGuide() async throws {

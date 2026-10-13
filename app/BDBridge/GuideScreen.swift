@@ -10,6 +10,8 @@ struct GuideScreen: View {
     @State private var tapped: GuideProgramRow?
     @State private var welcoming = false
     @State private var arranging = false
+    /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
+    @State private var failure: String?
 
     private var grid: Bool { mode == "grid" }
 
@@ -114,17 +116,25 @@ struct GuideScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await model.refreshGuide() }
+                        Task { failure = await model.refreshGuideByHand().said }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("番組表を更新")
                     // Not for a model that has no guide to give, which the empty guide says in so many words.
-                    .disabled(!model.connected || model.busy != nil || model.info?.epgCapable == false)
+                    // Held while the recorder works, and by nothing the television does.
+                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
                 }
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
+            // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
+            .alert("エラー",
+                   isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(failure ?? "")
+            }
         }
         .welcomesHere($welcoming)
     }
@@ -346,12 +356,8 @@ struct GuideEmptyView: View {
         }
     }
 
-    /// A broadcasting type's name at the start of a sentence: 地上デジタル as it is, a Latin one set off from the
-    /// Japanese after it by a space, as the app writes GB and Wi-Fi.
-    static func inSentence(_ broadcasting: String) -> String {
-        let label = Codes.broadcastingLabel[broadcasting] ?? broadcasting
-        return label.last?.isASCII == true ? label + " " : label
-    }
+    /// A broadcasting type's name at the start of a sentence (`Codes.broadcastingInSentence`).
+    static func inSentence(_ broadcasting: String) -> String { Codes.broadcastingInSentence(broadcasting) }
 }
 
 struct ProgramRowView: View {
