@@ -32,11 +32,12 @@ final class TVHost: LinkHost {
     /// What went wrong with the television, said beside it in the settings and on the strip.
     var problem: String?
     /// What the television is set to record, as last read from it: its rows only, and never among the
-    /// recorder's (`AppModel.reservations`), whose reads replace that list whole.
+    /// recorder's (`RecorderSaid.reservations`), whose reads replace that list whole.
     private(set) var reservations: [Reservation] = [] {
         didSet { reservationsByProgram = ByProgram.of(reservations) }
     }
-    /// The same by the programme each follows, for the guide to mark, as the model keeps the recorder's.
+    /// The same by the programme each follows, for the guide to mark, as the recorder's host keeps the recorder's
+    /// (`RecorderSaid.reservationsByProgram`).
     private(set) var reservationsByProgram: [String: Reservation] = [:]
     /// When the list was last read from the television, or nil when it has not been: a television that cannot
     /// be asked leaves the last list standing, and this says how old it is.
@@ -194,7 +195,7 @@ final class TVHost: LinkHost {
     /// Not from a host the app has let go of. A request still out on its link can run into the permission
     /// after that, and the app stops a host's wait once, as it lets go of it (`AppModel.dropTVLink`): one set
     /// going later would have nothing left to stop it. A wait that has given up ends as the recorder's does
-    /// (`AppModel.waitForPermission`).
+    /// (`RecorderHost.waitForPermission`).
     func waitForPermission(at host: String) {
         guard inPlay, let wait = model?.surroundings.waitForTheLinksPermission else { return }
         accessWatch?.cancel()

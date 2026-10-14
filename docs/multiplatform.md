@@ -33,6 +33,9 @@ Android 版はないか、という問い合わせを受けての調査です。
   `deleteWaiting` も）、アプリは機器に振り分けて頼み、返った一覧と結果と帯の文を持つ。そのあと、その手順を
   テレビの決まりに揃えた（下の「そのあと、レコーダーの予約の手順を」）。録画とおまかせ・まる録の条件、一括の
   処理、番組表の取得、画面の無い処理のレコーダーの側も、同じ進め方で移して揃えた（下の「次の段で」と「その次の段で」）。
+  最後に、レコーダーが言ったものをモデルからレコーダーのホスト（`RecorderHost`）に移し、2 つの機器のホストの
+  予約の入口を、両方のドライバーが答える 1 つの約束（`ReservationDriver`）の上の 1 つの書き方にした（下の
+  「そのあとの段で」）。
 - **共有の規則は、レコーダーの型ではなく「何ができる機器か」に対して書く**（`DeviceEndpoint.swift`、
   `DeviceFailure.swift`）。起こして待つ処理、送信待ちの送信、番組表の更新は、確かめられる・送信待ちの 1 件を
   送れる・番組表を取れる機器なら何でも受け、エラーは機器に依らない分類で読む。送信待ちの 1 件をどう送るかは
@@ -75,13 +78,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-54 ファイル、15,708 行（空行とコメントを含み、`Package.swift` を除く）。テストは 29,600 行。
+55 ファイル、15,877 行（空行とコメントを含み、`Package.swift` を除く）。テストは 29,800 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,544 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, ByProgram, TVSchedule, TVReservation |
 | SQLite の上のもの | 1,092 | GuideStore, Sqlite |
-| 非同期の段取り | 10,151 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, DemoTV |
+| 非同期の段取り | 10,320 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, DemoTV |
 | OS に縛られるもの | 921 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 921 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -89,12 +92,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（10,981 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（11,200 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知を出すこと、一括処理の繰り返しと一時停止、画面の無い処理の入口
 （いつ走らせるか、マジックパケット、言ったことの控え。何を送り、何を取り、何を知らせるかは RecorderKit に移
-しました）で、AppModel（9 ファイルで 3,000 行、うち約 4 割がコメント。接続まわりは `AppModelSession.swift`）
-と、BackgroundWork、Notify、SendWaitingIntent の 3 ファイル（合わせて約 720 行）です。RecorderKit だけを共有
+しました）で、AppModel（8 ファイルで約 2,200 行）、2 つの機器のホスト（`RecorderHost` と `RecorderHostRuns`、
+`TVHost`、その共通の入口の `DeviceHost`。合わせて約 1,400 行。どちらもうち約 4 割がコメント）と、
+BackgroundWork、Notify、SendWaitingIntent の 3 ファイル（合わせて約 720 行）です。RecorderKit だけを共有
 する案では、どれを選んでもこれは Android で書き直します。
 
 ## どの案でも Android 側で作るもの
@@ -573,6 +577,21 @@ ID が別の番組に付いていたら送らない。録画中と放送の終�
 この段で、アプリのテストは 345 件から 433 件に、RecorderKit のテストは 710 件から 775 件になりました
 （`BulkWork` の 13 件はドライバーのテストに移りました）。足したテストも書き直したテストも、公開の API だけを
 通ります。
+
+そのあとの段で、レコーダーが言ったものをモデルから出しました。それまでモデルはレコーダーのリンクのホストで、
+一覧、帯の文、一括処理を持ち、レコーダーを手放した回数を数えて、読んだ一覧を持つかどうかをその数で決めて
+いました。いまはレコーダーのホスト（`RecorderHost`）がリンクに答え、レコーダーが言ったものを 1 つのオブジェクト
+（`RecorderSaid`）で持ち、手放すときは丸ごと取り替えます。入口は始めたときのものに置くので、比べる数はもう
+ありません。ホストはモデルとリンクと一緒に 1 度だけ作ります（リンクを手放さず、取り込みの途中で新しい機体を
+取り込むためです）。リンクがホストに尋ねることのうち、レコーダーのリンクだけが尋ねる 6 つは別の約束に分け
+（`RecorderLinkHost`）、リンクとドライバーが自分の出来事の文を自分で書くようにしました。2 つのホストの予約の
+入口（一覧、引き下げ、削除、変更、予約、送り直し）は、両方のドライバーが答える約束（`ReservationDriver`）の上の
+1 つの書き方で（`DeviceHost`）、ホストごとに違うことは、それぞれが答える 4 つの継ぎ目にしました。アプリに
+残っていた機器の文も RecorderKit に移しました（別のレコーダーが答えたときの帯の文、送信待ちの下の説明、機器の
+言葉、テレビの追加のシートの文）。進め方はこれまでと同じで、ゲートのあとに、振る舞いを変えない移動だけです。
+画面とテストはレコーダーのホストをモデルが持っていたときの名前で読むので、アプリのテストの本体は、ベンチの
+補助の 5 つを除いて、ゲートのあと変えていません。この段で、
+アプリのテストは 433 件から 447 件に、RecorderKit のテストは 775 件から 777 件になりました。
 
 `SessionState` と `DeviceLink` は、メインアクターと Observation に縛られた型です（`RecorderDriver` と
 `LinkEnvironment` もメインアクターのもの。ほかの共有の状態は値か actor）。iOS の画面の状態だからです。Linux と

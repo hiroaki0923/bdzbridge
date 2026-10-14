@@ -5,10 +5,11 @@ import SwiftUI
 import UserNotifications
 
 /// The model's side of the connection to the recorder. What is asked of the recorder, when, and what silence
-/// leaves behind is RecorderKit's (`DeviceLink`, `RecorderDriver`); what is here is the app's: the lines on the
-/// screen, what the phone keeps, the lists it holds of what the recorder said, the wait for the local network
-/// permission, the network watcher, and coming and going from the foreground. The rules are set out in
-/// docs/porting.md (端末側の設計メモ) and held by `SessionRuleTests`.
+/// leaves behind is RecorderKit's (`DeviceLink`, `RecorderDriver`); what the link tells the app -- the line, the
+/// keys in the defaults, the wait for the local network permission, what the recorder said -- is the recorder's
+/// host's (`RecorderHost`). What is here is the model's: what the link reaches on the network, the network
+/// watcher, and coming and going from the foreground. The rules are set out in docs/porting.md (端末側の設計メモ)
+/// and held by `SessionRuleTests`.
 extension AppModel {
     /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
     /// than that -- an interface going up on its own account, a route changing -- so the decision is left to

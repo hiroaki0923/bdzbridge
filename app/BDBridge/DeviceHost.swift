@@ -23,8 +23,9 @@ protocol DeviceHost: AnyObject {
     var reservationsRead: Date? { get }
     /// What the sendings to the device came to, for the strip.
     var report: String? { get set }
-    /// The device's driver, as far as its reservations go; nil once the host or its device is let go of, when
-    /// nothing is asked.
+    /// The device's driver, as far as its reservations go; nil when there is none to ask -- a television's once
+    /// its host or its link has been let go of. The recorder's link always holds its driver, which answers for a
+    /// recorder let go of at its own door.
     var reservationDriver: (any ReservationDriver)? { get }
     /// The session of the device's link, for whether a connect to a device that answered last time is under way.
     var deviceSession: SessionState? { get }

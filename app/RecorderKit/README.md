@@ -24,8 +24,12 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `XsrsElements.swift` | The reservation and title payloads, byte-identical to what the official app sends |
 | `XsrsParse.swift` | `<item>` elements into `Reservation` and `RecordedTitle` |
 | `Discovery.swift` | `description.xml` into `RecorderDescription`, and looking through a subnet for one |
+| `DeviceSearch.swift` | One search for the recorder and the television together, every address of the Wi-Fi asked whether it is either, and what each address turned out to be |
+| `ScanTally.swift` | A search's requests passed on and counted by how each came back, which tells a subnet with nobody on it from a phone that let nothing out |
+| `TVDiscovery.swift` | Looking through the subnet for a television, by the loop a look for a recorder goes through, with nothing registered in what is sent |
 | `LocalNetwork.swift` | This device's own interfaces, the addresses worth trying around them, and where a broadcast goes |
 | `LocalNetworkAccess.swift` | Whether iOS's local network permission is what is stopping a request |
+| `ScanLog.swift` | What a search, and the links' wait for and look at the local network permission, leave in the system's log |
 | `RecorderAddress.swift` | The recorder's address as somebody types it, tidied, and the URLs the client builds on it |
 | `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
 | `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `Recognition`, `RecorderRule`, `NetworkSettings` |
@@ -41,6 +45,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `SessionState.swift` | What the app knows of a device and its link to it, changed only by what happened |
 | `DeviceLink.swift` | The connection to one device: connecting, the check before an operation, silence and giving up, coming back to the app, the network changing, whether to wait for the local network permission; the client whose attach heard which device answers, what a check heard in its place, and how often the device was let go of. A check is joined only while it is out |
 | `LinkOperation.swift` | What something asked of a device through its link is made of, whichever device: the line on the screen while it is out, how it failed and the sentence for it (`OperationFailure`), what is said and done about that, and the whole in order for an operation of one request (`run`) |
+| `ReservationDriver.swift` | The six steps of a device's reservations both drivers answer alike -- the list, the pull-down, a delete, a change, a reservation, a waiting row sent again -- with one request value for a change and a reservation (`ReservationTerms`); the app's hosts ask both drivers through it |
 | `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted -- by the rules a television's keep, each answered with its sentence |
 | `RecorderRecordings.swift` | The recorder's recordings, by the same rules: the list with the free space, read once for everyone who asks together, a recording's details, protect and delete (and which recordings cannot be deleted), playback, turning a recorder in standby on to play and waiting for it, and the power; how one of these is asked of the recorder |
 | `RecorderConditions.swift` | The recorder's own keyword conditions, by the same rules: read with why they could not be, added (to the USB disk after the slot answers) and deleted, each under its one line, with the list read after an add that went through or a delete the recorder answered |
@@ -49,6 +54,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `RecorderNoScreen.swift` | The recorder's runs with no screen, which have no link: the one attempt at the recorder, whether the one that answered is the one the cache is of, the order of the overnight run and of the Shortcuts action's sending, what each tells and what it tells once, and the sentences |
 | `ScalarClient.swift` | A Sony BRAVIA's own control API: the JSON-RPC envelope, its errors, the registration by PIN and the cookie it hands out |
 | `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted |
+| `TVSchedule.swift` | One row of a television's schedule list as read, kept in the television's own spellings, and the rule that finds it again before a change or a delete |
+| `TVReservation.swift` | A station as a television lists it, and what the two reservation requests send for one reservation on it |
 | `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what a sending came to, for either device, and what is said of it; and the rule of what is told once and kept between runs (`TVTold.after`), with a device's own words for it (`NoScreenWords`), which the recorder's runs tell by as well |
 | `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |

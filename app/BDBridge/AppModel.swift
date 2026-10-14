@@ -11,10 +11,13 @@ import UserNotifications
 /// away from home.
 ///
 /// This file holds the state and how the model is made and started; the recorder's operations are its driver's
-/// (`RecorderDriver`). What it does is in extensions beside it, one file to a concern: `AppModelSession` (the
-/// app's side of the connection: what the link tells it, what the link reaches, coming and going from the
-/// foreground), `AppModelSetup` (the demo, the address, the scan), `AppModelGuide`, `AppModelReservations` (with
-/// the queue), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelBulkWork` (with the duplicates).
+/// (`RecorderDriver`), and what the recorder's link tells the app, with what the recorder said, is its host's
+/// (`RecorderHost`, with the bulk job in `RecorderHostRuns`), as the television's is `TVHost`'s. What the model
+/// does is in extensions beside it, one file to a concern: `AppModelSession` (the app's side of the connection:
+/// what the link reaches, coming and going from the foreground), `AppModelSetup` (the demo, the address, the
+/// scan), `AppModelGuide`, `AppModelReservations` (with the queue; the six entries of either device's
+/// reservations are `DeviceHost`'s), `AppModelRecorderRules`, `AppModelRecordings` and `AppModelTV`. Most of what
+/// the screens read of the recorder is the host's, under the names it had here.
 ///
 /// An extension in another file cannot reach what is private, so much of the state below is internal and
 /// settable. That is for the extensions, not for the screens: nothing outside the `AppModel` files should
@@ -23,8 +26,8 @@ import UserNotifications
 @Observable
 final class AppModel {
     /// The connection to the recorder: its address, its client, what is known of it and when it is asked again
-    /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
-    /// hear (`LinkHost`, in `AppModelSession`).
+    /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the recorder's host what the screens
+    /// need to hear (`RecorderLinkHost`).
     let recorder: DeviceLink
     /// What the recorder's link tells the app, and what the recorder said (`RecorderHost`): made with the link,
     /// and kept for as long as the model is.
