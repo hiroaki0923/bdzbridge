@@ -25,10 +25,10 @@ struct Surroundings {
     /// (`AppModel.networkChanged`).
     var networkSignature: () -> String
     /// Whether the model may put anything on the local network by itself besides its requests to the
-    /// recorder -- the magic packet, the probe that looks at the local network permission, the search of the
-    /// subnet for a recorder the router has moved -- and whether it watches for the network changing. Off,
-    /// the permission is taken as given. The tests run on somebody's network, where none of that may happen.
-    /// The look and the wait at an address given for a television are not under this (`localNetworkAccess`).
+    /// recorder -- the magic packet and the search of the subnet for a recorder the router has moved -- and
+    /// whether it watches for the network changing. The tests run on somebody's network, where none of that may
+    /// happen. The looks at the local network permission are not under this: an address given for a
+    /// television's (`localNetworkAccess`) and the links' (`linkIsBlocked`), which a test answers itself.
     var reachesTheLAN: Bool
     /// Whether the model asks the system about notifications. The dialog waits for a tap, and in a test
     /// there is nobody to give it.
@@ -54,9 +54,17 @@ struct Surroundings {
     /// answered there, and the wait for the permission when the look says the system keeps the app off
     /// (`AppModel.findTV`): the links' own look and wait in the app (`LocalNetwork.access`,
     /// `LocalNetwork.waitForAccess`), aimed at that address. Allowed at once unless a test says otherwise, so
-    /// that a test can say what each comes to, where the links' are kept off the network (`reachesTheLAN`).
+    /// that a test can say what each comes to, apart from the links' (`linkIsBlocked`).
     var localNetworkAccess: @Sendable (_ host: String) async -> LocalNetwork.Access? = { _ in .allowed }
     var waitForLocalNetwork: @Sendable (_ host: String) async -> LocalNetwork.Access = { _ in .allowed }
+    /// The links' own look at the local network permission, after a device of either kind was silent at its
+    /// address, and their hosts' wait for the permission when the look says the system keeps the app off
+    /// (`AppModel.linkEnvironment`, `AppModel.waitForPermission`, and the television's): `LocalNetwork.access`
+    /// and `LocalNetwork.waitForAccess` in the app, apart from the look and the wait of an address given for a
+    /// television above. Not in the way and allowed at once unless a test says otherwise. Never looked at in the
+    /// demo.
+    var linkIsBlocked: @Sendable (_ host: String) async -> Bool = { _ in false }
+    var waitForTheLinksPermission: @Sendable (_ host: String) async -> LocalNetwork.Access = { _ in .allowed }
     /// The interfaces a search for a recorder and a television looks round (`AppModel.scanForDevices`): the
     /// Wi-Fi's in the app. None unless a test puts its phone on one, and a search then says there is no Wi-Fi
     /// and asks nobody. Never read in the demo, whose search asks the demo's own devices.
@@ -84,6 +92,8 @@ struct Surroundings {
                      tvCredentials: KeychainTVCredentials(),
                      localNetworkAccess: { await LocalNetwork.access(probing: $0) },
                      waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0) {} },
+                     linkIsBlocked: { await LocalNetwork.access(probing: $0) == .blocked },
+                     waitForTheLinksPermission: { await LocalNetwork.waitForAccess(probing: $0) {} },
                      lanInterfaces: LocalNetwork.lanInterfaces,
                      scanTransport: { URLSessionTransport.withoutCookies() },
                      scanPause: { try? await Task.sleep(for: $0) },

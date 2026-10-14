@@ -128,8 +128,8 @@ extension AppModel {
             networkSignature: { [weak self] in self?.surroundings.networkSignature() ?? "" },
             sendPacket: { _, _ in },
             lanIsBlocked: { [weak self] host in
-                guard let self, !demosOwn, !self.demo, self.surroundings.reachesTheLAN else { return false }
-                return await LocalNetwork.access(probing: host) == .blocked
+                guard let self, !demosOwn, !self.demo else { return false }
+                return await self.surroundings.linkIsBlocked(host)
             },
             hostsNear: { [weak self] host in
                 guard let self, !demosOwn, !self.demo, !self.inBackground, self.surroundings.reachesTheLAN else {

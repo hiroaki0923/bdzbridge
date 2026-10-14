@@ -151,8 +151,8 @@ extension AppModel {
             },
             lanIsBlocked: { [weak self] host in
                 // Only after a real recorder was silent, and never in the demo (three seconds at most).
-                guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
-                return await LocalNetwork.access(probing: host) == .blocked
+                guard let self, !self.demo else { return false }
+                return await self.surroundings.linkIsBlocked(host)
             },
             hostsNear: { [weak self] host in
                 // Never in the demo or in the background, and only on a Wi-Fi whose subnet `host` belongs to.
@@ -339,9 +339,10 @@ extension AppModel {
     /// `connectBlocked`. A wait that has given up with the permission still in the way ends for the link as
     /// one that found no path: it is told the permission did not come, and connecting again is the reader's.
     func waitForPermission(at host: String) {
+        let wait = surroundings.waitForTheLinksPermission
         accessWatch?.cancel()
         accessWatch = Task { [weak self] in
-            let access = await LocalNetwork.waitForAccess(probing: host) {}
+            let access = await wait(host)
             guard let self, !Task.isCancelled else { return }
             // cleared before the link connects, since connecting stops whatever wait is still set
             self.accessWatch = nil

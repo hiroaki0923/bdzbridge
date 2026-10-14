@@ -300,10 +300,10 @@ final class TVHost: LinkHost {
     /// going later would have nothing left to stop it. A wait that has given up ends as the recorder's does
     /// (`AppModel.waitForPermission`).
     func waitForPermission(at host: String) {
-        guard inPlay else { return }
+        guard inPlay, let wait = model?.surroundings.waitForTheLinksPermission else { return }
         accessWatch?.cancel()
         accessWatch = Task { [weak self] in
-            let access = await LocalNetwork.waitForAccess(probing: host) {}
+            let access = await wait(host)
             guard let self, !Task.isCancelled else { return }
             // cleared before the link connects, since connecting stops whatever wait is still set
             self.accessWatch = nil

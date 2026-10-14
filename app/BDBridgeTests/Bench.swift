@@ -58,6 +58,13 @@ final class Bench {
     /// was cancelled meanwhile: a real one ends when its task is, and one of these stands for a wait the
     /// permission ended in that same moment.
     private var waitingForPermission: [CheckedContinuation<LocalNetwork.Access, Never>] = []
+    /// Whether the links' own look at the permission, after a device was silent at its address, says the system
+    /// keeps the app off (`Surroundings.linkIsBlocked`): not, unless a test says so.
+    var linksAreKeptOff = false
+    /// The addresses the hosts' waits for the permission were aimed at, in order, and the waits still under way:
+    /// each lasts until the test ends it (`theLinksPermissionComes`), as those above do.
+    private(set) var linksPermissionWaits: [String] = []
+    private var linksWaitingForPermission: [CheckedContinuation<LocalNetwork.Access, Never>] = []
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -190,6 +197,17 @@ final class Bench {
         waitingForPermission = []
     }
 
+    /// Ends every wait for the permission a host of a model made here has under way with `access`.
+    func theLinksPermissionComes(_ access: LocalNetwork.Access = .allowed) {
+        for wait in linksWaitingForPermission { wait.resume(returning: access) }
+        linksWaitingForPermission = []
+    }
+
+    private func waitForTheLinksPermission(at host: String) async -> LocalNetwork.Access {
+        linksPermissionWaits.append(host)
+        return await withCheckedContinuation { linksWaitingForPermission.append($0) }
+    }
+
     private func lookAtThePermission(at host: String) -> LocalNetwork.Access? {
         permissionLooks.append(host)
         return permissionLookSays
@@ -247,6 +265,10 @@ final class Bench {
                 return await self.lookAtThePermission(at: host)
             },
             waitForLocalNetwork: { [weak self] in await self?.waitForThePermission(at: $0) ?? .unavailable },
+            linkIsBlocked: { [weak self] _ in await self?.linksAreKeptOff ?? false },
+            waitForTheLinksPermission: { [weak self] in
+                await self?.waitForTheLinksPermission(at: $0) ?? .unavailable
+            },
             lanInterfaces: { [weak self] in
                 self?.interfacesRead += 1
                 return (self?.wifi).map { [$0] } ?? []
@@ -279,6 +301,7 @@ final class Bench {
         // A search still held at a pause would wait for good, and so would a wait for the permission.
         letEverySingleRequestGo()
         permissionComes(.unavailable)
+        theLinksPermissionComes(.unavailable)
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
     }
