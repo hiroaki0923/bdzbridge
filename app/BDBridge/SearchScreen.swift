@@ -171,7 +171,7 @@ struct SearchScreen: View {
             // The television's reservations in a task of its own, as on the reservations' tab: the one above
             // asks the recorder, and is not to run again for anything that becomes of the television.
             .task(id: scope) {
-                if scope == .reservations { await model.tvHost?.loadReservations() }
+                if scope == .reservations { await model.loadReservations(of: .tv) }
             }
             .sheet(item: $openedProgram) { ProgramSheet(program: $0) }
             .sheet(item: $openedReservation) { ReservationSheet(reservation: $0) }

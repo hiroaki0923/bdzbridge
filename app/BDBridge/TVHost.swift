@@ -68,112 +68,20 @@ final class TVHost: LinkHost {
     /// this host or of its link: nothing is asked then.
     private var driver: TVDriver? { inPlay ? link?.driver as? TVDriver : nil }
 
-    /// Reads the television's reservations, as a screen that shows them does when it appears. One that could
-    /// not be read leaves the last list, and its time, as they were.
-    func loadReservations() async {
-        _ = await readReservations()
-    }
-
-    /// The same, handing back the list read now, nil when none was: for whoever has to know what the
-    /// television holds at this moment, and not what it held when it was last read.
-    func readReservations() async -> [Reservation]? {
-        guard let list = await driver?.reservations() else { return nil }
-        keep(list)
-        return list
-    }
-
-    /// What pulling the reservations down asks of the television: what waits is sent, which the driver asks
-    /// of this host on the way (`sendWhatWaits`), and the list is read again; or a connect when it cannot be
-    /// asked, whose own read is kept from `reached`.
-    func refreshReservations() async {
-        guard let list = await driver?.refreshReservations() else { return }
-        keep(list)
-    }
-
-    /// Takes a reservation off the television. What it came to, for whoever asked to say: the result is what
-    /// says it. The list read on the way is kept either way, since a delete that was refused has still seen
-    /// what the television holds now. Nil for a row that is not the television's, which the driver refuses
-    /// with nothing said. From a host the app has let go of nothing is sent, and the answer is that the app is
-    /// not connected, as for a change.
-    func cancel(_ reservation: Reservation) async -> Altered? {
-        guard let driver else { return .notDone(TVDriver.notConnected) }
-        let (deleted, list) = await driver.cancel(reservation)
-        if let list { keep(list) }
-        return deleted
-    }
-
-    /// Changes the repeat of a television's reservation. What it came to, for whoever asked to say: the result
-    /// is what says it. The list read on the way is kept whatever it came to, since a change that was not made
-    /// has still seen what the television holds now. Nil for a row that is not the television's, which the
-    /// driver refuses with nothing said. From a host the app has let go of nothing is sent, and the answer is
-    /// that the app is not connected, as for a reservation.
+    /// A change and a reservation by what a television takes, its repeat: it records in its one mode and has no
+    /// disk to choose (`DeviceHost.change`, `DeviceHost.reserve`).
     func update(_ reservation: Reservation, repeating: String) async -> Altered? {
-        guard let driver else { return .notDone(TVDriver.notConnected) }
-        let (altered, list) = await driver.update(reservation, repeating: repeating)
-        if let list { keep(list) }
-        return altered
+        await change(reservation, .changing(quality: TVDriver.recordsIn, repeating: repeating, disk: nil))
     }
 
-    /// Reserves a programme on the television. What it came to, for whoever asked to say: the result is
-    /// what says it, and nothing of the reservation itself goes on the strip, where it would read as one
-    /// that had been waiting. The list a reservation made was read back with is kept. The queue on screen
-    /// is read again whatever it came to: the driver writes the row before it sends anything, and the row
-    /// is gone again once the television holds it. From a host the app has let go of nothing is kept or
-    /// sent.
-    ///
-    /// A reservation takes the place of a row that waited for the same programme on the television, so a
-    /// warning the runs with no screen left of reservations not yet at the television goes here too, once
-    /// none of them waits to go (`AppModel.forgetTheWarningOnceSent`), as it goes after a sending (`tell`).
-    ///
-    /// A reservation kept to go by itself is heard of again in a notification, as one kept for the recorder
-    /// is, so the system's dialog comes here as it does there: after the row is kept, before the result is
-    /// said. Not for one held with a reason, which waits for the reader, nor in the demo, whose television
-    /// is nobody's to be told of.
     func reserve(_ program: GuideProgramRow, repeating: String) async -> Reserved {
-        guard let driver else { return .notDone(TVDriver.notConnected) }
-        let (reserved, list) = await driver.reserve(program, repeating: repeating)
-        if let list { keep(list) }
-        await model?.loadPending()
-        await model?.forgetTheWarningOnceSent()
-        if case .waiting(let row, _) = reserved, row.problem == nil, !isDemo { await model?.askForNotifications() }
-        return reserved
-    }
-
-    /// Sends a row waiting for the television again, as the reader asked on that row. The list read after
-    /// a row that was made is kept, and what the round came to is told as any sending's is (`tell`) -- with
-    /// no round as well: the row had been waiting, and the strip may be saying what an earlier sending made
-    /// of it. What the row came to is handed back beside that, for the screen the reader asked on to say
-    /// what the strip does not: nil where there is nothing to say of the row, and from a host the app has
-    /// let go of.
-    ///
-    /// `neverWaited` is for the row of a reservation the reader asked for a moment ago, sent again on the
-    /// screen that asked because it would stop others from recording and the reader said to make it all
-    /// the same. It is still that reservation, said by its result alone as `reserve` is: on the strip it
-    /// would read as one that had been waiting.
-    @discardableResult
-    func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async -> Reserved? {
-        guard let driver else { return nil }
-        let (round, list, came) = await driver.resend(waiting)
-        if let list { keep(list) }
-        await tell(neverWaited ? nil : round)
-        return came
+        await reserve(program, .reserving(quality: TVDriver.recordsIn, repeating: repeating,
+                                          disk: RecorderDisk.internalID))
     }
 
     private func keep(_ list: [Reservation]) {
         reservations = list
         reservationsRead = Date()
-    }
-
-    /// Since when what is shown of the television is old, for the screens to say so: the time its list was
-    /// read, while that list has rows and the television cannot be asked for them now -- not connected, to be
-    /// registered again, or its link gone. Nil while it can be asked, since the list is then read as a screen
-    /// appears; and nil with no rows, when nothing old is shown. Nil too while a connect to a television that
-    /// answered last time is under way: the app connects again whenever it comes back, the list is read as
-    /// that connect gets there, and it is old only once the connect has failed.
-    var staleSince: Date? {
-        guard !reservations.isEmpty, driver?.canBeAsked != true else { return nil }
-        if let session = link?.session, session.connecting, session.connected { return nil }
-        return reservationsRead
     }
 
     // MARK: - what the link tells the app
@@ -260,7 +168,7 @@ final class TVHost: LinkHost {
     ///
     /// A warning the runs with no screen left of reservations not yet at the television goes here once none
     /// of them waits to go any more (`AppModel.forgetTheWarningOnceSent`), whichever sending took them.
-    private func tell(_ round: PendingQueue.Outcome?) async {
+    func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
         await model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
@@ -270,7 +178,7 @@ final class TVHost: LinkHost {
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect
     /// reaches it. Inside the connect, so nothing here may await `AppModel.start()`.
     func reached() async {
-        await loadReservations()
+        await readReservations()
     }
 
     /// The check before an operation met another television at the television's address, by its MAC
@@ -302,5 +210,34 @@ final class TVHost: LinkHost {
     func stopWaitingForPermission() {
         accessWatch?.cancel()
         accessWatch = nil
+    }
+}
+
+/// The television's side of the six entries written once for both hosts (`DeviceHost`). Nothing comes before
+/// one asks; a list is kept on this host, which goes with the television it was read from; and what follows a
+/// reservation and a sending again is this host's own.
+extension TVHost: DeviceHost {
+    static var slot: DeviceSlot { .tv }
+    var reservationDriver: (any ReservationDriver)? { driver }
+    var deviceSession: SessionState? { link?.session }
+    var keeping: @MainActor ([Reservation]) -> Void { { self.keep($0) } }
+
+    func beforeAsking() async {}
+
+    /// The queue on screen is read again whatever a reservation came to: the driver writes the row before it
+    /// sends anything, and the row is gone again once the television holds it.
+    ///
+    /// A reservation takes the place of a row that waited for the same programme on the television, so a
+    /// warning the runs with no screen left of reservations not yet at the television goes here too, once
+    /// none of them waits to go (`AppModel.forgetTheWarningOnceSent`), as it goes after a sending (`tell`).
+    ///
+    /// A reservation kept to go by itself is heard of again in a notification, as one kept for the recorder
+    /// is, so the system's dialog comes here as it does there: after the row is kept, before the result is
+    /// said. Not for one held with a reason, which waits for the reader, nor in the demo, whose television
+    /// is nobody's to be told of.
+    func afterAReservation(_ reserved: Reserved) async {
+        await model?.loadPending()
+        await model?.forgetTheWarningOnceSent()
+        if case .waiting(let row, _) = reserved, row.problem == nil, !isDemo { await model?.askForNotifications() }
     }
 }

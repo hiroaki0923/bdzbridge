@@ -339,9 +339,9 @@ final class RecorderHost: RecorderLinkHost {
     /// Provisional permission for notifications, now that there is a recorder for them to be about: no dialog,
     /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
     /// reservations before the guide, which marks what is already set to record from that list: the driver's
-    /// read, kept on what was said as this began. Inside the connect, so nothing here may await `start()`.
+    /// read, kept on what was said as it began (`DeviceHost.readReservations`), which opens nothing. Inside the
+    /// connect, so nothing here may await `start()`.
     func reached() async {
-        let said = self.said
         guard let model else { return }
         let surroundings = model.surroundings
         if !demo, surroundings.asksAboutNotifications {
@@ -350,8 +350,7 @@ final class RecorderHost: RecorderLinkHost {
                 await model.readNotifications()
             }
         }
-        let read = await recorderDriver?.reservations()
-        said.keep(reservations: read)
+        await readReservations()
         await readAgainWhatWasUp()
         await model.refreshGuideIfStale()
     }
@@ -606,5 +605,51 @@ final class RecorderHost: RecorderLinkHost {
         conditionReads += 1
         defer { conditionReads -= 1 }
         return await recorderDriver.removeRule(rule) { said.keep(rules: $0) }
+    }
+}
+
+/// The recorder's side of the six entries written once for both hosts (`DeviceHost`). The cache is opened before
+/// one asks (`AppModel.start`); a list is kept on what the recorder said as the entry began, which a let-go
+/// replaces (`RecorderSaid.keep`), so that a list read for a recorder let go of meanwhile is kept where no screen
+/// reads it; and what follows a reservation and a sending again is this host's own.
+extension RecorderHost: DeviceHost {
+    static var slot: DeviceSlot { .recorder }
+    var reservations: [Reservation] { said.reservations }
+    var reservationsByProgram: [String: Reservation] { said.reservationsByProgram }
+    var reservationsRead: Date? { said.reservationsRead }
+    var report: String? {
+        get { said.report }
+        set { said.report = newValue }
+    }
+    var reservationDriver: (any ReservationDriver)? { recorderDriver }
+    var deviceSession: SessionState? { session }
+    var keeping: @MainActor ([Reservation]) -> Void {
+        let said = self.said
+        return { said.keep(reservations: $0) }
+    }
+
+    func beforeAsking() async {
+        await model?.start()
+    }
+
+    /// A reservation takes the place of a row that waited for the same programme, so a warning the runs with no
+    /// screen left of reservations not yet at the recorder goes here too, once none of them waits to go
+    /// (`AppModel.forgetTheRecordersWarningOnceSent`).
+    ///
+    /// A reservation kept for the recorder is heard of again in a notification once it is sent, so the system's
+    /// dialog comes here, as it comes in the television's host: after the row is kept, before the result is
+    /// said, and once the reservation's line is down. The dialog waits on the reader, who may leave the app
+    /// instead of answering, and neither the reservation nor the app's work waits with it. As there, not for one
+    /// held with a reason, which waits for the reader, nor in the demo, whose recorder is nobody's to be told of.
+    func afterAReservation(_ reserved: Reserved) async {
+        await model?.forgetTheRecordersWarningOnceSent()
+        if case .waiting(let row, _) = reserved, row.problem == nil, !demo { await model?.askForNotifications() }
+    }
+
+    /// What a row sent again came to goes on the strip (`tellTheStrip`), and a warning the runs with no screen
+    /// left of reservations not yet at the recorder goes once none of them waits to go.
+    func tell(_ round: PendingQueue.Outcome?) async {
+        tellTheStrip(round)
+        await model?.forgetTheRecordersWarningOnceSent()
     }
 }

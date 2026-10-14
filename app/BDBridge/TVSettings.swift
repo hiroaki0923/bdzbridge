@@ -61,7 +61,7 @@ struct TVSection: View {
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    if let problem = model.tvHost?.problem { Text(problem) }
+                    if let problem = model.problem(for: .tv) { Text(problem) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
                     // What could not be taken away is said in the footer above, which reads the television's

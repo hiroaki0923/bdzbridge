@@ -10,6 +10,7 @@
 		02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */; };
 		05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E69E6BE470039076D6A3C271 /* TitleSheet.swift */; };
 		0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C6866852333929A48A535D /* QueueGateTests.swift */; };
+		0BFE2CFC44D5B0B130111E0C /* DeviceHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E410A33FE194A519CB82646 /* DeviceHost.swift */; };
 		0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1279E749BC680BAC08A88565 /* AppModel.swift */; };
 		0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */; };
 		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
@@ -104,6 +105,7 @@
 		29C6866852333929A48A535D /* QueueGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueGateTests.swift; sourceTree = "<group>"; };
 		2ACE549E88DF216FC29FE673 /* USBDiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDiskTests.swift; sourceTree = "<group>"; };
 		2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		2E410A33FE194A519CB82646 /* DeviceHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceHost.swift; sourceTree = "<group>"; };
 		320A5AF47092867E2DBFE5F0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		325A314CEB4BE74CC8873400 /* WhichRecorderSameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderSameTests.swift; sourceTree = "<group>"; };
 		36D8A7F559230540E3009ABD /* AppModelRecorderRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelRecorderRules.swift; sourceTree = "<group>"; };
@@ -200,6 +202,7 @@
 				126A76C55A44B1C1314D806C /* ChannelsScreen.swift */,
 				C123FD5B0250D14222551D37 /* DefaultsKey.swift */,
 				83E965F5A7D72F5934B73195 /* DemoData.swift */,
+				2E410A33FE194A519CB82646 /* DeviceHost.swift */,
 				D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */,
 				58160E6F634978F81AD1D797 /* DuplicatesView.swift */,
 				C6328D6F84094C9B14A5C500 /* GuideGridView.swift */,
@@ -436,6 +439,7 @@
 				E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */,
 				8DDB371A05062465A40BC5B2 /* DefaultsKey.swift in Sources */,
 				D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */,
+				0BFE2CFC44D5B0B130111E0C /* DeviceHost.swift in Sources */,
 				02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */,
 				C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */,
 				E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */,
