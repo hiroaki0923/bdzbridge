@@ -339,7 +339,7 @@ final class RecorderHost: RecorderLinkHost {
     /// Provisional permission for notifications, now that there is a recorder for them to be about: no dialog,
     /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
     /// reservations before the guide, which marks what is already set to record from that list: the driver's
-    /// read, kept on what was said as it began (`DeviceHost.readReservations`), which opens nothing. Inside the
+    /// read, kept on what was said as it began (`DeviceHost.readReservationsNow`), which opens nothing. Inside the
     /// connect, so nothing here may await `start()`.
     func reached() async {
         guard let model else { return }
@@ -350,7 +350,7 @@ final class RecorderHost: RecorderLinkHost {
                 await model.readNotifications()
             }
         }
-        await readReservations()
+        await readReservationsNow()
         await readAgainWhatWasUp()
         await model.refreshGuideIfStale()
     }
@@ -626,10 +626,6 @@ extension RecorderHost: DeviceHost {
     var keeping: @MainActor ([Reservation]) -> Void {
         let said = self.said
         return { said.keep(reservations: $0) }
-    }
-
-    func beforeAsking() async {
-        await model?.start()
     }
 
     /// A reservation takes the place of a row that waited for the same programme, so a warning the runs with no

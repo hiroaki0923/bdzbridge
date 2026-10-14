@@ -46,7 +46,7 @@ final class TVHost: LinkHost {
     /// (`tell`) until the reader closes it or leaves the app (`AppModel.queueReport`). It goes with the
     /// host, as the television's list does.
     var report: String?
-    @ObservationIgnored private weak var model: AppModel?
+    @ObservationIgnored private(set) weak var model: AppModel?
     /// The link this answers for, set once the link is made.
     @ObservationIgnored weak var link: DeviceLink?
     /// Waits for the local network permission after the television's link ran into it.
@@ -179,7 +179,7 @@ final class TVHost: LinkHost {
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect
     /// reaches it. Inside the connect, so nothing here may await `AppModel.start()`.
     func reached() async {
-        await readReservations()
+        await readReservationsNow()
     }
 
     /// The check before an operation met another television at the television's address, by its MAC
@@ -214,16 +214,14 @@ final class TVHost: LinkHost {
     }
 }
 
-/// The television's side of the six entries written once for both hosts (`DeviceHost`). Nothing comes before
-/// one asks; a list is kept on this host, which goes with the television it was read from; and what follows a
-/// reservation and a sending again is this host's own.
+/// The television's side of the six entries written once for both hosts (`DeviceHost`). The cache is opened
+/// before one asks, as for the recorder's; a list is kept on this host, which goes with the television it was
+/// read from; and what follows a reservation and a sending again is this host's own.
 extension TVHost: DeviceHost {
     static var slot: DeviceSlot { .tv }
     var reservationDriver: (any ReservationDriver)? { driver }
     var deviceSession: SessionState? { link?.session }
     var keeping: @MainActor ([Reservation]) -> Void { { self.keep($0) } }
-
-    func beforeAsking() async {}
 
     /// The queue on screen is read again whatever a reservation came to: the driver writes the row before it
     /// sends anything, and the row is gone again once the television holds it.

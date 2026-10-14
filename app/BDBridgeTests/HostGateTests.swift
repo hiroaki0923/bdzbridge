@@ -545,26 +545,45 @@ final class HostGateTests: XCTestCase {
     /// a reservation on the television, a change and a delete of a television's reservation are not done, the
     /// app not being connected to it; a waiting row of the television's sent again comes to nothing; and the
     /// delete of such a row does nothing, the row still in the phone's queue, a television let go of counting as
-    /// busy. The recorder is asked nothing for any of them, not made sure of, and its line is left.
+    /// busy. The recorder is asked nothing for any of them, not made sure of, and its line is left. Before that,
+    /// with the television in play on a model started, its entries ask the recorder nothing either.
     ///
-    /// And on a model not yet started, with a television saved: a television's change, delete and sending again
-    /// leave the cache unopened, and a reservation on it opens it.
-    ///
-    /// As it is today: what opens the cache first differs between the television's entries.
+    /// And the cache first: on a model not yet started, every entry of either device's -- its list read and
+    /// pulled down, a change, a delete, a waiting row sent again, a reservation -- has opened the cache by the
+    /// time it answers. That it opened it before it asked is not seen here, and the television's pull-down row is a
+    /// pin: the connect a pull-down makes of a television it cannot ask opens the cache too.
     func testWithNoTelevisionInPlayItsRowsAreTurnedAwayAndTheRecorderIsLeftAlone() async throws {
         let schedule = DemoTV.Schedule(id: "recording.41", start: Date().addingTimeInterval(7200))
         let home = try await atHomeWithATelevision(holding: [schedule])
         let (recorder, model) = (home.recorder, home.model)
         let store = try XCTUnwrap(model.store)
         let program = try await aProgramme(model)
+        // Whatever station the hour finds the programme on, the television receives it: a reservation of it made
+        // with the television in play leaves no row waiting in the phone's queue.
+        let its = DemoTV.Station(scheme: program.broadcasting == "bs" ? "isdbbs" : "isdbt",
+                                 serviceID: program.serviceID, name: program.serviceName)
+        await home.television.receives(its == DemoTV.Station() ? [its] : [DemoTV.Station(), its])
         let reservation = try XCTUnwrap(home.host.reservations.first, "the television's list was meant to be read")
+
+        let extra = waiting("サンプル紀行", startingIn: 180, programme: 4402, for: .tv)
+        try await store.queue(extra)
+        await model.loadPending()
+        var heard = await recorder.heard.count
+        await model.loadReservations(of: .tv)
+        await home.host.refreshReservations()
+        _ = await model.change(reservation, quality: "DR", repeating: "none")
+        _ = await model.resend(extra)
+        _ = await model.reserve(program, on: .tv, quality: "DR", repeating: "none")
+        _ = await model.cancel(reservation)
+        expectEqual(await recorder.heard(since: heard), [], "the recorder was asked on a television's account")
+
         let theirs = waiting("サンプル劇場", startingIn: 120, programme: 4401, for: .tv)
         try await store.queue(theirs)
         await model.loadPending()
         model.removeTV()
         XCTAssertNil(model.tvHost, "the television was meant to be taken away")
         leaveALine(on: model)
-        let heard = await recorder.heard.count
+        heard = await recorder.heard.count
 
         expectEqual(await model.reserve(program, on: .tv, quality: "DR", repeating: "none"),
                     .notDone(TVDriver.notConnected))
@@ -579,23 +598,47 @@ final class HostGateTests: XCTestCase {
         XCTAssertFalse(isMakingSure(model))
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a television's entry wrote the recorder's line")
 
-        // A model not yet started, with a television saved.
-        let bench = try aBench()
-        try await bench.cacheAGuide()
-        let television = DemoTV()
-        let fresh = bench.model(recorder: SilentRecorder(), television: television,
-                                credentials: await registered(with: television))
-        _ = await fresh.change(reservation, quality: "DR", repeating: "none")
-        XCTAssertNil(fresh.store, "a television's change opened the cache")
-        _ = await fresh.cancel(reservation)
-        XCTAssertNil(fresh.store, "a television's delete opened the cache")
-        _ = await fresh.resend(theirs)
-        XCTAssertNil(fresh.store, "a television's row sent again opened the cache")
-        _ = await fresh.reserve(program, on: .tv, quality: "DR", repeating: "none")
-        XCTAssertNotNil(fresh.store, "a reservation on the television did not open the cache")
-        // The first connect that reservation set going, over before the test is.
-        try await untilGivenUp(fresh)
-        try await untilTheTelevisionIsConnected(fresh)
+        // A model not yet started, with a television saved and no recorder, for each entry of the television's.
+        let entries: [(String, @MainActor (AppModel) async -> Void)] = [
+            ("its list read", { await $0.loadReservations(of: .tv) }),
+            ("its list pulled down", { await $0.tvHost?.refreshReservations() }),
+            ("a change", { _ = await $0.change(reservation, quality: "DR", repeating: "none") }),
+            ("a delete", { _ = await $0.cancel(reservation) }),
+            ("a waiting row sent again", { _ = await $0.resend(theirs) }),
+            ("a reservation", { _ = await $0.reserve(program, on: .tv, quality: "DR", repeating: "none") }),
+        ]
+        for (entry, ask) in entries {
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            let television = DemoTV()
+            let fresh = bench.modelWithNoRecorder(television: television,
+                                                  credentials: await registered(with: television))
+            XCTAssertNotNil(fresh.tvHost, "the television saved was meant to be in play")
+            await ask(fresh)
+            XCTAssertNotNil(fresh.store, "the television's entry, \(entry), did not open the cache")
+            // The first connect that opening set going, over before the next.
+            if fresh.store != nil { try await untilTheTelevisionIsConnected(fresh) }
+        }
+
+        // And each of the recorder's, on a model not yet started with no recorder saved. The rows are the test's
+        // own: the television's reservation above made the recorder's, and a waiting row for the recorder.
+        let ours = { var row = reservation; row.device = .recorder; row.tvRow = nil; return row }()
+        let mine = waiting("サンプル紀行", startingIn: 180, programme: 4402)
+        let recorders: [(String, @MainActor (AppModel) async -> Void)] = [
+            ("its list read", { await $0.loadReservations() }),
+            ("its list pulled down", { await $0.refreshReservations() }),
+            ("a change", { _ = await $0.change(ours, quality: "DR", repeating: "none") }),
+            ("a delete", { _ = await $0.cancel(ours) }),
+            ("a waiting row sent again", { _ = await $0.resend(mine) }),
+            ("a reservation", { _ = await $0.reserve(program, on: .recorder, quality: "DR", repeating: "none") }),
+        ]
+        for (entry, ask) in recorders {
+            let bench = try aBench()
+            try await bench.cacheAGuide()
+            let fresh = bench.modelWithNoRecorder()
+            await ask(fresh)
+            XCTAssertNotNil(fresh.store, "the recorder's entry, \(entry), did not open the cache")
+        }
     }
 
     // MARK: - what the screens are told

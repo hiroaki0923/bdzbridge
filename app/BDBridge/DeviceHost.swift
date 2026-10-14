@@ -4,10 +4,10 @@ import RecorderKit
 /// What the screens and the model's entries ask of either device's host (`RecorderHost`, `TVHost`): its line,
 /// whether it works, the reservations it holds and how old they are, and what its sendings came to. And the six
 /// entries of a device's reservations -- the list read, the list pulled down, a delete, a change, a reservation, a
-/// waiting row sent again -- written once below, over the driver's steps (`ReservationDriver`). Where the two
-/// hosts still differ in them is a hook each answers for itself: which list a read is kept on (`keeping`), what
-/// comes before an entry asks (`beforeAsking`), and what follows a reservation and a sending (`afterAReservation`,
-/// `tell`).
+/// waiting row sent again -- written once below, over the driver's steps (`ReservationDriver`). Each opens the
+/// cache before it asks, whichever device it is for (`AppModel.start`). Where the two hosts still differ in them
+/// is a hook each answers for itself: which list a read is kept on (`keeping`), and what follows a reservation
+/// and a sending (`afterAReservation`, `tell`).
 ///
 /// Not a `LinkHost`: a screen reads a host's line here, and is given no way to set it.
 @MainActor
@@ -29,11 +29,11 @@ protocol DeviceHost: AnyObject {
     var reservationDriver: (any ReservationDriver)? { get }
     /// The session of the device's link, for whether a connect to a device that answered last time is under way.
     var deviceSession: SessionState? { get }
+    /// The model, whose cache is opened before an entry asks (`AppModel.start`); nil once it has gone.
+    var model: AppModel? { get }
     /// Keeps a list the driver handed back for the device answered for as this is read: an entry reads it as it
     /// begins, and keeps what comes back with it.
     var keeping: @MainActor ([Reservation]) -> Void { get }
-    /// What comes before an entry asks the driver. Not for what a connect reaches (`readReservations`).
-    func beforeAsking() async
     /// What follows a reservation, whatever it came to.
     func afterAReservation(_ reserved: Reserved) async
     /// What follows a waiting row sent again: what its round came to, nil for none or for none to say.
@@ -53,26 +53,31 @@ extension DeviceHost {
         return reservationsRead
     }
 
-    /// The driver's read of the list, handed back, nil when none was: for what a connect reaches, and for
-    /// whoever has to know what the device holds at this moment, and not what it held when it was last read.
-    /// Nothing comes before it (`beforeAsking`). One that could not be read leaves the last list, and its time,
-    /// as they were.
+    /// The driver's read of the list, after the cache is opened, handed back, nil when none was: for whoever has
+    /// to know what the device holds at this moment, and not what it held when it was last read. Kept as the
+    /// entry began (`keeping`): a list read for a device let go of meanwhile is kept where no screen reads it. One
+    /// that could not be read leaves the last list, and its time, as they were.
     @discardableResult
     func readReservations() async -> [Reservation]? {
-        await readReservations(askingFirst: false)
+        let keep = keeping
+        await model?.start()
+        return await read(keepingOn: keep)
     }
 
     /// Reads the list, as a screen that shows it does when it appears.
     func loadReservations() async {
-        _ = await readReservations(askingFirst: true)
+        _ = await readReservations()
     }
 
-    /// The read, after what comes before an entry asks when `askingFirst`, kept as the entry began
-    /// (`keeping`): a list read for a device let go of meanwhile is kept where no screen reads it.
+    /// The same read with nothing before it, for what a connect reaches, which may not await `AppModel.start()`,
+    /// and for a delete that reads the list in the queue's turn: the cache is the connect's, or the delete's,
+    /// already.
     @discardableResult
-    func readReservations(askingFirst: Bool) async -> [Reservation]? {
-        let keep = keeping
-        if askingFirst { await beforeAsking() }
+    func readReservationsNow() async -> [Reservation]? {
+        await read(keepingOn: keeping)
+    }
+
+    fileprivate func read(keepingOn keep: @MainActor ([Reservation]) -> Void) async -> [Reservation]? {
         guard let list = await reservationDriver?.reservations() else { return nil }
         keep(list)
         return list
@@ -83,7 +88,7 @@ extension DeviceHost {
     /// The list it hands back is kept as the entry began.
     func refreshReservations() async {
         let keep = keeping
-        await beforeAsking()
+        await model?.start()
         guard let list = await reservationDriver?.refreshReservations() else { return }
         keep(list)
     }
@@ -94,7 +99,7 @@ extension DeviceHost {
     /// With no driver nothing is sent, and the answer is that the app is not connected.
     func cancel(_ reservation: Reservation) async -> Altered? {
         let keep = keeping
-        await beforeAsking()
+        await model?.start()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.cancel(reservation)
         if let list = came.list { keep(list) }
@@ -105,7 +110,7 @@ extension DeviceHost {
     /// delete; the list read on the way is kept whatever it came to.
     func change(_ reservation: Reservation, _ terms: ReservationTerms) async -> Altered? {
         let keep = keeping
-        await beforeAsking()
+        await model?.start()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.update(reservation, terms)
         if let list = came.list { keep(list) }
@@ -118,7 +123,7 @@ extension DeviceHost {
     /// (`afterAReservation`). With no driver nothing is kept or sent.
     func reserve(_ program: GuideProgramRow, _ terms: ReservationTerms) async -> Reserved {
         let keep = keeping
-        await beforeAsking()
+        await model?.start()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.reserve(program, terms)
         if let list = came.list { keep(list) }
@@ -139,7 +144,7 @@ extension DeviceHost {
     @discardableResult
     func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async -> Reserved? {
         let keep = keeping
-        await beforeAsking()
+        await model?.start()
         guard let driver = reservationDriver else { return nil }
         let sent = await driver.resend(waiting)
         if let list = sent.list { keep(list) }
