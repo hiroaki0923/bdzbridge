@@ -346,6 +346,146 @@ final class HostGateTests: XCTestCase {
         return (recorder, model)
     }
 
+    // MARK: - how old a list is, and the routed entries
+
+    /// Since when each device's list is old, by one rule for both, row by row: nil with no rows; nil while the
+    /// device can be asked; nil while a connect to a device that answered last time is out; and the time the list
+    /// was read while the device answers and cannot be asked -- the recorder connected from the attach before a
+    /// reconnect it answered busy at the door, the television to be registered again -- and once it has been
+    /// given up on after silence. In each row the recorder's (`reservationsStaleSince`) and the television's
+    /// (`TVHost.staleSince`) are the same, nil or the read's own time.
+    func testHowOldEachDevicesListIsGoesByOneRuleForBoth() async throws {
+        let empty = NamedRecorder.Answer.result("<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"></xsrs>")
+        let home = try await atHomeWithATelevision(answering: empty)
+        let (recorder, television, model, host, link) = (home.recorder, home.television, home.model, home.host,
+                                                         home.link)
+        func row(_ name: String, old: Bool, line: UInt = #line) {
+            if old {
+                XCTAssertNotNil(model.reservationsRead, name, line: line)
+                XCTAssertEqual(model.reservationsStaleSince, model.reservationsRead, "the recorder's, \(name)",
+                               line: line)
+                XCTAssertNotNil(host.reservationsRead, name, line: line)
+                XCTAssertEqual(host.staleSince, host.reservationsRead, "the television's, \(name)", line: line)
+            } else {
+                XCTAssertNil(model.reservationsStaleSince, "the recorder's, \(name)", line: line)
+                XCTAssertNil(host.staleSince, "the television's, \(name)", line: line)
+            }
+        }
+        func bothGiveUp() async {
+            await recorder.goQuiet(for: 1)
+            expectFalse(await makeSure(model), "a recorder that said nothing was taken for one to ask")
+            await television.goSilent()
+            expectFalse(await link.ensureUp(evenIfRecent: true), "a television that said nothing was taken for one")
+            XCTAssertTrue(model.gaveUp && link.session.gaveUp, "a device was meant to be given up on")
+        }
+
+        // No rows, read and then given up on.
+        XCTAssertTrue(model.reservations.isEmpty && host.reservations.isEmpty, "a device was meant to list nothing")
+        await bothGiveUp()
+        row("no rows", old: false)
+
+        // Back, with rows: both can be asked.
+        await television.goSilent(false)
+        await television.put([DemoTV.Schedule(id: "recording.41", start: Date().addingTimeInterval(7200))])
+        await model.refreshReservations()
+        await host.refreshReservations()
+        XCTAssertTrue(model.connected && link.session.connected, "a device did not come back")
+        XCTAssertFalse(model.reservations.isEmpty || host.reservations.isEmpty, "a device was meant to list rows")
+        row("can be asked", old: false)
+
+        // A connect out to each, which answered last time.
+        let count = await recorder.heard.count
+        await recorder.hold(only: Ask.description)
+        let connecting = Task { await model.connect() }
+        try await until("the recorder's connect was never out") {
+            await recorder.heard(since: count).contains(Ask.description)
+        }
+        await home.door.hold(only: "getSystemSupportedFunction")
+        let reaching = Task { await link.connect() }
+        try await until("the television's connect was never out") { await home.door.isHolding }
+        row("a connect out to a device that answered last time", old: false)
+        await recorder.letGo()
+        await home.door.letGo()
+        await connecting.value
+        await reaching.value
+        row("connected again", old: false)
+
+        // Given up on after silence.
+        await bothGiveUp()
+        row("given up on", old: true)
+
+        // Back, and then answering but not to be asked.
+        await television.goSilent(false)
+        await model.refreshReservations()
+        await host.refreshReservations()
+        XCTAssertTrue(model.connected && link.session.connected, "a device did not come back")
+        await recorder.busyAtTheDoor()
+        await model.connect()
+        XCTAssertTrue(model.connected && !model.offline, "the recorder was meant to stay connected, answering busy")
+        home.credentials.save(TVCredentials(clientID: "BDBridge:test", cookie: "run out"))
+        await host.loadReservations()
+        XCTAssertEqual(model.tvDriver?.facts.needsPairing, true, "the television was meant to want registering again")
+        row("answering and not to be asked", old: true)
+        await recorder.comeFree()
+    }
+
+    /// The routed entries with no television in play -- taken away, its rows still in hand -- and the recorder:
+    /// a reservation on the television, a change and a delete of a television's reservation are not done, the
+    /// app not being connected to it; a waiting row of the television's sent again comes to nothing; and the
+    /// delete of such a row does nothing, the row still in the phone's queue, a television let go of counting as
+    /// busy. The recorder is asked nothing for any of them, not made sure of, and its line is left.
+    ///
+    /// And on a model not yet started, with a television saved: a television's change, delete and sending again
+    /// leave the cache unopened, and a reservation on it opens it.
+    ///
+    /// As it is today: what opens the cache first differs between the television's entries.
+    func testWithNoTelevisionInPlayItsRowsAreTurnedAwayAndTheRecorderIsLeftAlone() async throws {
+        let schedule = DemoTV.Schedule(id: "recording.41", start: Date().addingTimeInterval(7200))
+        let home = try await atHomeWithATelevision(holding: [schedule])
+        let (recorder, model) = (home.recorder, home.model)
+        let store = try XCTUnwrap(model.store)
+        let program = try await aProgramme(model)
+        let reservation = try XCTUnwrap(home.host.reservations.first, "the television's list was meant to be read")
+        let theirs = waiting("サンプル劇場", startingIn: 120, programme: 4401, for: .tv)
+        try await store.queue(theirs)
+        await model.loadPending()
+        model.removeTV()
+        XCTAssertNil(model.tvHost, "the television was meant to be taken away")
+        leaveALine(on: model)
+        let heard = await recorder.heard.count
+
+        expectEqual(await model.reserve(program, on: .tv, quality: "DR", repeating: "none"),
+                    .notDone(TVDriver.notConnected))
+        expectEqual(await model.change(reservation, quality: "DR", repeating: "none"), .notDone(TVDriver.notConnected))
+        expectEqual(await model.cancel(reservation), .notDone(TVDriver.notConnected))
+        expectNil(await model.resend(theirs))
+        expectNil(await model.deleteWaiting(theirs))
+
+        expectEqual(try await store.pendingReservations().map(\.id), [theirs.id],
+                    "a row of a television let go of was taken off the phone")
+        expectEqual(await recorder.heard(since: heard), [], "the recorder was asked on a television's account")
+        XCTAssertFalse(isMakingSure(model))
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a television's entry wrote the recorder's line")
+
+        // A model not yet started, with a television saved.
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let television = DemoTV()
+        let fresh = bench.model(recorder: SilentRecorder(), television: television,
+                                credentials: await registered(with: television))
+        _ = await fresh.change(reservation, quality: "DR", repeating: "none")
+        XCTAssertNil(fresh.store, "a television's change opened the cache")
+        _ = await fresh.cancel(reservation)
+        XCTAssertNil(fresh.store, "a television's delete opened the cache")
+        _ = await fresh.resend(theirs)
+        XCTAssertNil(fresh.store, "a television's row sent again opened the cache")
+        _ = await fresh.reserve(program, on: .tv, quality: "DR", repeating: "none")
+        XCTAssertNotNil(fresh.store, "a reservation on the television did not open the cache")
+        // The first connect that reservation set going, over before the test is.
+        try await untilGivenUp(fresh)
+        try await untilTheTelevisionIsConnected(fresh)
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
