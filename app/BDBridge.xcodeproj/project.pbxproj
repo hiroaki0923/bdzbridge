@@ -24,7 +24,6 @@
 		30543778DC43FE92D8967822 /* TVHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC398961D91396135008B6FC /* TVHost.swift */; };
 		426EBB116230210D4B6B1BBB /* AppModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDBFD7114EA90269BA42645D /* AppModelSetup.swift */; };
 		430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */; };
-		4417BFA7EA065CC56C867729 /* DemoRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB19D78D416D6CE8CB41B53 /* DemoRecorderTests.swift */; };
 		45F163AFB25C6A065FB29111 /* AppModelRecordings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE306E3A1B9409A422224064 /* AppModelRecordings.swift */; };
 		467EA934EB54A71683BFA00F /* KeychainTVCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4733264672C0A733226AA131 /* KeychainTVCredentials.swift */; };
 		47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */; };
@@ -125,7 +124,6 @@
 		5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BDBridgeApp.swift; sourceTree = "<group>"; };
 		61D97288A01992E60957A1E7 /* HostGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostGateTests.swift; sourceTree = "<group>"; };
 		62EE8FDD66A796ED76C70EEE /* AppModelGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelGuide.swift; sourceTree = "<group>"; };
-		6BB19D78D416D6CE8CB41B53 /* DemoRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoRecorderTests.swift; sourceTree = "<group>"; };
 		6C50D9578B5D62CFBB300399 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		6FAB63DB5A7CE51AB42D8DBD /* WhichRecorderNoScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderNoScreenTests.swift; sourceTree = "<group>"; };
 		707BB81A9C87370E84230350 /* ReservationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationSheet.swift; sourceTree = "<group>"; };
@@ -242,7 +240,6 @@
 				876473CEF55BCCD5F9711580 /* Bench.swift */,
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				C72125004ED6DC0CBA8BD86E /* DemoGuideTests.swift */,
-				6BB19D78D416D6CE8CB41B53 /* DemoRecorderTests.swift */,
 				EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
 				61D97288A01992E60957A1E7 /* HostGateTests.swift */,
@@ -479,7 +476,6 @@
 				73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */,
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				94762343663163DF625B8806 /* DemoGuideTests.swift in Sources */,
-				4417BFA7EA065CC56C867729 /* DemoRecorderTests.swift in Sources */,
 				430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
 				C7BBD1E032408E27F7D7F822 /* HostGateTests.swift in Sources */,

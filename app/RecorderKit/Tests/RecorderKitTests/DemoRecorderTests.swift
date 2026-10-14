@@ -1,7 +1,6 @@
 import Foundation
 import RecorderKit
 import XCTest
-@testable import BDBridge
 
 /// The demo's recorder by itself, through the client the app reads a real one with: what it says it is, the
 /// reservations, the recordings and the keyword conditions it starts with, and what it does with what it is
