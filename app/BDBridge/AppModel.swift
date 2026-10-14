@@ -21,11 +21,14 @@ import UserNotifications
 /// set it. The exception is `session`, which no file here can set a field of.
 @MainActor
 @Observable
-final class AppModel: RecorderLinkHost {
+final class AppModel {
     /// The connection to the recorder: its address, its client, what is known of it and when it is asked again
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
     let recorder: DeviceLink
+    /// What the recorder's link tells the app, and what the recorder said (`RecorderHost`): made with the link,
+    /// and kept for as long as the model is.
+    let recorderHost: RecorderHost
     /// The television's link, while one is saved -- in the demo, while the demo's is added -- (`makeTVLink`), and
     /// what it tells the app: kept by a host of its own, the television's reservations with it, so that what a
     /// television said goes when its link does.
@@ -155,20 +158,12 @@ final class AppModel: RecorderLinkHost {
     /// How many reads of the guide from the cache are under way (`reloadFromCache`). While one is, what the
     /// guide lists is about to be replaced: see `GuideScreen.scroll`.
     var guideReads = 0
-    var reservations: [Reservation] = [] {
-        // Here, whoever sets the list. Only the load built the index, so a reservation just cancelled -- taken
-        // out of a list the load had not built -- went on being marked 予約 in the guide.
-        didSet { reservationsByProgram = ByProgram.of(reservations) }
-    }
-    /// When the recorder's list was last read and kept (`keepReservations`), or nil when none has been since the
-    /// lists were last emptied: a recorder that cannot be asked leaves the last list standing, and this says how
-    /// old it is (`reservationsStaleSince`), as a television's host keeps it for its own.
-    var reservationsRead: Date?
-    var titles: [RecordedTitle] = []
-    /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
-    var titlesLoaded = false
-    /// Reservations by the programme they follow, so the guide can mark what is already set to record.
-    private(set) var reservationsByProgram: [String: Reservation] = [:]
+    /// What the recorder in play said, as its host holds it (`RecorderSaid`), under the names the screens read.
+    var reservations: [Reservation] { recorderHost.said.reservations }
+    var reservationsRead: Date? { recorderHost.said.reservationsRead }
+    var titles: [RecordedTitle] { recorderHost.said.titles }
+    var titlesLoaded: Bool { recorderHost.said.titlesLoaded }
+    var reservationsByProgram: [String: Reservation] { recorderHost.said.reservationsByProgram }
     /// The recorders the last scan found, in the order they answered.
     var found: [RecorderDescription] = []
     /// The televisions the last scan found, in the order they answered. A choice of recorder leaves them
@@ -200,9 +195,6 @@ final class AppModel: RecorderLinkHost {
     var scanTask: Task<Void, Never>?
     /// Counts scans, so that what an earlier one reports late is not taken for the one running now.
     var scanRun = 0
-    /// Waits for the local network permission after the link ran into it, and tells the link when it comes
-    /// (`DeviceLink.permissionArrived`).
-    var accessWatch: Task<Void, Never>?
     /// Everything under way with the recorder, each with a line of its own, since work overlaps (`Activities`).
     var activities = Activities()
     /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
@@ -219,7 +211,9 @@ final class AppModel: RecorderLinkHost {
     var needsPower: Bool { session.needsPower }
     /// Set when the recorder answered nothing at all rather than answering with an error.
     var unreachable: Bool { session.unreachable }
-    var problem: String?
+    /// What stands between the reader and a guide, for the places that say it where the guide would be: the
+    /// recorder's line.
+    var whyNothingToShow: String? { recorderHost.problem }
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     var mac: String? { session.mac }
@@ -284,6 +278,7 @@ final class AppModel: RecorderLinkHost {
             session: SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
             driver: RecorderDriver(busyRetryDelay: surroundings.busyRetryDelay),
             environment: Self.nowhere)
+        recorderHost = RecorderHost(link: recorder)
         // Anything else saved under these -- a type the app no longer offers, an order it has dropped -- is
         // left for the defaults above.
         if let saved = defaults.string(forKey: DefaultsKey.guideBroadcasting),
@@ -298,7 +293,8 @@ final class AppModel: RecorderLinkHost {
         }
         day = days.first ?? Date()
         recorder.environment = linkEnvironment()
-        recorder.owner = self
+        recorderHost.model = self
+        recorder.owner = recorderHost
         makeTVLink()
     }
 
@@ -339,11 +335,8 @@ final class AppModel: RecorderLinkHost {
     /// asking twice works.
     var nowRequests = 0
 
-    /// Bumped each time what a recorder said is let go of (`forgetWhatTheRecorderSaid`), for the screens to
-    /// let go of what they hold of it: a row picked for a dialog, and the sheets on a recording or a
-    /// reservation, which close themselves (`closesWithItsRecorder`, `closesWithItsDevice`). Left up over an
-    /// emptied list, a sheet's buttons would send its row's number to the next recorder.
-    var timesForgotten = 0
+    /// Bumped each time what a recorder said is let go of (`RecorderHost.timesForgotten`).
+    var timesForgotten: Int { recorderHost.timesForgotten }
 
     /// Opens the cache and shows what is in it. Every screen awaits this before asking for anything, and
     /// only the first caller does the work.
@@ -384,7 +377,7 @@ final class AppModel: RecorderLinkHost {
             // screen by now, and a search made meanwhile waits for this rather than missing the cast.
             if let store { Task { _ = try? await store.updateSearchText() } }
         } catch {
-            problem = "番組表の保存領域を開けませんでした: \(error)"
+            recorderHost.problem = "番組表の保存領域を開けませんでした: \(error)"
         }
     }
 
@@ -412,12 +405,9 @@ final class AppModel: RecorderLinkHost {
 
     // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
 
-    var recorderRules: [RecorderRule] = []
-    /// Whether `recorderRules` is the recorder's answer, and why the last read failed if it did. An empty list
-    /// is also what there is while the first read is on its way and after one that failed, and saying
-    /// 条件が登録されていません then tells the reader something the recorder never said.
-    var recorderRulesLoaded = false
-    var recorderRulesFailure: String?
+    var recorderRules: [RecorderRule] { recorderHost.said.recorderRules }
+    var recorderRulesLoaded: Bool { recorderHost.said.recorderRulesLoaded }
+    var recorderRulesFailure: String? { recorderHost.said.recorderRulesFailure }
 
     /// Reservations made while the recorder could not be reached, waiting for it to answer.
     var pending: [PendingReservation] = [] {
@@ -432,46 +422,30 @@ final class AppModel: RecorderLinkHost {
     /// a time (`deleteWaiting`).
     var deletingWaiting: Set<String> = []
 
-    /// How many reservations are held for another recorder, and what the sendings of the queue came to since
-    /// the reader last closed the strip, for the strip to say until the reader closes it or leaves the app. See
-    /// `tellTheStrip`.
-    var flushReport: String?
-    /// The count of reservations held for another recorder as `flushReport` begins with it, for the next
-    /// sending to put its own count in place of (`tellTheStrip`).
-    @ObservationIgnored var heldBackSaid: String?
+    /// The strip's report of the recorder's sendings (`RecorderSaid.report`).
+    var flushReport: String? { recorderHost.said.report }
 
-    /// Set when another recorder has answered where the last one had been and nobody chose it: at a connect
-    /// made over the last one's lists (`anotherDeviceDescribedItself`), or at the check before an operation
-    /// (`anotherAnsweredTheCheck`). The strip says so until the reader closes it or leaves the app: the failure line
-    /// lasts only until the connect that follows, and an alert goes with its sheet when that closes with
-    /// the lists.
-    var anotherTookOver = false
+    /// Set when another recorder has answered where the last one had been and nobody chose it
+    /// (`RecorderHost.anotherTookOver`). The strip's close button and leaving the app clear it.
+    var anotherTookOver: Bool {
+        get { recorderHost.anotherTookOver }
+        set { recorderHost.anotherTookOver = newValue }
+    }
 
-    /// The lists the reader had read, or was reading, when another recorder answered a connect made while the
-    /// app was connected, for that connect to read again from the one that answered. See
-    /// `anotherDeviceDescribedItself`.
-    var listsToReadAgain = (recordings: false, rules: false)
-    /// How many reads of the recordings, and of the keyword conditions, are out (`loadTitlesNow`,
-    /// `loadRecorderRulesNow`, a pull-down across its connect, and a condition's add or delete, which reads the
-    /// list after it): one out when another recorder answers is a list the reader was about to see, which is not
-    /// put on that one's screens and is read from it instead.
-    var titleReads = 0
-    var conditionReads = 0
+    /// How many reads of the recordings, and of the keyword conditions, are out (`RecorderHost.titleReads`).
+    var titleReads: Int { recorderHost.titleReads }
+    var conditionReads: Int { recorderHost.conditionReads }
 
     var job: BulkJob?
-    var duplicates: [DuplicateSet] = []
-    /// Which copies are ticked for deletion; the ones left unticked are kept. It lives here because the view
-    /// holding it is thrown away every time the reader looks at the list or the programmes instead.
-    var duplicatePicks: Set<String> = []
-    /// How many candidates were left out of the sets because their text has not been read, which a scan run
-    /// again reads.
-    var unreadDuplicates = 0
-    /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
-    /// a recording missing here has not been read.
-    var summaries: [String: String] = [:]
-    /// The candidates' titles whose text the guide shows on more than one day: a text the programme carries
-    /// every time, which does not make two recordings the same broadcast. Read from the guide at each scan.
-    var fixedBlurbs: Set<Duplicates.Blurb> = []
+    var duplicates: [DuplicateSet] { recorderHost.said.duplicates }
+    /// The duplicates view ticks and unticks copies here.
+    var duplicatePicks: Set<String> {
+        get { recorderHost.said.duplicatePicks }
+        set { recorderHost.said.duplicatePicks = newValue }
+    }
+    var unreadDuplicates: Int { recorderHost.said.unreadDuplicates }
+    var summaries: [String: String] { recorderHost.said.summaries }
+    var fixedBlurbs: Set<Duplicates.Blurb> { recorderHost.said.fixedBlurbs }
     var jobTask: Task<Void, Never>?
 
     /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four

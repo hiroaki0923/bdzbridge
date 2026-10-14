@@ -20,34 +20,23 @@ extension AppModel {
     }
 
     func loadTitles(force: Bool = false) async {
-        let forgotten = timesForgotten
+        let said = recorderHost.said
         await start()
-        await loadTitlesNow(force: force, since: forgotten)
+        await loadTitlesNow(force: force, into: said)
     }
 
     /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
     /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read, and
-    /// the list is kept by the count noted as the entry began (`keepTitles`), now when `forgotten` is nil. While
-    /// it is out it is counted (`titleReads`).
-    func loadTitlesNow(force: Bool, since forgotten: Int? = nil) async {
-        let forgotten = forgotten ?? timesForgotten
+    /// the list is kept on what was said as the entry began (`RecorderSaid.keep`), the one in play when `said` is
+    /// nil, as for the reservations: a list read for a recorder let go of meanwhile is kept where no screen reads
+    /// it, and the one after it, whose own connect reads its list (`RecorderHost.anotherDeviceDescribedItself`),
+    /// is left alone. While it is out it is counted (`RecorderHost.titleReads`).
+    func loadTitlesNow(force: Bool, into said: RecorderSaid? = nil) async {
+        let said = said ?? recorderHost.said
         guard client != nil, !unreachable, force || !titlesLoaded else { return }
-        titleReads += 1
-        defer { titleReads -= 1 }
-        _ = await recorderDriver?.titles { self.keepTitles($0, since: forgotten) }
-    }
-
-    /// Puts a list of the recordings on the screens, one read on behalf of an entry that noted `timesForgotten`
-    /// as `forgotten` when it began: only while the count is still that, as for the reservations
-    /// (`keepReservations`). A list read for a recorder let go of meanwhile is not put on the screens of the one
-    /// after it, whose own connect reads its list (`anotherDeviceDescribedItself`).
-    func keepTitles(_ list: [RecordedTitle], since forgotten: Int) {
-        guard timesForgotten == forgotten else { return }
-        titles = list
-        titlesLoaded = true
-        // The sets on screen were built from the list as it was. A copy one says it keeps may have gone since,
-        // and deleting the others would then leave nothing.
-        if !duplicates.isEmpty { recomputeDuplicates() }
+        recorderHost.titleReads += 1
+        defer { recorderHost.titleReads -= 1 }
+        _ = await recorderDriver?.titles { said.keep(titles: $0) }
     }
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
@@ -56,12 +45,12 @@ extension AppModel {
     /// (`titleReads`): one that takes another recorder up has the newcomer's connect read the list, read before
     /// or not, and the pull-down reads nothing after it.
     func refreshTitles() async {
-        let forgotten = timesForgotten
+        let said = recorderHost.said
         await start()
         guard !jobRunning else { return }
-        titleReads += 1
-        defer { titleReads -= 1 }
-        await recorderDriver?.refresh { await self.loadTitlesNow(force: true, since: forgotten) }
+        recorderHost.titleReads += 1
+        defer { recorderHost.titleReads -= 1 }
+        await recorderDriver?.refresh { await self.loadTitlesNow(force: true, into: said) }
     }
 
     /// The recordings the screen is showing: filtered, then sorted.
@@ -109,14 +98,14 @@ extension AppModel {
         guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
         let came = await recorderDriver.protect(title, on) {
             if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
-                self.titles[index].protected = on
+                self.recorderHost.said.titles[index].protected = on
             }
         }
         // Silence may have come after the recorder made the change. The list is read again once it answers,
         // rather than guessed at.
-        if came.readAgain { titlesLoaded = false }
+        if came.readAgain { recorderHost.said.titlesLoaded = false }
         // which copy of a set to keep can change with it
-        if case .done = came.altered, !duplicates.isEmpty { recomputeDuplicates() }
+        if case .done = came.altered, !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
         return came.altered
     }
 
@@ -126,11 +115,11 @@ extension AppModel {
     func delete(_ title: RecordedTitle) async -> Altered {
         await start()
         guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        let came = await recorderDriver.delete(title) { self.titles.removeAll { $0.id == title.id } }
+        let came = await recorderDriver.delete(title) { self.recorderHost.said.titles.removeAll { $0.id == title.id } }
         // as for protecting: silence may have come after the recording had gone
-        if came.readAgain { titlesLoaded = false }
+        if came.readAgain { recorderHost.said.titlesLoaded = false }
         // A set on screen may have been left with one copy, or none of the one it says it keeps.
-        if case .done = came.altered, !duplicates.isEmpty { recomputeDuplicates() }
+        if case .done = came.altered, !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
         return came.altered
     }
 

@@ -132,7 +132,7 @@ extension AppModel {
                 // gone through -- the list is read again once the recorder answers, which settles what became
                 // of it. Not after silence to the question a delete asks first, nor for a run turned away
                 // between two requests for a recording: nothing was sent that changes one.
-                if case .silent(afterSending: true) = stop { titlesLoaded = false }
+                if case .silent(afterSending: true) = stop { recorderHost.said.titlesLoaded = false }
                 break
             }
             job?.done += 1
@@ -144,7 +144,7 @@ extension AppModel {
         let deleted = kind == .delete ? job?.changed.count ?? 0 : 0
         await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
         // the sets were built from recordings that may no longer all be there
-        if !duplicates.isEmpty { recomputeDuplicates() }
+        if !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
         job?.finished = true
         jobTask = nil
     }
@@ -192,25 +192,25 @@ extension AppModel {
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         switch driver.beginRun(.scanning) {
         case .success(let run):
-            let forgotten = timesForgotten
+            let said = recorderHost.said
             jobTask = Task { [weak self] in
-                await self?.runScan(candidates, store: store, run, driver, since: forgotten)
+                await self?.runScan(candidates, store: store, run, driver, into: said)
             }
         case .failure(let stop):
             endJob(stoppedBy: stop)
         }
     }
 
-    /// The scan's loop. `forgotten` is `timesForgotten` as the scan was set up, which says which recorder's
-    /// texts memory holds: what the cache had of these recordings is put there only while the count is still
-    /// that, as a list is kept (`keepTitles`). The cache is read across a turn, and a recorder let go of
-    /// meanwhile has had its texts emptied out of memory; the next one gives out the same numbers for its own
-    /// recordings, and would be compared on these.
+    /// The scan's loop. `said` is what the recorder said as the scan was set up, which says which recorder's
+    /// texts memory holds: what the cache had of these recordings is put there, as a list is kept
+    /// (`RecorderSaid.keep`). The cache is read across a turn, and a recorder let go of meanwhile has had its
+    /// texts emptied out of memory; the next one gives out the same numbers for its own recordings, and would be
+    /// compared on these, were they not kept where no screen reads them.
     private func runScan(_ candidates: [[RecordedTitle]], store: GuideStore, _ run: Run,
-                         _ driver: RecorderDriver, since forgotten: Int) async {
+                         _ driver: RecorderDriver, into said: RecorderSaid) async {
         let ids = candidates.flatMap { $0.map(\.id) }
-        if let known = try? await store.titleSummaries(ids), timesForgotten == forgotten {
-            summaries.merge(known) { _, new in new }
+        if let known = try? await store.titleSummaries(ids) {
+            said.summaries.merge(known) { _, new in new }
         }
         // The recorder is needed only for what the cache does not already hold, and made sure of only then,
         // and not for a scan that 中止 has stopped already.
@@ -232,11 +232,11 @@ extension AppModel {
                     if job?.cancelled == true { break scan }
                     switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):
-                        summaries[title.id] = summary
+                        recorderHost.said.summaries[title.id] = summary
                         try? await store.setTitleSummary(title.id, summary)
                     case .gone:
                         // deleted on the recorder since the list was read, so it is not a copy of anything
-                        titles.removeAll { $0.id == title.id }
+                        recorderHost.said.titles.removeAll { $0.id == title.id }
                     case .failed(let reason):
                         // Nothing is kept, so it is left out of the sets and asked about again next time.
                         job?.skipped.append(.init(id: title.id, reason: reason))
@@ -256,26 +256,11 @@ extension AppModel {
         // Read again each time, since the guide moves on a day at a time. It is the cache on this device, so
         // it is read whether or not the recorder answered; one that cannot be read leaves what was read last.
         let titleKeys = Set(candidates.compactMap { $0.first.map { Series.sameTitleKey($0.title) } })
-        if let found = try? await store.fixedBlurbs(among: titleKeys) { fixedBlurbs = found }
+        if let found = try? await store.fixedBlurbs(among: titleKeys) { recorderHost.said.fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
-        recomputeDuplicates()
+        recorderHost.said.recomputeDuplicates()
         job?.finished = true
         jobTask = nil
-    }
-
-    /// Rebuilds the sets from what is still on the recorder, using the text already gathered. A recording whose
-    /// text has not been read is left out rather than compared on nothing, and counted (`Duplicates.readSets`).
-    func recomputeDuplicates() {
-        let found = Duplicates.readSets(titles, summaries: summaries, fixedBlurbs: fixedBlurbs)
-        unreadDuplicates = found.unread
-        setDuplicates(found.sets)
-    }
-
-    /// A set the reader has already seen keeps its ticks; a new or changed one is ticked as suggested, if its
-    /// text confirms it. See `Duplicates.picks`.
-    private func setDuplicates(_ sets: [DuplicateSet]) {
-        duplicatePicks = Duplicates.picks(for: sets, shown: duplicates, picked: duplicatePicks)
-        duplicates = sets
     }
 
     /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and
@@ -290,11 +275,11 @@ extension AppModel {
         let came = await driver.delete(title, in: run)
         switch came {
         case .done:
-            titles.removeAll { $0.id == id }
+            recorderHost.said.titles.removeAll { $0.id == id }
             job?.changed.append(id)
         case .gone:
             // the recorder had already lost it, so the list should not keep showing it either
-            titles.removeAll { $0.id == id }
+            recorderHost.said.titles.removeAll { $0.id == id }
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
         case .passedOver(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
@@ -316,7 +301,7 @@ extension AppModel {
             // Found again rather than by the place it had before the request: the list can change while the
             // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
             // may then be another recording's, which would be marked protected instead, or past the end.
-            if let index = titles.firstIndex(where: { $0.id == id }) { titles[index].protected = on }
+            if let index = titles.firstIndex(where: { $0.id == id }) { recorderHost.said.titles[index].protected = on }
             job?.changed.append(id)
         case .gone, .passedOver:
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))

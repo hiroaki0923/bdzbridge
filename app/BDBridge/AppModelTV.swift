@@ -21,14 +21,14 @@ extension AppModel {
     /// What the television is listed as among the devices registered with it.
     static let tvNickname = "BD Bridge"
 
-    /// The line that says what went wrong with a device, for whatever shows a reservation's failure: the
-    /// recorder's is the model's own, the television's its host's. Each device's operations write to its own.
+    /// The line that says what went wrong with a device, for whatever shows a reservation's failure: each
+    /// device's host's. Each device's operations write to its own.
     func problem(for device: DeviceSlot) -> String? {
-        device == .tv ? tvHost?.problem : problem
+        device == .tv ? tvHost?.problem : recorderHost.problem
     }
 
     /// Whether a device is busy, for the buttons that write to the device a reservation is held by: the
-    /// recorder's work is the model's own (`isBusy`), the television's its host's, and neither holds back a
+    /// recorder's work is its host's (`isBusy`), the television's its own host's, and neither holds back a
     /// button of the other's. A television the app has let go of counts as busy: a row of its still on a
     /// screen has nothing to be sent to.
     func isBusy(for device: DeviceSlot) -> Bool {
@@ -46,7 +46,7 @@ extension AppModel {
 
     /// Both go: the reader closed the line, or left the app.
     func closeQueueReport() {
-        flushReport = nil
+        recorderHost.said.report = nil
         tvHost?.report = nil
     }
 

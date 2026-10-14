@@ -59,7 +59,7 @@ struct Surroundings {
     var waitForLocalNetwork: @Sendable (_ host: String) async -> LocalNetwork.Access = { _ in .allowed }
     /// The links' own look at the local network permission, after a device of either kind was silent at its
     /// address, and their hosts' wait for the permission when the look says the system keeps the app off
-    /// (`AppModel.linkEnvironment`, `AppModel.waitForPermission`, and the television's): `LocalNetwork.access`
+    /// (`AppModel.linkEnvironment`, `RecorderHost.waitForPermission`, and the television's): `LocalNetwork.access`
     /// and `LocalNetwork.waitForAccess` in the app, apart from the look and the wait of an address given for a
     /// television above. Not in the way and allowed at once unless a test says otherwise. Never looked at in the
     /// demo.

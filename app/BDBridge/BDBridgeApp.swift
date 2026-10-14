@@ -477,7 +477,7 @@ struct NoRecorderView: View {
                 // What went wrong when the app knows, since this is where the guide says it now: an address
                 // that is not one, or a device there that is not a recorder, is not put right by checking
                 // the power.
-                Text(model.problem ?? "レコーダーの電源と、同じネットワークに接続されているかを確認してください")
+                Text(model.whyNothingToShow ?? "レコーダーの電源と、同じネットワークに接続されているかを確認してください")
             } actions: {
                 VStack(spacing: 12) {
                     // Connecting sends a magic packet by itself when the recorder answered nothing at all, so

@@ -1339,20 +1339,22 @@ let lineLeft = "前の操作が残した文"
 
 /// Leaves it on the recorder's line of what went wrong.
 @MainActor
-func leaveALine(on model: AppModel) { model.problem = lineLeft }
+func leaveALine(on model: AppModel) { model.recorderHost.problem = lineLeft }
 
 /// Leaves nothing there, for a test that looks at what is said over an empty line.
 @MainActor
-func clearTheLine(on model: AppModel) { model.problem = nil }
+func clearTheLine(on model: AppModel) { model.recorderHost.problem = nil }
 
 /// Puts a line of the recorder's work up on the strip, as an operation on the recorder does: its token, for
 /// `endARecorderLine`.
 @MainActor
-func beginARecorderLine(_ text: String, on model: AppModel) -> Activities.Token { model.beginActivity(text) }
+func beginARecorderLine(_ text: String, on model: AppModel) -> Activities.Token {
+    model.recorderHost.beginActivity(text)
+}
 
 /// Takes that line down again.
 @MainActor
-func endARecorderLine(_ token: Activities.Token, on model: AppModel) { model.endActivity(token) }
+func endARecorderLine(_ token: Activities.Token, on model: AppModel) { model.recorderHost.endActivity(token) }
 
 // MARK: - what the tests do to the connection
 //
@@ -1415,7 +1417,7 @@ func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality
 @MainActor
 @discardableResult
 func readTheReservations(_ model: AppModel) async -> [Reservation]? {
-    await model.loadReservations(since: model.timesForgotten)
+    await model.readReservations()
 }
 
 /// The row the last reservation on the recorder kept on the phone; nil when it was made or not done.

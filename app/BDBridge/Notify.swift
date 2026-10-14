@@ -127,7 +127,7 @@ enum Notify {
     /// of the queue (`queue-flushed`) does not take the place of a warning that may still hold. The screens
     /// take it away as well, once a sending or a delete of their own leaves none of those reservations waiting
     /// (`AppModel.forgetTheRecordersWarningOnceSent`), and when the cache is made over to another recorder
-    /// (`AppModel.cacheMadeOver`).
+    /// (`RecorderHost.cacheMadeOver`).
     static func recorder(notYet: String?, withdraws: Bool) async {
         if withdraws {
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [recorderNotYet])

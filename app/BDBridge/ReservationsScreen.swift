@@ -189,7 +189,7 @@ struct ReservationsScreen: View {
                         .padding(10)
                         .frame(maxWidth: .infinity)
                         .background(.regularMaterial)
-                } else if let problem = model.problem ?? model.problem(for: .tv) {
+                } else if let problem = model.problem(for: .recorder) ?? model.problem(for: .tv) {
                     Text(problem)
                         .font(.callout)
                         .foregroundStyle(.red)

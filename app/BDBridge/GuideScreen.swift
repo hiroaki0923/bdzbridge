@@ -339,7 +339,7 @@ struct GuideEmptyView: View {
         } else if model.info?.epgCapable == false {
             ContentUnavailableView("このレコーダーは番組表に対応していません", systemImage: "calendar",
                                    description: Text("この機種からは番組表を取得できません"))
-        } else if let problem = model.problem {
+        } else if let problem = model.whyNothingToShow {
             ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle", description: Text(problem))
         } else if cached == 0, model.counts.values.contains(where: { $0.programs > 0 }) {
             // The other types came in and this one did not: the recorder had no file for it, which is what a

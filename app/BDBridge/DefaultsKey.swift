@@ -22,7 +22,7 @@ enum DefaultsKey {
     /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
     /// written by the screens once none of the reservations warned of waits to go
     /// (`AppModel.forgetTheRecordersWarningOnceSent`); forgotten when the cache is made over to another recorder
-    /// (`AppModel.cacheMadeOver`).
+    /// (`RecorderHost.cacheMadeOver`).
     static let recorderTold = "recorderTold"
 
     // MARK: - the television
