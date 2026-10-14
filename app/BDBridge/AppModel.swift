@@ -253,10 +253,10 @@ final class AppModel {
     /// local network does has not been seen; the log's phase lines will say. Nothing goes by it: it is for the
     /// log of a scan for a recorder.
     var appIsActive = true
-    /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
-    var backInFront: CheckedContinuation<Void, Never>?
-    /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
-    var stepTask = UIBackgroundTaskIdentifier.invalid
+    /// A bulk job waiting between two steps for the app to come back, and the background task its step runs
+    /// under (`RecorderHost.backInFront`, `RecorderHost.stepTask`).
+    var backInFront: CheckedContinuation<Void, Never>? { recorderHost.backInFront }
+    var stepTask: UIBackgroundTaskIdentifier { recorderHost.stepTask }
     /// Where the settings and the database are kept, how requests reach the recorder, and what the model
     /// does on the network by itself. The app's own everywhere but in the unit tests; see `Surroundings`.
     let surroundings: Surroundings
@@ -436,7 +436,9 @@ final class AppModel {
     var titleReads: Int { recorderHost.titleReads }
     var conditionReads: Int { recorderHost.conditionReads }
 
-    var job: BulkJob?
+    /// The recorder's bulk job under way or last run, as its host holds it (`RecorderHost.job`).
+    typealias BulkJob = RecorderHost.BulkJob
+    var job: BulkJob? { recorderHost.job }
     var duplicates: [DuplicateSet] { recorderHost.said.duplicates }
     /// The duplicates view ticks and unticks copies here.
     var duplicatePicks: Set<String> {
@@ -446,7 +448,6 @@ final class AppModel {
     var unreadDuplicates: Int { recorderHost.said.unreadDuplicates }
     var summaries: [String: String] { recorderHost.said.summaries }
     var fixedBlurbs: Set<Duplicates.Blurb> { recorderHost.said.fixedBlurbs }
-    var jobTask: Task<Void, Never>?
 
     /// The eight days the recorder's guide covers, starting with the broadcast day on air, which until four
     /// in the morning is yesterday's. Kept rather than worked out each time they are read, and replaced by

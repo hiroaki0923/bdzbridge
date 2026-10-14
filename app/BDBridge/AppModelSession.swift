@@ -79,8 +79,7 @@ extension AppModel {
         let wasAway = inBackground
         inBackground = false
         // A bulk job waiting between two steps goes on, and makes sure of the recorder itself first.
-        backInFront?.resume()
-        backInFront = nil
+        recorderHost.letTheJobGoOn()
         // Before any of the reasons not to connect: a day may have gone by while the app was away, with or
         // without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
@@ -167,6 +166,16 @@ extension AppModel {
 
     /// What waits for the recorder, sent as an attach sends it (`RecorderHost.sendWhatWaits`).
     func sendWhatWaits() async { await recorderHost.sendWhatWaits() }
+
+    /// The recorder's bulk job, as its host runs it (`RecorderHostRuns`), under the names the screens call.
+    var jobRunning: Bool { recorderHost.jobRunning }
+    var canStartARun: Bool { recorderHost.canStartARun }
+    var canAlterARecording: Bool { recorderHost.canAlterARecording }
+    var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) { recorderHost.startBulk(kind, ids: ids) }
+    func cancelBulk() { recorderHost.cancelBulk() }
+    func clearJob() { recorderHost.clearJob() }
+    func startDuplicateScan() { recorderHost.startDuplicateScan() }
 
     /// The warning the runs with no screen left of reservations not yet at the recorder is taken away once a
     /// sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no more:

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import RecorderKit
+import UIKit
 
 /// What the recorder in play said, held in memory for the screens: its lists, the sets of copies with their ticks
 /// and the texts they were built on, and what its sendings came to, for the strip. Exactly what letting go of a
@@ -142,6 +143,13 @@ final class RecorderHost: RecorderLinkHost {
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     private var accessWatch: Task<Void, Never>?
+    /// The bulk delete, protect or scan under way or last run (`RecorderHostRuns`).
+    var job: BulkJob?
+    var jobTask: Task<Void, Never>?
+    /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
+    var backInFront: CheckedContinuation<Void, Never>?
+    /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
+    var stepTask = UIBackgroundTaskIdentifier.invalid
     /// The recorder's link, for the model's life.
     let link: DeviceLink
     /// The model that made this, for what is the phone's.
@@ -151,15 +159,13 @@ final class RecorderHost: RecorderLinkHost {
         self.link = link
     }
 
-    private var session: SessionState { link.session }
-    private var recorderDriver: RecorderDriver? { link.driver as? RecorderDriver }
+    var session: SessionState { link.session }
+    var recorderDriver: RecorderDriver? { link.driver as? RecorderDriver }
     /// The recorder's address on the LAN, as the link has it.
     private var host: String { link.host }
     private var demo: Bool { model?.demo ?? false }
     private var client: RecorderClient? { link.client as? RecorderClient }
     private var unreachable: Bool { session.unreachable }
-    /// A bulk job is under way: the model's until the job is the host's.
-    private var jobRunning: Bool { model?.jobRunning ?? false }
 
     // MARK: - letting go of the recorder
 
@@ -189,7 +195,7 @@ final class RecorderHost: RecorderLinkHost {
     func forgetWhatTheRecorderSaid() {
         said = RecorderSaid()
         anotherTookOver = false
-        model?.clearJob()
+        clearJob()
         model?.titleGenre = nil
         model?.titleState = nil
         model?.reservationKind = .all
@@ -358,13 +364,13 @@ final class RecorderHost: RecorderLinkHost {
     /// (`RecorderDriver.anotherAnswered`) and the connect takes away, and the strip after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
-        model?.cancelBulk()
+        cancelBulk()
         anotherTookOver = true
         let model = self.model
-        let running = model?.jobTask
+        let running = jobTask
         Task {
             await running?.value
-            model?.clearJob()
+            self.clearJob()
             await model?.connect()
         }
     }

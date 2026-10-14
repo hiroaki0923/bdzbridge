@@ -3,8 +3,10 @@ import RecorderKit
 import SwiftUI
 
 /// Work over many recordings at once: the bulk delete and protect with their progress, pausing in the
-/// background, and the scan for duplicates.
-extension AppModel {
+/// background, and the scan for duplicates. The job is the recorder's host's: it is what stands of a recorder,
+/// which the host's rules read, stop and clear (`holdsOffConnect`, `anotherAnsweredTheCheck`,
+/// `forgetWhatTheRecorderSaid`).
+extension RecorderHost {
     // MARK: - bulk work
 
     /// Deleting or protecting many recordings, one request at a time because that is all the recorder will
@@ -50,7 +52,7 @@ extension AppModel {
     /// yet said which it is (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a
     /// connect has between two lines of its own, as in `canChangeRecorder`. The television's work does not
     /// count: it is on a client of its own.
-    var canStartARun: Bool { !jobRunning && !isBusy && !connecting }
+    var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
     /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
@@ -132,7 +134,7 @@ extension AppModel {
                 // gone through -- the list is read again once the recorder answers, which settles what became
                 // of it. Not after silence to the question a delete asks first, nor for a run turned away
                 // between two requests for a recording: nothing was sent that changes one.
-                if case .silent(afterSending: true) = stop { recorderHost.said.titlesLoaded = false }
+                if case .silent(afterSending: true) = stop { said.titlesLoaded = false }
                 break
             }
             job?.done += 1
@@ -144,7 +146,7 @@ extension AppModel {
         let deleted = kind == .delete ? job?.changed.count ?? 0 : 0
         await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
         // the sets were built from recordings that may no longer all be there
-        if !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
+        if !said.duplicates.isEmpty { said.recomputeDuplicates() }
         job?.finished = true
         jobTask = nil
     }
@@ -157,8 +159,15 @@ extension AppModel {
     /// makes sure of a recorder that has had all that time to fall asleep. The step under way as the reader
     /// leaves is finished first, under `keepingAlive`.
     private func readyForNextStep() async {
-        guard inBackground else { return }
+        guard model?.inBackground == true else { return }
         await withCheckedContinuation { backInFront = $0 }
+    }
+
+    /// The app is back in front: a job waiting between two steps goes on (`readyForNextStep`), as the model is
+    /// told of the return (`AppModel.returnedToForeground`).
+    func letTheJobGoOn() {
+        backInFront?.resume()
+        backInFront = nil
     }
 
     /// Runs one step of a bulk job under a background task, so that a step under way when the reader leaves
@@ -187,12 +196,12 @@ extension AppModel {
     /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
     /// reader gave it. Ticking waits until it has finished.
     func startDuplicateScan() {
-        guard jobTask == nil, let store, let driver = recorderDriver else { return }
-        let candidates = Duplicates.candidates(titles)
+        guard jobTask == nil, let store = model?.store, let driver = recorderDriver else { return }
+        let candidates = Duplicates.candidates(said.titles)
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         switch driver.beginRun(.scanning) {
         case .success(let run):
-            let said = recorderHost.said
+            let said = self.said
             jobTask = Task { [weak self] in
                 await self?.runScan(candidates, store: store, run, driver, into: said)
             }
@@ -215,14 +224,14 @@ extension AppModel {
         // The recorder is needed only for what the cache does not already hold, and made sure of only then,
         // and not for a scan that 中止 has stopped already.
         var stopped: RunStop?
-        if job?.cancelled != true, ids.contains(where: { summaries[$0] == nil }) {
+        if job?.cancelled != true, ids.contains(where: { self.said.summaries[$0] == nil }) {
             stopped = await driver.mayGoOn(run)
         }
 
         scan: for group in candidates {
             for title in group {
                 if stopped != nil || job?.cancelled == true { break scan }
-                if summaries[title.id] == nil {
+                if self.said.summaries[title.id] == nil {
                     await readyForNextStep()
                     // before the recorder is made sure of, and after, as in `runBulk`: 中止 may have been tapped
                     // while the app was away, and a check heard out meanwhile may have stopped the scan
@@ -232,11 +241,11 @@ extension AppModel {
                     if job?.cancelled == true { break scan }
                     switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):
-                        recorderHost.said.summaries[title.id] = summary
+                        self.said.summaries[title.id] = summary
                         try? await store.setTitleSummary(title.id, summary)
                     case .gone:
                         // deleted on the recorder since the list was read, so it is not a copy of anything
-                        recorderHost.said.titles.removeAll { $0.id == title.id }
+                        self.said.titles.removeAll { $0.id == title.id }
                     case .failed(let reason):
                         // Nothing is kept, so it is left out of the sets and asked about again next time.
                         job?.skipped.append(.init(id: title.id, reason: reason))
@@ -256,9 +265,9 @@ extension AppModel {
         // Read again each time, since the guide moves on a day at a time. It is the cache on this device, so
         // it is read whether or not the recorder answered; one that cannot be read leaves what was read last.
         let titleKeys = Set(candidates.compactMap { $0.first.map { Series.sameTitleKey($0.title) } })
-        if let found = try? await store.fixedBlurbs(among: titleKeys) { recorderHost.said.fixedBlurbs = found }
+        if let found = try? await store.fixedBlurbs(among: titleKeys) { self.said.fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
-        recorderHost.said.recomputeDuplicates()
+        self.said.recomputeDuplicates()
         job?.finished = true
         jobTask = nil
     }
@@ -268,18 +277,18 @@ extension AppModel {
     /// its delete was sent (`RecorderDriver.mayGoOn`), or the recorder let go of, when nothing is counted and
     /// the list, which is no longer that recorder's, is left alone -- or nil: see `runBulk`.
     private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
-        guard let title = titles.first(where: { $0.id == id }) else {
+        guard let title = said.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
         }
         let came = await driver.delete(title, in: run)
         switch came {
         case .done:
-            recorderHost.said.titles.removeAll { $0.id == id }
+            said.titles.removeAll { $0.id == id }
             job?.changed.append(id)
         case .gone:
             // the recorder had already lost it, so the list should not keep showing it either
-            recorderHost.said.titles.removeAll { $0.id == id }
+            said.titles.removeAll { $0.id == id }
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
         case .passedOver(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
@@ -291,7 +300,7 @@ extension AppModel {
 
     /// One recording of a bulk protect, as `deleteOne`.
     private func protectOne(_ id: String, _ on: Bool, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
-        guard let title = titles.first(where: { $0.id == id }) else {
+        guard let title = said.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
         }
@@ -301,7 +310,7 @@ extension AppModel {
             // Found again rather than by the place it had before the request: the list can change while the
             // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
             // may then be another recording's, which would be marked protected instead, or past the end.
-            if let index = titles.firstIndex(where: { $0.id == id }) { recorderHost.said.titles[index].protected = on }
+            if let index = said.titles.firstIndex(where: { $0.id == id }) { said.titles[index].protected = on }
             job?.changed.append(id)
         case .gone, .passedOver:
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
