@@ -92,7 +92,7 @@ final class TVReservationTests: XCTestCase {
         let found = await model.program(for: recorders)
         let program = try XCTUnwrap(found, "the recorder's reservation follows no programme of the guide")
         let same = Self.row(41, following: program), other = Self.row(42)
-        model.problem = Self.left
+        leaveALine(on: model)
 
         let ways: [(String, @MainActor () -> Reservation?)] = [
             ("picked from the television's list", { host.reservations.first { $0.id == same.id } }),
@@ -121,7 +121,8 @@ final class TVReservationTests: XCTestCase {
                            way)
             XCTAssertGreaterThan(try XCTUnwrap(host.reservationsRead), read, "the list read after was not kept, \(way)")
             XCTAssertNil(model.problem(for: .tv), way)
-            XCTAssertEqual(model.problem, Self.left, "the television's change wrote on the recorder's line, \(way)")
+            XCTAssertEqual(model.problem(for: .recorder), Self.left,
+                           "the television's change wrote on the recorder's line, \(way)")
             XCTAssertEqual(model.reservation(for: program), recorders, "the guide's mark went with the change, \(way)")
             XCTAssertTrue(model.reservations.contains(recorders), "the recorder's reservation went with it, \(way)")
 
@@ -144,16 +145,16 @@ final class TVReservationTests: XCTestCase {
         let asked = await recorder.asked, calls = await television.calls
 
         expectEqual(await model.change(recorders, quality: "DR", repeating: "none"), .done(saying: nil),
-                    model.problem ?? "no reason given")
+                    model.problem(for: .recorder) ?? "no reason given")
         let changed = try XCTUnwrap(model.reservation(for: program))
         XCTAssertEqual(changed.device, .recorder)
-        expectTrue(await deleteAReservation(model, changed), model.problem ?? "no reason given")
+        expectTrue(await deleteAReservation(model, changed), model.problem(for: .recorder) ?? "no reason given")
 
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: asked), 1)
         expectEqual(await recorder.asked("X_DeleteRecordSchedule", since: asked), 1)
         expectEqual(await television.calls, calls, "the recorder's row reached the television")
         expectEqual(await television.schedules.map(\.id), [same.id, other.id])
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertEqual(model.problem(for: .tv), Self.left, "the recorder's work cleared the television's line")
         XCTAssertEqual(model.reservations(for: program).map(\.device), [.tv])
         XCTAssertEqual(model.reservation(for: program)?.device, .tv, "the television's reservation has no mark")
@@ -174,13 +175,13 @@ final class TVReservationTests: XCTestCase {
         let host = try XCTUnwrap(model.tvHost)
         let gone = try XCTUnwrap(host.reservations.first { $0.id == "recording.41" })
         await television.put([Self.followed(42)])
-        model.problem = Self.left
+        leaveALine(on: model)
         let asked = await recorder.asked
 
         expectEqual(await model.change(gone, quality: "DR", repeating: "daily"), .notDone(TVDriver.notInList))
 
         expectEqual(await recorder.asked, asked, "a change of the television's row reached the recorder")
-        XCTAssertEqual(model.problem, Self.left, "the television's refusal is on the recorder's line")
+        XCTAssertEqual(model.problem(for: .recorder), Self.left, "the television's refusal is on the recorder's line")
         XCTAssertEqual(host.reservations.map(\.id), ["recording.42"], "the list read on the way was not kept")
 
         let televisions = try XCTUnwrap(host.reservations.first)
@@ -191,21 +192,21 @@ final class TVReservationTests: XCTestCase {
 
         expectEqual(await television.calls, calls, "the recorder's change sent a television's row to the television")
         expectEqual(await recorder.asked, asked, "the recorder's change looked for a television's row")
-        XCTAssertEqual(model.problem, Self.left)
+        XCTAssertEqual(model.problem(for: .recorder), Self.left)
         XCTAssertEqual(host.problem, Self.left)
 
         let recorders = try aRecordersReservation(model)
         expectEqual(await model.change(recorders, quality: "ER", repeating: "none"), .done(saying: nil),
-                    model.problem ?? "no reason given")
-        XCTAssertNil(model.problem)
+                    model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertNil(model.problem(for: .recorder))
         let changed = try XCTUnwrap(model.reservations.first { $0.id == recorders.id })
-        expectTrue(await deleteAReservation(model, changed), model.problem ?? "no reason given")
+        expectTrue(await deleteAReservation(model, changed), model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await model.change(changed, quality: "DR", repeating: "none"),
                     .notDone("この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"))
         let another = try aRecordersReservation(model)
         expectEqual(await model.change(another, quality: "知らない画質", repeating: "none"),
                     .notDone(Said.notInTheTables))
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertEqual(host.problem, Self.left, "the recorder's work wrote on the television's line")
         expectEqual(await television.calls, calls, "the recorder's changes reached the television")
         expectEqual(await recorder.asked("X_UpdateRecordSchedule", since: asked), 1)
@@ -230,7 +231,7 @@ final class TVReservationTests: XCTestCase {
         let held = try XCTUnwrap(host.reservations.first { $0.id == "recording.42" })
         await television.put([DemoTV.Schedule(id: "recording.41", start: Self.soon, eventId: 49_999),
                               Self.followed(42)])
-        model.problem = Self.left
+        leaveALine(on: model)
         host.problem = Self.left
         let asked = await recorder.asked
         var calls = await television.calls
@@ -239,7 +240,7 @@ final class TVReservationTests: XCTestCase {
 
         XCTAssertNil(model.problem(for: .tv), "the television's line was not cleared by the read, or says the result")
         expectEqual(Array(await television.calls.dropFirst(calls.count)), ["getScheduleList cookie=yes pin=no"])
-        XCTAssertEqual(model.problem, Self.left)
+        XCTAssertEqual(model.problem(for: .recorder), Self.left)
 
         await television.goSilent()
         _ = await link.ensureUp(evenIfRecent: true)
@@ -264,12 +265,13 @@ final class TVReservationTests: XCTestCase {
         await recorder.goQuiet(for: 1)
         expectFalse(await makeSure(model))
         XCTAssertTrue(model.offline)
-        model.problem = Self.left
+        leaveALine(on: model)
         let heard = await recorder.asked
 
         expectEqual(await model.cancel(recorders), .notDone(RecorderDriver.notConnected))
 
-        XCTAssertEqual(model.problem, Self.left, "a delete turned away at its door wrote the recorder's line")
+        XCTAssertEqual(model.problem(for: .recorder), Self.left,
+                       "a delete turned away at its door wrote the recorder's line")
         expectEqual(await recorder.asked, heard, "a recorder given up on was sent a delete")
         XCTAssertTrue(model.reservations.contains(recorders))
         expectEqual(await recorder.asked("X_DeleteRecordSchedule", since: asked), 0)
@@ -334,13 +336,13 @@ final class TVReservationTests: XCTestCase {
         // Behind the app's back the television lets go of the row the app still shows, and has another.
         await television.put([Self.row(43)])
         let read = try XCTUnwrap(host.reservationsRead)
-        model.problem = Self.left
+        leaveALine(on: model)
         asked = await recorder.asked
 
         expectEqual(await model.cancel(besideRow), .notDone(TVDriver.notInList))
 
         XCTAssertNil(model.problem(for: .tv))
-        XCTAssertEqual(model.problem, Self.left, "the television's failure is on the recorder's line")
+        XCTAssertEqual(model.problem(for: .recorder), Self.left, "the television's failure is on the recorder's line")
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43"], "the list read on the way was not kept")
         XCTAssertGreaterThan(try XCTUnwrap(host.reservationsRead), read)
         expectEqual(await recorder.asked, asked)
@@ -402,7 +404,7 @@ final class TVReservationTests: XCTestCase {
         let reading = Task { await second.loadReservations() }
         try await until("the read of the television's list was never out") { await door.isHolding }
         XCTAssertEqual(model.busy, TVDriver.readingLine)
-        model.problem = Self.left
+        leaveALine(on: model)
 
         model.removeTV()
 
@@ -424,7 +426,7 @@ final class TVReservationTests: XCTestCase {
 
         expectEqual(await recorder.asked, asked, "a row of a television taken away reached the recorder")
         expectEqual(await television.calls, calls, "a television taken away was asked")
-        XCTAssertEqual(model.problem, Self.left)
+        XCTAssertEqual(model.problem(for: .recorder), Self.left)
         model.removeTV()
         XCTAssertEqual(model.tvTimesForgotten, told + 1, "told of a television that was not there to let go of")
     }
@@ -487,14 +489,14 @@ final class TVReservationTests: XCTestCase {
         XCTAssertFalse(listed.isEmpty, "the invented recorder's reservations were not read")
         XCTAssertEqual(model.shownReservations, listed)
         XCTAssertEqual(model.allReservations, listed)
-        model.problem = Self.left
+        leaveALine(on: model)
         let calls = await television.calls
 
         expectFalse(await deleteAReservation(model, held))
         expectEqual(await model.change(held, quality: "DR", repeating: "none"), .notDone(TVDriver.notConnected))
 
         XCTAssertEqual(model.reservations, listed, "the television's row reached the invented recorder")
-        XCTAssertEqual(model.problem, Self.left)
+        XCTAssertEqual(model.problem(for: .recorder), Self.left)
         expectEqual(await television.calls, calls, "the real television was asked from inside the demo")
 
         XCTAssertTrue(link.session.connected, "the link let go of is not one the television would still answer")
@@ -520,7 +522,7 @@ final class TVReservationTests: XCTestCase {
         let model = bench.model(recorder: SilentRecorder(), television: DemoTV(), credentials: MemoryTVCredentials())
         let host = try XCTUnwrap(model.tvHost)
         // The first line of a model that has not been started, so the first number its list gives out.
-        let mine = model.beginActivity("録画一覧を取得中")
+        let mine = beginARecorderLine("録画一覧を取得中", on: model)
         XCTAssertTrue(model.isBusy(for: .recorder))
         XCTAssertFalse(model.isBusy(for: .tv), "the recorder's work holds a button of the television's back")
         model.removeTV()
@@ -532,7 +534,7 @@ final class TVReservationTests: XCTestCase {
         host.endActivity(line)
         XCTAssertEqual(model.busy, "録画一覧を取得中", "a host the app let go of took a line of the model's down")
 
-        model.endActivity(mine)
+        endARecorderLine(mine, on: model)
         XCTAssertNil(model.busy)
     }
 
@@ -564,7 +566,7 @@ final class TVReservationTests: XCTestCase {
         await recorder.goQuiet(for: 1)
         expectFalse(await makeSure(model))
         XCTAssertTrue(model.offline)
-        let asked = await recorder.asked, said = model.problem
+        let asked = await recorder.asked, said = model.problem(for: .recorder)
         await television.put([Self.row(41), Self.row(42), Self.row(43)])
 
         await host.loadReservations()
@@ -575,7 +577,7 @@ final class TVReservationTests: XCTestCase {
         expectEqual(await television.schedules.map(\.id), ["recording.42", "recording.43"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.43", "recording.42"])
         expectEqual(await recorder.asked, asked, "the television's work asked a recorder that was given up on")
-        XCTAssertEqual(model.problem, said)
+        XCTAssertEqual(model.problem(for: .recorder), said)
         XCTAssertTrue(model.offline)
     }
 
@@ -602,7 +604,7 @@ final class TVReservationTests: XCTestCase {
 
         expectEqual(await television.schedules.map(\.id), ["recording.41"])
         XCTAssertEqual(host.reservations.map(\.id), ["recording.41"])
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertEqual(bench.clientsMade, 0, "a client was made for a recorder nobody saved")
     }
 

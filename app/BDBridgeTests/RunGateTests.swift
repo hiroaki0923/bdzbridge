@@ -1845,7 +1845,7 @@ final class RunGateTests: XCTestCase {
         let writer = Writer(to: bench.guidePath)
         let freed = Task {
             try await until("the cache was never said not to have been made over") {
-                model.problem == Said.cacheNotMadeOver
+                model.problem(for: .recorder) == Said.cacheNotMadeOver
             }
             writer.letGo()
         }

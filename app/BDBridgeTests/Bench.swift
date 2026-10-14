@@ -1237,6 +1237,9 @@ enum Said {
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
+    /// What the strip says while another recorder has taken the last one's place and the app is connected.
+    static let anotherTookOver = "別のレコーダーが応答したため、一覧を読み直しました。"
+        + "操作の途中だった場合は、確かめてからやり直してください。"
     /// Written on the rows of the phone's queue, and counted by being equal to this.
     static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
         + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
@@ -1319,6 +1322,15 @@ func leaveALine(on model: AppModel) { model.problem = lineLeft }
 @MainActor
 func clearTheLine(on model: AppModel) { model.problem = nil }
 
+/// Puts a line of the recorder's work up on the strip, as an operation on the recorder does: its token, for
+/// `endARecorderLine`.
+@MainActor
+func beginARecorderLine(_ text: String, on model: AppModel) -> Activities.Token { model.beginActivity(text) }
+
+/// Takes that line down again.
+@MainActor
+func endARecorderLine(_ token: Activities.Token, on model: AppModel) { model.endActivity(token) }
+
 // MARK: - what the tests do to the connection
 //
 // By what each does rather than by the model's name for it. Where the connection lives can change; the tests
@@ -1372,6 +1384,15 @@ func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality
     case .made, .waiting: return true
     case .wouldStop, .notDone: return false
     }
+}
+
+/// The recorder's reservations read as a screen reads them as it appears: the list this read came back with,
+/// kept on the screens unless the recorder it was read from was let go of while it was out, and nil when nothing
+/// was read.
+@MainActor
+@discardableResult
+func readTheReservations(_ model: AppModel) async -> [Reservation]? {
+    await model.loadReservations(since: model.timesForgotten)
 }
 
 /// The row the last reservation on the recorder kept on the phone; nil when it was made or not done.

@@ -844,8 +844,8 @@ extension LiveRecorderTests {
     /// one: through a link with the recorder's driver (`RecorderDriver.reserve`, `update`, `cancel`), sent through
     /// the app's own transport, with a world of the tests' own as the link's host -- a cache in a temporary folder,
     /// and the app's timings for the USB slot rather than the moments the other tests of links give. It prints how
-    /// soon the list shows the reservation, the change and the delete, which is what a later change that looks for
-    /// a reservation by its programme, or waits for the list to show a change, is to be built on. The steps are
+    /// soon the list shows the reservation, the change and the delete, which is what anything that looks for a
+    /// reservation by its programme, or waits for the list to show a change, is to be built on. The steps are
     /// `DriverCheck.run`, rehearsed on an invented recorder first (`DriverCheckRehearsalTests`).
     ///
     ///     RECORDER_HOST=192.0.2.63 RECORDER_MAC=<the recorder's MAC> RECORDER_WRITE=1 \

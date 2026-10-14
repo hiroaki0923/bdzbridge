@@ -8,9 +8,9 @@ import XCTest
 /// after it and in which order, which reservation the write goes to, what a refusal, silence and not being
 /// connected each leave behind, and what does and does not go to the queue.
 ///
-/// Gates, as `FunnelGateTests` are and for the same move: each pins what the app does today, with what nobody
-/// would choose among it, and where a later change is to rewrite a test it says so, with that change's name in
-/// the plan in brackets. A test asks only what a screen asks and reads only what a screen reads.
+/// Gates, as `FunnelGateTests` are: each pins what the app does today, with what nobody would choose among it,
+/// and says so where that is what it pins. A test asks only what a screen asks and reads only what a screen
+/// reads.
 ///
 /// A delete and a change are written out in the model by hand, each with a read of the list before it and one
 /// after, rather than run through the funnel, so what is held of one is held of the other (`ReservationWrite`).
@@ -545,8 +545,8 @@ final class ReservationGateTests: XCTestCase {
     /// the recorder no longer answers at, or, after a connect at the same address, out of line with the
     /// connect's own client, whose queue it does not share, to a recorder that answers 503 to two at once.
     ///
-    /// As it is today, and to stay: a later change that moves these writes has to read the client after the
-    /// read as they do here.
+    /// As it is today, and to stay: wherever these writes are made, they read the client after the read as they
+    /// do here.
     ///
     /// The address is moved by hand, where the search that finds the recorder elsewhere would move it: the
     /// choice of another address waits while the read's line is up (`canChangeRecorder`), and on the bench that
@@ -593,9 +593,9 @@ final class ReservationGateTests: XCTestCase {
     /// a reservation the newcomer holds and the first recorder never had among it -- and not the list the delete
     /// read before the newcomer arrived. The answer is no, under the refusal's sentence.
     ///
-    /// As it is today, and to stay: a later change has whoever keeps a list read on an operation's behalf keep
-    /// it only while the recorder the operation began with is still the one in play, and the newcomer's list is
-    /// what is left on screen then as now.
+    /// As it is today, and to stay: whoever keeps a list read on an operation's behalf keeps it only while the
+    /// recorder the operation began with is still the one in play, and the newcomer's list is what is left on
+    /// screen.
     func testAWriteOutAcrossAnotherRecordersConnectLeavesTheNewcomersListOnScreen() async throws {
         let (_, recorder, model) = try await connectedHome()
         addTeardownBlock { await recorder.letGo() }
@@ -812,11 +812,11 @@ final class ReservationGateTests: XCTestCase {
         addTeardownBlock { await recorder.letGo() }
         let before = await recorder.asked
         await recorder.holdTheNext(Kind.list)
-        let first = Task { await model.loadReservations(since: model.timesForgotten) }
+        let first = Task { await readTheReservations(model) }
         try await until("the list was never asked for") {
             await recorder.asked(Kind.list, since: before) == 1
         }
-        let second = Task { await model.loadReservations(since: model.timesForgotten) }
+        let second = Task { await readTheReservations(model) }
         // Long enough for the second read to be asked for while the first is out.
         try await Task.sleep(for: .milliseconds(300))
         await recorder.letGo()
@@ -1083,8 +1083,7 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertTrue(isConnecting(model))
         XCTAssertTrue(model.connected)
 
-        let forgotten = model.timesForgotten
-        let reading = Task { await model.loadReservations(since: forgotten) }
+        let reading = Task { await readTheReservations(model) }
         let reserved = try await within(5, "the reservation waited for the connect") {
             await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
         }

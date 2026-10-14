@@ -35,7 +35,8 @@ final class DriverCheckRehearsalTests: XCTestCase {
         let after = await recorder.rows
         let itsOwn = try XCTUnwrap(after.first(where: { $0.creator == "1100" && $0.request.start == six }))
         XCTAssertEqual(itsOwn.request, try Self.itsOwnAtSix(), "the recorder's own row was written to")
-        XCTAssertTrue(after.contains(before[0]), "the household's reservation was written to")
+        let household = try XCTUnwrap(before.first, "the recorder began with no reservation")
+        XCTAssertTrue(after.contains(household), "the household's reservation was written to")
         XCTAssertEqual(after.count, before.count)
     }
 
@@ -55,15 +56,17 @@ final class DriverCheckRehearsalTests: XCTestCase {
         XCTAssertTrue(failed.description.hasPrefix("2 new reservations"), failed.description)
         let made = await recorder.made
         XCTAssertEqual(made.count, 1)
+        let checksOwn = try XCTUnwrap(made.first, "the check made no reservation")
         expectEqual(await recorder.changed, [], "a row was changed though the check's own could not be told")
         expectEqual(await recorder.deleted, [], "a row was deleted though the check's own could not be told")
         let six = try Self.date("2026-09-14T06:00:00+09:00")
         let after = await recorder.rows
-        let itsOwn = try XCTUnwrap(after.first(where: { $0.id != made[0].id && $0.request.start == six }))
+        let itsOwn = try XCTUnwrap(after.first(where: { $0.id != checksOwn.id && $0.request.start == six }))
         XCTAssertEqual(itsOwn.creator, "2200")
         XCTAssertEqual(itsOwn.request, try Self.itsOwnAtSix(), "the recorder's own row was written to")
-        XCTAssertTrue(after.contains(made[0]), "the check's own was written to")
-        XCTAssertTrue(after.contains(before[0]), "the household's reservation was written to")
+        XCTAssertTrue(after.contains(checksOwn), "the check's own was written to")
+        XCTAssertTrue(after.contains(try XCTUnwrap(before.first, "the recorder began with no reservation")),
+                      "the household's reservation was written to")
         XCTAssertTrue(lines.contains { $0.hasPrefix("may be left on the recorder: a reservation at "
                                                     + RecorderTime.format(six)) }, "\(lines)")
     }

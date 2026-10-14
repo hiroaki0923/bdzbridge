@@ -818,7 +818,7 @@ final class ScanTests: XCTestCase {
         try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
         try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
         XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
-        XCTAssertNil(model.problem, "something red was said")
+        XCTAssertNil(model.problem(for: .recorder), "something red was said")
         bench.letSingleRequestsGo(2)
         try await until("the search never came to its third pause", within: 3) { bench.scanPauses.count == 3 }
         await subnet.letEverythingOut()
@@ -1043,7 +1043,8 @@ final class ScanTests: XCTestCase {
 
         XCTAssertTrue(model.demo, "choosing the demo's own recorder ended the demo")
         XCTAssertEqual(model.host, DemoData.host)
-        XCTAssertTrue(model.connected, "the demo's recorder was not connected to: \(model.problem ?? "no reason")")
+        XCTAssertTrue(model.connected,
+                      "the demo's recorder was not connected to: \(model.problem(for: .recorder) ?? "no reason")")
     }
 
     /// A television found can be tapped while none is saved, and not once one is: its row is then listed, the

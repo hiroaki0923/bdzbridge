@@ -342,7 +342,8 @@ final class FunnelGateTests: XCTestCase {
     /// leaves the line and the list as they were.
     func testAProtectedRecordingIsTurnedAwayAtTheDeletesDoor() async throws {
         let (_, recorder, model, subjects) = try await settled()
-        expectTrue(await protectARecording(model, subjects.spare, true), model.problem ?? "no reason given")
+        expectTrue(await protectARecording(model, subjects.spare, true),
+                   model.problem(for: .recorder) ?? "no reason given")
         let held = try XCTUnwrap(model.titles.first { $0.id == subjects.spare.id && $0.protected },
                                  "the recording was meant to be held as protected")
         let titles = model.titles
@@ -945,7 +946,7 @@ final class FunnelGateTests: XCTestCase {
         await recorder.answer(Kind.guide[1], with: .body(guide))
         await recorder.goQuiet(on: Ask.logos[1])
         await recorder.letGo()
-        await asking.value
+        _ = await asking.value
         XCTAssertTrue(model.gaveUp, "the recorder was meant to have fallen silent over the logos")
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
         expectEqual(await recorder.asked(Kind.guide[2], since: before), 0, "a silent recorder was asked for more")
@@ -1374,8 +1375,8 @@ final class FunnelGateTests: XCTestCase {
     /// recorder answers the check, if only to say it is busy with somebody else, they are asked and answered: a
     /// request with no line goes on after such a check, as the clash check does.
     ///
-    /// As it is, and to stay: the clash check and the details are left as they are by a later change that sends
-    /// no write and reads no list after a check that heard the recorder busy.
+    /// As it is, and to stay: the clash check and the details go on after a check that heard the recorder busy,
+    /// whatever is done about the writes and the reads of a list after such a check.
     func testARecordingsDetailsWaitForTheCheckAndGoOnAfterOneThatHeardTheRecorderBusy() async throws {
         let (_, recorder, model, subjects) = try await settled()
         // Nothing public says that the details are waiting for the check, so they are taken to be once ten looks
@@ -1994,10 +1995,11 @@ final class FunnelGateTests: XCTestCase {
     /// having met silence and said so -- gives what the link said of it, as the reservations' delete and change
     /// do: over an empty line, that the app is not connected, the recorder having said nothing that can be told.
     ///
-    /// The last case stands for a read turned away for the local network permission, which writes nothing on
-    /// the line either and which this bench cannot have a recorder's check meet: the bench puts nothing on the
-    /// network, and its recorder's check never looks at the permission. Over a line left, that line is the
-    /// reason there, as for the reservations: not pinned.
+    /// A read turned away for the local network permission is not this last case: the link takes the line down
+    /// as it begins to wait for the permission (`DeviceLink`), so no line left is the reason there, and what is
+    /// said is that the permission is not given. This bench cannot have a recorder's check meet the permission
+    /// -- it puts nothing on the network, and its recorder's check never looks at it -- so that is not pinned
+    /// here.
     func testTheConditionsReasonIsTheLineOrThatTheAppIsNotConnected() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
 

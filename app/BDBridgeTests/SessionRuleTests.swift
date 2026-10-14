@@ -23,7 +23,7 @@ final class SessionRuleTests: XCTestCase {
         let model = bench.model(recorder: recorder)
         await model.start()
         try await until("the first connect never ended", within: 20) {
-            !isConnecting(model) && (model.connected || model.gaveUp || model.problem != nil)
+            !isConnecting(model) && (model.connected || model.gaveUp || model.problem(for: .recorder) != nil)
         }
         return model
     }
@@ -42,7 +42,7 @@ final class SessionRuleTests: XCTestCase {
         XCTAssertFalse(model.connected)
         XCTAssertFalse(model.gaveUp, "an answer was taken for silence")
         XCTAssertFalse(model.offline)
-        XCTAssertNotNil(model.problem, "nothing on screen says why the app is not connected")
+        XCTAssertNotNil(model.problem(for: .recorder), "nothing on screen says why the app is not connected")
 
         let asked = await recorder.asked("description.xml")
         model.wentToBackground()
@@ -60,9 +60,9 @@ final class SessionRuleTests: XCTestCase {
                                                  "X_HDLnkGetRecordDestinationInfo"])
         let model = try await started(bench, recorder: recorder)
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertFalse(model.gaveUp)
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertEqual(model.firmware, "")
         XCTAssertNil(model.storage)
         XCTAssertNil(model.mac)
@@ -215,13 +215,13 @@ final class SessionRuleTests: XCTestCase {
         try await untilGivenUp(away)
         let program = try await aProgramme(away)
         expectTrue(await reserveOnTheRecorder(away, program, quality: "DR", repeating: "none"),
-                   away.problem ?? "no reason given")
+                   away.problem(for: .recorder) ?? "no reason given")
 
         let recorder = NamedRecorder(1)
         let model = bench.model(recorder: recorder)
         await model.connect()
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 1, "what waited was not sent")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
         XCTAssertNotNil(model.reservation(for: program), "the recorder's list was not read")
@@ -240,7 +240,7 @@ final class SessionRuleTests: XCTestCase {
         expectFalse(await makeSure(model))
         let program = try await aProgramme(model)
         expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
-                   model.problem ?? "no reason given")
+                   model.problem(for: .recorder) ?? "no reason given")
         XCTAssertNotNil(model.pending(for: program))
         let attached = model.timesAttached
 
@@ -273,7 +273,7 @@ final class SessionRuleTests: XCTestCase {
         let before = await recorder.asked
         expectFalse(await deleteARecording(model, title), "a delete went out after a check that heard busy")
         XCTAssertEqual(whyNotJustNow(model), Said.busy("description.xml"))
-        XCTAssertEqual(model.problem, Said.busy("description.xml"))
+        XCTAssertEqual(model.problem(for: .recorder), Said.busy("description.xml"))
         expectEqual(await recorder.asked("X_DeleteTitle", since: before), 0)
         XCTAssertFalse(model.offline)
     }
@@ -299,7 +299,7 @@ final class SessionRuleTests: XCTestCase {
 
         try await untilConnected(model, "the recorder coming up was given up on")
         XCTAssertFalse(model.gaveUp)
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
     }
 
     /// A connect asked for while the check before an operation is waking the recorder waits for that check
@@ -319,7 +319,7 @@ final class SessionRuleTests: XCTestCase {
 
         XCTAssertEqual(bench.clientsMade, made, "the connect made a client beside the check's")
         let answered = await check.value
-        XCTAssertTrue(answered, model.problem ?? "no reason given")
+        XCTAssertTrue(answered, model.problem(for: .recorder) ?? "no reason given")
         XCTAssertTrue(model.connected)
     }
 
@@ -339,7 +339,7 @@ final class SessionRuleTests: XCTestCase {
         await recorder.goQuiet(for: 1)
         let answered = try await within(5, "the check waited for itself") { await makeSure(model) }
 
-        XCTAssertTrue(answered, model.problem ?? "no reason given")
+        XCTAssertTrue(answered, model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 1, "what waited was not sent")
         XCTAssertNotNil(model.reservation(for: program), "the list was not read again")
     }
@@ -366,7 +366,7 @@ final class SessionRuleTests: XCTestCase {
         expectEqual(await recorder.asked, asked + 1, "more was asked than the list the round opens with")
         expectEqual(try await GuideStore(path: bench.guidePath).pendingReservations().map(\.problem), [nil])
         XCTAssertTrue(model.gaveUp)
-        XCTAssertEqual(model.problem, Said.noAnswer)
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
     }
 
     /// While the recorder is being made sure of, whatever else is asked waits for that answer rather than
@@ -392,7 +392,7 @@ final class SessionRuleTests: XCTestCase {
         _ = await check.value
         let kept = await reserving.value
 
-        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNotNil(model.pending(for: program))
         expectEqual(await recorder.asked, asked + 1, "something besides the one check was sent")
         XCTAssertTrue(model.offline)
@@ -412,7 +412,7 @@ final class SessionRuleTests: XCTestCase {
         await recorder.setReachable(true)
         await model.connect()
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
         XCTAssertNotNil(model.reservation(for: program), "the recorder does not hold the reservation")
         XCTAssertNotNil(model.flushReport, "nothing on screen says the waiting reservation was sent")
@@ -495,13 +495,13 @@ final class SessionRuleTests: XCTestCase {
         // one of the copies: deleting the one ticked would take the set, and its tick, away before the choice.
         let copies = Set(model.duplicates.flatMap { $0.items.map(\.id) })
         let gone = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected && !copies.contains($0.id) })
-        expectTrue(await deleteARecording(model, gone), model.problem ?? "no reason given")
+        expectTrue(await deleteARecording(model, gone), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertFalse(model.duplicatePicks.isEmpty)
         let attached = model.timesAttached
 
         await model.adopt(host: Bench.otherHost)
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertEqual(model.info?.host, Bench.otherHost)
         XCTAssertEqual(model.timesAttached, attached + 1, "the tutorial would not close on this answer")
         XCTAssertFalse(model.reservations.isEmpty, "the connect did not read the reservations")
@@ -538,12 +538,12 @@ final class SessionRuleTests: XCTestCase {
         let ticked = try XCTUnwrap(model.duplicatePicks.first, "neither copy came up ticked")
         let copy = try XCTUnwrap(model.titles.first { $0.id == ticked })
         XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中")
-        expectTrue(await protectARecording(model, copy, true), model.problem ?? "no reason given")
+        expectTrue(await protectARecording(model, copy, true), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set does not say the copy is protected")
         XCTAssertTrue(model.duplicatePicks.isEmpty, "a copy the recorder will not delete is still ticked")
-        expectTrue(await protectARecording(model, copy, false), model.problem ?? "no reason given")
+        expectTrue(await protectARecording(model, copy, false), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertNotEqual(model.duplicates.first?.reasons[ticked], "保護中", "the set says the copy is still protected")
-        expectTrue(await deleteARecording(model, copy), model.problem ?? "no reason given")
+        expectTrue(await deleteARecording(model, copy), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertTrue(model.duplicates.isEmpty, "a set of one copy is still shown")
 
         // A copy deleted on the recorder's own screen, and the list read again.
@@ -567,7 +567,7 @@ final class SessionRuleTests: XCTestCase {
 
         await model.adopt(host: Bench.host)
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertEqual(model.timesAttached, attached + 1, "the address in use, chosen again, did not connect again")
         XCTAssertTrue(model.titlesLoaded, "the recordings would be read again")
         XCTAssertEqual(model.titles.map(\.id), recordings)
@@ -587,11 +587,11 @@ final class SessionRuleTests: XCTestCase {
         try await untilGivenUp(model)
         await model.adopt(host: "bdz.local")
         await model.loadTitles()
-        XCTAssertTrue(model.titlesLoaded, model.problem ?? "no reason given")
+        XCTAssertTrue(model.titlesLoaded, model.problem(for: .recorder) ?? "no reason given")
 
         await model.adopt(host: "BDZ.local")
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertTrue(model.titlesLoaded, "the recordings would be read again for a name spelled another way")
     }
 
@@ -607,7 +607,7 @@ final class SessionRuleTests: XCTestCase {
         try await untilGivenUp(model)
         let program = try await aProgramme(model)
         expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
-                   model.problem ?? "no reason given")
+                   model.problem(for: .recorder) ?? "no reason given")
 
         await model.adopt(host: Bench.otherHost)
 
@@ -654,7 +654,7 @@ final class SessionRuleTests: XCTestCase {
         await model.enterDemo()
 
         XCTAssertTrue(model.demo)
-        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNil(model.job, "the last recorder's job is shown over the demo")
         XCTAssertTrue(model.duplicatePicks.isEmpty)
     }
@@ -667,7 +667,7 @@ final class SessionRuleTests: XCTestCase {
         let model = bench.modelWithNoRecorder()
         await model.start()
         await model.enterDemo()
-        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertFalse(model.reservations.isEmpty)
 
         await model.leaveDemo()
@@ -692,18 +692,18 @@ final class SessionRuleTests: XCTestCase {
         try await untilGivenUp(model)
         let program = try await aProgramme(model)
         expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
-                   model.problem ?? "no reason given")
+                   model.problem(for: .recorder) ?? "no reason given")
         await recorder.setReachable(true)
         await model.connect()
         XCTAssertNotNil(model.flushReport, "nothing on the strip says the waiting reservation was sent")
         await model.loadRecorderRules()
         XCTAssertNotNil(model.recorderRulesFailure, "the keyword conditions were read after all")
-        XCTAssertNotNil(model.problem)
+        XCTAssertNotNil(model.problem(for: .recorder))
 
         let choosing = Task { await model.adopt(host: Bench.otherHost) }
         try await until("the address chosen was never asked") { await other.asked > 0 }
 
-        XCTAssertNil(model.problem, "the last recorder's failure is said of the recorder chosen")
+        XCTAssertNil(model.problem(for: .recorder), "the last recorder's failure is said of the recorder chosen")
         XCTAssertNil(model.flushReport, "the strip says the queue went to a recorder the app has left")
         XCTAssertNil(model.recorderRulesFailure, "the last recorder's refusal is given for the one chosen")
 
@@ -733,7 +733,7 @@ final class SessionRuleTests: XCTestCase {
         try await until("the recording's details were never asked for") { await first.asked > asked }
         XCTAssertTrue(model.canChangeRecorder, "something on the strip says a request is out")
         await model.adopt(host: Bench.otherHost)
-        XCTAssertEqual(model.info?.host, Bench.otherHost, model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.host, Bench.otherHost, model.problem(for: .recorder) ?? "no reason given")
         await first.letGo()
         _ = await reading.value
         XCTAssertTrue(model.connected, "silence from the recorder left was taken for the one chosen")
@@ -747,12 +747,12 @@ final class SessionRuleTests: XCTestCase {
         try await until("the clashes were never asked for") { await second.asked > asked }
         XCTAssertTrue(model.canChangeRecorder, "something on the strip says a request is out")
         await model.adopt(host: Bench.host)
-        XCTAssertEqual(model.info?.host, Bench.host, model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.host, Bench.host, model.problem(for: .recorder) ?? "no reason given")
         await second.letGo()
         _ = await checking.value
         XCTAssertTrue(model.connected, "silence from the recorder left was taken for the one chosen")
         XCTAssertFalse(model.gaveUp)
-        XCTAssertNil(model.problem, "what the recorder left ran into is said of the one chosen")
+        XCTAssertNil(model.problem(for: .recorder), "what the recorder left ran into is said of the one chosen")
     }
 
     /// A model whose recorder was busy with somebody else when the first connect asked who it is: there, not
@@ -765,7 +765,9 @@ final class SessionRuleTests: XCTestCase {
         try await bench.cacheAGuide()
         let model = bench.model(recorders: [Bench.host: recorder])
         await model.start()
-        try await until("the first connect never ended") { !isConnecting(model) && model.problem != nil }
+        try await until("the first connect never ended") {
+            !isConnecting(model) && model.problem(for: .recorder) != nil
+        }
         XCTAssertFalse(model.connected)
         XCTAssertFalse(model.offline, "it answered, so the screens do not take it for gone")
         XCTAssertFalse(model.gaveUp)
@@ -800,7 +802,7 @@ final class SessionRuleTests: XCTestCase {
         await model.refreshReservations()
         made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 1, "the recorder was not asked again, or what waits was not sent once it answered")
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
         XCTAssertNotNil(model.reservation(for: program), "the recorder's list was not read")
     }
@@ -815,13 +817,13 @@ final class SessionRuleTests: XCTestCase {
         var made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 0, "what waits was sent to a recorder that has not said which it is")
         XCTAssertFalse(model.connected)
-        XCTAssertNotNil(model.problem, "nothing on screen says why it was not sent")
+        XCTAssertNotNil(model.problem(for: .recorder), "nothing on screen says why it was not sent")
 
         await recorder.comeFree()
         await model.resend(waiting)
         made = await recorder.asked("X_CreateRecordSchedule")
         XCTAssertEqual(made, 1, "the recorder was not asked again, or what waits was not sent once it answered")
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNil(model.pending(for: program), "the reservation is still waiting")
     }
 
@@ -865,7 +867,7 @@ final class SessionRuleTests: XCTestCase {
                         "what waits was not made once, by the connect's sending, \(what)")
             XCTAssertNil(model.pending(for: program), "the reservation still waits, \(what)")
             XCTAssertNotNil(model.reservation(for: program), "the recorder's list was not read, \(what)")
-            XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+            XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
         }
     }
 
@@ -885,12 +887,12 @@ final class SessionRuleTests: XCTestCase {
                 await recorder.goQuiet(on: "X_GetTitleList")
                 await model.loadTitles()
                 expectEqual(await recorder.asked("X_GetTitleList", since: before), 1, what)
-                XCTAssertEqual(model.problem, Said.noAnswer, what)
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, what)
             case "the conditions":
                 await recorder.goQuiet(on: "X_GetPrefRecSettingList")
                 await model.loadRecorderRules()
                 expectEqual(await recorder.asked("X_GetPrefRecSettingList", since: before), 1, what)
-                XCTAssertEqual(model.problem, Said.noAnswer, what)
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, what)
                 XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer, what)
             default:
                 await model.loadTitles()
@@ -940,7 +942,7 @@ final class SessionRuleTests: XCTestCase {
 
             XCTAssertEqual(bench.clientsMade, made + 1, "\(how): pulling down did not connect")
             expectEqual(await recorder.asked("description.xml", since: before), 1, how)
-            XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+            XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
             XCTAssertFalse(model.gaveUp, how)
         }
     }
@@ -1000,7 +1002,7 @@ final class SessionRuleTests: XCTestCase {
                     expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
                 }
                 XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, how)
-                XCTAssertTrue(model.connected, model.problem ?? "no reason given")
+                XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
             }
         }
     }
@@ -1037,7 +1039,7 @@ final class SessionRuleTests: XCTestCase {
                 await model.refreshRecorderRules()
             }
 
-            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+            XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
             expectEqual(await recorder.asked(list, since: before), 1, "the list was not read once, \(how)")
             XCTAssertTrue(what == "the recordings" ? model.titlesLoaded : model.recorderRulesLoaded, how)
         }
