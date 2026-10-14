@@ -154,7 +154,7 @@ public final class RecorderDriver: LinkDriver {
             // A cache that is another recorder's and could not be made over to this one is no recorder to
             // connect to: the app would go on over the other's guide and texts.
             guard await settle(link, whoAnswered: try await client.describe(timeout: timeout)) else {
-                owner?.cacheCouldNotBeMadeOver()
+                recorderHost(owner)?.cacheCouldNotBeMadeOver()
                 return false
             }
             // The runs with no screen read the address from what the phone keeps.
@@ -208,7 +208,7 @@ public final class RecorderDriver: LinkDriver {
         let wasConnected = link.session.connected
         let inMemory = link.session.described(recorder)
         if inMemory == .another {
-            owner?.anotherDeviceDescribedItself(wasConnected: wasConnected)
+            recorderHost(owner)?.anotherDeviceDescribedItself(wasConnected: wasConnected)
             // The disk the slot was to be read again for was the last one's.
             link.endTheReadLeftForLater()
         }
@@ -229,14 +229,23 @@ public final class RecorderDriver: LinkDriver {
             onDisk = asked
         }
         guard inMemory == .another || onDisk == .another else { return true }
-        if let mac = link.session.mac, !recorder.hasMAC(mac) { owner.forgetMac() }
+        if let mac = link.session.mac, !recorder.hasMAC(mac) { recorderHost(owner)?.forgetMac() }
         guard onDisk == .another else { return true }
         // A USB disk known goes where the cache goes, from memory as well: one the session still holds was learned
         // from a recorder that did not say who it is, which the cache was taken to be of.
         link.endTheReadLeftForLater()
         link.session.learned(usbDisk: nil)
-        await owner.cacheMadeOver()
+        await recorderHost(owner)?.cacheMadeOver()
         return true
+    }
+
+    /// What only a recorder's link asks of its host, through the one host the link has. A recorder's link is
+    /// always given a recorder's host; one of another kind would attach with no claim on the cache and say
+    /// nothing of it, which a debug build stops at.
+    private func recorderHost(_ owner: (any LinkHost)?) -> (any RecorderLinkHost)? {
+        let host = owner as? any RecorderLinkHost
+        assert(owner == nil || host != nil, "a recorder's link is answered by a host that is not a recorder's")
+        return host
     }
 
     /// The free space as the screens show it, or nil when the recorder will not say. A disk of no size counts as
@@ -500,7 +509,7 @@ public final class RecorderDriver: LinkDriver {
         guard let moved = await findMoved(link) else { return .silent }
         link.host = moved.host
         // It is the recorder the MAC was read from, which its UDN has just said.
-        link.owner?.macWasReadAt(moved.host)
+        recorderHost(link.owner)?.macWasReadAt(moved.host)
         let found = makeClient(for: link)
         link.client = found
         return await attach(link, client: found, what: "接続中", timeout: probeTimeout, quiet: false)
@@ -530,7 +539,7 @@ public final class RecorderDriver: LinkDriver {
     /// After the reader types another recorder's address the MAC is still the old one's until the new one
     /// answers, and the search would quietly go back to the recorder just left.
     private func macWasReadHere(_ link: DeviceLink) -> Bool {
-        guard let readAt = link.owner?.macReadAt else { return true }
+        guard let readAt = recorderHost(link.owner)?.macReadAt else { return true }
         return readAt == link.host
     }
 

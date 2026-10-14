@@ -184,7 +184,7 @@ extension AppModel {
     }
 }
 
-/// What the recorder's link tells the model, and asks of it (`LinkHost`). Every one of these is the app's own
+/// What the recorder's link tells the model, and asks of it (`RecorderLinkHost`). Every one of these is the app's own
 /// state: the lines on the screen, the three keys the runs with no screen read, and the lists the screens hold of
 /// what the recorder said.
 extension AppModel {

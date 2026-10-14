@@ -1,11 +1,11 @@
 import Foundation
 @testable import RecorderKit
 
-/// Everything beyond a link, for the tests of links: the app it tells (`LinkHost`) and the network it reaches
+/// Everything beyond a link, for the tests of links: the app it tells (`RecorderLinkHost`) and the network it reaches
 /// (`LinkEnvironment`). What the link did to either is put down in `events`, in the order it did it, and the world
 /// answers as the test says: the device at each address in `devices`, silence anywhere else.
 @MainActor
-final class LinkWorld: LinkHost {
+final class LinkWorld: RecorderLinkHost {
     var events: [String] = []
     /// What answers at each address.
     var devices: [String: any HTTPTransport] = [:]

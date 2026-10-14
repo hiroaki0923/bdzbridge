@@ -542,8 +542,8 @@ final class LinkPartsTests: XCTestCase {
     /// read there, that it is to be forgotten, that another device described itself, or that the cache was made
     /// over to it or could not be. Not at an attach, at the check before an operation -- one that hears the
     /// television, one that hears another television at its address, one that meets silence -- at a sending of
-    /// what waits, nor at a let-go. The host here puts down each of the six it is asked, and the test fails on
-    /// any.
+    /// what waits, nor at a let-go. The host here is a `LinkHost` and no `RecorderLinkHost`, which has those six:
+    /// a link that asked one of a television's host would not build.
     func testATelevisionsLinkAsksItsHostNothingThatIsARecorders() async throws {
         let television = DemoTV()
         await television.receives([DemoTV.Station(serviceID: 0x428)])
@@ -562,37 +562,29 @@ final class LinkPartsTests: XCTestCase {
 
         await link.connect()
         XCTAssertTrue(link.session.connected, "the television was meant to be attached")
-        XCTAssertEqual(host.asked, [], "at the attach")
 
         expectTrue(await link.ensureUp(evenIfRecent: true), "the television was meant to answer its check")
-        XCTAssertEqual(host.asked, [], "at a check that heard the television")
 
         let sent = await driver.sendWhatWaits()
         XCTAssertNotNil(sent, "what waits was meant to be sent")
         expectEqual(try await store.pendingReservations(), [], "the reservation waiting was meant to be made")
-        XCTAssertEqual(host.asked, [], "at a sending")
 
         await television.becomeAnother(mac: "f8:4e:17:00:00:0b")
         expectFalse(await link.ensureUp(evenIfRecent: true), "another television was taken for the one saved")
-        XCTAssertEqual(host.asked, [], "at a check that heard another television")
 
         await television.goSilent()
         expectFalse(await link.ensureUp(evenIfRecent: true), "a television that said nothing was taken for one")
-        XCTAssertEqual(host.asked, [], "at a check that met silence")
 
         link.forgetTheDevice()
-        XCTAssertEqual(host.asked, [], "at a let-go")
     }
 }
 
-/// A host for a television's link that puts down what a recorder's link would ask of its host alone -- where its
-/// MAC was read, forgetting it, another device describing itself, the cache made over or not -- and answers
+/// A host for a television's link that has nothing of what a recorder's link would ask of its host alone -- where
+/// its MAC was read, forgetting it, another device describing itself, the cache made over or not -- and answers
 /// everything else as the world does (`LinkWorld`).
 @MainActor
 private final class NoRecorderHere: LinkHost {
     let world = LinkWorld()
-    /// What of the six it was asked, in order.
-    private(set) var asked: [String] = []
 
     var problem: String? {
         get { world.problem }
@@ -615,16 +607,6 @@ private final class NoRecorderHere: LinkHost {
     func sayNotConnected() { world.sayNotConnected() }
     func waitForPermission(at host: String) { world.waitForPermission(at: host) }
     func stopWaitingForPermission() { world.stopWaitingForPermission() }
-
-    var macReadAt: String? {
-        asked.append("macReadAt")
-        return nil
-    }
-    func macWasReadAt(_ host: String) { asked.append("macWasReadAt") }
-    func forgetMac() { asked.append("forgetMac") }
-    func anotherDeviceDescribedItself(wasConnected: Bool) { asked.append("anotherDeviceDescribedItself") }
-    func cacheMadeOver() async { asked.append("cacheMadeOver") }
-    func cacheCouldNotBeMadeOver() { asked.append("cacheCouldNotBeMadeOver") }
 }
 
 /// Counts the tasks a test set going that have begun, for the test to wait on rather than on a clock. A task

@@ -67,7 +67,8 @@ public struct LinkEnvironment {
 /// What a link tells the app, and asks of it: the lines on the screen, what the phone keeps, and the lists the
 /// app holds of what the device said. Called on the main actor at fixed points of an attempt. What is not
 /// `async` happens in the same turn as what caused it, and some of it has to: the lists another device's
-/// description makes stale go before any screen gets a turn over them.
+/// description makes stale go before any screen gets a turn over them. What only a recorder's link asks is
+/// `RecorderLinkHost`'s.
 @MainActor
 public protocol LinkHost: AnyObject, Sendable {
     /// The one line that says what went wrong.
@@ -91,18 +92,6 @@ public protocol LinkHost: AnyObject, Sendable {
     func keepAddress(_ host: String)
     /// The MAC the device reported, kept for waking it, with the address it was read at.
     func keepMAC(_ text: String)
-    /// Where the MAC kept was read, or nil when nobody knows.
-    var macReadAt: String? { get }
-    /// The MAC kept was read from the device now at `host`.
-    func macWasReadAt(_ host: String)
-    func forgetMac()
-    /// Another device has described itself where the last one was: what the app holds of the last one goes, in
-    /// this turn. `wasConnected` says whether it was connected to the last one when this one answered.
-    func anotherDeviceDescribedItself(wasConnected: Bool)
-    /// The cache has been made over to another device: what the screens show of it is read again.
-    func cacheMadeOver() async
-    /// Another device answered and the cache could not be made over to it: the app is not connected over it.
-    func cacheCouldNotBeMadeOver()
     /// Sends what waits for this device, and says what became of it. A driver asks for it from inside its
     /// attach, and a television's again when its list is pulled down, before the list is read.
     func sendWhatWaits() async
@@ -118,6 +107,25 @@ public protocol LinkHost: AnyObject, Sendable {
     /// Local network privacy is in the way at `host`: wait for the permission, and say so.
     func waitForPermission(at host: String)
     func stopWaitingForPermission()
+}
+
+/// What only a recorder's link asks of its host (`RecorderDriver`): where the MAC it wakes the recorder by was
+/// read, another recorder describing itself where the last one was, and the cache made over to it or not. A
+/// television's link asks none of it, and its host is a `LinkHost` alone.
+@MainActor
+public protocol RecorderLinkHost: LinkHost {
+    /// Where the MAC kept was read, or nil when nobody knows.
+    var macReadAt: String? { get }
+    /// The MAC kept was read from the device now at `host`.
+    func macWasReadAt(_ host: String)
+    func forgetMac()
+    /// Another device has described itself where the last one was: what the app holds of the last one goes, in
+    /// this turn. `wasConnected` says whether it was connected to the last one when this one answered.
+    func anotherDeviceDescribedItself(wasConnected: Bool)
+    /// The cache has been made over to another device: what the screens show of it is read again.
+    func cacheMadeOver() async
+    /// Another device answered and the cache could not be made over to it: the app is not connected over it.
+    func cacheCouldNotBeMadeOver()
 }
 
 /// What a link asks of the kind of device it is about: how to make a client, wake one, find one that has moved,
@@ -167,7 +175,7 @@ public enum NotUp: Sendable, Equatable {
     case anotherAnswered
     /// The device was let go of while it was made sure of, and not because the check heard another: the
     /// waking's attach was broken off by the host, which let go of the device -- over a cache that could not
-    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`) -- or something else let
+    /// be made over to the recorder that answered (`RecorderLinkHost.cacheCouldNotBeMadeOver`) -- or something else let
     /// go of it while the check met silence: another address chosen, another device described itself on a
     /// connect. As for `anotherAnswered`, what was asked for is not for the device in play now; the host has
     /// said why, or whatever let go of it has, and the silence is neither taken for the device in play nor said.

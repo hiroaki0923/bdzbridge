@@ -24,8 +24,8 @@ import RecorderKit
 /// for what the strip does not say. After either the list the driver read back is kept, and the queue on
 /// screen is read again.
 ///
-/// Most of what a link can tell its host is about a recorder -- its cache, its MAC and where it was read,
-/// another recorder taking its place -- and is nothing to a television: those are left empty.
+/// What only a recorder's link tells its host -- its cache, its MAC and where it was read, another recorder
+/// taking its place -- is nothing to a television, and is not asked of this (`RecorderLinkHost`).
 @MainActor
 @Observable
 final class TVHost: LinkHost {
@@ -233,13 +233,6 @@ final class TVHost: LinkHost {
         guard let model, inPlay, !model.demo, let mac = WakeOnLan.normalise(text) else { return }
         model.defaults.set(mac, forKey: DefaultsKey.tvMac)
     }
-
-    var macReadAt: String? { nil }
-    func macWasReadAt(_ host: String) {}
-    func forgetMac() {}
-    func anotherDeviceDescribedItself(wasConnected: Bool) {}
-    func cacheMadeOver() async {}
-    func cacheCouldNotBeMadeOver() {}
 
     /// What waits for the television is sent by its driver, and what that came to is kept (`tell`). With no
     /// sending -- nothing was to go, or the television could not be asked -- nothing changed, and nothing

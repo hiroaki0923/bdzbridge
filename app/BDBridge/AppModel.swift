@@ -21,7 +21,7 @@ import UserNotifications
 /// set it. The exception is `session`, which no file here can set a field of.
 @MainActor
 @Observable
-final class AppModel: LinkHost {
+final class AppModel: RecorderLinkHost {
     /// The connection to the recorder: its address, its client, what is known of it and when it is asked again
     /// (`DeviceLink`, with the recorder's ways in `RecorderDriver`). It tells the model what the screens need to
     /// hear (`LinkHost`, in `AppModelSession`).
