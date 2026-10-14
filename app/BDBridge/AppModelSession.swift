@@ -40,11 +40,6 @@ extension AppModel {
         if again.rules { await loadRecorderRulesNow() }
     }
 
-    /// Said when the recorder that answered is another one and the cache could not be made over to it: the
-    /// database is busy with another writer for longer than it will wait, or cannot be written to.
-    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
-        + "少し待ってから、もう一度お試しください。"
-
     /// What the strip says while `anotherTookOver` is set and the app is connected. Nobody need have asked
     /// for anything -- a change of network asks the recorder whether it is still there -- so it says what to
     /// do if something was being done, not that something was not.
@@ -249,13 +244,13 @@ extension AppModel {
         if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 
-    /// It says so, and lets go of the client as well -- left in hand, a programme reserved from the guide still
-    /// on screen was sent to this recorder. That another one answered is still to be said once it is taken up.
+    /// It lets go of the client as well -- left in hand, a programme reserved from the guide still on screen
+    /// was sent to this recorder -- and the driver says why on the line once this has returned
+    /// (`RecorderDriver.cacheNotMadeOver`). That another one answered is still to be said once it is taken up.
     func cacheCouldNotBeMadeOver() {
         let another = anotherTookOver
         forgetTheRecorder()
         anotherTookOver = another
-        problem = Self.cacheNotMadeOver
     }
 
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
@@ -316,12 +311,11 @@ extension AppModel {
     /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
     /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
     /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
-    /// beside a job. Said twice: the failure line for whoever asked, which the connect takes away, and the strip
-    /// after that.
+    /// beside a job. Said twice: the failure line for whoever asked, which the link writes once this has returned
+    /// (`RecorderDriver.anotherAnswered`) and the connect takes away, and the strip after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
         cancelBulk()
-        problem = RecorderDriver.anotherAnswered
         anotherTookOver = true
         let running = jobTask
         Task {
@@ -329,10 +323,6 @@ extension AppModel {
             self.clearJob()
             await self.connect()
         }
-    }
-
-    func sayNotConnected() {
-        problem = recorderDriver?.whyNotConnected ?? RecorderDriver.notConnected
     }
 
     /// Waits for the reader to allow the local network, then tells the link. The screens say so from

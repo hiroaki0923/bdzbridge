@@ -61,10 +61,10 @@ final class LinkPartsTests: XCTestCase {
         let link = makeLink(world)
 
         expectEqual(await link.check().whyNot, .notConnected)
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         world.problem = nil
         expectFalse(await link.ensureUp())
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         XCTAssertEqual(world.count("ask"), 0, "asked with no client")
 
         await link.connect()
@@ -374,7 +374,7 @@ final class LinkPartsTests: XCTestCase {
         }
         XCTAssertEqual(failed, .failure(.notSent(.notConnected)))
         XCTAssertFalse(ran, "the work was run after a check that said no")
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         XCTAssertNil(world.line)
 
         world = LinkWorld()
@@ -604,7 +604,6 @@ private final class NoRecorderHere: LinkHost {
     func queueWritten() async { await world.queueWritten() }
     func reached() async { await world.reached() }
     func anotherAnsweredTheCheck() { world.anotherAnsweredTheCheck() }
-    func sayNotConnected() { world.sayNotConnected() }
     func waitForPermission(at host: String) { world.waitForPermission(at: host) }
     func stopWaitingForPermission() { world.stopWaitingForPermission() }
 }

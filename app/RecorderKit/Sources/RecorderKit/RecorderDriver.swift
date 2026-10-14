@@ -75,17 +75,23 @@ public final class RecorderDriver: LinkDriver {
 
     /// Why something the reader asked for was not sent at all: the app is not connected. While the local network
     /// permission is what stands in the way (`SessionState.connectBlocked`), the title the screens give that
-    /// (`LocalNetwork.accessNotAllowed`); otherwise `notConnected`. What the host says when the link has nothing
-    /// to ask (`LinkHost.sayNotConnected`).
+    /// (`LocalNetwork.accessNotAllowed`); otherwise `notConnected`. What the link says on the host's line when it
+    /// has nothing to ask (`LinkDriver.whyNotConnected`).
     public var whyNotConnected: String {
         link?.session.connectBlocked == true ? LocalNetwork.accessNotAllowed : Self.notConnected
     }
 
     /// Said when something the reader asked for was not done because another recorder answered where the
-    /// one it was meant for had been. Not only what is sent: a read comes through the same check. What the host
-    /// says when the check before an operation hears another (`LinkHost.anotherAnsweredTheCheck`).
+    /// one it was meant for had been. Not only what is sent: a read comes through the same check. What the link
+    /// says on the line when the check before an operation hears another (`anotherAnsweredLine`).
     public nonisolated static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+    public var anotherAnsweredLine: String { Self.anotherAnswered }
+
+    /// Said when the recorder that answered is another one and the cache could not be made over to it: the
+    /// database is busy with another writer for longer than it will wait, or cannot be written to.
+    public static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+        + "少し待ってから、もう一度お試しください。"
 
     /// Only while the recorder is not known to be away already: silence is said once, as a television's is, so
     /// that a read which waited its turn behind the request that met it does not write over what that one said
@@ -155,6 +161,7 @@ public final class RecorderDriver: LinkDriver {
             // connect to: the app would go on over the other's guide and texts.
             guard await settle(link, whoAnswered: try await client.describe(timeout: timeout)) else {
                 recorderHost(owner)?.cacheCouldNotBeMadeOver()
+                owner?.problem = Self.cacheNotMadeOver
                 return false
             }
             // The runs with no screen read the address from what the phone keeps.
@@ -1864,7 +1871,7 @@ public final class RecorderDriver: LinkDriver {
         if let heard = link.heardInstead {
             link.owner?.problem = heard.explanation
         } else {
-            link.owner?.sayNotConnected()
+            link.owner?.problem = whyNotConnected
         }
     }
 

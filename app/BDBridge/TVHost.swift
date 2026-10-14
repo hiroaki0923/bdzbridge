@@ -275,18 +275,13 @@ final class TVHost: LinkHost {
 
     /// The check before an operation met another television at the television's address, by its MAC
     /// (`TVDriver.check`): nothing was sent, and nothing that needs the registration is asked from now on.
-    /// Said in the line for another device: what the reader asked for was not done because another
-    /// television is at its address, and that is what they are to know. Whatever else answers the check, a
-    /// device that is no television included, is said by the driver as what it answered. The list stays, the
-    /// television's and no longer read (`staleSince`), and nothing else is done here: the next connect asks
-    /// again and looks past what answered, where a recorder's host connects at once to take the newcomer up.
-    func anotherAnsweredTheCheck() {
-        problem = TVDriver.anotherAnswered
-    }
-
-    func sayNotConnected() {
-        problem = TVDriver.notConnected
-    }
+    /// The link says so in the line for another device (`TVDriver.anotherAnswered`): what the reader asked for
+    /// was not done because another television is at its address, and that is what they are to know. Whatever
+    /// else answers the check, a device that is no television included, is said by the driver as what it
+    /// answered. The list stays, the television's and no longer read (`staleSince`), and nothing else is done
+    /// here: the next connect asks again and looks past what answered, where a recorder's host connects at once
+    /// to take the newcomer up.
+    func anotherAnsweredTheCheck() {}
 
     /// Not from a host the app has let go of. A request still out on its link can run into the permission
     /// after that, and the app stops a host's wait once, as it lets go of it (`AppModel.dropTVLink`): one set
