@@ -211,8 +211,9 @@ extension AppModel {
     private func scan() async {
         scanRun += 1
         let run = scanRun
-        // whatever the last attempt left on screen is not about this one
-        recorderHost.problem = nil
+        // What the last search said is not about this one. The devices' lines are left as they are: only the
+        // device's link and driver write one, and its host takes it down as it lets the device go
+        // (`forgetTheRecorder`).
         scanOutcome = nil
         scanBlocked = false
         found = []

@@ -144,24 +144,35 @@ final class HostGateTests: XCTestCase {
 
     // MARK: - a search, and the phone's own work
 
-    /// レコーダーとテレビを探す, pressed with a line left on each device's line: the recorder's goes as the search
-    /// begins, whatever it comes to -- here, with the phone on no Wi-Fi, that there is none to look round -- and
-    /// the television's stays.
-    ///
-    /// As it is today: the search is the one thing of the phone's own that takes a device's line away, and it
-    /// takes the recorder's alone.
-    func testASearchTakesTheRecordersLineAwayAndLeavesTheTelevisions() async throws {
+    /// レコーダーとテレビを探す, pressed with a line left on each device's line, leaves both as they were, whatever
+    /// the search comes to: with the phone on no Wi-Fi, that there is none to look round; on a Wi-Fi with nobody
+    /// on it, nothing; and on one with another recorder, that recorder. The recorder's line goes once that
+    /// recorder is chosen, at an address other than the one in use, which lets the last one go.
+    func testASearchLeavesBothDevicesLinesAsTheyWere() async throws {
         let home = try await atHomeWithATelevision()
-        let model = home.model
+        let (bench, model) = (home.bench, home.model)
         leaveALine(on: model)
         home.host.problem = lineLeft
+        func search(_ comesTo: AppModel.ScanOutcome, line: UInt = #line) async throws {
+            model.scanForDevices()
+            let searching = try XCTUnwrap(model.scanTask, "no search was set going", line: line)
+            try await within(10, "the search never ended") { await searching.value }
+            XCTAssertEqual(model.scanOutcome, comesTo, "the search came to something else", line: line)
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the search took the recorder's line", line: line)
+            XCTAssertEqual(model.problem(for: .tv), lineLeft, "the search took the television's line", line: line)
+        }
 
-        model.scanForDevices()
-        try await until("the search never said what it came to") { model.scanOutcome != nil }
+        try await search(.noWiFi)
+        bench.joinWiFi()
+        try await search(.nothing)
+        bench.joinWiFi(with: [Bench.otherHost: NamedRecorder(2)])
+        try await search(.found(recorders: 1, televisions: 0))
+        XCTAssertEqual(model.found.map(\.host), [Bench.otherHost])
 
-        XCTAssertEqual(model.scanOutcome, .noWiFi, "the phone was meant to be on no Wi-Fi")
-        XCTAssertNil(model.problem(for: .recorder), "the search left the recorder's line")
-        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the search took the television's line away")
+        await model.adopt(host: Bench.otherHost)
+
+        XCTAssertNil(model.problem(for: .recorder), "the recorder chosen elsewhere kept the last one's line")
+        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the choice of a recorder took the television's line")
     }
 
     /// What the phone does with its own cache and queue leaves both devices' lines as they were: a reservation
