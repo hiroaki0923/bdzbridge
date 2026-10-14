@@ -19,39 +19,10 @@ extension AppModel {
         }
     }
 
-    func loadTitles(force: Bool = false) async {
-        let said = recorderHost.said
-        await start()
-        await loadTitlesNow(force: force, into: said)
-    }
+    func loadTitles(force: Bool = false) async { await recorderHost.loadTitles(force: force) }
 
-    /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
-    /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read, and
-    /// the list is kept on what was said as the entry began (`RecorderSaid.keep`), the one in play when `said` is
-    /// nil, as for the reservations: a list read for a recorder let go of meanwhile is kept where no screen reads
-    /// it, and the one after it, whose own connect reads its list (`RecorderHost.anotherDeviceDescribedItself`),
-    /// is left alone. While it is out it is counted (`RecorderHost.titleReads`).
-    func loadTitlesNow(force: Bool, into said: RecorderSaid? = nil) async {
-        let said = said ?? recorderHost.said
-        guard client != nil, !unreachable, force || !titlesLoaded else { return }
-        recorderHost.titleReads += 1
-        defer { recorderHost.titleReads -= 1 }
-        _ = await recorderDriver?.titles { said.keep(titles: $0) }
-    }
-
-    /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
-    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
-    /// Not while a bulk job is walking the list. Counted as a read of the list across the connect it may make
-    /// (`titleReads`): one that takes another recorder up has the newcomer's connect read the list, read before
-    /// or not, and the pull-down reads nothing after it.
-    func refreshTitles() async {
-        let said = recorderHost.said
-        await start()
-        guard !jobRunning else { return }
-        recorderHost.titleReads += 1
-        defer { recorderHost.titleReads -= 1 }
-        await recorderDriver?.refresh { await self.loadTitlesNow(force: true, into: said) }
-    }
+    /// What pulling the recordings down asks for (`RecorderHost.refreshTitles`).
+    func refreshTitles() async { await recorderHost.refreshTitles() }
 
     /// The recordings the screen is showing: filtered, then sorted.
     var shownTitles: [RecordedTitle] {
@@ -83,62 +54,28 @@ extension AppModel {
             ?? ""
     }
 
-    /// Asked as a recording's sheet opens (`RecorderDriver.detail`), which is also the moment to wake a recorder
-    /// that has gone to sleep.
+    /// Asked as a recording's sheet opens (`RecorderHost.detail`).
     func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
-        await start()
-        return await recorderDriver?.detail(of: title)
+        await recorderHost.detail(of: title)
     }
 
-    /// A write: the recorder stops deleting this one to make room (`RecorderDriver.protect`). What it came to, for
-    /// the screen to say.
+    /// A write: the recorder stops deleting this one to make room (`RecorderHost.setProtected`).
     @discardableResult
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {
-        await start()
-        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        let came = await recorderDriver.protect(title, on) {
-            if let index = self.titles.firstIndex(where: { $0.id == title.id }) {
-                self.recorderHost.said.titles[index].protected = on
-            }
-        }
-        // Silence may have come after the recorder made the change. The list is read again once it answers,
-        // rather than guessed at.
-        if came.readAgain { recorderHost.said.titlesLoaded = false }
-        // which copy of a set to keep can change with it
-        if case .done = came.altered, !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
-        return came.altered
+        await recorderHost.setProtected(title, on)
     }
 
-    /// A write, and not one that can be undone: the recording is gone from the recorder
-    /// (`RecorderDriver.delete`). What it came to, for the screen to say.
+    /// A write, and not one that can be undone (`RecorderHost.delete`).
     @discardableResult
-    func delete(_ title: RecordedTitle) async -> Altered {
-        await start()
-        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        let came = await recorderDriver.delete(title) { self.recorderHost.said.titles.removeAll { $0.id == title.id } }
-        // as for protecting: silence may have come after the recording had gone
-        if came.readAgain { recorderHost.said.titlesLoaded = false }
-        // A set on screen may have been left with one copy, or none of the one it says it keeps.
-        if case .done = came.altered, !duplicates.isEmpty { recorderHost.said.recomputeDuplicates() }
-        return came.altered
-    }
+    func delete(_ title: RecordedTitle) async -> Altered { await recorderHost.delete(title) }
 
-    /// Playback happens on the television the recorder is attached to, not here (`RecorderDriver.play`). A
-    /// recorder in standby is what `needsPower` reports, and the sheet offers to turn it on for. What it came to,
-    /// for the sheet to say.
+    /// Playback on the television the recorder is attached to (`RecorderHost.play`).
     @discardableResult
     func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
-        await start()
-        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        return await recorderDriver.play(title, operation)
+        await recorderHost.play(title, operation)
     }
 
-    /// Turns the recorder on, which also turns on the television attached to it (`RecorderDriver.powerOn`). What
-    /// it came to, for the sheet to say.
+    /// Turns the recorder on (`RecorderHost.powerOn`).
     @discardableResult
-    func powerOn() async -> Altered {
-        await start()
-        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
-        return await recorderDriver.powerOn()
-    }
+    func powerOn() async -> Altered { await recorderHost.powerOn() }
 }

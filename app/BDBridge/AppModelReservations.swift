@@ -323,15 +323,7 @@ extension AppModel {
         guard !isBusy(for: waiting.target) else { return nil }
         guard deletingWaiting.insert(waiting.id).inserted else { return nil }
         defer { deletingWaiting.remove(waiting.id) }
-        guard waiting.target == .tv else {
-            let said = recorderHost.said
-            let deleted = await recorderDriver?.deleteWaiting(waiting)
-            said.keep(reservations: deleted?.list)
-            await loadPending()
-            await forgetTheRecordersWarningOnceSent()
-            return deleted?.made == true
-                ? RecorderDriver.madeBeforeItsDelete(waiting, naming: deviceSaid(for: waiting)) : nil
-        }
+        guard waiting.target == .tv else { return await recorderHost.deleteWaiting(waiting) }
         let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
                                                 listing: { await self.tvHost?.readReservations() },
                                                 inPlay: { self.tvHost != nil },
@@ -372,9 +364,9 @@ extension AppModel {
     /// connected; to a recorder given up on, by the attach of a connect asked for here; and otherwise with the
     /// rest the next time the recorder answers: the driver's steps (`RecorderDriver.resend`). The list read
     /// after a sending is kept on what was said as this began (`RecorderSaid.keep`), and what the round came to
-    /// goes on the strip (`tellTheStrip`). What the row came to is handed back, as the driver says it, nil where
-    /// there is nothing to say of the row. A warning the runs with no screen left of reservations not yet at the
-    /// recorder goes once none of them waits to go (`forgetTheRecordersWarningOnceSent`).
+    /// goes on the strip (`RecorderHost.tellTheStrip`). What the row came to is handed back, as the driver says
+    /// it, nil where there is nothing to say of the row. A warning the runs with no screen left of reservations
+    /// not yet at the recorder goes once none of them waits to go (`forgetTheRecordersWarningOnceSent`).
     ///
     /// A row waiting for the television is its host's to send again, handed over first as a change or a
     /// delete of a television's reservation is (`change`, `cancel`): nothing below is for it. The recorder is
@@ -387,7 +379,7 @@ extension AppModel {
         await start()
         guard let sent = await recorderDriver?.resend(waiting) else { return nil }
         said.keep(reservations: sent.list)
-        tellTheStrip(sent.round)
+        recorderHost.tellTheStrip(sent.round)
         await forgetTheRecordersWarningOnceSent()
         return sent.came
     }
@@ -426,35 +418,6 @@ extension AppModel {
         + "それぞれ、次につながったときに登録します。"
     private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
         + "右にスワイプすると、もう一度送れます。"
-
-    /// What a sending of what waits for the recorder came to, on the strip, when a round ran
-    /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
-    /// front (nothing here answers `willPresent`). Added to what the strip holds unread, by the strip's rule
-    /// (`adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
-    /// closes the strip are both said, and a sentence it holds already is not said twice. A round with nothing
-    /// to say leaves the strip as it was. What became of the queue says which device it went to once a
-    /// television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
-    ///
-    /// What is held for another recorder is said first, each time a sending is asked, for as long as any is
-    /// (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver has had read again as it
-    /// looked at the queue and after its round (`queueWritten`): also when no round ran -- with nothing else
-    /// waiting, the driver asks the recorder nothing, and no row for the recorder, or the recorder not there to
-    /// send to, runs none either. The count said before is replaced by it (`heldBackSaid`), the rest kept. With
-    /// nothing held and nothing to add, the strip stays as it was.
-    func tellTheStrip(_ round: PendingQueue.Outcome?) {
-        let held = RecorderDriver.heldBack(in: pending)
-        // What the strip holds unread, without the count it began with, which this sending's replaces.
-        var unread = flushReport
-        if let said = recorderHost.heldBackSaid, let report = flushReport, report.hasPrefix(said) {
-            let rest = report.dropFirst(said.count).drop { $0 == "。" }
-            unread = rest.isEmpty ? nil : String(rest)
-        }
-        let added = round?.said(withATelevisionSaved: tv != nil).flatMap { AppModel.adding($0, toUnread: unread) }
-        let lines = [held, added ?? unread].compactMap { $0 }
-        guard !lines.isEmpty else { return }
-        recorderHost.said.report = lines.joined(separator: "。")
-        recorderHost.heldBackSaid = held
-    }
 
     /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both
     /// devices answer with (`Altered`). It goes to the device that holds the row and to no other.

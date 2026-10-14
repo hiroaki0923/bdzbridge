@@ -36,7 +36,7 @@ final class RecorderSaid {
     var recorderRulesFailure: String?
     /// How many reservations are held for another recorder, and what the sendings of the queue came to since
     /// the reader last closed the strip, for the strip to say until the reader closes it or leaves the app. See
-    /// `AppModel.tellTheStrip`.
+    /// `RecorderHost.tellTheStrip`.
     var report: String?
     var duplicates: [DuplicateSet] = []
     /// Which copies are ticked for deletion; the ones left unticked are kept. It lives here because the view
@@ -127,21 +127,21 @@ final class RecorderHost: RecorderLinkHost {
     /// emptied list, a sheet's buttons would send its row's number to the next recorder.
     private(set) var timesForgotten = 0
     /// The count of reservations held for another recorder as the strip's report begins with it, for the next
-    /// sending to put its own count in place of (`AppModel.tellTheStrip`).
-    @ObservationIgnored var heldBackSaid: String?
+    /// sending to put its own count in place of (`tellTheStrip`).
+    @ObservationIgnored private var heldBackSaid: String?
     /// The lists the reader had read, or was reading, when another recorder answered a connect made while the
     /// app was connected, for that connect to read again from the one that answered. See
     /// `anotherDeviceDescribedItself`.
-    var listsToReadAgain = (recordings: false, rules: false)
-    /// How many reads of the recordings, and of the keyword conditions, are out (`AppModel.loadTitlesNow`,
-    /// `AppModel.loadRecorderRulesNow`, a pull-down across its connect, and a condition's add or delete, which
+    private var listsToReadAgain = (recordings: false, rules: false)
+    /// How many reads of the recordings, and of the keyword conditions, are out (`loadTitlesNow`,
+    /// `loadRecorderRulesNow`, a pull-down across its connect, and a condition's add or delete, which
     /// reads the list after it): one out when another recorder answers is a list the reader was about to see,
     /// which is not put on that one's screens and is read from it instead.
-    var titleReads = 0
-    var conditionReads = 0
+    private(set) var titleReads = 0
+    private(set) var conditionReads = 0
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
-    var accessWatch: Task<Void, Never>?
+    private var accessWatch: Task<Void, Never>?
     /// The recorder's link, for the model's life.
     let link: DeviceLink
     /// The model that made this, for what is the phone's.
@@ -156,6 +156,10 @@ final class RecorderHost: RecorderLinkHost {
     /// The recorder's address on the LAN, as the link has it.
     private var host: String { link.host }
     private var demo: Bool { model?.demo ?? false }
+    private var client: RecorderClient? { link.client as? RecorderClient }
+    private var unreachable: Bool { session.unreachable }
+    /// A bulk job is under way: the model's until the job is the host's.
+    private var jobRunning: Bool { model?.jobRunning ?? false }
 
     // MARK: - letting go of the recorder
 
@@ -216,8 +220,8 @@ final class RecorderHost: RecorderLinkHost {
     private func readAgainWhatWasUp() async {
         let again = listsToReadAgain
         listsToReadAgain = (false, false)
-        if again.recordings { await model?.loadTitlesNow(force: false) }
-        if again.rules { await model?.loadRecorderRulesNow() }
+        if again.recordings { await loadTitlesNow(force: false) }
+        if again.rules { await loadRecorderRulesNow() }
     }
 
     // MARK: - what the link tells the app
@@ -240,7 +244,7 @@ final class RecorderHost: RecorderLinkHost {
         guard let model else { return false }
         return model.activities.any(besides: model.televisionLines)
     }
-    var holdsOffConnect: Bool { model?.jobRunning ?? false }
+    var holdsOffConnect: Bool { jobRunning }
     var isDemo: Bool { demo }
     var cache: GuideStore? { model?.store }
 
@@ -311,14 +315,14 @@ final class RecorderHost: RecorderLinkHost {
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
     /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
     /// waking's attach that no connect reads after, is kept on what was said as this began, and what the round
-    /// came to goes on the strip (`AppModel.tellTheStrip`). A warning the runs with no screen left of
+    /// came to goes on the strip (`tellTheStrip`). A warning the runs with no screen left of
     /// reservations not yet at the recorder goes once none of them waits to go
     /// (`AppModel.forgetTheRecordersWarningOnceSent`). Nothing here may await `start()`.
     func sendWhatWaits() async {
         let said = self.said
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }
         said.keep(reservations: sent.list)
-        model?.tellTheStrip(sent.round)
+        tellTheStrip(sent.round)
         await model?.forgetTheRecordersWarningOnceSent()
     }
 
@@ -383,5 +387,218 @@ final class RecorderHost: RecorderLinkHost {
     func stopWaitingForPermission() {
         accessWatch?.cancel()
         accessWatch = nil
+    }
+
+
+    // MARK: - the queue and the strip
+
+    /// 削除する on a row waiting for the recorder, as the model hands it over once it has seen that nothing
+    /// holds the row back (`AppModel.deleteWaiting`): the row is deleted by the driver in the queue's turn
+    /// (`RecorderDriver.deleteWaiting`), which hands back the list it read in the turn, kept on what was said
+    /// as the delete began (`RecorderSaid.keep`). A row made is not deleted, and what to say in place of that
+    /// is handed back, as the strip says a row sent (`RecorderDriver.madeBeforeItsDelete`, naming the
+    /// recorder as the strip does: `AppModel.deviceSaid`). The warning of reservations not yet at the
+    /// recorder is taken away once none of its rows waits (`AppModel.forgetTheRecordersWarningOnceSent`). Nil
+    /// when the row was deleted, and when the row has gone and nothing says it was made.
+    func deleteWaiting(_ waiting: PendingReservation) async -> String? {
+        let said = self.said
+        let deleted = await recorderDriver?.deleteWaiting(waiting)
+        said.keep(reservations: deleted?.list)
+        await model?.loadPending()
+        await model?.forgetTheRecordersWarningOnceSent()
+        return deleted?.made == true
+            ? RecorderDriver.madeBeforeItsDelete(waiting, naming: model?.deviceSaid(for: waiting)) : nil
+    }
+
+    /// What a sending of what waits for the recorder came to, on the strip, when a round ran
+    /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
+    /// front (nothing here answers `willPresent`). Added to what the strip holds unread, by the strip's rule
+    /// (`AppModel.adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
+    /// closes the strip are both said, and a sentence it holds already is not said twice. A round with nothing
+    /// to say leaves the strip as it was. What became of the queue says which device it went to once a
+    /// television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
+    ///
+    /// What is held for another recorder is said first, each time a sending is asked, for as long as any is
+    /// (`RecorderDriver.heldBack`), counted from the rows on screen, which the driver has had read again as it
+    /// looked at the queue and after its round (`queueWritten`): also when no round ran -- with nothing else
+    /// waiting, the driver asks the recorder nothing, and no row for the recorder, or the recorder not there to
+    /// send to, runs none either. The count said before is replaced by it (`heldBackSaid`), the rest kept. With
+    /// nothing held and nothing to add, the strip stays as it was.
+    func tellTheStrip(_ round: PendingQueue.Outcome?) {
+        let held = RecorderDriver.heldBack(in: model?.pending ?? [])
+        // What the strip holds unread, without the count it began with, which this sending's replaces.
+        var unread = self.said.report
+        if let said = heldBackSaid, let report = self.said.report, report.hasPrefix(said) {
+            let rest = report.dropFirst(said.count).drop { $0 == "。" }
+            unread = rest.isEmpty ? nil : String(rest)
+        }
+        let added = round?.said(withATelevisionSaved: model?.tv != nil)
+            .flatMap { AppModel.adding($0, toUnread: unread) }
+        let lines = [held, added ?? unread].compactMap { $0 }
+        guard !lines.isEmpty else { return }
+        self.said.report = lines.joined(separator: "。")
+        heldBackSaid = held
+    }
+
+    // MARK: - the recordings
+
+    func loadTitles(force: Bool = false) async {
+        let said = self.said
+        await model?.start()
+        await loadTitlesNow(force: force, into: said)
+    }
+
+    /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
+    /// (`RecorderDriver.titles`), which hands the list over as it comes back, before the free space is read, and
+    /// the list is kept on what was said as the entry began (`RecorderSaid.keep`), the one in play when `said` is
+    /// nil, as for the reservations: a list read for a recorder let go of meanwhile is kept where no screen reads
+    /// it, and the one after it, whose own connect reads its list (`anotherDeviceDescribedItself`),
+    /// is left alone. While it is out it is counted (`titleReads`).
+    func loadTitlesNow(force: Bool, into said: RecorderSaid? = nil) async {
+        let said = said ?? self.said
+        guard client != nil, !unreachable, force || !self.said.titlesLoaded else { return }
+        titleReads += 1
+        defer { titleReads -= 1 }
+        _ = await recorderDriver?.titles { said.keep(titles: $0) }
+    }
+
+    /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
+    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    /// Not while a bulk job is walking the list. Counted as a read of the list across the connect it may make
+    /// (`titleReads`): one that takes another recorder up has the newcomer's connect read the list, read before
+    /// or not, and the pull-down reads nothing after it.
+    func refreshTitles() async {
+        let said = self.said
+        await model?.start()
+        guard !jobRunning else { return }
+        titleReads += 1
+        defer { titleReads -= 1 }
+        await recorderDriver?.refresh { await self.loadTitlesNow(force: true, into: said) }
+    }
+
+    /// Asked as a recording's sheet opens (`RecorderDriver.detail`), which is also the moment to wake a recorder
+    /// that has gone to sleep.
+    func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
+        await model?.start()
+        return await recorderDriver?.detail(of: title)
+    }
+
+    /// A write: the recorder stops deleting this one to make room (`RecorderDriver.protect`). What it came to, for
+    /// the screen to say.
+    @discardableResult
+    func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        let came = await recorderDriver.protect(title, on) {
+            if let index = self.said.titles.firstIndex(where: { $0.id == title.id }) {
+                self.said.titles[index].protected = on
+            }
+        }
+        // Silence may have come after the recorder made the change. The list is read again once it answers,
+        // rather than guessed at.
+        if came.readAgain { said.titlesLoaded = false }
+        // which copy of a set to keep can change with it
+        if case .done = came.altered, !said.duplicates.isEmpty { said.recomputeDuplicates() }
+        return came.altered
+    }
+
+    /// A write, and not one that can be undone: the recording is gone from the recorder
+    /// (`RecorderDriver.delete`). What it came to, for the screen to say.
+    @discardableResult
+    func delete(_ title: RecordedTitle) async -> Altered {
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        let came = await recorderDriver.delete(title) { self.said.titles.removeAll { $0.id == title.id } }
+        // as for protecting: silence may have come after the recording had gone
+        if came.readAgain { said.titlesLoaded = false }
+        // A set on screen may have been left with one copy, or none of the one it says it keeps.
+        if case .done = came.altered, !said.duplicates.isEmpty { said.recomputeDuplicates() }
+        return came.altered
+    }
+
+    /// Playback happens on the television the recorder is attached to, not here (`RecorderDriver.play`). A
+    /// recorder in standby is what `needsPower` reports, and the sheet offers to turn it on for. What it came to,
+    /// for the sheet to say.
+    @discardableResult
+    func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        return await recorderDriver.play(title, operation)
+    }
+
+    /// Turns the recorder on, which also turns on the television attached to it (`RecorderDriver.powerOn`). What
+    /// it came to, for the sheet to say.
+    @discardableResult
+    func powerOn() async -> Altered {
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        return await recorderDriver.powerOn()
+    }
+
+    // MARK: - the recorder's own keyword conditions (おまかせ・まる録)
+
+    func loadRecorderRules() async {
+        let said = self.said
+        await model?.start()
+        await loadRecorderRulesNow(into: said)
+    }
+
+    /// The read itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
+    /// (`RecorderDriver.recorderRules`), and so is why it could not be made; what the screen holds of it is the
+    /// app's, kept on what was said as the entry began (`RecorderSaid.keep`), the one in play when `said` is nil,
+    /// as for the recordings: a read for a recorder let go of meanwhile says nothing on the screen of the one
+    /// after it, whose own connect reads its list. While it is out it is counted (`conditionReads`).
+    func loadRecorderRulesNow(into said: RecorderSaid? = nil) async {
+        let said = said ?? self.said
+        guard let recorderDriver, client != nil, !unreachable else {
+            // A list read before stays on screen under the strip that says the recorder is not there; with
+            // none, the screen says why there is nothing rather than waiting for a read that is not coming.
+            if !self.said.recorderRulesLoaded {
+                self.said.recorderRulesFailure = recorderDriver?.whyNotConnected ?? RecorderDriver.notConnected
+            }
+            return
+        }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        said.keep(rules: await recorderDriver.recorderRules())
+    }
+
+    /// What pulling the conditions down asks for: the list read again, or a connect when nothing can be written
+    /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
+    /// Counted as a read of the list across the connect it may make, as the recordings' pull-down is
+    /// (`conditionReads`).
+    func refreshRecorderRules() async {
+        let said = self.said
+        await model?.start()
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        await recorderDriver?.refresh { await self.loadRecorderRulesNow(into: said) }
+    }
+
+    /// Registers a condition on the recorder itself (`RecorderDriver.addRule`), which reads the list again once it
+    /// has, kept on what was said as the entry began (`RecorderSaid.keep`). What it came to, for the sheet to say.
+    /// Counted as a read of the list while it is out (`conditionReads`), the read after among it: another recorder
+    /// answering meanwhile has its own conditions read by its connect, as for any read of them out.
+    func addRecorderRule(_ request: RecorderRuleRequest) async -> Altered {
+        let said = self.said
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.addRule(request) { said.keep(rules: $0) }
+    }
+
+    /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list again after any answer, kept
+    /// as a condition added has its list kept: a refusal may be of a number the recorder no longer has. What it
+    /// came to, for the screen to say: a refusal is said there, and the read after it clears the line when it
+    /// goes through, as the read after a reservation's delete refused so does, or says its own failure when it
+    /// does not. Counted while it is out, as a condition added is.
+    func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
+        let said = self.said
+        await model?.start()
+        guard let recorderDriver else { return .notDone(RecorderDriver.notConnected) }
+        conditionReads += 1
+        defer { conditionReads -= 1 }
+        return await recorderDriver.removeRule(rule) { said.keep(rules: $0) }
     }
 }
