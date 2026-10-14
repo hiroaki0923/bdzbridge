@@ -408,6 +408,45 @@ final class HostGateTests: XCTestCase {
         return (recorder, model)
     }
 
+    // MARK: - why the television stays
+
+    /// Why 外す did not take the television away -- what waits for it could not be deleted, the phone's queue out
+    /// of the app's reach -- is that button's answer (`whyTheTelevisionStays`), which the footer it was pressed
+    /// under says, and not a line of the television's: what was left on the television's line stays as it was.
+    /// The answer goes at the next press, here one over a count that no longer holds, which does nothing; when
+    /// the app is left; and when the television goes.
+    func testWhyTheTelevisionStaysIsTheAnswerOfItsButtonUntilItIsPressedAgainTheAppIsLeftOrItGoes() async throws {
+        let home = try await atHomeWithATelevision()
+        let (bench, model, host) = (home.bench, home.model, home.host)
+        try await model.store?.queue(waiting("サンプル劇場", startingIn: 120, programme: 4401, for: .tv))
+        host.problem = lineLeft
+        let outOfReach = QueueOutOfReach(in: bench.guidePath)
+        func notTakenAway(line: UInt = #line) async {
+            expectFalse(await model.takeTheTelevisionAway(counted: nil),
+                        "taken away over a queue it could not delete from", line: line)
+            XCTAssertTrue(model.tvHost === host, "the television was let go of", line: line)
+            XCTAssertEqual(model.whyTheTelevisionStays, AppModel.rowsNotTakenAway, "nothing says why it stays",
+                           line: line)
+            XCTAssertEqual(host.problem, lineLeft, "why the television stays was written on its line", line: line)
+        }
+
+        await notTakenAway()
+
+        expectFalse(await model.takeTheTelevisionAway(counted: 5), "taken away over a count that does not hold")
+        XCTAssertNil(model.whyTheTelevisionStays, "what the last press said stood through the next")
+        XCTAssertEqual(host.problem, lineLeft)
+
+        await notTakenAway()
+        model.wentToBackground()
+        XCTAssertNil(model.whyTheTelevisionStays, "what the press said stood when the app was left")
+
+        await notTakenAway()
+        model.removeTV()
+        XCTAssertNil(model.tvHost, "the television was meant to be taken away")
+        XCTAssertNil(model.whyTheTelevisionStays, "what the press said stood when the television went")
+        outOfReach.putBack()
+    }
+
     // MARK: - how old a list is, and the routed entries
 
     /// Since when each device's list is old, by one rule for both, row by row: nil with no rows; nil while the

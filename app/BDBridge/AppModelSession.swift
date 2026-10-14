@@ -63,9 +63,10 @@ extension AppModel {
         if scanTask != nil { surroundings.scanLog("phase: background") }
         // The line about the queue was for this visit, the television's half of it with the recorder's. Coming
         // back sends the queue again when there is anything to send, and says what became of that. So was the
-        // one about another recorder.
+        // one about another recorder, and why 外す left the television in place.
         closeQueueReport()
         anotherTookOver = false
+        whyTheTelevisionStays = nil
         // The slot's read again goes with the app: made after a return, it would come beside the return's own
         // reads. A return that makes no attach leaves it for later again, and the disk known stays as it was read
         // until then.

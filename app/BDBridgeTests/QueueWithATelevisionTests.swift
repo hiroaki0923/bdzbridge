@@ -895,7 +895,7 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// list -- nothing is done and nothing said: the button is held back by the same, and this is for a
     /// sending begun while the question was up. And when what waits cannot be deleted, the phone's cache
     /// being busy with another writer for longer than the app waits, the television stays with its
-    /// registration, every reservation waits as it did, and the television's line says why.
+    /// registration, every reservation waits as it did, and 外す's answer says why, not the television's line.
     func testTakingTheTelevisionAwayTakesWhatWaitsForItAndNothingElse() async throws {
         let home = try await launch(with: NamedRecorder(1), busyTimeout: 200)
         let (model, television, store, door) = (home.model, home.television, home.store, home.door)
@@ -919,6 +919,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectFalse(await model.takeTheTelevisionAway(counted: 1), "a television that was busy was taken away")
         XCTAssertTrue(model.tvHost === host, "a television that was busy was let go of")
         XCTAssertNil(host.problem, "something was said of a television that was only busy")
+        XCTAssertNil(model.whyTheTelevisionStays, "something was said of a television that was only busy")
         expectEqual(try await store.pendingReservations(), both, "a reservation went while the television was busy")
         await door.letGo()
         await reading.value
@@ -929,8 +930,9 @@ final class QueueWithATelevisionTests: XCTestCase {
         writer.letGo()
         XCTAssertTrue(model.tvHost === host, "the television was taken away over reservations that stayed")
         XCTAssertNotNil(model.surroundings.tvCredentials.load(), "its registration went all the same")
-        XCTAssertEqual(host.problem, "送信待ちの予約を削除できなかったため、テレビを外していません。"
+        XCTAssertEqual(model.whyTheTelevisionStays, "送信待ちの予約を削除できなかったため、テレビを外していません。"
                        + "少し待ってから、もう一度お試しください。")
+        XCTAssertNil(host.problem, "why the television stays was said on its line")
         expectEqual(try await store.pendingReservations(), both)
         XCTAssertEqual(model.pending, both)
 
@@ -956,7 +958,7 @@ final class QueueWithATelevisionTests: XCTestCase {
     ///
     /// A queue that cannot be read is not counted as empty: there is no count, for a question that gives
     /// none. After a question that said two, 外す then does nothing. After one that gave no count it goes on
-    /// to delete what waits, which fails: the television stays, and its line says why.
+    /// to delete what waits, which fails: the television stays, and 外す's answer says why.
     func testTheTelevisionIsNotTakenAwayOverACountItsQuestionDidNotGive() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, television, store) = (home.model, home.television, home.store)
@@ -974,9 +976,11 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectNil(await model.waitingForTheTelevision(), "a queue that could not be read was counted as empty")
         expectFalse(await model.takeTheTelevisionAway(counted: said), "taken away with nothing to hold its count to")
         XCTAssertNil(host.problem, "a count that no longer holds went as far as the delete")
+        XCTAssertNil(model.whyTheTelevisionStays, "a count that no longer holds went as far as the delete")
         expectFalse(await model.takeTheTelevisionAway(counted: nil), "taken away over a queue it could not delete from")
-        XCTAssertEqual(host.problem, "送信待ちの予約を削除できなかったため、テレビを外していません。"
+        XCTAssertEqual(model.whyTheTelevisionStays, "送信待ちの予約を削除できなかったため、テレビを外していません。"
                        + "少し待ってから、もう一度お試しください。", "a question that gave no count was not acted on")
+        XCTAssertNil(host.problem, "why the television stays was said on its line")
         outOfReach.putBack()
         XCTAssertTrue(model.tvHost === host, "the television was taken away over a queue that could not be read")
         expectEqual(await model.waitingForTheTelevision(), said)
@@ -989,6 +993,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertTrue(model.tvHost === host, "the television holds two reservations the app no longer shows")
         XCTAssertNotNil(model.surroundings.tvCredentials.load(), "its registration went all the same")
         XCTAssertNil(host.problem, "something was said of a count that no longer held")
+        XCTAssertNil(model.whyTheTelevisionStays, "something was said of a count that no longer held")
         XCTAssertEqual(model.queueReport, registered, "what the strip said of the two went with the television")
 
         expectEqual(await model.waitingForTheTelevision(), 0)

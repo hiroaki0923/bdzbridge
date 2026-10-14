@@ -107,8 +107,10 @@ extension AppModel {
     /// here; the screens are told that it went (`tvTimesForgotten`), when there was a link to let go of. The
     /// lines its host had up are on the model's own list, and come down now rather than when the requests
     /// they stand for end: what is still out on a television the app has let go of says nothing on the screens.
+    /// Why 外す left it in place goes with it.
     func dropTVLink() {
         if tv != nil { tvTimesForgotten += 1 }
+        whyTheTelevisionStays = nil
         tvHost?.stopWaitingForPermission()
         tvHost?.takeDownLines()
         tv = nil
@@ -374,7 +376,8 @@ extension AppModel {
     /// no count is acted on only while there is still none to hold against it.
     ///
     /// When what waits cannot be deleted -- the phone's cache busy past its timeout, or not open -- the
-    /// television stays and nothing is deleted, and its line says why. A television taken away over rows
+    /// television stays and nothing is deleted, and the answer says why (`whyTheTelevisionStays`), which the
+    /// next press takes away whatever it comes to. A television taken away over rows
     /// that stayed would leave them with nobody to send them and nobody to drop them once their programmes
     /// are over, which is what the question is there to prevent.
     ///
@@ -385,6 +388,7 @@ extension AppModel {
     /// registration would go from under it, and the run would tell the reader to register a television that is
     /// no longer there.
     func takeTheTelevisionAway(counted: Int?) async -> Bool {
+        whyTheTelevisionStays = nil
         guard !isBusy(for: .tv) else { return false }
         // The television the question was about: the demo begun or ended while this waits for the queue's turn
         // puts another in play, which the reader was not asked about.
@@ -392,7 +396,7 @@ extension AppModel {
         return await PendingQueue.betweenFlushes { @MainActor in
             guard self.tvHost === asked, await self.waitingForTheTelevision() == counted else { return false }
             guard let store = self.store, (try? await store.removePending(waitingFor: .tv)) != nil else {
-                self.tvHost?.problem = AppModel.rowsNotTakenAway
+                self.whyTheTelevisionStays = AppModel.rowsNotTakenAway
                 return false
             }
             self.removeTV()
@@ -401,8 +405,8 @@ extension AppModel {
         } ?? false
     }
 
-    /// Said on the television's line when it was not taken away because what waits for it could not be
-    /// deleted.
+    /// Said in the television's footer when it was not taken away because what waits for it could not be
+    /// deleted (`whyTheTelevisionStays`).
     static let rowsNotTakenAway = "送信待ちの予約を削除できなかったため、テレビを外していません。"
         + "少し待ってから、もう一度お試しください。"
 }

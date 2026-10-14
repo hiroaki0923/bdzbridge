@@ -52,6 +52,11 @@ final class AppModel {
     /// Counts what is asked at an address given for a television (`findTV`), so that one the sheet's closing
     /// ended (`stopFindingTV`) does not go on when the permission comes after it.
     var tvFindRun = 0
+    /// Why 外す did not take the television away, for the footer it was pressed under: the answer of the button
+    /// that asked, and not a line of the television's, which the television said nothing of. It goes at the next
+    /// press (`takeTheTelevisionAway`), with the television (`dropTVLink`), and when the app is left
+    /// (`wentToBackground`).
+    var whyTheTelevisionStays: String?
 
     /// The recorder's address on the LAN: one a scan found or one typed in (`adopt`), or wherever the router
     /// has moved it since (`RecorderDriver.findElsewhere`). Written down whenever it is set (`keepAddress`).
