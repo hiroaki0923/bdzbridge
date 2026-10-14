@@ -69,9 +69,9 @@ extension DeviceHost {
         _ = await readReservations()
     }
 
-    /// The same read with nothing before it, for what a connect reaches, which may not await `AppModel.start()`,
-    /// and for a delete that reads the list in the queue's turn: the cache is the connect's, or the delete's,
-    /// already.
+    /// The same read with nothing before it, for what a connect reaches, which may not await `AppModel.start()`
+    /// and has tried to open the cache already (`cacheForAttempt`), and for a delete that reads the list in the
+    /// queue's turn, whose row is one of the cache already open.
     @discardableResult
     func readReservationsNow() async -> [Reservation]? {
         await read(keepingOn: keeping)

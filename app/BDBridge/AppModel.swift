@@ -178,8 +178,8 @@ final class AppModel {
     /// (`adopt`); a press and a change of recorder in play clear them, as they clear `found`.
     var foundTelevisions: [TVSighting] = []
     var scanning: (done: Int, total: Int)?
-    /// What the last scan came to, said right under the button that started it. Kept apart from `problem`,
-    /// which every screen shows as a failure.
+    /// What the last scan came to, said right under the button that started it. Kept apart from the devices'
+    /// lines (`problem(for:)`), which the screens show as failures, and which a scan leaves as they are.
     var scanOutcome: ScanOutcome?
     /// Set while a scan is taken to be held up by local network privacy -- the system's question is on screen,
     /// or was answered no -- its look through the subnet having been turned away (`scanForDevices`), so that
