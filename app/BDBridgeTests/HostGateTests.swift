@@ -80,6 +80,88 @@ final class HostGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .tv), lineLeft, "the recorder's read wrote on the television's line")
     }
 
+    // MARK: - a search, and the phone's own work
+
+    /// レコーダーとテレビを探す, pressed with a line left on each device's line: the recorder's goes as the search
+    /// begins, whatever it comes to -- here, with the phone on no Wi-Fi, that there is none to look round -- and
+    /// the television's stays.
+    ///
+    /// As it is today: the search is the one thing of the phone's own that takes a device's line away, and it
+    /// takes the recorder's alone.
+    func testASearchTakesTheRecordersLineAwayAndLeavesTheTelevisions() async throws {
+        let home = try await atHomeWithATelevision()
+        let model = home.model
+        leaveALine(on: model)
+        home.host.problem = lineLeft
+
+        model.scanForDevices()
+        try await until("the search never said what it came to") { model.scanOutcome != nil }
+
+        XCTAssertEqual(model.scanOutcome, .noWiFi, "the phone was meant to be on no Wi-Fi")
+        XCTAssertNil(model.problem(for: .recorder), "the search left the recorder's line")
+        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the search took the television's line away")
+    }
+
+    /// What the phone does with its own cache and queue leaves both devices' lines as they were: a reservation
+    /// waiting for the recorder deleted, the queue read again, the guide read from the cache, and a channel
+    /// hidden. A reservation waiting for the television deleted, with the television there to ask, leaves the
+    /// recorder's line; the television's goes, taken away by the read of its list that the delete makes in the
+    /// queue's turn, which went through.
+    func testThePhonesOwnWorkLeavesBothLinesAsTheyWere() async throws {
+        let home = try await atHomeWithATelevision()
+        let (model, television) = (home.model, home.television)
+        let store = try XCTUnwrap(model.store)
+        let mine = waiting("サンプル紀行", startingIn: 180, programme: 4402)
+        try await store.queue(mine)
+        await model.loadPending()
+        leaveALine(on: model)
+        home.host.problem = lineLeft
+        func bothLeft(by what: String, line: UInt = #line) {
+            XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(what) took the recorder's line", line: line)
+            XCTAssertEqual(model.problem(for: .tv), lineLeft, "\(what) took the television's line", line: line)
+        }
+
+        _ = await model.deleteWaiting(mine)
+        expectEqual(try await store.pendingReservations().map(\.id), [], "the recorder's waiting row is still there")
+        bothLeft(by: "a waiting row of the recorder's deleted")
+
+        await model.loadPending()
+        bothLeft(by: "the queue read again")
+
+        await model.reloadFromCache()
+        bothLeft(by: "the guide read from the cache")
+
+        let channel = try XCTUnwrap(model.channels.first, "the cached guide was meant to list a channel")
+        try await model.setChannelPreferences(broadcasting: model.broadcasting, hidden: [channel.serviceID])
+        XCTAssertFalse(model.channels.contains { $0.serviceID == channel.serviceID }, "the channel was not hidden")
+        bothLeft(by: "a channel hidden")
+
+        let theirs = waiting("サンプル劇場", startingIn: 120, programme: 4401, for: .tv)
+        try await store.queue(theirs)
+        await model.loadPending()
+        let calls = await television.calls.count
+
+        _ = await model.deleteWaiting(theirs)
+
+        expectEqual(try await store.pendingReservations().map(\.id), [], "the television's waiting row is still there")
+        expectTrue(await television.calls.dropFirst(calls).contains { $0.hasPrefix("getScheduleList") },
+                   "the television's delete read nothing of the television")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the television's waiting row took the recorder's line")
+        XCTAssertNil(model.problem(for: .tv), "the read the television's delete made left the television's line")
+    }
+
+    /// A reservation waiting for `device`, of the test's own making: half an hour on the demo's first channel, in
+    /// DR and not repeated, starting so many minutes from now, with `problem` as its reason when one is given.
+    private func waiting(_ title: String, startingIn minutes: Double, programme: Int,
+                         for device: DeviceSlot = .recorder, problem: String? = nil) -> PendingReservation {
+        let request = ReservationRequest(title: title, start: Date().addingTimeInterval(minutes * 60),
+                                         durationSec: 1800, repeatCode: "1", broadcastingType: 2, serviceID: 1024,
+                                         qualityCode: 100, eventID: programme)
+        var row = PendingReservation(request: request, serviceName: "サンプルテレビ", problem: problem)
+        row.target = device
+        return row
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
