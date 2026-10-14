@@ -231,7 +231,7 @@ struct SettingsScreen: View {
                 if let busy = model.busy {
                     Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
                 }
-                if let problem = model.problem {
+                if let problem = model.problem(for: .recorder) {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }

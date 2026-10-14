@@ -260,7 +260,7 @@ final class TVLinkTests: XCTestCase {
         try await until("the television was not said to need a registration") { model.tvDriver?.facts.needsPairing == true }
         try await untilConnected(model)
         XCTAssertNotNil(model.tvHost?.problem)
-        XCTAssertNil(model.problem, "the television's problem was said as the recorder's")
+        XCTAssertNil(model.problem(for: .recorder), "the television's problem was said as the recorder's")
 
         let before = model.tv
         expectEqual(await model.registerTV(at: Bench.tvHost, pin: DemoTV.pin), .registered)
@@ -428,9 +428,9 @@ final class TVLinkTests: XCTestCase {
 
         await television.letGo()
         try await until("the television's attach never ended") { model.tvHost?.isBusy == false }
-        let line = model.beginActivity("録画一覧を取得中")
+        let line = beginARecorderLine("録画一覧を取得中", on: model)
         XCTAssertEqual(model.tvHost?.isBusy, false, "the recorder's work made the television busy")
-        model.endActivity(line)
+        endARecorderLine(line, on: model)
     }
 
     /// The registration is renewed with the app in front only: a connect made in the background -- the network

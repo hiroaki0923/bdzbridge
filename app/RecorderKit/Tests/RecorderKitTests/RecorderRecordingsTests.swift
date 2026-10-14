@@ -454,10 +454,10 @@ final class RecorderRecordingsTests: XCTestCase {
         driver.link?.lost()
         await recorder.forget()
         world.problem = Self.left
-        expectEqual(await driver.delete(title, in: deleting), .stopped(.said(LinkWorld.notConnected)))
-        expectEqual(await driver.text(of: title, in: scanning), .stopped(.said(LinkWorld.notConnected)))
+        expectEqual(await driver.delete(title, in: deleting), .stopped(.said(RecorderDriver.notConnected)))
+        expectEqual(await driver.text(of: title, in: scanning), .stopped(.said(RecorderDriver.notConnected)))
         expectEqual(await recorder.actions, [], "a recorder known to be away was asked")
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
     }
 
     /// Between the question a delete asks first and the delete itself, a check of the recorder that came in
@@ -1526,9 +1526,10 @@ final class RecorderRecordingsTests: XCTestCase {
     /// that another recorder answered.
     ///
     /// And let go of while the check before the refresh is out, nobody taken up in its place: no file is asked
-    /// for, and the refresh says what a write says then, not what a check's no says. With a line left by
-    /// whatever let go of the recorder, it repeats that line; with the line empty, it says that another
-    /// recorder answered, where after a check's no it would say that the app is not connected.
+    /// for, and the refresh says what a write says then, not what a check's no says. It repeats the line, which
+    /// the link has written as another recorder answering once the check heard none of the recorder in play,
+    /// over a line left by whatever let go of the recorder and over an empty one alike; after a check's no it
+    /// would say that the app is not connected.
     func testAGuideRefreshIsForTheRecorderInPlayAtItsDoorAndNothingOfItGoesOnAcrossALetGo() async throws {
         func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
         /// A refresh begun on `driver`, of every type unless told which, its first file held at `recorder`.
@@ -1604,7 +1605,8 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await newcomer.actions.filter(\.isEmpty).count, 0, "a file was asked of the newcomer")
 
         // Let go of while the check before the refresh is out: with a line left, and with the line empty.
-        for (left, said) in [(Self.left as String?, Self.left), (nil, RecorderDriver.anotherAnswered)] {
+        for (left, said) in [(Self.left as String?, RecorderDriver.anotherAnswered),
+                             (nil, RecorderDriver.anotherAnswered)] {
             let what = left == nil ? "the line empty" : "a line left"
             let (checked, ofTheChecked, toTheChecked) = try Self.linked()
             let scripted = try XCTUnwrap(checked.devices[Stub.host] as? ScriptedRecorder)
@@ -1629,7 +1631,7 @@ final class RecorderRecordingsTests: XCTestCase {
                            "\(what): a check that ended across a let-go was said as a check that said no")
             XCTAssertEqual(checked.events.filter { $0.hasPrefix("ask") }, ["ask description.xml at \(Stub.host)"],
                            "\(what): a file was asked for across a let-go")
-            XCTAssertEqual(checked.problem, left, "\(what): the line was written, or cleared, across a let-go")
+            XCTAssertEqual(checked.problem, said, "\(what): the line was written, or cleared, across a let-go")
         }
     }
 

@@ -213,8 +213,9 @@ public final class TVDriver: LinkDriver {
     public static let connectingLine = "テレビに接続中"
 
     /// Said when another television answers at the television's address, by its MAC: by an attach that met
-    /// it, and by the host when the check before an operation met it (`check`).
+    /// it, and by the link when the check before an operation met it (`check`).
     public nonisolated static let anotherAnswered = "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"
+    public var anotherAnsweredLine: String { Self.anotherAnswered }
 
     /// Never: see the type's description.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool { false }
@@ -332,8 +333,25 @@ public final class TVDriver: LinkDriver {
         + "送り直していません。再接続してから一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
     public static let deleteRefused = "テレビが削除を受け付けませんでした（41200）。"
-    /// For the host to say when nothing could be asked because the app is not connected (`sayNotConnected`).
+    /// For the link to say when nothing could be asked because the app is not connected (`whyNotConnected`).
     public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+    /// Whatever stands in the way, the local network permission included: see `check`.
+    public var whyNotConnected: String { Self.notConnected }
+
+    /// What the sheet that adds a television says of what answered at the address it was given
+    /// (`ScalarClient.presence`), when it cannot go on to the registration: nil for a television that is on,
+    /// which it goes on to.
+    public static func says(_ presence: TVPresence) -> String? {
+        switch presence {
+        case .nothing: "応答がありません。アドレスと、テレビがネットワークにつながっていることを確かめてください。"
+        case .notATelevision: "このアドレスの機器は、テレビとして応答しませんでした。"
+        case .standby: "テレビの電源が切れています。テレビの電源を入れて、放送を映してから、もう一度お試しください。"
+        case .on: nil
+        }
+    }
+
+    /// Said when the television turned down the PIN the reader typed.
+    public static let pinTurnedDown = "登録できませんでした。テレビの画面の番号を確かめて、もう一度入力してください。"
 
     /// What the television is set to record, read now: nil when it could not be read, and the host's line
     /// says why. A television that cannot be asked is sent nothing and nothing is said of it: the screens ask

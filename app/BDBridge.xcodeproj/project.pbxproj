@@ -10,6 +10,7 @@
 		02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */; };
 		05CC0E3C5025BD5A2E4ABD5D /* TitleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E69E6BE470039076D6A3C271 /* TitleSheet.swift */; };
 		0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C6866852333929A48A535D /* QueueGateTests.swift */; };
+		0BFE2CFC44D5B0B130111E0C /* DeviceHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E410A33FE194A519CB82646 /* DeviceHost.swift */; };
 		0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1279E749BC680BAC08A88565 /* AppModel.swift */; };
 		0C9F97FE1D18F5545CBB2A52 /* SendWaitingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92716E3DBBD3A2B4966D61F /* SendWaitingTests.swift */; };
 		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
@@ -29,12 +30,12 @@
 		48CC5BE81C5376EC2CD46B43 /* TVSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F789A1A76C5D308752261 /* TVSettings.swift */; };
 		494934848327D87696DFD86F /* RecorderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0B5AB2BB705A18FEF4855A1E /* RecorderKit */; };
 		4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */; };
-		55C966BCDE15739FEB33E996 /* AppModelBulkWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27CD60B317CB821D06B202C9 /* AppModelBulkWork.swift */; };
 		58359D1BF948F51A99C7CC9D /* WhichRecorderNoScreenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAB63DB5A7CE51AB42D8DBD /* WhichRecorderNoScreenTests.swift */; };
 		5CCDBEDD17EE4C991CC6FA4B /* TVLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C28691CB271964372E64ECD /* TVLinkTests.swift */; };
 		5E2C78F3C21FBE7CCF9D3630 /* AppModelGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EE8FDD66A796ED76C70EEE /* AppModelGuide.swift */; };
 		69910BF118F69ECE151E5FEA /* Surroundings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F236DC36276A804ED1553D29 /* Surroundings.swift */; };
 		6A13DA8B1B068E15E0F2AB6F /* SessionRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123FE92D878D382C67587A78 /* SessionRuleTests.swift */; };
+		6B187819F6B267460EDF57BB /* RecorderHostRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1429DC20480427C58F78F95B /* RecorderHostRuns.swift */; };
 		73D14E0F3173708D6F2D4D77 /* Bench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876473CEF55BCCD5F9711580 /* Bench.swift */; };
 		76ED0C5B6EF50D56EDA4BABA /* TVReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD47A3421B468B94D0D99B31 /* TVReservationTests.swift */; };
 		792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707BB81A9C87370E84230350 /* ReservationSheet.swift */; };
@@ -49,7 +50,9 @@
 		A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */; };
 		A2D675299DA83AA65ED2C0F5 /* SendWaitingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD763834B679DA7C20BD17A4 /* SendWaitingIntent.swift */; };
 		A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */; };
+		B4456DD71ABE279C778C073A /* RecorderHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7288EA8E9169368FA99B3912 /* RecorderHost.swift */; };
 		C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58160E6F634978F81AD1D797 /* DuplicatesView.swift */; };
+		C7BBD1E032408E27F7D7F822 /* HostGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D97288A01992E60957A1E7 /* HostGateTests.swift */; };
 		C88113ED6F52A6B181B6DDF9 /* AppModelTV.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9060C02E42A759BACAAC943 /* AppModelTV.swift */; };
 		C911E44F0D05BCB9F4C76994 /* AppModelRecorderRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D8A7F559230540E3009ABD /* AppModelRecorderRules.swift */; };
 		CA5A0155CBF1C4D187148CE1 /* JobBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86F6D78C94327F25C742A7A /* JobBarView.swift */; };
@@ -95,13 +98,14 @@
 		126A76C55A44B1C1314D806C /* ChannelsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsScreen.swift; sourceTree = "<group>"; };
 		1279E749BC680BAC08A88565 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		1429DC20480427C58F78F95B /* RecorderHostRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderHostRuns.swift; sourceTree = "<group>"; };
 		18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderRulesScreen.swift; sourceTree = "<group>"; };
 		235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchRecorderTests.swift; sourceTree = "<group>"; };
 		259E325C2D165A03538F3DC2 /* ReservationsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationsScreen.swift; sourceTree = "<group>"; };
-		27CD60B317CB821D06B202C9 /* AppModelBulkWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelBulkWork.swift; sourceTree = "<group>"; };
 		29C6866852333929A48A535D /* QueueGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueGateTests.swift; sourceTree = "<group>"; };
 		2ACE549E88DF216FC29FE673 /* USBDiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDiskTests.swift; sourceTree = "<group>"; };
 		2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		2E410A33FE194A519CB82646 /* DeviceHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceHost.swift; sourceTree = "<group>"; };
 		320A5AF47092867E2DBFE5F0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		325A314CEB4BE74CC8873400 /* WhichRecorderSameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderSameTests.swift; sourceTree = "<group>"; };
 		36D8A7F559230540E3009ABD /* AppModelRecorderRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelRecorderRules.swift; sourceTree = "<group>"; };
@@ -117,10 +121,12 @@
 		5C28691CB271964372E64ECD /* TVLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLinkTests.swift; sourceTree = "<group>"; };
 		5CB82313F6AAD21CACDFBBE6 /* BDBridgeUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BDBridgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BDBridgeApp.swift; sourceTree = "<group>"; };
+		61D97288A01992E60957A1E7 /* HostGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostGateTests.swift; sourceTree = "<group>"; };
 		62EE8FDD66A796ED76C70EEE /* AppModelGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelGuide.swift; sourceTree = "<group>"; };
 		6C50D9578B5D62CFBB300399 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		6FAB63DB5A7CE51AB42D8DBD /* WhichRecorderNoScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhichRecorderNoScreenTests.swift; sourceTree = "<group>"; };
 		707BB81A9C87370E84230350 /* ReservationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationSheet.swift; sourceTree = "<group>"; };
+		7288EA8E9169368FA99B3912 /* RecorderHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderHost.swift; sourceTree = "<group>"; };
 		817EF2434A0074A9E2E5E817 /* ReservationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservationGateTests.swift; sourceTree = "<group>"; };
 		83E965F5A7D72F5934B73195 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		876473CEF55BCCD5F9711580 /* Bench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bench.swift; sourceTree = "<group>"; };
@@ -183,7 +189,6 @@
 			isa = PBXGroup;
 			children = (
 				1279E749BC680BAC08A88565 /* AppModel.swift */,
-				27CD60B317CB821D06B202C9 /* AppModelBulkWork.swift */,
 				62EE8FDD66A796ED76C70EEE /* AppModelGuide.swift */,
 				36D8A7F559230540E3009ABD /* AppModelRecorderRules.swift */,
 				AE306E3A1B9409A422224064 /* AppModelRecordings.swift */,
@@ -197,6 +202,7 @@
 				126A76C55A44B1C1314D806C /* ChannelsScreen.swift */,
 				C123FD5B0250D14222551D37 /* DefaultsKey.swift */,
 				83E965F5A7D72F5934B73195 /* DemoData.swift */,
+				2E410A33FE194A519CB82646 /* DeviceHost.swift */,
 				D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */,
 				58160E6F634978F81AD1D797 /* DuplicatesView.swift */,
 				C6328D6F84094C9B14A5C500 /* GuideGridView.swift */,
@@ -207,6 +213,8 @@
 				5B8C2E3D4DA26B4C5EF296B4 /* Notify.swift */,
 				B57FEE346AAB3BF701F1D01C /* PrivacyInfo.xcprivacy */,
 				EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */,
+				7288EA8E9169368FA99B3912 /* RecorderHost.swift */,
+				1429DC20480427C58F78F95B /* RecorderHostRuns.swift */,
 				18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */,
 				E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */,
 				707BB81A9C87370E84230350 /* ReservationSheet.swift */,
@@ -231,6 +239,7 @@
 				235E5E3EDF5E71C9EB46251B /* BenchRecorderTests.swift */,
 				EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
+				61D97288A01992E60957A1E7 /* HostGateTests.swift */,
 				42587E3AD5955F5BB0F8B7A9 /* NoScreenGateTests.swift */,
 				29C6866852333929A48A535D /* QueueGateTests.swift */,
 				3CD87B8AFF4E69F2228DC1A7 /* QueueWithATelevisionTests.swift */,
@@ -418,7 +427,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				0C0453398BDBB0C7CEB2BEAC /* AppModel.swift in Sources */,
-				55C966BCDE15739FEB33E996 /* AppModelBulkWork.swift in Sources */,
 				5E2C78F3C21FBE7CCF9D3630 /* AppModelGuide.swift in Sources */,
 				C911E44F0D05BCB9F4C76994 /* AppModelRecorderRules.swift in Sources */,
 				45F163AFB25C6A065FB29111 /* AppModelRecordings.swift in Sources */,
@@ -431,6 +439,7 @@
 				E3C2C6C7A702D3C8560EA1D5 /* ChannelsScreen.swift in Sources */,
 				8DDB371A05062465A40BC5B2 /* DefaultsKey.swift in Sources */,
 				D082D7A6D44CD069E1937BD6 /* DemoData.swift in Sources */,
+				0BFE2CFC44D5B0B130111E0C /* DeviceHost.swift in Sources */,
 				02BE7EF967EC7BD51DE37ACC /* DisclaimerView.swift in Sources */,
 				C48C67B932C91683FAFF902D /* DuplicatesView.swift in Sources */,
 				E4F6851508CF48AA555A3A6F /* GuideGridView.swift in Sources */,
@@ -439,6 +448,8 @@
 				467EA934EB54A71683BFA00F /* KeychainTVCredentials.swift in Sources */,
 				2904A37BEBE714A804395726 /* Notify.swift in Sources */,
 				F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */,
+				B4456DD71ABE279C778C073A /* RecorderHost.swift in Sources */,
+				6B187819F6B267460EDF57BB /* RecorderHostRuns.swift in Sources */,
 				A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */,
 				4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */,
 				792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */,
@@ -463,6 +474,7 @@
 				A143A5DC24FF13B5702CE41D /* BenchRecorderTests.swift in Sources */,
 				430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
+				C7BBD1E032408E27F7D7F822 /* HostGateTests.swift in Sources */,
 				EB94E416A703724A30D09314 /* NoScreenGateTests.swift in Sources */,
 				0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */,
 				245DF4F2D1A518481C28B063 /* QueueWithATelevisionTests.swift in Sources */,

@@ -61,7 +61,7 @@ extension WhichRecorderTests {
         let before = await recorder.asked
         await later.connect()
 
-        XCTAssertTrue(later.connected, "the connect failed: \(later.problem ?? "no reason given")")
+        XCTAssertTrue(later.connected, "the connect failed: \(later.problem(for: .recorder) ?? "no reason given")")
         XCTAssertTrue(later.titlesLoaded)
         expectEqual(await recorder.asked("X_GetTitleList", since: before), 0,
                     "the recordings were read again from the recorder they were read from")
@@ -81,7 +81,7 @@ extension WhichRecorderTests {
 
         await model.connect()
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertTrue(model.titlesLoaded)
         XCTAssertFalse(model.titles.isEmpty)
         expectEqual(await recorder.asked("X_GetTitleList", since: before), 0,
@@ -97,14 +97,14 @@ extension WhichRecorderTests {
         let attached = model.timesAttached
         let before = await recorder.asked
 
-        expectTrue(await makeSure(model), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.timesAttached, attached)
 
         await recorder.goQuiet(for: 1)
-        expectTrue(await makeSure(model), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(model.timesAttached, attached + 1)
         XCTAssertTrue(model.titlesLoaded)
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertEqual(model.mac, Self.firstsMAC)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(model.timesAttached, attached + 1, "a connect was set going after the check")
@@ -123,7 +123,7 @@ extension WhichRecorderTests {
         await model.connect()
         try await untilIdle(model)
 
-        XCTAssertEqual(model.info?.udn, "", model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, "", model.problem(for: .recorder) ?? "no reason given")
         XCTAssertTrue(model.titlesLoaded, "its lists were forgotten as a stranger's")
         expectEqual(await recorder.asked("X_GetTitleList", since: before), 0)
         try await expect(bench, keeps: .all(of: 1))
@@ -153,7 +153,7 @@ extension WhichRecorderTests {
         await model.loadTitles()
         let attached = model.timesAttached
         await recorder.goQuiet(for: 1)
-        expectTrue(await makeSure(model), model.problem ?? "no reason given")
+        expectTrue(await makeSure(model), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertTrue(model.titlesLoaded, "its lists were forgotten as a stranger's")
         XCTAssertEqual(model.timesAttached, attached + 1)
     }
@@ -170,7 +170,7 @@ extension WhichRecorderTests {
         await model.adopt(host: Bench.otherHost)
         try await untilIdle(model)
 
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertEqual(model.info?.host, Bench.otherHost)
         try await expect(bench, keeps: .all(of: 1))
         expectEqual(await recorder.asked("EPG_TRDEPG_FILE.dat", since: before), 0,
@@ -194,12 +194,12 @@ extension WhichRecorderTests {
         XCTAssertFalse(model.connected, "the app looks connected to the recorder it has left")
         XCTAssertFalse(model.gaveUp, "an answer was taken for silence")
         XCTAssertFalse(model.offline)
-        XCTAssertNotNil(model.problem, "nothing on screen says why the app is not connected")
+        XCTAssertNotNil(model.problem(for: .recorder), "nothing on screen says why the app is not connected")
         XCTAssertTrue(model.reservations.isEmpty, "the last recorder's reservations still mark the guide")
         try await expect(bench, keeps: .all(of: 1), "the cache is still the first recorder's")
 
         await model.adopt(host: Bench.host)
-        XCTAssertTrue(model.connected, "the connect failed: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the connect failed: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertFalse(model.reservations.isEmpty)
         try await expect(bench, keeps: .all(of: 1))
     }
@@ -216,7 +216,8 @@ extension WhichRecorderTests {
         // Out by ending it, and then out by choosing the real recorder from inside it.
         for leaving in ["ending", "choosing"] {
             await model.enterDemo()
-            XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+            XCTAssertTrue(model.connected,
+                          "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
             let demos = try await GuideStore(path: Storage.guidePath(demo: true, in: bench.folder)).owner()
             XCTAssertNil(demos, "the demo's cache was written down as somebody's")
             XCTAssertEqual(model.mac, DemoData.mac, "the demo went on under the real recorder's MAC")

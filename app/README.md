@@ -5,53 +5,71 @@
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
   `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
   to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
-  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelBulkWork`). The connection to the recorder -- when
-  it is asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's
-  `DeviceLink` with a `RecorderDriver`; `AppModelSession` is the app's side of it, what the link tells the
-  model (`LinkHost`) and what it reaches on the network (`LinkEnvironment`). What an operation is made of,
-  whichever device it is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why
-  a device is not to be asked, clearing the line of what went wrong when it goes through, and what each
-  kind of failure says and leaves behind. Each device's read of its reservations, which is its driver's,
-  stands on it, and every other operation is written on its parts.
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The connection to each device -- when it is
+  asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
+  with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of
+  the device's own (`LinkHost`), and what it reaches on the network is the model's to give it
+  (`LinkEnvironment`, in `AppModelSession` and `AppModelTV`). What an operation is made of, whichever device it
+  is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why a device is not to be
+  asked, clearing the line of what went wrong when it goes through, and what each kind of failure says and
+  leaves behind. Each device's read of its reservations, which is its driver's, stands on it, and every other
+  operation is written on its parts.
+  The recorder's host (`RecorderHost`) is made once with the model and its link and kept for as long as the
+  model is: the recorder's link is never dropped, and takes a newcomer up in the middle of an attach. It answers
+  the link (`RecorderLinkHost`: what only a recorder's link asks -- its cache, its MAC and where it was read,
+  another recorder taking its place -- beside what any link asks), holds the recorder's line and the strip's
+  flag for another recorder, and holds what the recorder said as one object (`RecorderSaid`: the
+  reservations, the recordings, the keyword conditions, the duplicates with their ticks and texts, the strip's
+  report), which letting go of a recorder replaces whole (`forgetWhatTheRecorderSaid`). An entry that reads the
+  recorder notes the object in play as it begins and keeps what it read on that one, so a list read for a
+  recorder let go of meanwhile is kept where no screen reads it. What is the phone's -- the cache, the queue on
+  screen, the demo, the settings, the lines of what is under way -- stays the model's, and the host reaches it
+  through the model. The television's host (`TVHost`) is made and let go of with the television's link, so
+  what a television said goes with it, and nothing has to empty it.
   The recorder's driver sends what waits for it in the phone's queue and deletes a row of it, makes, changes
   and deletes its reservations, and asks what a new one would clash with, as well (`RecorderDriver.reservations`,
   `refreshReservations`, `sendWhatWaits`, `resend`, `deleteWaiting`, `reserve`, `update`, `cancel`,
-  `conflicts`), each by the rules a television's driver keeps, and `AppModelReservations` keeps what comes
-  back. So are its recordings -- the list with the free space, a recording's details, protect, delete,
-  playback and power -- and its own keyword conditions, read, added and deleted (`RecorderDriver.titles`,
-  `detail`, `protect`, `delete`, `play`, `powerOn`, `recorderRules`, `addRule`, `removeRule`, and `refresh`
-  for a pull-down; in `RecorderRecordings.swift` and `RecorderConditions.swift`), by the same rules, and
-  `AppModelRecordings` and `AppModelRecorderRules` keep what comes back. So is the recorder's side of a run
-  over many recordings -- the bulk delete, the bulk protect and the scan for duplicates: when a run may begin
-  and go on, what is asked for one recording, why it stopped and the free space as it ends (`beginRun`,
-  `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`, in `RecorderRuns.swift`), while
-  `AppModelBulkWork` keeps the loop, the job and the lists. So is the guide fetched by hand and at a connect
-  (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`), which `AppModelGuide` asks for and puts on
-  screen. And so are the recorder's two runs with no screen, the overnight run and the Shortcuts action's sending
-  (`refreshWithNoScreen`, `sendWithNoScreen`, and what each says, in `RecorderNoScreen.swift`):
-  `BackgroundWork`, `Notify` and `SendWaitingIntent` keep the entries the system calls, the magic packet, the
-  posting of notifications and the record of what was told. A television, once added in the
-  settings, has a link of its own beside the recorder's,
-  with a `TVDriver` and a host of its own (`TVHost`, `AppModelTV`), so that neither device's silence,
-  trouble or work is the other's. What the television said --
-  its reservations -- is kept by that host and goes with its link; reading, changing and deleting them are the
-  driver's steps, and `AppModelReservations` only puts the two devices' lists together for the screens and
-  sends a change or a delete to the device that holds the row -- a change through the one entry a sheet
-  changes a reservation by, whichever device it is (`change`). Sending what waits in the phone's queue for the
-  television is the driver's too (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and
-  keeps what it came to for the strip, which says it after what the recorder's sending came to
-  (`AppModel.queueReport`). So are reserving a programme on the television and sending a waiting row again
-  (`TVDriver.reserve`, `resend`): the host asks, keeps the list that came back and reads the queue on screen
-  again, and hands what the reservation or the row came to on to whoever asked, while `AppModelReservations`
-  sends a waiting row's sending again and its delete to the device it waits for (`resend`, and `sendAgain` for
-  a screen that says what it came to; `deleteWaiting`), and has the one entry a screen reserves through whichever device it is for
-  (`reserve(_:on:quality:repeating:)`, among the devices `destinations(for:)` lists for the programme).
+  `conflicts`), each by the rules a television's driver keeps. Six of those steps are the same on both devices
+  -- the list read, the list pulled down, a delete, a change, a reservation, a waiting row sent again -- and both
+  drivers answer them through one protocol (`ReservationDriver`, a change and a reservation taking one request
+  value, `ReservationTerms`); both hosts' entries for them are one text over it (`DeviceHost`, in
+  `DeviceHost.swift`), with what still differs between the hosts as a hook each answers for itself: where a
+  list is kept, what comes before an ask (the recorder's opens the cache), and what follows a reservation and a
+  sending again. `AppModelReservations` picks the host by the row's device (`deviceHost(for:)`) and does
+  nothing else but open the cache ahead of a television's reservation, as the recorder's host does before its
+  own: a reservation goes to the device the programme's sheet named, a change (`change`), a delete
+  (`cancel`) or a waiting row sent again (`resend`, and `sendAgain` for a screen that says what it came to) to
+  the device that holds the row; it puts the two devices' lists together for the screens. A waiting row's delete
+  (`deleteWaiting`) is not one of the six: the recorder's is its host's, the television's a step of its driver's
+  the model hands what it holds. The recorder's recordings -- the list with the free space, a recording's
+  details, protect, delete, playback and power -- and its own keyword conditions, read, added and deleted, are
+  its driver's steps as well (`RecorderDriver.titles`, `detail`, `protect`, `delete`, `play`, `powerOn`,
+  `recorderRules`, `addRule`, `removeRule`, and `refresh` for a pull-down; in `RecorderRecordings.swift` and
+  `RecorderConditions.swift`), by the same rules, and the recorder's host asks for them and keeps what comes
+  back; `AppModelRecordings` and `AppModelRecorderRules` keep the sorts and filters, and hand the entries over.
+  So is the recorder's side of a run over many recordings -- the bulk delete, the bulk protect and the scan for
+  duplicates: when a run may begin and go on, what is asked for one recording, why it stopped and the free space
+  as it ends (`beginRun`, `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`, in
+  `RecorderRuns.swift`), while the recorder's host keeps the loop and the job (`RecorderHostRuns.swift`). So is
+  the guide fetched by hand and at a connect (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`),
+  which `AppModelGuide` asks for and puts on screen. And so are the recorder's two runs with no screen, the
+  overnight run and the Shortcuts action's sending (`refreshWithNoScreen`, `sendWithNoScreen`, and what each
+  says, in `RecorderNoScreen.swift`): `BackgroundWork`, `Notify` and `SendWaitingIntent` keep the entries the
+  system calls, the magic packet, the posting of notifications and the record of what was told.
+  A television, once added in the settings, has a link of its own beside the recorder's, with a `TVDriver` and
+  its host (`AppModelTV` makes and drops them), so that neither device's silence, trouble or work is the
+  other's. Sending what waits in the phone's queue for the television is the driver's too
+  (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and keeps what it came to for the
+  strip, which says it after what the recorder's sending came to (`AppModel.queueReport`). The screens read
+  either host through the model's own names: `problem(for:)`, `isBusy(for:)`, `staleSince(for:)`, and the
+  recorder's lists, job and strip under the names they had when the model held them. The app's tests read the
+  recorder's host through the same names, and the television's host also directly (`model.tvHost`).
   What the screens say of what waits is chosen in the model, where a test can hold it:
   the device a waiting row names and what the reservations tab says under the rows (`deviceSaid`,
-  `whatWaitsSays`), and which one line the strip at the top of every screen shows (`AppModel.strip`, beside
-  the view that draws it in `BDBridgeApp.swift`). What the app knows of the recorder and of the link
-  to it -- described, unreachable, given up on, being woken -- is `SessionState`, which changes only by what
-  happened to it; the screens read it through `AppModel`.
+  `whatWaitsSays`, whose sentences are the queue's, `PendingQueue.whatWaits`), and which one line the strip at
+  the top of every screen shows (`AppModel.strip`, beside the view that draws it in `BDBridgeApp.swift`). What
+  the app knows of the recorder and of the link to it -- described, unreachable, given up on, being woken -- is
+  `SessionState`, which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
@@ -929,7 +947,7 @@ out cannot be deleted twice. A reservation the recorder marks 重複 names, on i
 sheet, the other reservations at the same hours, since the recorder does not say which one it clashes with.
 While the recorder cannot be asked -- given up on, not connected, or connected from before a reconnect it
 answered busy -- its list stays on the reservations tab and says when it was read,
-「レコーダーの予約は〈N 分前〉に読んだものです」 (`AppModel.reservationsStaleSince`), as a television's does.
+「レコーダーの予約は〈N 分前〉に読んだものです」, as a television's does: one rule for both (`DeviceHost.staleSince`).
 
 The guide's broadcasting type and the orders of the reservations and the recordings are kept between
 launches. The filters -- genre, watch state, kind of reservation -- are not: a list opened narrowed, with only
@@ -1607,9 +1625,9 @@ because it would stop reservations from recording that the reason on the row nam
 the television could not be asked or its round stopped; or neither made nor kept. A television that cannot be
 asked is not connected to for it, and what is turned away before anything is sent -- a repeat a television
 is not sent, a programme that is over -- is said in the result and leaves the television's line
-alone. The host (`TVHost.reserve`) keeps the list read after a reservation that was made, reads the queue on
-screen again and takes the warning of rows not yet there away once none of them waits; it puts nothing on the
-strip, since the result is what says it.
+alone. The host (`DeviceHost.reserve`, with the television's `afterAReservation`) keeps the list read after a
+reservation that was made, reads the queue on screen again and takes the warning of rows not yet there away
+once none of them waits; it puts nothing on the strip, since the result is what says it.
 
 A reservation on the recorder goes the same way (`RecorderDriver.reserve`): under 予約を登録中, once the recorder
 has been made sure of and the USB slot waited for where it names the USB disk, it is written to the phone's queue

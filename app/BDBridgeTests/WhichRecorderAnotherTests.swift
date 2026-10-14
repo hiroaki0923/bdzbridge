@@ -18,7 +18,7 @@ extension WhichRecorderTests {
         await model.adopt(host: Bench.otherHost)
         try await untilIdle(model)
 
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertFalse(model.reservations.isEmpty, "the new recorder's reservations were not read")
         try await expect(bench, keeps: .nothing(nowOf: 2),
                          "the first one's text would confirm a duplicate on the second; the warning was of its disk")
@@ -93,7 +93,7 @@ extension WhichRecorderTests {
 
         await model.connect()
 
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         expectHeld(model, 1)
         expectTheStripSaysWhatIsHeld(model)
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 0)
@@ -153,7 +153,7 @@ extension WhichRecorderTests {
         await model.connect()
         XCTAssertTrue(model.anotherTookOver)
         await model.adopt(host: Bench.otherHost)
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(3), model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(3), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertFalse(model.anotherTookOver, "said of a recorder the reader chose")
     }
 
@@ -173,7 +173,7 @@ extension WhichRecorderTests {
         await model.adopt(host: Bench.otherHost)
 
         XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
-        XCTAssertEqual(model.problem, Said.cacheNotMadeOver)
+        XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver)
         XCTAssertFalse(model.gaveUp, "it answered: this is not silence")
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0)
         try await expect(bench, keeps: .all(of: 1))
@@ -184,14 +184,14 @@ extension WhichRecorderTests {
         XCTAssertTrue(model.offline, "the recorder turned away from is still there to be asked")
         let program = try await aProgramme(model, skipping: 1)
         expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
-                   model.problem ?? "no reason given")
+                   model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0,
                     "reserved on the recorder the app would not connect to")
 
         await model.connect()
         try await untilIdle(model)
 
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         try await expect(bench, keeps: .nothing(nowOf: 2))
         expectEqual(await second.asked("X_CreateRecordSchedule"), 0)
         expectHeld(model, 2)
@@ -213,7 +213,7 @@ extension WhichRecorderTests {
         writer.letGo()
 
         XCTAssertFalse(model.connected, "connected over a cache that is still the first recorder's")
-        XCTAssertEqual(model.problem, Said.cacheNotMadeOver)
+        XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver)
         XCTAssertTrue(model.anotherTookOver, "nothing on the strip says another recorder answered")
     }
 
@@ -242,7 +242,7 @@ extension WhichRecorderTests {
         await model.connect()
         try await untilIdle(model)
 
-        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem ?? "no reason given")
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         try await expect(bench, keeps: .nothing(nowOf: 2),
                          "the first recorder's text was kept under the second one's numbers")
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 0,

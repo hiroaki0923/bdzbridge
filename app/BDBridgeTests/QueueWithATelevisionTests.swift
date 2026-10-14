@@ -558,7 +558,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         await model.enterDemo()
         try await untilIdle(model)
-        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
         let invented = try await programmesNotReserved(model, 1)[0]
         XCTAssertEqual(model.destinations, [.recorder], "the real television is offered in the demo")
         XCTAssertEqual(model.destinations(for: invented), [.recorder])
@@ -1062,7 +1062,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(model.strip())
 
         await model.enterDemo()
-        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(model.connected, "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertEqual(model.strip(), .demo)
         XCTAssertNil(model.strip(inSheet: true), "the demo's line is at the top of a sheet")
         try await XCTUnwrap(model.store).queue(waiting("夜の番組", startingIn: 122, programme: 4323))

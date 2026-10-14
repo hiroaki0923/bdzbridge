@@ -67,7 +67,8 @@ public struct LinkEnvironment {
 /// What a link tells the app, and asks of it: the lines on the screen, what the phone keeps, and the lists the
 /// app holds of what the device said. Called on the main actor at fixed points of an attempt. What is not
 /// `async` happens in the same turn as what caused it, and some of it has to: the lists another device's
-/// description makes stale go before any screen gets a turn over them.
+/// description makes stale go before any screen gets a turn over them. What only a recorder's link asks is
+/// `RecorderLinkHost`'s.
 @MainActor
 public protocol LinkHost: AnyObject, Sendable {
     /// The one line that says what went wrong.
@@ -91,6 +92,27 @@ public protocol LinkHost: AnyObject, Sendable {
     func keepAddress(_ host: String)
     /// The MAC the device reported, kept for waking it, with the address it was read at.
     func keepMAC(_ text: String)
+    /// Sends what waits for this device, and says what became of it. A driver asks for it from inside its
+    /// attach, and a television's again when its list is pulled down, before the list is read.
+    func sendWhatWaits() async
+    /// The phone's queue may have changed -- the driver has written it, or is about to send from it: what the
+    /// screens show of it is to be read again.
+    func queueWritten() async
+    /// A connect reached the device: the reads that follow one, inside the connect.
+    func reached() async
+    /// The check before an operation heard another device where this one was. What was asked is not sent. The
+    /// link says so on the line once this has returned (`LinkDriver.anotherAnsweredLine`).
+    func anotherAnsweredTheCheck()
+    /// Local network privacy is in the way at `host`: wait for the permission, and say so.
+    func waitForPermission(at host: String)
+    func stopWaitingForPermission()
+}
+
+/// What only a recorder's link asks of its host (`RecorderDriver`): where the MAC it wakes the recorder by was
+/// read, another recorder describing itself where the last one was, and the cache made over to it or not. A
+/// television's link asks none of it, and its host is a `LinkHost` alone.
+@MainActor
+public protocol RecorderLinkHost: LinkHost {
     /// Where the MAC kept was read, or nil when nobody knows.
     var macReadAt: String? { get }
     /// The MAC kept was read from the device now at `host`.
@@ -102,22 +124,8 @@ public protocol LinkHost: AnyObject, Sendable {
     /// The cache has been made over to another device: what the screens show of it is read again.
     func cacheMadeOver() async
     /// Another device answered and the cache could not be made over to it: the app is not connected over it.
+    /// The driver says why on the line once this has returned (`RecorderDriver.cacheNotMadeOver`).
     func cacheCouldNotBeMadeOver()
-    /// Sends what waits for this device, and says what became of it. A driver asks for it from inside its
-    /// attach, and a television's again when its list is pulled down, before the list is read.
-    func sendWhatWaits() async
-    /// The phone's queue may have changed -- the driver has written it, or is about to send from it: what the
-    /// screens show of it is to be read again.
-    func queueWritten() async
-    /// A connect reached the device: the reads that follow one, inside the connect.
-    func reached() async
-    /// The check before an operation heard another device where this one was. What was asked is not sent.
-    func anotherAnsweredTheCheck()
-    /// Nothing could be asked: the app is not connected. Says why.
-    func sayNotConnected()
-    /// Local network privacy is in the way at `host`: wait for the permission, and say so.
-    func waitForPermission(at host: String)
-    func stopWaitingForPermission()
 }
 
 /// What a link asks of the kind of device it is about: how to make a client, wake one, find one that has moved,
@@ -131,6 +139,11 @@ public protocol LinkDriver: AnyObject, Sendable {
     var probeTimeout: TimeInterval { get }
     /// What is said when the check before an operation met silence and nothing could be done about it.
     var noAnswerLine: String { get }
+    /// What the link says on the host's line when nothing could be asked because the app is not connected.
+    var whyNotConnected: String { get }
+    /// What the link says on the host's line when the check before an operation heard another device where
+    /// this one was, once the host has been told (`LinkHost.anotherAnsweredTheCheck`).
+    var anotherAnsweredLine: String { get }
     /// Whether a read that has just met silence loses the device and says so (`DeviceLink.say`). Silence on
     /// something that changes the device always does, whatever this answers.
     func takesSilenceOnARead(_ link: DeviceLink) -> Bool
@@ -156,8 +169,8 @@ public protocol LinkDriver: AnyObject, Sendable {
 /// Why a device is not up for what the reader asked for: what the check before an operation found
 /// (`DeviceLink.check`). With any of these, nothing has been sent.
 public enum NotUp: Sendable, Equatable {
-    /// No client, or the last ask met silence: the app is not connected. The host has said so
-    /// (`sayNotConnected`).
+    /// No client, or the last ask met silence: the app is not connected. The link has said so on the host's
+    /// line (`LinkDriver.whyNotConnected`).
     case notConnected
     /// Silence because local network privacy stopped the ask. The app waits for the permission. The line of
     /// what went wrong was cleared, not written: the screens say this from the session (`connectBlocked`).
@@ -167,7 +180,7 @@ public enum NotUp: Sendable, Equatable {
     case anotherAnswered
     /// The device was let go of while it was made sure of, and not because the check heard another: the
     /// waking's attach was broken off by the host, which let go of the device -- over a cache that could not
-    /// be made over to the recorder that answered (`LinkHost.cacheCouldNotBeMadeOver`) -- or something else let
+    /// be made over to the recorder that answered (`RecorderLinkHost.cacheCouldNotBeMadeOver`) -- or something else let
     /// go of it while the check met silence: another address chosen, another device described itself on a
     /// connect. As for `anotherAnswered`, what was asked for is not for the device in play now; the host has
     /// said why, or whatever let go of it has, and the silence is neither taken for the device in play nor said.
@@ -446,7 +459,7 @@ public final class DeviceLink {
     /// once more the answer it has just heard.
     public func check(evenIfRecent: Bool = false) async -> LinkCheck {
         guard let client, !offline else {
-            owner?.sayNotConnected()
+            owner?.problem = driver.whyNotConnected
             return .notUp(.notConnected)
         }
         // Already at it: a connect, or the waking of an earlier check -- whose attach reads lists of its own
@@ -515,6 +528,7 @@ public final class DeviceLink {
             // has turned the app to it already.
             if stranger || (known != nil && session.device != known) {
                 owner?.anotherAnsweredTheCheck()
+                owner?.problem = driver.anotherAnsweredLine
                 return .anotherAnswered
             }
             return nil

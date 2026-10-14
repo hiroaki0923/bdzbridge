@@ -82,7 +82,7 @@ struct WelcomeView: View {
                     if let busy = model.busy {
                         HStack { ProgressView().controlSize(.small); Text(busy) }
                     }
-                    if let problem = model.problem {
+                    if let problem = model.problem(for: .recorder) {
                         Text(problem).foregroundStyle(.red).font(.callout)
                     }
                 }

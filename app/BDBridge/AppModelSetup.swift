@@ -109,46 +109,8 @@ extension AppModel {
         await connect()
     }
 
-    /// Lets go of the recorder in play as far as memory goes: what it said of itself and which it was, the
-    /// client that asked it, a wait for the permission at it, and the lists the app holds of it. Until the next
-    /// connect there is no client, so nothing can be sent from a list that is no longer there. The queue, the
-    /// MAC and what the phone keeps are left: those are decided when a recorder answers
-    /// (`RecorderDriver.attach`).
-    func forgetTheRecorder() {
-        recorder.forgetTheDevice()
-        forgetWhatTheRecorderSaid()
-        problem = nil
-    }
-
-    /// Empties what the app holds in memory that a recorder said: its lists, the sets of copies with their
-    /// ticks and the texts they were built on, the last job, and the lists' filters. Each recorder numbers
-    /// its own, so a row left from one would be sent, by its number, to the next. For a choice
-    /// (`forgetTheRecorder`), and for another recorder answering where nobody chose one
-    /// (`anotherDeviceDescribedItself`); the screens are told (`timesForgotten`).
-    ///
-    /// A finished job goes because the duplicates view takes it for having looked. One still running is
-    /// stopped by the check that hears the other recorder (`anotherAnsweredTheCheck`).
-    func forgetWhatTheRecorderSaid() {
-        reservations = []
-        reservationsRead = nil
-        titles = []
-        titlesLoaded = false
-        recorderRules = []
-        recorderRulesLoaded = false
-        recorderRulesFailure = nil
-        flushReport = nil
-        anotherTookOver = false
-        duplicates = []
-        duplicatePicks = []
-        unreadDuplicates = 0
-        summaries = [:]
-        fixedBlurbs = []
-        clearJob()
-        titleGenre = nil
-        titleState = nil
-        reservationKind = .all
-        timesForgotten += 1
-    }
+    /// Lets go of the recorder in play as far as memory goes, as its host does (`RecorderHost.forgetTheRecorder`).
+    func forgetTheRecorder() { recorderHost.forgetTheRecorder() }
 
     /// Opens the cache that belongs to whichever recorder is in play now, the demo's or a real one's, and
     /// forgets everything the other one said. The queue shown is the one in the cache opened.
@@ -245,7 +207,7 @@ extension AppModel {
         scanRun += 1
         let run = scanRun
         // whatever the last attempt left on screen is not about this one
-        problem = nil
+        recorderHost.problem = nil
         scanOutcome = nil
         scanBlocked = false
         found = []

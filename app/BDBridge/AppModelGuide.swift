@@ -136,7 +136,7 @@ extension AppModel {
                 uniquingKeysWith: { first, _ in first })
             programs = try await store.day(day, broadcasting: broadcasting)
         } catch {
-            problem = "番組表を読み込めませんでした: \(error)"
+            recorderHost.problem = "番組表を読み込めませんでした: \(error)"
         }
     }
 

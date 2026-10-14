@@ -58,6 +58,13 @@ final class Bench {
     /// was cancelled meanwhile: a real one ends when its task is, and one of these stands for a wait the
     /// permission ended in that same moment.
     private var waitingForPermission: [CheckedContinuation<LocalNetwork.Access, Never>] = []
+    /// Whether the links' own look at the permission, after a device was silent at its address, says the system
+    /// keeps the app off (`Surroundings.linkIsBlocked`): not, unless a test says so.
+    var linksAreKeptOff = false
+    /// The addresses the hosts' waits for the permission were aimed at, in order, and the waits still under way:
+    /// each lasts until the test ends it (`theLinksPermissionComes`), as those above do.
+    private(set) var linksPermissionWaits: [String] = []
+    private var linksWaitingForPermission: [CheckedContinuation<LocalNetwork.Access, Never>] = []
     private let suite: String
 
     /// An address reserved for documentation (RFC 5737). The model never sends anything to it: its requests
@@ -190,6 +197,17 @@ final class Bench {
         waitingForPermission = []
     }
 
+    /// Ends every wait for the permission a host of a model made here has under way with `access`.
+    func theLinksPermissionComes(_ access: LocalNetwork.Access = .allowed) {
+        for wait in linksWaitingForPermission { wait.resume(returning: access) }
+        linksWaitingForPermission = []
+    }
+
+    private func waitForTheLinksPermission(at host: String) async -> LocalNetwork.Access {
+        linksPermissionWaits.append(host)
+        return await withCheckedContinuation { linksWaitingForPermission.append($0) }
+    }
+
     private func lookAtThePermission(at host: String) -> LocalNetwork.Access? {
         permissionLooks.append(host)
         return permissionLookSays
@@ -247,6 +265,10 @@ final class Bench {
                 return await self.lookAtThePermission(at: host)
             },
             waitForLocalNetwork: { [weak self] in await self?.waitForThePermission(at: $0) ?? .unavailable },
+            linkIsBlocked: { [weak self] _ in await self?.linksAreKeptOff ?? false },
+            waitForTheLinksPermission: { [weak self] in
+                await self?.waitForTheLinksPermission(at: $0) ?? .unavailable
+            },
             lanInterfaces: { [weak self] in
                 self?.interfacesRead += 1
                 return (self?.wifi).map { [$0] } ?? []
@@ -279,6 +301,7 @@ final class Bench {
         // A search still held at a pause would wait for good, and so would a wait for the permission.
         letEverySingleRequestGo()
         permissionComes(.unavailable)
+        theLinksPermissionComes(.unavailable)
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: folder)
     }
@@ -1237,6 +1260,9 @@ enum Said {
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
+    /// What the strip says while another recorder has taken the last one's place and the app is connected.
+    static let anotherTookOver = "別のレコーダーが応答したため、一覧を読み直しました。"
+        + "操作の途中だった場合は、確かめてからやり直してください。"
     /// Written on the rows of the phone's queue, and counted by being equal to this.
     static let heldForAnotherRecorder = "別のレコーダーに切り替わったため、送らずに残しています。"
         + "「もう一度送る」を選ぶと、いまのレコーダーに送ります。"
@@ -1313,11 +1339,22 @@ let lineLeft = "前の操作が残した文"
 
 /// Leaves it on the recorder's line of what went wrong.
 @MainActor
-func leaveALine(on model: AppModel) { model.problem = lineLeft }
+func leaveALine(on model: AppModel) { model.recorderHost.problem = lineLeft }
 
 /// Leaves nothing there, for a test that looks at what is said over an empty line.
 @MainActor
-func clearTheLine(on model: AppModel) { model.problem = nil }
+func clearTheLine(on model: AppModel) { model.recorderHost.problem = nil }
+
+/// Puts a line of the recorder's work up on the strip, as an operation on the recorder does: its token, for
+/// `endARecorderLine`.
+@MainActor
+func beginARecorderLine(_ text: String, on model: AppModel) -> Activities.Token {
+    model.recorderHost.beginActivity(text)
+}
+
+/// Takes that line down again.
+@MainActor
+func endARecorderLine(_ token: Activities.Token, on model: AppModel) { model.recorderHost.endActivity(token) }
 
 // MARK: - what the tests do to the connection
 //
@@ -1372,6 +1409,15 @@ func reserveOnTheRecorder(_ model: AppModel, _ program: GuideProgramRow, quality
     case .made, .waiting: return true
     case .wouldStop, .notDone: return false
     }
+}
+
+/// The recorder's reservations read as a screen reads them as it appears: the list this read came back with,
+/// kept on the screens unless the recorder it was read from was let go of while it was out, and nil when nothing
+/// was read.
+@MainActor
+@discardableResult
+func readTheReservations(_ model: AppModel) async -> [Reservation]? {
+    await model.readReservations()
 }
 
 /// The row the last reservation on the recorder kept on the phone; nil when it was made or not done.

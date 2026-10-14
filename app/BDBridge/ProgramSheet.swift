@@ -221,7 +221,7 @@ struct ProgramSheet: View {
                 if !program.extended.isEmpty {
                     Section("詳細") { Text(program.extended) }
                 }
-                if let problem = model.problem {
+                if let problem = model.problem(for: .recorder) {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }

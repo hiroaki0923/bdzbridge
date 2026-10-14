@@ -120,7 +120,7 @@ struct TitleSheet: View {
                         if !text.isEmpty { Section("詳細") { Text(text) } }
                     }
                 }
-                if let problem = model.problem {
+                if let problem = model.problem(for: .recorder) {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
             }

@@ -61,10 +61,10 @@ final class LinkPartsTests: XCTestCase {
         let link = makeLink(world)
 
         expectEqual(await link.check().whyNot, .notConnected)
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         world.problem = nil
         expectFalse(await link.ensureUp())
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         XCTAssertEqual(world.count("ask"), 0, "asked with no client")
 
         await link.connect()
@@ -374,7 +374,7 @@ final class LinkPartsTests: XCTestCase {
         }
         XCTAssertEqual(failed, .failure(.notSent(.notConnected)))
         XCTAssertFalse(ran, "the work was run after a check that said no")
-        XCTAssertEqual(world.problem, LinkWorld.notConnected)
+        XCTAssertEqual(world.problem, RecorderDriver.notConnected)
         XCTAssertNil(world.line)
 
         world = LinkWorld()
@@ -535,6 +535,77 @@ final class LinkPartsTests: XCTestCase {
         link.owner = world
         return (world, link)
     }
+
+    // MARK: - what a television's link asks of its host
+
+    /// A television's link asks its host nothing that is a recorder's alone: where the MAC was read, that it was
+    /// read there, that it is to be forgotten, that another device described itself, or that the cache was made
+    /// over to it or could not be. Not at an attach, at the check before an operation -- one that hears the
+    /// television, one that hears another television at its address, one that meets silence -- at a sending of
+    /// what waits, nor at a let-go. The host here is a `LinkHost` and no `RecorderLinkHost`, which has those six:
+    /// a link that asked one of a television's host would not build.
+    func testATelevisionsLinkAsksItsHostNothingThatIsARecorders() async throws {
+        let television = DemoTV()
+        await television.receives([DemoTV.Station(serviceID: 0x428)])
+        await television.knows("BDBridge:test", cookie: "kept")
+        let host = NoRecorderHere()
+        host.world.devices[Stub.host] = television
+        let store = try temporaryStore()
+        try await store.queue(pending(start: Date().addingTimeInterval(7200), target: .tv))
+        host.world.cache = store
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                            cookieReceived: Date(), cookieMaxAge: 1_209_600))
+        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true })
+        let link = DeviceLink(host: Stub.host, session: SessionState(device: DemoTV.mac), driver: driver,
+                              environment: host.world.environment)
+        link.owner = host
+
+        await link.connect()
+        XCTAssertTrue(link.session.connected, "the television was meant to be attached")
+
+        expectTrue(await link.ensureUp(evenIfRecent: true), "the television was meant to answer its check")
+
+        let sent = await driver.sendWhatWaits()
+        XCTAssertNotNil(sent, "what waits was meant to be sent")
+        expectEqual(try await store.pendingReservations(), [], "the reservation waiting was meant to be made")
+
+        await television.becomeAnother(mac: "f8:4e:17:00:00:0b")
+        expectFalse(await link.ensureUp(evenIfRecent: true), "another television was taken for the one saved")
+
+        await television.goSilent()
+        expectFalse(await link.ensureUp(evenIfRecent: true), "a television that said nothing was taken for one")
+
+        link.forgetTheDevice()
+    }
+}
+
+/// A host for a television's link that has nothing of what a recorder's link would ask of its host alone -- where
+/// its MAC was read, forgetting it, another device describing itself, the cache made over or not -- and answers
+/// everything else as the world does (`LinkWorld`).
+@MainActor
+private final class NoRecorderHere: LinkHost {
+    let world = LinkWorld()
+
+    var problem: String? {
+        get { world.problem }
+        set { world.problem = newValue }
+    }
+    func beginActivity(_ text: String) -> Activities.Token { world.beginActivity(text) }
+    func updateActivity(_ token: Activities.Token, to text: String) { world.updateActivity(token, to: text) }
+    func endActivity(_ token: Activities.Token) { world.endActivity(token) }
+    var isBusy: Bool { world.isBusy }
+    var holdsOffConnect: Bool { world.holdsOffConnect }
+    var isDemo: Bool { world.isDemo }
+    var cache: GuideStore? { world.cache }
+    func cacheForAttempt() async { await world.cacheForAttempt() }
+    func keepAddress(_ host: String) { world.keepAddress(host) }
+    func keepMAC(_ text: String) { world.keepMAC(text) }
+    func sendWhatWaits() async { await world.sendWhatWaits() }
+    func queueWritten() async { await world.queueWritten() }
+    func reached() async { await world.reached() }
+    func anotherAnsweredTheCheck() { world.anotherAnsweredTheCheck() }
+    func waitForPermission(at host: String) { world.waitForPermission(at: host) }
+    func stopWaitingForPermission() { world.stopWaitingForPermission() }
 }
 
 /// Counts the tasks a test set going that have begun, for the test to wait on rather than on a clock. A task

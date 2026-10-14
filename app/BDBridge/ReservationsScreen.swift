@@ -117,13 +117,8 @@ struct ReservationsScreen: View {
                 }
             }
             // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
-            // the app is not connected to, and at a television. The two side by side: neither device's
-            // silence holds the other's list up.
-            .refreshable {
-                async let television: Void? = model.tvHost?.refreshReservations()
-                await model.refreshReservations()
-                await television
-            }
+            // the app is not connected to, and at a television: both devices, side by side.
+            .refreshable { await model.pullDownReservations() }
             // Keyed as the recordings are, on `connected` and on what the load itself checks. A connect reads
             // this list by itself, but the waking that a check before an operation does reads it only when it
             // has sent something from the queue, and the screen would go on showing what was read before the
@@ -138,7 +133,7 @@ struct ReservationsScreen: View {
             // as well, that one would have the recorder made sure of, and woken, whenever the television's
             // state moved. A television that cannot be asked is sent nothing by this; a connect that reaches
             // one reads its list itself (`TVHost.reached`).
-            .task { await model.tvHost?.loadReservations() }
+            .task { await model.loadReservations(of: .tv) }
             .sheet(item: $opened) { ReservationSheet(reservation: $0) }
             // The reservation picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
@@ -189,7 +184,7 @@ struct ReservationsScreen: View {
                         .padding(10)
                         .frame(maxWidth: .infinity)
                         .background(.regularMaterial)
-                } else if let problem = model.problem ?? model.problem(for: .tv) {
+                } else if let problem = model.problem(for: .recorder) ?? model.problem(for: .tv) {
                     Text(problem)
                         .font(.callout)
                         .foregroundStyle(.red)
@@ -221,27 +216,21 @@ struct ReservationsScreen: View {
 
     private var list: some View {
         List {
-            if let since = model.reservationsStaleSince,
-               model.shownReservations.contains(where: { $0.device == .recorder }) {
-                // The recorder's, by the television's rule just below: a recorder that cannot be asked leaves its
-                // last list up, and what is on screen says how old that is, above its rows only.
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text("レコーダーの予約は\(Self.ago(min(since, context.date.addingTimeInterval(-60))))に読んだものです")
-                        .font(.footnote).foregroundStyle(.secondary)
+            ForEach([DeviceSlot.recorder, .tv], id: \.self) { device in
+                if let since = model.staleSince(for: device),
+                   model.shownReservations.contains(where: { $0.device == device }) {
+                    // A device that cannot be asked leaves its last list up, and what is on screen says how old
+                    // that is -- above its rows only, so not while the kind shown leaves them out. The words
+                    // turn over once a minute and never say less than one: a count of seconds would stand still
+                    // until the next turn. On the list's own ground, as a heading is: in a row's white it reads
+                    // as a row to tap.
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        let read = Self.ago(min(since, context.date.addingTimeInterval(-60)))
+                        Text("\(device.label)の予約は\(read)に読んだものです")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
                 }
-                .listRowBackground(Color.clear)
-            }
-            if let since = model.tvHost?.staleSince, model.shownReservations.contains(where: { $0.device == .tv }) {
-                // A television that cannot be asked leaves its last list up, and what is on screen says how
-                // old that is -- above its rows only, so not while the kind shown leaves them out. The words
-                // turn over once a minute and never say less than one: a count of seconds would stand still
-                // until the next turn. On the list's own ground, as a heading is: in a row's white it reads
-                // as a row to tap.
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text("テレビの予約は\(Self.ago(min(since, context.date.addingTimeInterval(-60))))に読んだものです")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                .listRowBackground(Color.clear)
             }
             if !model.pending.isEmpty {
                 Section {

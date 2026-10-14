@@ -8,9 +8,9 @@ import XCTest
 /// one again or taking one away does while the recorder is away, and how the ones held for another recorder are
 /// counted.
 ///
-/// Gates, as `FunnelGateTests` and `ReservationGateTests` are and for the same move: each pins what the app does
-/// today, and where a later change is to rewrite a test it says so, with that change's name in the plan in
-/// brackets. A test asks only what a screen asks and reads only what a screen reads. The one that looks at the
+/// Gates, as `FunnelGateTests` and `ReservationGateTests` are: each pins what the app does today, and where that
+/// is not what anybody would choose, says so. A test asks only what a screen asks and reads only what a screen
+/// reads. The one that looks at the
 /// sentences a sending comes to asks the queue itself (`PendingQueue.flush`), which is what the screens' sending
 /// and the two runs with no screen all end in; neither of those runs is called here.
 ///

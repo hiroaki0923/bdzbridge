@@ -1,11 +1,11 @@
 import Foundation
 @testable import RecorderKit
 
-/// Everything beyond a link, for the tests of links: the app it tells (`LinkHost`) and the network it reaches
+/// Everything beyond a link, for the tests of links: the app it tells (`RecorderLinkHost`) and the network it reaches
 /// (`LinkEnvironment`). What the link did to either is put down in `events`, in the order it did it, and the world
 /// answers as the test says: the device at each address in `devices`, silence anywhere else.
 @MainActor
-final class LinkWorld: LinkHost {
+final class LinkWorld: RecorderLinkHost {
     var events: [String] = []
     /// What answers at each address.
     var devices: [String: any HTTPTransport] = [:]
@@ -77,9 +77,6 @@ final class LinkWorld: LinkHost {
 
     /// The line on screen for what is under way, or nil when nothing is.
     var line: String? { lines.current }
-    /// What `sayNotConnected` says, as each of the app's hosts has a sentence of its own for it.
-    static let notConnected = "not connected"
-
     /// What the host does once a connect has reached the device, inside that connect: a read, for a test of one
     /// asked for from there.
     var onReached: (@MainActor () async -> Void)?
@@ -133,7 +130,6 @@ final class LinkWorld: LinkHost {
         await onReached?()
     }
     func anotherAnsweredTheCheck() { events.append("another device on the check") }
-    func sayNotConnected() { problem = Self.notConnected }
     func waitForPermission(at host: String) { waitingAt = host }
     func stopWaitingForPermission() { waitingAt = nil }
 }

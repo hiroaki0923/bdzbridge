@@ -103,7 +103,7 @@ final class SendWaitingTests: XCTestCase {
         try await untilGivenUp(model)
         let program = try await aProgramme(model)
         let kept = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
-        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem(for: .recorder) ?? "no reason given")")
         return try XCTUnwrap(keptJustNow(model))
     }
 }

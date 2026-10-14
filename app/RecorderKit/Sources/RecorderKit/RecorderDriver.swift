@@ -75,17 +75,29 @@ public final class RecorderDriver: LinkDriver {
 
     /// Why something the reader asked for was not sent at all: the app is not connected. While the local network
     /// permission is what stands in the way (`SessionState.connectBlocked`), the title the screens give that
-    /// (`LocalNetwork.accessNotAllowed`); otherwise `notConnected`. What the host says when the link has nothing
-    /// to ask (`LinkHost.sayNotConnected`).
+    /// (`LocalNetwork.accessNotAllowed`); otherwise `notConnected`. What the link says on the host's line when it
+    /// has nothing to ask (`LinkDriver.whyNotConnected`).
     public var whyNotConnected: String {
         link?.session.connectBlocked == true ? LocalNetwork.accessNotAllowed : Self.notConnected
     }
 
     /// Said when something the reader asked for was not done because another recorder answered where the
-    /// one it was meant for had been. Not only what is sent: a read comes through the same check. What the host
-    /// says when the check before an operation hears another (`LinkHost.anotherAnsweredTheCheck`).
+    /// one it was meant for had been. Not only what is sent: a read comes through the same check. What the link
+    /// says on the line when the check before an operation hears another (`anotherAnsweredLine`).
     public nonisolated static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
+    public var anotherAnsweredLine: String { Self.anotherAnswered }
+
+    /// What the strip says while another recorder has answered where the last one had been and the app is
+    /// connected to it. Nobody need have asked for anything -- a change of network asks the recorder whether it
+    /// is still there -- so it says what to do if something was being done, not that something was not.
+    public nonisolated static let tookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
+        + "操作の途中だった場合は、確かめてからやり直してください。"
+
+    /// Said when the recorder that answered is another one and the cache could not be made over to it: the
+    /// database is busy with another writer for longer than it will wait, or cannot be written to.
+    public static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+        + "少し待ってから、もう一度お試しください。"
 
     /// Only while the recorder is not known to be away already: silence is said once, as a television's is, so
     /// that a read which waited its turn behind the request that met it does not write over what that one said
@@ -154,7 +166,8 @@ public final class RecorderDriver: LinkDriver {
             // A cache that is another recorder's and could not be made over to this one is no recorder to
             // connect to: the app would go on over the other's guide and texts.
             guard await settle(link, whoAnswered: try await client.describe(timeout: timeout)) else {
-                owner?.cacheCouldNotBeMadeOver()
+                recorderHost(owner)?.cacheCouldNotBeMadeOver()
+                owner?.problem = Self.cacheNotMadeOver
                 return false
             }
             // The runs with no screen read the address from what the phone keeps.
@@ -208,7 +221,7 @@ public final class RecorderDriver: LinkDriver {
         let wasConnected = link.session.connected
         let inMemory = link.session.described(recorder)
         if inMemory == .another {
-            owner?.anotherDeviceDescribedItself(wasConnected: wasConnected)
+            recorderHost(owner)?.anotherDeviceDescribedItself(wasConnected: wasConnected)
             // The disk the slot was to be read again for was the last one's.
             link.endTheReadLeftForLater()
         }
@@ -229,14 +242,23 @@ public final class RecorderDriver: LinkDriver {
             onDisk = asked
         }
         guard inMemory == .another || onDisk == .another else { return true }
-        if let mac = link.session.mac, !recorder.hasMAC(mac) { owner.forgetMac() }
+        if let mac = link.session.mac, !recorder.hasMAC(mac) { recorderHost(owner)?.forgetMac() }
         guard onDisk == .another else { return true }
         // A USB disk known goes where the cache goes, from memory as well: one the session still holds was learned
         // from a recorder that did not say who it is, which the cache was taken to be of.
         link.endTheReadLeftForLater()
         link.session.learned(usbDisk: nil)
-        await owner.cacheMadeOver()
+        await recorderHost(owner)?.cacheMadeOver()
         return true
+    }
+
+    /// What only a recorder's link asks of its host, through the one host the link has. A recorder's link is
+    /// always given a recorder's host; one of another kind would attach with no claim on the cache and say
+    /// nothing of it, which a debug build stops at.
+    private func recorderHost(_ owner: (any LinkHost)?) -> (any RecorderLinkHost)? {
+        let host = owner as? any RecorderLinkHost
+        assert(owner == nil || host != nil, "a recorder's link is answered by a host that is not a recorder's")
+        return host
     }
 
     /// The free space as the screens show it, or nil when the recorder will not say. A disk of no size counts as
@@ -500,7 +522,7 @@ public final class RecorderDriver: LinkDriver {
         guard let moved = await findMoved(link) else { return .silent }
         link.host = moved.host
         // It is the recorder the MAC was read from, which its UDN has just said.
-        link.owner?.macWasReadAt(moved.host)
+        recorderHost(link.owner)?.macWasReadAt(moved.host)
         let found = makeClient(for: link)
         link.client = found
         return await attach(link, client: found, what: "接続中", timeout: probeTimeout, quiet: false)
@@ -530,7 +552,7 @@ public final class RecorderDriver: LinkDriver {
     /// After the reader types another recorder's address the MAC is still the old one's until the new one
     /// answers, and the search would quietly go back to the recorder just left.
     private func macWasReadHere(_ link: DeviceLink) -> Bool {
-        guard let readAt = link.owner?.macReadAt else { return true }
+        guard let readAt = recorderHost(link.owner)?.macReadAt else { return true }
         return readAt == link.host
     }
 
@@ -1855,7 +1877,7 @@ public final class RecorderDriver: LinkDriver {
         if let heard = link.heardInstead {
             link.owner?.problem = heard.explanation
         } else {
-            link.owner?.sayNotConnected()
+            link.owner?.problem = whyNotConnected
         }
     }
 

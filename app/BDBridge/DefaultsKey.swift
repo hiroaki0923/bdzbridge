@@ -12,7 +12,7 @@ enum DefaultsKey {
     /// Its address. Written whenever it changes and again whenever the recorder answers there, and read by
     /// the overnight run, which has no screen to ask.
     static let recorderHost = "recorderHost"
-    /// Its wired MAC, for waking it. See `AppModel.remember(mac:)`.
+    /// Its wired MAC, for waking it. See `RecorderHost.remember(mac:)`.
     static let recorderMac = "recorderMac"
     /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
@@ -22,7 +22,7 @@ enum DefaultsKey {
     /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
     /// written by the screens once none of the reservations warned of waits to go
     /// (`AppModel.forgetTheRecordersWarningOnceSent`); forgotten when the cache is made over to another recorder
-    /// (`AppModel.cacheMadeOver`).
+    /// (`RecorderHost.cacheMadeOver`).
     static let recorderTold = "recorderTold"
 
     // MARK: - the television

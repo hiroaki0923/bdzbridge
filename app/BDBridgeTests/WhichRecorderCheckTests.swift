@@ -16,11 +16,12 @@ extension WhichRecorderTests {
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
-        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why what was asked for was not sent")
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "nothing says why what was asked for was not sent")
         try await untilTakenUp(model, 2)
         // The connect has taken the failure line away, and a sheet the reader asked from was closed with
         // its alert: the strip is what still says it.
-        XCTAssertNil(model.problem)
+        XCTAssertNil(model.problem(for: .recorder))
         XCTAssertTrue(model.anotherTookOver, "nothing is left saying why what was asked for was not done")
     }
 
@@ -39,7 +40,8 @@ extension WhichRecorderTests {
 
         XCTAssertFalse(answering, "what the reader asked of the first recorder would have gone to the second")
         XCTAssertTrue(model.titles.isEmpty)
-        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why what was asked for was not sent")
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "nothing says why what was asked for was not sent")
         try await untilTakenUp(model, 2)
         XCTAssertTrue(model.anotherTookOver, "nothing is left saying why what was asked for was not done")
         XCTAssertFalse(model.reservations.isEmpty, "the newcomer's reservations were never read")
@@ -70,7 +72,7 @@ extension WhichRecorderTests {
         }
 
         XCTAssertFalse(deleted)
-        XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why it was not deleted")
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered, "nothing says why it was not deleted")
         try await untilTakenUp(model, 2, "the newcomer was never taken up")
         expectEqual(await recorder.asked("X_DeleteTitle"), 0,
                     "the second recorder was asked to delete its recording of that number")
@@ -92,7 +94,8 @@ extension WhichRecorderTests {
             }
 
             XCTAssertNotEqual(came, true, "\(asked.name) is said to have been done")
-            XCTAssertEqual(model.problem, Said.anotherAnswered, "nothing says why \(asked.name) was not done")
+            XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                           "nothing says why \(asked.name) was not done")
             try await untilTakenUp(model, 2, "the newcomer was never taken up, after \(asked.name)")
             expectEqual(await recorder.asked(asked.rawValue), 0,
                         "\(asked.name) went to the second recorder, for its own of that number")
@@ -150,7 +153,7 @@ extension WhichRecorderTests {
         let writer = Writer(to: bench.guidePath)
         let freed = Task {
             try await until("the cache was never said not to have been made over") {
-                model.problem == Said.cacheNotMadeOver
+                model.problem(for: .recorder) == Said.cacheNotMadeOver
             }
             writer.letGo()
         }
@@ -159,7 +162,7 @@ extension WhichRecorderTests {
         }
         try await freed.value
 
-        XCTAssertEqual(model.problem, Said.cacheNotMadeOver,
+        XCTAssertEqual(model.problem(for: .recorder), Said.cacheNotMadeOver,
                        "not what the cache left to say: the one look that tells a reservation kept here from none, "
                            + "so it is not to be loosened")
         XCTAssertFalse(reserved, "the sheet would close as though the programme were reserved")
@@ -180,8 +183,7 @@ extension WhichRecorderTests {
     /// of the list has come back, and the connect that takes the newcomer up may have made its client by then:
     /// the line then says that the reservation has gone from the recorder, and not that another recorder
     /// answered. The list is empty in that turn either way, so nothing is found in it to send. (A gate, as
-    /// `ReservationGateTests` are: a later change makes the guard the link's, and says why, and what
-    /// is looked at here stands.)
+    /// `ReservationGateTests` are: what is looked at here stands wherever the guard is kept.)
     func testAChangeOrADeleteAskedOfWhatTurnsOutToBeAnotherRecorderIsNotSent() async throws {
         for write in ReservationWrite.allCases {
             let (bench, recorder, model) = try await atHome()

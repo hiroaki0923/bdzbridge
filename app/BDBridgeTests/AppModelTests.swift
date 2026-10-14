@@ -131,7 +131,7 @@ final class AppModelTests: XCTestCase {
         let program = try await aProgramme(model)
         let kept = await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none")
 
-        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem ?? "no reason given")")
+        XCTAssertTrue(kept, "the reservation was not kept: \(model.problem(for: .recorder) ?? "no reason given")")
         XCTAssertNotNil(model.pending(for: program), "the guide would not show the reservation as waiting")
         XCTAssertEqual(keptJustNow(model)?.request.eventID, program.eventID)
         let askedAfter = await recorder.asked

@@ -61,7 +61,7 @@ struct TVSection: View {
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    if let problem = model.tvHost?.problem { Text(problem) }
+                    if let problem = model.problem(for: .tv) { Text(problem) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
                     // What could not be taken away is said in the footer above, which reads the television's
@@ -220,18 +220,12 @@ struct TVRegisterSheet: View {
             case .registered: dismiss()
             case .pinNeeded:
                 pin = ""
-                message = "登録できませんでした。テレビの画面の番号を確かめて、もう一度入力してください。"
+                message = TVDriver.pinTurnedDown
             case .failed(let text): message = text
             }
             return
         }
         switch await model.findTV(at: tidied) {
-        case .nothing:
-            message = "応答がありません。アドレスと、テレビがネットワークにつながっていることを確かめてください。"
-        case .notATelevision:
-            message = "このアドレスの機器は、テレビとして応答しませんでした。"
-        case .standby:
-            message = "テレビの電源が切れています。テレビの電源を入れて、放送を映してから、もう一度お試しください。"
         case .on:
             // The sheet was closed while what is at the address was asked: no number on a panel for nobody.
             guard !Task.isCancelled else { return }
@@ -240,6 +234,8 @@ struct TVRegisterSheet: View {
             case .registered: dismiss()
             case .failed(let text): message = text
             }
+        case let found:
+            message = TVDriver.says(found)
         }
     }
 }

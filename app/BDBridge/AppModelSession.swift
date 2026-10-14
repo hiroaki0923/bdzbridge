@@ -5,10 +5,11 @@ import SwiftUI
 import UserNotifications
 
 /// The model's side of the connection to the recorder. What is asked of the recorder, when, and what silence
-/// leaves behind is RecorderKit's (`DeviceLink`, `RecorderDriver`); what is here is the app's: the lines on the
-/// screen, what the phone keeps, the lists it holds of what the recorder said, the wait for the local network
-/// permission, the network watcher, and coming and going from the foreground. The rules are set out in
-/// docs/porting.md (端末側の設計メモ) and held by `SessionRuleTests`.
+/// leaves behind is RecorderKit's (`DeviceLink`, `RecorderDriver`); what the link tells the app -- the line, the
+/// keys in the defaults, the wait for the local network permission, what the recorder said -- is the recorder's
+/// host's (`RecorderHost`). What is here is the model's: what the link reaches on the network, the network
+/// watcher, and coming and going from the foreground. The rules are set out in docs/porting.md (端末側の設計メモ)
+/// and held by `SessionRuleTests`.
 extension AppModel {
     /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
     /// than that -- an interface going up on its own account, a route changing -- so the decision is left to
@@ -30,44 +31,18 @@ extension AppModel {
         await recorder.connect()
     }
 
-    /// The recordings and the keyword conditions, read from a recorder that has taken the place of another
-    /// in the middle of being connected (`anotherDeviceDescribedItself`). The screens read them when the app
-    /// becomes connected, and it never stopped being: left to them, the recordings tab said there were none.
-    private func readAgainWhatWasUp() async {
-        let again = listsToReadAgain
-        listsToReadAgain = (false, false)
-        if again.recordings { await loadTitlesNow(force: false) }
-        if again.rules { await loadRecorderRulesNow() }
-    }
-
-    /// Said when the recorder that answered is another one and the cache could not be made over to it: the
-    /// database is busy with another writer for longer than it will wait, or cannot be written to.
-    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
-        + "少し待ってから、もう一度お試しください。"
-
-    /// What the strip says while `anotherTookOver` is set and the app is connected. Nobody need have asked
-    /// for anything -- a change of network asks the recorder whether it is still there -- so it says what to
-    /// do if something was being done, not that something was not.
-    static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
-        + "操作の途中だった場合は、確かめてからやり直してください。"
+    /// What the strip says while `anotherTookOver` is set and the app is connected: the recorder's driver's
+    /// sentence (`RecorderDriver.tookOverLine`).
+    static let anotherTookOverLine = RecorderDriver.tookOverLine
 
     /// True once a MAC is known, which is what a magic packet needs.
     var canWake: Bool { session.canWake }
 
-    /// Keeps a MAC for waking the recorder. Anything that is not one is ignored rather than stored, so a
-    /// half-typed address never replaces a good one. Returns whether it was kept.
+    /// Keeps a MAC for waking the recorder, as its host does (`RecorderHost.remember`). Whether it was kept.
     @discardableResult
-    func remember(mac text: String) -> Bool {
-        guard session.remember(mac: text), let normalised = session.mac else { return false }
-        defaults.set(normalised, forKey: DefaultsKey.recorderMac)
-        return true
-    }
+    func remember(mac text: String) -> Bool { recorderHost.remember(mac: text) }
 
-    func forgetMac() {
-        session.forgetMac()
-        defaults.removeObject(forKey: DefaultsKey.recorderMac)
-        defaults.removeObject(forKey: DefaultsKey.recorderMacHost)
-    }
+    func forgetMac() { recorderHost.forgetMac() }
 
     /// The app has stopped being active, or is active again (`ScenePhase`): told at each change, in the turn
     /// it happens and so in order. Nothing goes by it. A scan for a recorder that is under way writes it to
@@ -103,8 +78,7 @@ extension AppModel {
         let wasAway = inBackground
         inBackground = false
         // A bulk job waiting between two steps goes on, and makes sure of the recorder itself first.
-        backInFront?.resume()
-        backInFront = nil
+        recorderHost.letTheJobGoOn()
         // Before any of the reasons not to connect: a day may have gone by while the app was away, with or
         // without a recorder to ask.
         if followTheClock() { await reloadFromCache() }
@@ -151,8 +125,8 @@ extension AppModel {
             },
             lanIsBlocked: { [weak self] host in
                 // Only after a real recorder was silent, and never in the demo (three seconds at most).
-                guard let self, !self.demo, self.surroundings.reachesTheLAN else { return false }
-                return await LocalNetwork.access(probing: host) == .blocked
+                guard let self, !self.demo else { return false }
+                return await self.surroundings.linkIsBlocked(host)
             },
             hostsNear: { [weak self] host in
                 // Never in the demo or in the background, and only on a Wi-Fi whose subnet `host` belongs to.
@@ -184,93 +158,23 @@ extension AppModel {
     }
 }
 
-/// What the recorder's link tells the model, and asks of it (`LinkHost`). Every one of these is the app's own
-/// state: the lines on the screen, the three keys the runs with no screen read, and the lists the screens hold of
-/// what the recorder said.
+/// What the recorder's host reaches the model for, and the names the screens and the tests call it by.
 extension AppModel {
-    func beginActivity(_ text: String) -> Activities.Token { activities.begin(text) }
-    func updateActivity(_ token: Activities.Token, to text: String) { activities.update(token, to: text) }
-    func endActivity(_ token: Activities.Token) { activities.end(token) }
+    /// Busy with the recorder: anything under way but the television's lines (`RecorderHost.isBusy`).
+    var isBusy: Bool { recorderHost.isBusy }
 
-    /// Busy with the recorder: anything under way but the television's lines.
-    var isBusy: Bool { activities.any(besides: televisionLines) }
-    var holdsOffConnect: Bool { jobRunning }
-    var isDemo: Bool { demo }
-    var cache: GuideStore? { store }
+    /// What waits for the recorder, sent as an attach sends it (`RecorderHost.sendWhatWaits`).
+    func sendWhatWaits() async { await recorderHost.sendWhatWaits() }
 
-    /// The cache first: the queue is sent from it and the guide fetched into it, and a connect made on coming to
-    /// the foreground can get here before `start()` has opened anything.
-    func cacheForAttempt() async {
-        listsToReadAgain = (false, false)
-        await openCache()
-    }
-
-    /// The overnight run reads the address from here and has no screen to ask, so an address that works is
-    /// written down however it arrived.
-    func keepAddress(_ host: String) {
-        defaults.set(host, forKey: DefaultsKey.recorderHost)
-    }
-
-    /// With the address it was read at, which lets the recorder be recognised by it elsewhere. Not the demo's.
-    func keepMAC(_ text: String) {
-        if remember(mac: text), !demo { defaults.set(host, forKey: DefaultsKey.recorderMacHost) }
-    }
-
-    var macReadAt: String? { defaults.string(forKey: DefaultsKey.recorderMacHost) }
-
-    func macWasReadAt(_ host: String) {
-        defaults.set(host, forKey: DefaultsKey.recorderMacHost)
-    }
-
-    /// Another recorder's lists go in the turn its description arrives, and the strip says so: nobody chose it,
-    /// or the last one would have been forgotten at the choice. The screens read their lists when the app
-    /// becomes connected, and it never stopped being, so what they had read is read again by this connect --
-    /// and what they were reading: a read out now is the last recorder's, and is not kept (`keepTitles`,
-    /// `keepRecorderRules`).
-    func anotherDeviceDescribedItself(wasConnected: Bool) {
-        let had = (recordings: titlesLoaded || titleReads > 0, rules: recorderRulesLoaded || conditionReads > 0)
-        forgetWhatTheRecorderSaid()
-        anotherTookOver = true
-        if wasConnected { listsToReadAgain = had }
-    }
-
-    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
-    /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
-    /// told of it (`TVTold`): the next run tells what it finds afresh. Their warning of reservations not yet at
-    /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
-    /// are held for the reader now, and none of them waits to go.
-    func cacheMadeOver() async {
-        defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
-        defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
-        defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
-        defaults.removeObject(forKey: DefaultsKey.recorderTold)
-        await reloadFromCache()
-        await loadPending()
-        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
-    }
-
-    /// It says so, and lets go of the client as well -- left in hand, a programme reserved from the guide still
-    /// on screen was sent to this recorder. That another one answered is still to be said once it is taken up.
-    func cacheCouldNotBeMadeOver() {
-        let another = anotherTookOver
-        forgetTheRecorder()
-        anotherTookOver = another
-        problem = Self.cacheNotMadeOver
-    }
-
-    /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
-    /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
-    /// waking's attach that no connect reads after, is kept by the count noted here (`keepReservations`), and
-    /// what the round came to goes on the strip (`tellTheStrip`). A warning the runs with no screen left of
-    /// reservations not yet at the recorder goes once none of them waits to go
-    /// (`forgetTheRecordersWarningOnceSent`). Nothing here may await `start()`.
-    func sendWhatWaits() async {
-        let forgotten = timesForgotten
-        guard let sent = await recorderDriver?.sendWhatWaits() else { return }
-        keepReservations(sent.list, since: forgotten)
-        tellTheStrip(sent.round)
-        await forgetTheRecordersWarningOnceSent()
-    }
+    /// The recorder's bulk job, as its host runs it (`RecorderHostRuns`), under the names the screens call.
+    var jobRunning: Bool { recorderHost.jobRunning }
+    var canStartARun: Bool { recorderHost.canStartARun }
+    var canAlterARecording: Bool { recorderHost.canAlterARecording }
+    var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) { recorderHost.startBulk(kind, ids: ids) }
+    func cancelBulk() { recorderHost.cancelBulk() }
+    func clearJob() { recorderHost.clearJob() }
+    func startDuplicateScan() { recorderHost.startDuplicateScan() }
 
     /// The warning the runs with no screen left of reservations not yet at the recorder is taken away once a
     /// sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no more:
@@ -287,71 +191,6 @@ extension AppModel {
               let kept = try? JSONEncoder().encode(after) else { return }
         defaults.set(kept, forKey: DefaultsKey.recorderTold)
         if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
-    }
-
-    func queueWritten() async {
-        await loadPending()
-    }
-
-    /// Provisional permission for notifications, now that there is a recorder for them to be about: no dialog,
-    /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
-    /// reservations before the guide, which marks what is already set to record from that list: the driver's
-    /// read, kept by the count noted here (`keepReservations`). Inside the connect, so nothing here may await
-    /// `start()`.
-    func reached() async {
-        let forgotten = timesForgotten
-        if !demo, surroundings.asksAboutNotifications {
-            Task {
-                await Notify.allowQuietly()
-                await readNotifications()
-            }
-        }
-        let read = await recorderDriver?.reservations()
-        keepReservations(read, since: forgotten)
-        await readAgainWhatWasUp()
-        await refreshGuideIfStale()
-    }
-
-    /// Its lists go at once, and the newcomer is taken up by a connect of its own, which reads its reservations
-    /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
-    /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
-    /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
-    /// beside a job. Said twice: the failure line for whoever asked, which the connect takes away, and the strip
-    /// after that.
-    func anotherAnsweredTheCheck() {
-        forgetTheRecorder()
-        cancelBulk()
-        problem = RecorderDriver.anotherAnswered
-        anotherTookOver = true
-        let running = jobTask
-        Task {
-            await running?.value
-            self.clearJob()
-            await self.connect()
-        }
-    }
-
-    func sayNotConnected() {
-        problem = recorderDriver?.whyNotConnected ?? RecorderDriver.notConnected
-    }
-
-    /// Waits for the reader to allow the local network, then tells the link. The screens say so from
-    /// `connectBlocked`. A wait that has given up with the permission still in the way ends for the link as
-    /// one that found no path: it is told the permission did not come, and connecting again is the reader's.
-    func waitForPermission(at host: String) {
-        accessWatch?.cancel()
-        accessWatch = Task { [weak self] in
-            let access = await LocalNetwork.waitForAccess(probing: host) {}
-            guard let self, !Task.isCancelled else { return }
-            // cleared before the link connects, since connecting stops whatever wait is still set
-            self.accessWatch = nil
-            await self.recorder.permissionArrived(access == .allowed, at: host)
-        }
-    }
-
-    func stopWaitingForPermission() {
-        accessWatch?.cancel()
-        accessWatch = nil
     }
 }
 
