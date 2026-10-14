@@ -290,8 +290,8 @@ final class AppModel {
         // screen decides whether to show the tutorial by looking at whether a recorder is set, before `start()`.
         let saved = defaults.string(forKey: DefaultsKey.recorderHost) ?? ""
         recorder = DeviceLink(
-            host: demo ? DemoData.host : saved,
-            session: SessionState(mac: demo ? DemoData.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
+            host: demo ? DemoRecorder.host : saved,
+            session: SessionState(mac: demo ? DemoRecorder.mac : defaults.string(forKey: DefaultsKey.recorderMac)),
             driver: RecorderDriver(busyRetryDelay: surroundings.busyRetryDelay),
             environment: Self.nowhere)
         recorderHost = RecorderHost(link: recorder)

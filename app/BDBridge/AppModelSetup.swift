@@ -20,8 +20,8 @@ extension AppModel {
         DemoData.turnOn(realHost: host, realMac: mac, in: defaults)
         demo = true
         await openStore()
-        host = DemoData.host
-        remember(mac: DemoData.mac)
+        host = DemoRecorder.host
+        remember(mac: DemoRecorder.mac)
         await connect()
     }
 
@@ -96,7 +96,7 @@ extension AppModel {
         scanOutcome = nil
         found = []
         // The demo's own recorder, chosen from its search, ends nothing and forgets nothing.
-        if demo, !RecorderAddress.same(chosen, DemoData.host) {
+        if demo, !RecorderAddress.same(chosen, DemoRecorder.host) {
             _ = endDemo()
             host = chosen
             await openStore()
@@ -283,7 +283,7 @@ extension AppModel {
     /// What a scan looks round: the addresses of the Wi-Fi, or in the demo the demo's own devices' addresses,
     /// with the interfaces never read.
     private func searchAddresses() -> [String] {
-        guard !demo else { return [DemoData.host, DemoData.tvHost] }
+        guard !demo else { return [DemoRecorder.host, DemoData.tvHost] }
         return surroundings.lanInterfaces().flatMap { LocalNetwork.hosts(around: $0) }
     }
 
@@ -382,7 +382,7 @@ extension AppModel {
     /// that it is marked once the router has moved it and before the app has followed. In the demo, the
     /// invented recorder its search finds.
     func inUse(_ recorder: RecorderDescription) -> Bool {
-        if demo { return recorder.host == DemoData.host }
+        if demo { return recorder.host == DemoRecorder.host }
         if recorder.host == host { return true }
         guard let info, !info.udn.isEmpty else { return false }
         return recorder.udn == info.udn

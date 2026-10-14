@@ -214,7 +214,7 @@ final class DemoTelevisionTests: XCTestCase {
                 .map { "\(scheme) \($0.serviceID) \($0.name)" }
         }
 
-        let received = await DemoData.television().stations
+        let received = await DemoLineUp.television().stations
         XCTAssertEqual(received.map { "\($0.scheme) \($0.serviceID) \($0.name)" }.sorted(), listed.sorted())
         XCTAssertTrue(received.allSatisfy { $0.subscribed && $0.programMediaType == "tv" })
     }

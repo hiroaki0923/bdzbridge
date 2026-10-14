@@ -71,9 +71,9 @@ final class AppModelTests: XCTestCase {
         try await untilConnected(model)
 
         XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderHost), Bench.host)
-        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMac), DemoData.mac)
+        XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMac), DemoRecorder.mac)
         XCTAssertEqual(bench.defaults.string(forKey: DefaultsKey.recorderMacHost), Bench.host)
-        XCTAssertEqual(model.mac, DemoData.mac)
+        XCTAssertEqual(model.mac, DemoRecorder.mac)
     }
 
     /// Work overlaps -- a tab loading its list while another is still loading, 再接続 in the middle of both --
