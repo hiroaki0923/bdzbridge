@@ -162,6 +162,67 @@ final class HostGateTests: XCTestCase {
         return row
     }
 
+    // MARK: - two sentences of the hosts
+
+    /// What the strip says once another recorder has taken the last one's place, by its letters, and that the
+    /// strip chooses it only while the app is connected: the line says that the lists were read again, which
+    /// they were not if that recorder has gone quiet since. Here it is asked for its list and says nothing.
+    func testTheStripsSentenceForAnotherRecorderIsChosenOnlyWhileConnected() async throws {
+        XCTAssertEqual(AppModel.anotherTookOverLine, Said.anotherTookOver)
+
+        let (_, recorder, model) = try await connectedHome()
+        await recorder.become(2)
+        await model.connect()
+        try await untilIdle(model)
+        XCTAssertTrue(model.anotherTookOver, "the recorder at the address was meant to be another")
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.strip(), .anotherTookOver)
+
+        await recorder.goQuiet(on: Ask.reservations)
+        await model.loadReservations()
+
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to have gone quiet")
+        XCTAssertTrue(model.anotherTookOver, "that another recorder answered went with the silence")
+        XCTAssertFalse(model.connected)
+        XCTAssertEqual(model.strip(), .recorderGaveUp,
+                       "the lists are said to have been read again from a recorder gone")
+    }
+
+    /// Not connected, on each device's line: with a line left there and the device known to be away, the link's
+    /// check before an operation has nothing to ask, and asks its host to say so. The recorder's line then says
+    /// that the app is not connected to the recorder (`Said.notConnected`), and the television's that it is not
+    /// connected to the television (`TVDriver.notConnected`), each leaving the other's line alone. The check is
+    /// reached past every door of an operation (`makeSure`, and the television's link asked the same).
+    ///
+    /// Everywhere else in the app's tests the recorder's sentence is a result's reason: here it is the line's.
+    func testNotConnectedIsWhatEachDevicesLineSaysWhenItsCheckHasNothingToAsk() async throws {
+        let home = try await atHomeWithATelevision()
+        let (recorder, television, model, link) = (home.recorder, home.television, home.model, home.link)
+        await recorder.goQuiet(on: Ask.reservations)
+        await model.loadReservations()
+        XCTAssertTrue(model.offline, "the recorder was meant to be known to be away")
+        leaveALine(on: model)
+        let heard = await recorder.heard.count
+
+        expectFalse(await makeSure(model), "a recorder known to be away was taken for one to ask")
+
+        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected)
+        expectEqual(await recorder.heard(since: heard), [], "a recorder known to be away was asked")
+
+        await television.goSilent()
+        expectFalse(await link.ensureUp(evenIfRecent: true), "a television that said nothing was taken for one to ask")
+        XCTAssertTrue(link.session.gaveUp, "the television was meant to be known to be away")
+        home.host.problem = lineLeft
+        let calls = await television.calls.count
+
+        expectFalse(await link.ensureUp(evenIfRecent: true), "a television known to be away was taken for one to ask")
+
+        XCTAssertEqual(model.problem(for: .tv), TVDriver.notConnected)
+        XCTAssertEqual(model.problem(for: .recorder), Said.notConnected,
+                       "the television's check wrote the recorder's line")
+        expectEqual(await television.calls.count, calls, "a television known to be away was asked")
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
