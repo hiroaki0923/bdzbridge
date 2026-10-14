@@ -308,12 +308,20 @@ struct GroupRowView: View {
             Text(group.name).font(.subheadline).lineLimit(2)
             counts.font(.caption2).foregroundStyle(.secondary)
             // The secondary grey rather than fainter: it is what says how far back the programme goes.
-            Text("\(Format.dateTime.string(from: group.earliest)) 〜 \(Format.dateTime.string(from: group.latest))")
+            Text(span)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .rowLinesInFull()
         .padding(.vertical, 2)
+    }
+
+    /// From the start of the first recording to the end of the last, which for one recording is when it was on.
+    /// An end on the day the span starts is said by its time alone.
+    private var span: String {
+        let sameDay = Format.day.string(from: group.earliest) == Format.day.string(from: group.lastEnd)
+        let end = (sameDay ? Format.time : Format.dateTime).string(from: group.lastEnd)
+        return "\(Format.dateTime.string(from: group.earliest)) 〜 \(end)"
     }
 
     /// How many, how big, and how many are new or protected, as one line of text that wraps as a line does.
