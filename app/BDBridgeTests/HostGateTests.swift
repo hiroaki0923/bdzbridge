@@ -569,6 +569,116 @@ final class HostGateTests: XCTestCase {
         return told
     }
 
+    // MARK: - the links' wait for the permission
+
+    /// A recorder silent at its address on a phone the system keeps off the local network: a connect waits for
+    /// the permission in place of saying that the recorder did not answer (`connectBlocked`), and the model's wait
+    /// is begun once. A delete pressed meanwhile is not sent: it says that the local network is not allowed, and
+    /// the line, which the link took down as it began to wait, stays empty. The wait ends with a connect that went
+    /// through, and with the recorder let go of: when the permission comes after either, nothing is connected to.
+    ///
+    /// The bench's wait, like the one at an address given for a television, lasts until the test ends it, as a
+    /// real one ends when its task is: that a wait was ended is seen in what its end does not set going.
+    func testARecorderKeptOffTheLocalNetworkWaitsForThePermissionUntilAConnectOrALetGo() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let free = try await programmesNotReserved(model, 1)
+        let program = try XCTUnwrap(free.first)
+        expectTrue(await reserveOnTheRecorder(model, program, quality: "DR", repeating: "none"),
+                   whyNotJustNow(model) ?? "the reservation was not made")
+        let row = try XCTUnwrap(model.reservation(for: program), "the reservation made was meant to be listed")
+        bench.linksAreKeptOff = true
+        await recorder.goQuiet(for: 1_000)
+        leaveALine(on: model)
+
+        await model.connect()
+
+        guard model.connectBlocked else { return XCTFail("a recorder silent behind the permission was not waited for") }
+        try await until("the model's wait for the permission was never begun") {
+            !bench.linksPermissionWaits.isEmpty
+        }
+        XCTAssertEqual(bench.linksPermissionWaits, [Bench.host])
+        let heard = await recorder.heard.count
+
+        expectEqual(await model.cancel(row), .notDone(LocalNetwork.accessNotAllowed))
+
+        expectEqual(await recorder.heard(since: heard), [], "the delete was sent while the permission was waited for")
+        XCTAssertNil(model.problem(for: .recorder), "a line stands while the permission is waited for")
+        XCTAssertEqual(bench.linksPermissionWaits, [Bench.host], "the permission was waited for again")
+
+        // Ended by a connect that went through.
+        await recorder.goQuiet(for: 0)
+        await reconnect(model)
+        XCTAssertFalse(model.connectBlocked)
+        var made = bench.clientsMade
+        bench.theLinksPermissionComes()
+        await letTheEndOfAWaitRun()
+        XCTAssertEqual(bench.clientsMade, made, "the permission coming after a connect set another going")
+
+        // Ended by the recorder let go of.
+        await recorder.goQuiet(for: 1_000)
+        await model.connect()
+        guard model.connectBlocked else { return XCTFail("the recorder was meant to be waited for again") }
+        try await until("the model's wait was never begun again") { bench.linksPermissionWaits.count > 1 }
+        XCTAssertEqual(bench.linksPermissionWaits, [Bench.host, Bench.host])
+        model.forgetTheRecorder()
+        made = bench.clientsMade
+        bench.theLinksPermissionComes()
+        await letTheEndOfAWaitRun()
+        XCTAssertEqual(bench.clientsMade, made, "the permission coming after a let-go set a connect going")
+    }
+
+    /// The same of a television's link: silent at its address on a phone the system keeps off the local network,
+    /// its connect waits for the permission, and its host's wait is begun once. The wait ends with a connect that
+    /// went through, and with the television taken away: when the permission comes after either, the television
+    /// is not connected to.
+    func testATelevisionKeptOffTheLocalNetworkWaitsForThePermissionUntilAConnectOrALetGo() async throws {
+        let home = try await atHomeWithATelevision()
+        let (bench, television, model, link) = (home.bench, home.television, home.model, home.link)
+        bench.linksAreKeptOff = true
+        await television.goSilent()
+
+        await link.connect()
+
+        guard link.session.connectBlocked else {
+            return XCTFail("a television silent behind the permission was not waited for")
+        }
+        try await until("the host's wait for the permission was never begun") {
+            !bench.linksPermissionWaits.isEmpty
+        }
+        XCTAssertEqual(bench.linksPermissionWaits, [Bench.tvHost])
+
+        // Ended by a connect that went through.
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, "the television did not come back")
+        XCTAssertFalse(link.session.connectBlocked)
+        var made = bench.televisionTransportsMade.count
+        bench.theLinksPermissionComes()
+        await letTheEndOfAWaitRun()
+        XCTAssertEqual(bench.televisionTransportsMade.count, made,
+                       "the permission coming after a connect set another going")
+
+        // Ended by the television taken away.
+        await television.goSilent()
+        await link.connect()
+        guard link.session.connectBlocked else { return XCTFail("the television was meant to be waited for again") }
+        try await until("the host's wait was never begun again") { bench.linksPermissionWaits.count > 1 }
+        XCTAssertEqual(bench.linksPermissionWaits, [Bench.tvHost, Bench.tvHost])
+        model.removeTV()
+        made = bench.televisionTransportsMade.count
+        bench.theLinksPermissionComes()
+        await letTheEndOfAWaitRun()
+        XCTAssertEqual(bench.televisionTransportsMade.count, made,
+                       "the permission coming after the television was taken away set a connect going")
+    }
+
+    /// Lets what the end of a wait for the permission sets going -- a connect, from a wait nobody ended -- come as
+    /// far as making its client: the wait's task resumes on the main actor after a turn elsewhere, and is given
+    /// that many turns, as the gates of a run give one to get to its wait.
+    private func letTheEndOfAWaitRun() async {
+        for _ in 0..<10_000 { await Task.yield() }
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
