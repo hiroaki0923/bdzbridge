@@ -223,6 +223,129 @@ final class HostGateTests: XCTestCase {
         expectEqual(await television.calls.count, calls, "a television known to be away was asked")
     }
 
+    // MARK: - a recorder let go of
+
+    /// The recorder let go of by hand (`forgetTheRecorder`, as the gate of a write across a let-go calls it: no
+    /// screen gets here with a read out, the choice of a recorder being held while one is), with its recordings'
+    /// read out. What no other test looks at goes with it: when the list was read, and how many candidates a scan
+    /// left out unread. The read out is still counted while it is out, and what it brings back is not kept. The
+    /// count of reservations held for another recorder, which the strip said before, is said afresh by the next
+    /// sending, and once.
+    func testWhatARecorderLetGoOfByHandLeavesBehind() async throws {
+        let (recorder, model) = try await everythingRead()
+        await recorder.hold(only: Ask.recordings)
+        let before = await recorder.asked
+        let reading = Task { await model.refreshTitles() }
+        try await until("the recordings were never asked for") {
+            await recorder.asked(Ask.recordings, since: before) == 1
+        }
+        let counted = model.titleReads
+        XCTAssertGreaterThan(counted, 0, "the read out was meant to be counted")
+
+        model.forgetTheRecorder()
+
+        XCTAssertNil(model.reservationsRead, "when the last recorder's list was read stayed")
+        XCTAssertEqual(model.unreadDuplicates, 0, "what the last recorder's scan left unread stayed")
+        XCTAssertEqual(model.titleReads, counted, "the read out on the recorder let go of is no longer counted")
+        XCTAssertNil(model.queueReport, "what the strip said of the last recorder's queue stayed")
+        await recorder.letGo()
+        await reading.value
+        XCTAssertEqual(model.titleReads, 0)
+        XCTAssertTrue(model.titles.isEmpty, "the recordings read for the recorder let go of were kept")
+        XCTAssertFalse(model.titlesLoaded)
+
+        await reconnect(model)
+        XCTAssertEqual(model.queueReport, Said.heldBack(1), "the count held for another recorder was not said afresh")
+    }
+
+    /// The same when another recorder describes itself on a connect (`anotherDeviceDescribedItself`): looked at
+    /// while that connect is held at its read of the newcomer's list, and so before anything of the newcomer's is
+    /// read. The read of the recordings out on the last one is still counted, and what it brings back is not
+    /// kept; the newcomer's attach says the count held for another recorder afresh, and once.
+    func testWhatARecorderLetGoOfForAnotherOnAConnectLeavesBehind() async throws {
+        let (recorder, model) = try await everythingRead()
+        await recorder.hold(only: Ask.recordings)
+        let before = await recorder.asked
+        let reading = Task { await model.refreshTitles() }
+        try await until("the recordings were never asked for") {
+            await recorder.asked(Ask.recordings, since: before) == 1
+        }
+        let counted = model.titleReads
+        XCTAssertGreaterThan(counted, 0, "the read out was meant to be counted")
+        await recorder.become(2)
+        await recorder.holdTheNext(Ask.reservations)
+        let connecting = Task { await model.connect() }
+        try await until("the newcomer's list was never asked for") {
+            await recorder.asked(Ask.reservations, since: before) == 1
+        }
+
+        XCTAssertTrue(model.anotherTookOver, "the recorder at the address was meant to be another")
+        XCTAssertNil(model.reservationsRead, "when the last recorder's list was read stayed")
+        XCTAssertEqual(model.unreadDuplicates, 0, "what the last recorder's scan left unread stayed")
+        XCTAssertEqual(model.titleReads, counted, "the read out on the recorder let go of is no longer counted")
+        await recorder.letGo(only: Ask.recordings)
+        await reading.value
+        XCTAssertTrue(model.titles.isEmpty, "the recordings read for the recorder let go of were kept")
+        XCTAssertFalse(model.titlesLoaded)
+
+        await recorder.letGo()
+        await connecting.value
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.queueReport, Said.heldBack(1), "the count held for another recorder was not said afresh")
+    }
+
+    /// A write out on the recorder as it is let go of by hand (`forgetTheRecorder`, as the gates of a write
+    /// across a let-go call it: a choice cannot be made while a line is up): the write's line stays up until its
+    /// request ends, and the recorder is busy for its buttons until then.
+    ///
+    /// As it is today. A television's lines come down at once as its host is let go of (`TVReservationTests`).
+    func testTheLineOfAWriteOutOnTheRecorderLetGoOfStaysUpUntilItEnds() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+        addTeardownBlock { await recorder.letGo() }
+        await model.loadTitles()
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        await recorder.hold(only: Ask.changeRecording)
+        let before = await recorder.asked
+        let protecting = Task { await protectARecording(model, title, true) }
+        try await until("the protect was never sent") {
+            await recorder.asked(Ask.changeRecording, since: before) == 1
+        }
+        let line = try XCTUnwrap(model.busy, "the protect has no line up")
+
+        model.forgetTheRecorder()
+
+        XCTAssertEqual(model.busy, line, "the line of a write still out went with the recorder")
+        XCTAssertTrue(model.isBusy(for: .recorder), "the recorder's buttons were let go with a write still out")
+        await recorder.letGo()
+        _ = await protecting.value
+        XCTAssertNil(model.busy)
+        XCTAssertFalse(model.isBusy(for: .recorder))
+    }
+
+    /// At home with the first recorder, everything of it read that a recorder let go of leaves: its reservations,
+    /// its recordings with one broadcast on its disk twice, its keyword conditions, a scan for duplicates that
+    /// could not read one of the two copies' texts, and a reservation held for another recorder, which a
+    /// pull-down has said on the strip. Whatever a test holds of the recorder is let go as it ends.
+    private func everythingRead() async throws -> (recorder: NamedRecorder, model: AppModel) {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+        addTeardownBlock { await recorder.letGo() }
+        await recorder.haveACopy()
+        await model.loadTitles()
+        await model.loadRecorderRules()
+        await recorder.answer(Ask.details, with: .fault(402))
+        model.startDuplicateScan()
+        try await until("the scan never ended") { !model.jobRunning }
+        XCTAssertGreaterThan(model.unreadDuplicates, 0, "the scan was meant to leave a copy unread")
+        let store = try XCTUnwrap(model.store)
+        try await store.queue(waiting("サンプル紀行", startingIn: 180, programme: 4402,
+                                      problem: Said.heldForAnotherRecorder))
+        await model.refreshReservations()
+        XCTAssertEqual(model.queueReport, Said.heldBack(1), "the reservation held was not said on the strip")
+        XCTAssertNotNil(model.reservationsRead)
+        XCTAssertFalse(model.recorderRules.isEmpty)
+        return (recorder, model)
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
