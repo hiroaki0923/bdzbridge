@@ -113,7 +113,8 @@ extension AppModel {
     func forgetTheRecorder() { recorderHost.forgetTheRecorder() }
 
     /// Opens the cache that belongs to whichever recorder is in play now, the demo's or a real one's, and
-    /// forgets everything the other one said. The queue shown is the one in the cache opened.
+    /// forgets everything the other one said. The queue shown is the one in the cache opened. One that cannot be
+    /// opened is said on the phone's own line, as at launch.
     private func openStore() async {
         forgetTheRecorder()
         pending = []
@@ -123,8 +124,12 @@ extension AppModel {
         found = []
         foundTelevisions = []
         scanOutcome = nil
-        store = (try? guidePath()).flatMap {
-            try? GuideStore(path: $0, busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
+        do {
+            store = try GuideStore(path: try guidePath(),
+                                   busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
+        } catch {
+            store = nil
+            phoneProblem = Self.cacheNotOpened(error)
         }
         if let store {
             if demo { try? await DemoData.seed(store: store) }
@@ -206,8 +211,9 @@ extension AppModel {
     private func scan() async {
         scanRun += 1
         let run = scanRun
-        // whatever the last attempt left on screen is not about this one
-        recorderHost.problem = nil
+        // What the last search said is not about this one. The devices' lines are left as they are: only the
+        // device's link and driver write one, and its host takes it down as it lets the device go
+        // (`forgetTheRecorder`).
         scanOutcome = nil
         scanBlocked = false
         found = []

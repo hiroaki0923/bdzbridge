@@ -61,11 +61,14 @@ struct TVSection: View {
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    if let problem = model.problem(for: .tv) { Text(problem) }
+                    // Why 外す left the television in place, above what went wrong with the television: both
+                    // when both stand.
+                    let lines = [model.whyTheTelevisionStays, model.problem(for: .tv)].compactMap { $0 }
+                    if !lines.isEmpty { Text(lines.joined(separator: "\n")) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
-                    // What could not be taken away is said in the footer above, which reads the television's
-                    // line. Handed the count the message below gave: nothing is taken away over another.
+                    // Why it could not be taken away is said in the footer above (`whyTheTelevisionStays`).
+                    // Handed the count the message below gave: nothing is taken away over another.
                     Button("外す", role: .destructive) {
                         Task { await model.takeTheTelevisionAway(counted: waiting) }
                     }

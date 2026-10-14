@@ -111,6 +111,9 @@ extension AppModel {
         return refreshed
     }
 
+    /// Reads what the screens show of the guide from the cache. What could not be read is said on the phone's
+    /// own line, whoever asked for the read -- a refresh of the recorder's among them: the reader of the database
+    /// is the app -- and a read that went through takes that line down.
     func reloadFromCache() async {
         guard let store else { return }
         guideReads += 1
@@ -135,8 +138,9 @@ extension AppModel {
                 },
                 uniquingKeysWith: { first, _ in first })
             programs = try await store.day(day, broadcasting: broadcasting)
+            phoneProblem = nil
         } catch {
-            recorderHost.problem = "番組表を読み込めませんでした: \(error)"
+            phoneProblem = "番組表を読み込めませんでした: \(error)"
         }
     }
 

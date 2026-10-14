@@ -13,7 +13,10 @@
   is asked of, is the link's too (`DeviceLink.run`): the check before it, which says why a device is not to be
   asked, clearing the line of what went wrong when it goes through, and what each kind of failure says and
   leaves behind. Each device's read of its reservations, which is its driver's, stands on it, and every other
-  operation is written on its parts.
+  operation is written on its parts. A device's line is written by the package alone -- the link and the driver
+  -- and taken down by its host as it lets the device go; a search for devices leaves both lines as they are.
+  What goes wrong with the phone's own cache is on a line of the phone's own (`AppModel.phoneProblem`), and why
+  テレビを外す left the television in place is that button's answer (`AppModel.whyTheTelevisionStays`).
   The recorder's host (`RecorderHost`) is made once with the model and its link and kept for as long as the
   model is: the recorder's link is never dropped, and takes a newcomer up in the middle of an attach. It answers
   the link (`RecorderLinkHost`: what only a recorder's link asks -- its cache, its MAC and where it was read,
@@ -34,10 +37,12 @@
   drivers answer them through one protocol (`ReservationDriver`, a change and a reservation taking one request
   value, `ReservationTerms`); both hosts' entries for them are one text over it (`DeviceHost`, in
   `DeviceHost.swift`), with what still differs between the hosts as a hook each answers for itself: where a
-  list is kept, what comes before an ask (the recorder's opens the cache), and what follows a reservation and a
-  sending again. `AppModelReservations` picks the host by the row's device (`deviceHost(for:)`) and does
-  nothing else but open the cache ahead of a television's reservation, as the recorder's host does before its
-  own: a reservation goes to the device the programme's sheet named, a change (`change`), a delete
+  list is kept, and what follows a reservation and a sending again. Every one of the six opens the cache before
+  it asks, whichever device it is for (`AppModel.start`); only the read a connect makes as it reaches a device,
+  which may not wait for that, and the one a television's waiting-row delete makes in the queue's turn read with
+  nothing before them (`readReservationsNow`). `AppModelReservations` picks the host by the row's device
+  (`deviceHost(for:)`) and does nothing else: a reservation goes to the device the programme's sheet named, a
+  change (`change`), a delete
   (`cancel`) or a waiting row sent again (`resend`, and `sendAgain` for a screen that says what it came to) to
   the device that holds the row; it puts the two devices' lists together for the screens. A waiting row's delete
   (`deleteWaiting`) is not one of the six: the recorder's is its host's, the television's a step of its driver's
@@ -995,6 +1000,15 @@ refresh ends before its next file, or as a file out on the client before meets s
 had failed, and a connect that goes through fetches what is behind in its turn. The recorder's own busy answer,
 which stops a refresh or a run, can be about the app's own overnight run, on its other client.
 
+A cache that cannot be opened, at launch or as the demo begins or ends, and a guide that cannot be read from it,
+whoever asked for the read, are said on the phone's own line (`AppModel.phoneProblem`), which nothing a device
+answers takes away: a read of the cache that goes through does. Where a guide would be -- the screen that says
+the recorder is not connected, the guide's empty state -- it stands in front of the recorder's line while there
+is no cache, and behind it, shown when the recorder's is empty, while the cache is open (`whyNothingToShow`);
+Settings shows it under the recorder's. With no cache the app sets no connect going by itself, so that is where
+it is read. In the demo, whose connect goes through without the cache and whose empty guide explains the demo, it
+is in Settings alone.
+
 The cache is in `Application Support/Guide/`, a folder left out of the phone's backups: the guide is some
 28 MB that the recorder hands over again every night. The same file keeps the channel settings and the
 reservations waiting to be sent, which a restore to another phone therefore does not bring back either. A cache
@@ -1726,7 +1740,10 @@ the first use of this build is the measurement.
 
 Taking the television away in the settings takes what waits for it as well, unsent
 (`AppModel.takeTheTelevisionAway`). The question says how many reservations that is, counted on the phone,
-and when they cannot be deleted the television stays and its line says why. It is not offered while the
+and when they cannot be deleted the television stays and the footer 外す was pressed under says why, above the
+television's own line when that stands (`whyTheTelevisionStays`): the answer of the button, which goes at the
+next press, with the television or when the app is left, and not the television's line, since the television
+said nothing. It is not offered while the
 television works, when a sending may have one of those rows in hand. And 外す is held to the count its
 question gave: where that is no longer what waits -- a sending came and went while the question was up --
 nothing is taken away, and the question counts again the next time. 外す and the delete of a waiting

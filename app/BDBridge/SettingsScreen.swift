@@ -234,6 +234,10 @@ struct SettingsScreen: View {
                 if let problem = model.problem(for: .recorder) {
                     Section { Text(problem).foregroundStyle(.red).font(.callout) }
                 }
+                // The phone's own, under the recorder's: its cache, which no device said anything of.
+                if let problem = model.phoneProblem {
+                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                }
             }
             .navigationTitle("設定")
             .onAppear { if typedHost.isEmpty { typedHost = model.host } }

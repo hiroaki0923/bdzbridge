@@ -22,16 +22,15 @@ extension AppModel {
         await recorderHost.loadReservations()
     }
 
-    /// The same, handing back the list read now, nil when none was. After `start()`, unlike the hosts' own
-    /// `readReservations`, which is for what a connect reaches and opens nothing. The driver's read
-    /// (`RecorderDriver.reservations`), kept on what the recorder said as the entry began (`RecorderSaid.keep`): a
-    /// list read for a recorder let go of meanwhile -- another answered or was chosen while the read was out -- is
-    /// kept where no screen reads it, and the one after it, whose own connect reads its list
-    /// (`RecorderHost.reached`), is left alone. The television's lists go with their host by the same rule
-    /// (`TVHost`).
+    /// The same, handing back the list read now, nil when none was, after `start()` as every entry of a host's
+    /// is (`DeviceHost.readReservations`). The driver's read (`RecorderDriver.reservations`), kept on what the
+    /// recorder said as the entry began (`RecorderSaid.keep`): a list read for a recorder let go of meanwhile --
+    /// another answered or was chosen while the read was out -- is kept where no screen reads it, and the one
+    /// after it, whose own connect reads its list (`RecorderHost.reached`), is left alone. The television's lists
+    /// go with their host by the same rule (`TVHost`).
     @discardableResult
     func readReservations() async -> [Reservation]? {
-        await recorderHost.readReservations(askingFirst: true)
+        await recorderHost.readReservations()
     }
 
     /// A device's reservations read, as a screen that shows them does when it appears: the television's in a
@@ -248,7 +247,7 @@ extension AppModel {
     /// host (`DeviceHost.reserve`).
     ///
     /// A television's is handed over before anything else: the recorder is asked nothing on its account, not
-    /// its check, and its line is not touched. The cache is opened first all the same, as for the recorder's. A
+    /// its check, and its line is not touched. Its host opens the cache first, as the recorder's does. A
     /// television records in its one mode (`TVDriver.recordsIn`) and has no disk to choose, so `quality` and
     /// `disk` are not read for one. With no television in play, as in the demo before its television is added,
     /// nothing is kept and nothing sent.
@@ -263,8 +262,7 @@ extension AppModel {
     /// notifications.
     func reserve(_ program: GuideProgramRow, on device: DeviceSlot, quality: String,
                  repeating: String, disk: String = RecorderDisk.internalID) async -> Reserved {
-        if device == .tv { await start() }
-        return await deviceHost(for: device)?
+        await deviceHost(for: device)?
             .reserve(program, .reserving(quality: quality, repeating: repeating, disk: disk))
             ?? .notDone(device.notConnected)
     }
@@ -299,7 +297,7 @@ extension AppModel {
     ///
     /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
     /// list of the television in play, read by its host, which keeps it for the screens
-    /// (`TVHost.readReservations`), and whether one is in play. The recorder's driver hands back the list it
+    /// (`DeviceHost.readReservationsNow`), and whether one is in play. The recorder's driver hands back the list it
     /// read in the turn, kept on what was said as the delete began (`RecorderSaid.keep`). A row made is
     /// not deleted, and what to say in place of that is handed back, as the strip says a row sent
     /// (`TVDriver.madeBeforeItsDelete`, `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip
@@ -318,7 +316,7 @@ extension AppModel {
         defer { deletingWaiting.remove(waiting.id) }
         guard waiting.target == .tv else { return await recorderHost.deleteWaiting(waiting) }
         let made = await TVDriver.deleteWaiting(waiting, queue: { self.store },
-                                                listing: { await self.tvHost?.readReservations() },
+                                                listing: { await self.tvHost?.readReservationsNow() },
                                                 inPlay: { self.tvHost != nil },
                                                 queueWritten: { await self.loadPending() }) ?? false
         await loadPending()
