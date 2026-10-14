@@ -29,6 +29,15 @@ public struct DeviceSlot: RawRepresentable, Hashable, Sendable {
     public static let tv = DeviceSlot(rawValue: "tv")
 }
 
+public extension DeviceSlot {
+    /// The device's word on the screens, where a row or a sentence has to say which of the two it is about.
+    var label: String { self == .tv ? "テレビ" : "レコーダー" }
+
+    /// Why nothing could be asked of the device in this slot when the app holds no link to it: its driver's
+    /// sentence for not being connected.
+    @MainActor var notConnected: String { self == .tv ? TVDriver.notConnected : RecorderDriver.notConnected }
+}
+
 /// A device the guide can be fetched from, a broadcasting type at a time.
 public protocol GuideSource: DeviceEndpoint {
     /// The guide for one broadcasting type. Nil when the device has no such channels.

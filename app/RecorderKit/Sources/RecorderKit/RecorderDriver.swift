@@ -88,6 +88,12 @@ public final class RecorderDriver: LinkDriver {
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     public var anotherAnsweredLine: String { Self.anotherAnswered }
 
+    /// What the strip says while another recorder has answered where the last one had been and the app is
+    /// connected to it. Nobody need have asked for anything -- a change of network asks the recorder whether it
+    /// is still there -- so it says what to do if something was being done, not that something was not.
+    public nonisolated static let tookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
+        + "操作の途中だった場合は、確かめてからやり直してください。"
+
     /// Said when the recorder that answered is another one and the cache could not be made over to it: the
     /// database is busy with another writer for longer than it will wait, or cannot be written to.
     public static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"

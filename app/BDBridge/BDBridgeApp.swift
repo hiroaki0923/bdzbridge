@@ -406,24 +406,6 @@ private struct ClosesWithItsDevice: ViewModifier {
     }
 }
 
-extension DeviceSlot {
-    /// The device's word on the screens, where a row or a sentence has to say which of the two it is about.
-    var label: String { self == .tv ? "テレビ" : "レコーダー" }
-}
-
-extension PendingQueue.Outcome {
-    /// What became of the queue, as the app says it on the strip. A home with a recorder alone has one device a
-    /// sentence can be about, and reads the sentences it has always read (`summary`). With a television saved
-    /// the reader has two, so each sentence says which device the round was for. The notification and the
-    /// Shortcuts action's answer name the device by the same rule, and say of a recorder's round what a round
-    /// with no screen tells (`RecorderDriver.tells`, `says`), which is made of these sentences; the action
-    /// reads this for whether the recorder's round has anything to say beside the television's
-    /// (`SendWaitingIntent.saying`).
-    func said(withATelevisionSaved televisionSaved: Bool) -> String? {
-        televisionSaved ? says(naming: slot.label) : summary
-    }
-}
-
 /// What to say when there is no recorder to talk to, in two situations that need different words: nothing has
 /// been set up yet, or a recorder is set up and not answering — asleep, or the phone is away from home. Sending
 /// someone to correct an address that is already right is worse than saying nothing, which is why looking for

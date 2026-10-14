@@ -305,7 +305,38 @@ public extension PendingQueue {
     static func couldNotBeKept(_ error: any Error) -> String { "予約を端末に保存できませんでした: \(error)" }
 }
 
+public extension PendingQueue {
+    /// What a screen says under what waits: by the devices its rows wait for (`targets`) and not by the devices
+    /// saved, so that the recorder's rows alone are said as they always have been, a television saved or not.
+    /// Then how a row with a reason is sent again, while any has one (`anyHeld`). And last, while a row waits for
+    /// the television's disk to come back (`diskAway`), that the disk is away: of such a row the sentences before
+    /// it say only that it goes when the television is next connected to, and the television may well be.
+    static func whatWaits(for targets: Set<DeviceSlot>, anyHeld: Bool, diskAway: Bool) -> String {
+        let waits = targets == [.tv] ? notYetAtTheTelevision
+            : targets.contains(.tv) ? notYetAtEither : notYetAtTheRecorder
+        return waits + (anyHeld ? reasonsWaitForTheReader : "")
+            + (diskAway ? ScalarClient.diskNotFound + "。" : "")
+    }
+
+    private static let notYetAtTheRecorder = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
+    private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+    private static let notYetAtEither = "レコーダーやテレビにまだ届いていない予約です。"
+        + "それぞれ、次につながったときに登録します。"
+    private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
+        + "右にスワイプすると、もう一度送れます。"
+}
+
 public extension PendingQueue.Outcome {
+    /// What became of the queue, as the app says it on the strip. A home with a recorder alone has one device a
+    /// sentence can be about, and reads the sentences it has always read (`summary`). With a television saved
+    /// the reader has two, so each sentence says which device the round was for. The notification and the
+    /// Shortcuts action's answer name the device by the same rule, and say of a recorder's round what a round
+    /// with no screen tells (`RecorderDriver.tells`, `says`), which is made of these sentences; the action
+    /// reads this for whether the recorder's round has anything to say beside the television's.
+    func said(withATelevisionSaved televisionSaved: Bool) -> String? {
+        televisionSaved ? says(naming: slot.label) : summary
+    }
+
     /// What became of the queue, where the home has one device: the sentences as they have always read. The
     /// line the app shows when it sent the queue itself; what a run with no screen tells of its round is made
     /// of the same sentences (`RecorderDriver.tells`). nil when there is nothing to say.

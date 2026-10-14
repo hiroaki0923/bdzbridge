@@ -391,19 +391,9 @@ extension AppModel {
     /// the television may well be connected. The strip says the same, but as the last of its lines, where
     /// it can sit behind whatever the recorder has up.
     var whatWaitsSays: String {
-        let devices = Set(pending.map(\.target))
-        let waits = devices == [.tv] ? Self.notYetAtTheTelevision
-            : devices.contains(.tv) ? Self.notYetAtEither : Self.notYetAtTheRecorder
-        return waits + (pending.contains { $0.problem != nil } ? Self.reasonsWaitForTheReader : "")
-            + (tvWaitsForItsDisk ? TVDriver.diskNotFound + "。" : "")
+        PendingQueue.whatWaits(for: Set(pending.map(\.target)), anyHeld: pending.contains { $0.problem != nil },
+                               diskAway: tvWaitsForItsDisk)
     }
-
-    private static let notYetAtTheRecorder = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
-    private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
-    private static let notYetAtEither = "レコーダーやテレビにまだ届いていない予約です。"
-        + "それぞれ、次につながったときに登録します。"
-    private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
-        + "右にスワイプすると、もう一度送れます。"
 
     /// What a reservation's sheet asks: a change of `reservation`, and what it came to, in the one value both
     /// devices answer with (`Altered`). It goes to the device that holds the row and to no other.

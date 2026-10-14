@@ -73,9 +73,3 @@ extension TVDriver: ReservationDriver {
         await reserve(program, repeating: terms.repeating)
     }
 }
-
-public extension DeviceSlot {
-    /// Why nothing could be asked of the device in this slot when the app holds no link to it: its driver's
-    /// sentence for not being connected.
-    @MainActor var notConnected: String { self == .tv ? TVDriver.notConnected : RecorderDriver.notConnected }
-}

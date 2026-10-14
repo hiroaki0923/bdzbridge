@@ -30,11 +30,9 @@ extension AppModel {
         await recorder.connect()
     }
 
-    /// What the strip says while `anotherTookOver` is set and the app is connected. Nobody need have asked
-    /// for anything -- a change of network asks the recorder whether it is still there -- so it says what to
-    /// do if something was being done, not that something was not.
-    static let anotherTookOverLine = "別のレコーダーが応答したため、一覧を読み直しました。"
-        + "操作の途中だった場合は、確かめてからやり直してください。"
+    /// What the strip says while `anotherTookOver` is set and the app is connected: the recorder's driver's
+    /// sentence (`RecorderDriver.tookOverLine`).
+    static let anotherTookOverLine = RecorderDriver.tookOverLine
 
     /// True once a MAC is known, which is what a magic packet needs.
     var canWake: Bool { session.canWake }

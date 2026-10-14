@@ -338,6 +338,21 @@ public final class TVDriver: LinkDriver {
     /// Whatever stands in the way, the local network permission included: see `check`.
     public var whyNotConnected: String { Self.notConnected }
 
+    /// What the sheet that adds a television says of what answered at the address it was given
+    /// (`ScalarClient.presence`), when it cannot go on to the registration: nil for a television that is on,
+    /// which it goes on to.
+    public static func says(_ presence: TVPresence) -> String? {
+        switch presence {
+        case .nothing: "応答がありません。アドレスと、テレビがネットワークにつながっていることを確かめてください。"
+        case .notATelevision: "このアドレスの機器は、テレビとして応答しませんでした。"
+        case .standby: "テレビの電源が切れています。テレビの電源を入れて、放送を映してから、もう一度お試しください。"
+        case .on: nil
+        }
+    }
+
+    /// Said when the television turned down the PIN the reader typed.
+    public static let pinTurnedDown = "登録できませんでした。テレビの画面の番号を確かめて、もう一度入力してください。"
+
     /// What the television is set to record, read now: nil when it could not be read, and the host's line
     /// says why. A television that cannot be asked is sent nothing and nothing is said of it: the screens ask
     /// this as they appear, and the line an earlier operation left is not theirs to write over.
