@@ -113,7 +113,8 @@ extension AppModel {
     func forgetTheRecorder() { recorderHost.forgetTheRecorder() }
 
     /// Opens the cache that belongs to whichever recorder is in play now, the demo's or a real one's, and
-    /// forgets everything the other one said. The queue shown is the one in the cache opened.
+    /// forgets everything the other one said. The queue shown is the one in the cache opened. One that cannot be
+    /// opened is said on the phone's own line, as at launch.
     private func openStore() async {
         forgetTheRecorder()
         pending = []
@@ -123,8 +124,12 @@ extension AppModel {
         found = []
         foundTelevisions = []
         scanOutcome = nil
-        store = (try? guidePath()).flatMap {
-            try? GuideStore(path: $0, busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
+        do {
+            store = try GuideStore(path: try guidePath(),
+                                   busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
+        } catch {
+            store = nil
+            phoneProblem = Self.cacheNotOpened(error)
         }
         if let store {
             if demo { try? await DemoData.seed(store: store) }

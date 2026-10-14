@@ -5,7 +5,7 @@ import XCTest
 @testable import BDBridge
 
 /// What the app holds of each device, and says on each device's line, where no test looked before: what the
-/// phone's own cache writes on the recorder's line, what a search and the phone's own work leave there, the
+/// phone's own cache says on the phone's line, what a search and the phone's own work leave there, the
 /// strip's sentence for another recorder, what a recorder let go of leaves behind, how old each device's list is
 /// said to be, the routed entries with no television in play, and what the screens are told through the model's
 /// names.
@@ -16,17 +16,17 @@ import XCTest
 /// reservation of the demo's: a row waiting is of the test's own making, relative to now.
 @MainActor
 final class HostGateTests: XCTestCase {
-    // MARK: - the phone's own cache, on the recorder's line
+    // MARK: - the phone's own cache, on the phone's own line
 
     /// The cache cannot be opened: a folder stands where its database would be. No connect is set going, by the
-    /// first `start()` or by any after it, and the recorder's line says that the cache could not be opened, and
-    /// goes on saying it. A connect asked by hand -- which stands for the reader's 再接続 on the screen that says
-    /// the recorder is not connected -- goes through with no cache, and its attach takes that line away. The
-    /// television's line is not touched by any of it.
-    ///
-    /// As it is today: the phone's own failure is written on the recorder's line, where the next thing the
-    /// recorder answers takes it away.
-    func testACacheThatCannotBeOpenedIsSaidOnTheRecordersLine() async throws {
+    /// first `start()` or by any after it, and the phone's own line says that the cache could not be opened, and
+    /// goes on saying it -- also where a guide would be (`whyNothingToShow`), in front of a line left on the
+    /// recorder's, there being no cache -- through a connect asked by hand, which stands for the reader's 再接続 on
+    /// the screen that says the recorder is not connected and goes through with no cache, and through an operation
+    /// that goes through. Neither device's line is written by any of it: the recorder's stays empty, and the
+    /// television's keeps what was left there. A cache read takes the phone's line away: here the demo's, opened
+    /// as the demo begins.
+    func testACacheThatCannotBeOpenedIsSaidOnThePhonesOwnLine() async throws {
         let bench = try aBench()
         try FileManager.default.createDirectory(atPath: bench.guidePath, withIntermediateDirectories: true)
         let recorder = NamedRecorder(1), television = DemoTV()
@@ -34,50 +34,112 @@ final class HostGateTests: XCTestCase {
                                 credentials: await registered(with: television))
         let host = try XCTUnwrap(model.tvHost, "the television saved was meant to be in play")
         host.problem = lineLeft
+        func stillSaid(_ after: String, line: UInt = #line) throws {
+            let said = try XCTUnwrap(model.phoneProblem, "nothing says the cache could not be opened, \(after)",
+                                     line: line)
+            XCTAssertTrue(said.hasPrefix("番組表の保存領域を開けませんでした: "), "what is said instead: \(said)",
+                          line: line)
+            XCTAssertEqual(model.whyNothingToShow, said, "where a guide would be, \(after)", line: line)
+            XCTAssertNil(model.problem(for: .recorder), "the recorder's line was written, \(after)", line: line)
+            XCTAssertEqual(model.problem(for: .tv), lineLeft, "the television's line was written, \(after)",
+                           line: line)
+        }
 
         await model.start()
         await model.start()
 
         XCTAssertNil(model.store, "a folder where the database would be was opened as one")
         XCTAssertEqual(bench.clientsMade, 0, "a connect was set going with no cache to connect over")
-        let said = try XCTUnwrap(model.problem(for: .recorder), "nothing says the cache could not be opened")
-        XCTAssertTrue(said.hasPrefix("番組表の保存領域を開けませんでした: "), "what is said instead: \(said)")
-        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the cache's failure wrote on the television's line")
+        try stillSaid("at launch")
 
         await model.connect()
 
         XCTAssertTrue(model.connected, "a connect asked for by hand did not go through with no cache")
         XCTAssertEqual(bench.clientsMade, 1)
         XCTAssertNil(model.store)
-        XCTAssertNil(model.problem(for: .recorder), "the recorder's attach left the cache's sentence on its line")
-        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the recorder's attach wrote on the television's line")
+        try stillSaid("after a connect that went through")
+
+        let read = await readTheReservations(model)
+        XCTAssertNotNil(read, "the recorder's list was meant to be read")
+        try stillSaid("after an operation that went through")
+
+        leaveALine(on: model)
+        XCTAssertEqual(model.whyNothingToShow, model.phoneProblem,
+                       "with no cache, the recorder's line stood in front of the phone's where a guide would be")
+
+        await model.enterDemo()
+
+        XCTAssertTrue(model.demo, "the demo was meant to have begun")
+        XCTAssertNotNil(model.store, "the demo's cache was not opened")
+        XCTAssertNil(model.phoneProblem, "the demo's cache was read and its sentence stayed")
+        XCTAssertNil(model.whyNothingToShow, model.problem(for: .recorder) ?? "the phone's line")
     }
 
     /// The cache cannot be read: it was opened, and the app connected over it, and then its `meta` table was put
-    /// out of the app's reach (`MetaOutOfReach`), until the test ends. A read of the guide from the cache says so
-    /// on the recorder's line; the reservations' read, which goes through, takes it away -- not a connect, which
-    /// cannot go through while whose cache this is cannot be read. The television's line is not touched.
-    ///
-    /// As it is today, as for a cache that cannot be opened.
-    func testACacheThatCannotBeReadIsSaidOnTheRecordersLineUntilTheRecorderAnswers() async throws {
+    /// out of the app's reach (`MetaOutOfReach`), until the test puts it back. A read of the guide from the cache
+    /// says so on the phone's own line; neither device's line is written, and where a guide would be the
+    /// recorder's line stands in front, the cache being open. The reservations' read, which goes through, takes
+    /// the recorder's line away and leaves the phone's, which is then what stands where a guide would be -- a
+    /// connect cannot go through while whose cache this is cannot be read. A read of the cache that goes through
+    /// takes the phone's line away.
+    func testACacheThatCannotBeReadIsSaidOnThePhonesOwnLineUntilItIsRead() async throws {
         let home = try await atHomeWithATelevision()
         let (bench, model, host) = (home.bench, home.model, home.host)
-        clearTheLine(on: model)
+        leaveALine(on: model)
         host.problem = lineLeft
         let outOfReach = MetaOutOfReach(in: bench.guidePath)
-        addTeardownBlock { outOfReach.putBack() }
 
         await model.reloadFromCache()
 
-        let said = try XCTUnwrap(model.problem(for: .recorder), "nothing says the cache could not be read")
+        let said = try XCTUnwrap(model.phoneProblem, "nothing says the cache could not be read")
         XCTAssertTrue(said.hasPrefix("番組表を読み込めませんでした: "), "what is said instead: \(said)")
+        XCTAssertEqual(model.whyNothingToShow, lineLeft,
+                       "with the cache open, the phone's line stood in front of the recorder's where a guide would be")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "the cache's failure wrote on the recorder's line")
         XCTAssertEqual(model.problem(for: .tv), lineLeft, "the cache's failure wrote on the television's line")
 
         let read = await readTheReservations(model)
         XCTAssertNotNil(read, "the recorder's list was meant to be read")
 
-        XCTAssertNil(model.problem(for: .recorder), "the reservations' read left the cache's sentence on the line")
+        XCTAssertNil(model.problem(for: .recorder), "the reservations' read left the recorder's line")
+        XCTAssertEqual(model.phoneProblem, said, "the recorder's read took the phone's line")
+        XCTAssertEqual(model.whyNothingToShow, said, "the phone's line was not shown with the recorder's empty")
         XCTAssertEqual(model.problem(for: .tv), lineLeft, "the recorder's read wrote on the television's line")
+
+        outOfReach.putBack()
+        await model.reloadFromCache()
+
+        XCTAssertNil(model.phoneProblem, "a read of the cache that went through left its sentence")
+        XCTAssertNil(model.whyNothingToShow)
+        XCTAssertEqual(model.problem(for: .tv), lineLeft, "the cache's read wrote on the television's line")
+    }
+
+    /// A cache that cannot be opened as the demo begins -- a folder where the demo's database would be -- is said
+    /// on the phone's own line, as one that cannot be opened at launch is, and goes when the demo ends and the
+    /// cache it goes back to is read.
+    func testACacheThatCannotBeOpenedAsTheDemoBeginsIsSaid() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let model = bench.modelWithNoRecorder()
+        await model.start()
+        XCTAssertNotNil(model.store, "the cache was meant to be open")
+        XCTAssertNil(model.phoneProblem)
+        let demosOwn = Storage.guidePath(demo: true, in: bench.folder)
+        try FileManager.default.createDirectory(atPath: demosOwn, withIntermediateDirectories: true)
+
+        await model.enterDemo()
+
+        XCTAssertTrue(model.demo, "the demo was meant to have begun")
+        XCTAssertNil(model.store, "a folder where the demo's database would be was opened as one")
+        let said = try XCTUnwrap(model.phoneProblem, "nothing says the demo's cache could not be opened")
+        XCTAssertTrue(said.hasPrefix("番組表の保存領域を開けませんでした: "), "what is said instead: \(said)")
+        XCTAssertEqual(model.whyNothingToShow, said)
+
+        await model.leaveDemo()
+
+        XCTAssertFalse(model.demo)
+        XCTAssertNotNil(model.store, "the cache gone back to was not opened")
+        XCTAssertNil(model.phoneProblem, "the cache gone back to was read and the sentence stayed")
     }
 
     // MARK: - a search, and the phone's own work

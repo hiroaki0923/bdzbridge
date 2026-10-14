@@ -214,9 +214,17 @@ final class AppModel {
     var needsPower: Bool { session.needsPower }
     /// Set when the recorder answered nothing at all rather than answering with an error.
     var unreachable: Bool { session.unreachable }
-    /// What stands between the reader and a guide, for the places that say it where the guide would be: the
-    /// recorder's line.
-    var whyNothingToShow: String? { recorderHost.problem }
+    /// What stands between the reader and a guide, for the places that say it where the guide would be. With no
+    /// cache, the phone's own line in front of the recorder's, since a guide that cannot be shown for want of the
+    /// cache is not explained by what the recorder said; with the cache open, the recorder's in front, and the
+    /// phone's when the recorder's is empty: the cache is not what is missing.
+    var whyNothingToShow: String? {
+        store == nil ? (phoneProblem ?? recorderHost.problem) : (recorderHost.problem ?? phoneProblem)
+    }
+    /// What went wrong with the phone's own cache: it could not be opened, or could not be read. A line of the
+    /// phone's, apart from each device's (`problem(for:)`): no device said it, and nothing a device answers
+    /// takes it away. It stands until the cache has been read (`reloadFromCache`).
+    var phoneProblem: String?
     /// The MAC a magic packet is sent to. The recorder reports it whenever it is reached; the reader can
     /// also type it, for a recorder that has never been reached from this phone.
     var mac: String? { session.mac }
@@ -380,8 +388,13 @@ final class AppModel {
             // screen by now, and a search made meanwhile waits for this rather than missing the cast.
             if let store { Task { _ = try? await store.updateSearchText() } }
         } catch {
-            recorderHost.problem = "番組表の保存領域を開けませんでした: \(error)"
+            phoneProblem = Self.cacheNotOpened(error)
         }
+    }
+
+    /// What the phone's line says of a cache that could not be opened, at launch or as the demo begins or ends.
+    static func cacheNotOpened(_ error: any Error) -> String {
+        "番組表の保存領域を開けませんでした: \(error)"
     }
 
     /// The database of whichever recorder is in play, the demo's or a real one's.
