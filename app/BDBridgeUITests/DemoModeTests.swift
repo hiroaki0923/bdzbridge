@@ -71,9 +71,12 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(connect.waitForExistence(timeout: 10), "the settings did not offer to connect")
         connect.tap()
 
-        // Over as soon as the recorder is chosen, and the address chosen is the one kept.
-        XCTAssertTrue(app.buttons["サンプルデータで試す"].waitForExistence(timeout: 10),
-                      "choosing a recorder did not end the demo")
+        // Over as soon as the recorder is chosen, and the address chosen is the one kept. The demo's button is
+        // further down the form than the screen reaches.
+        let tryDemo = app.buttons["サンプルデータで試す"]
+        scroll(app, to: tryDemo)
+        XCTAssertTrue(tryDemo.exists, "choosing a recorder did not end the demo")
+        scrollBack(app, to: address)
         XCTAssertEqual(address.value as? String, "127.0.0.1", "the address chosen was not kept")
 
         // Nothing answers there, and the app says so rather than showing the demo as connected.
@@ -396,11 +399,8 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(add.exists, "the television's section did not go back to adding one")
         XCTAssertFalse(app.staticTexts["機種、KJ-SAMPLE"].exists, "the demo's television stayed after the demo")
         // Held back while anything is under way with the recorder in play, as entering the demo is.
-        // Scrolled back to, it can stop under the navigation bar, where a tap does not reach it: once more brings
-        // it clear, the form being near its top by then.
         let tryAgain = app.buttons["サンプルデータで試す"]
-        scrollBack(app, to: tryAgain)
-        app.swipeDown()
+        scroll(app, to: tryAgain)
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: tryAgain)
         wait(for: [enabled], timeout: 30)
         tryAgain.tap()
