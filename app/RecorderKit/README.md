@@ -58,6 +58,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `TVReservation.swift` | A station as a television lists it, and what the two reservation requests send for one reservation on it |
 | `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what a sending came to, for either device, and what is said of it; and the rule of what is told once and kept between runs (`TVTold.after`), with a device's own words for it (`NoScreenWords`), which the recorder's runs tell by as well |
 | `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
+| `DemoRecorder.swift` | An invented BDZ-FBT4100 that answers in the real one's XML and remembers what is done to it, for the demo and the tests |
+| `DemoLineUp.swift` | The invented stations and their days the demo's guide, recorder and television are made of |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |

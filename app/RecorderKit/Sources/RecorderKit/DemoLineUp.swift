@@ -4,9 +4,9 @@ import Foundation
 /// its television receives: six terrestrial stations and three BS ones, each with one day of programmes placed by
 /// the clock from 04:00, repeated over the days the guide covers. Every name in it is invented.
 ///
-/// Reservations and recordings are built from it by name (`slot`), so the guide and the recorder's lists cannot
-/// drift apart; the app writes the guide into its cache (`services`), and the demo's television is made from it
-/// (`television()`).
+/// Reservations are built from it by name (`slot`) and recordings are placed on its broadcast days (`moment`),
+/// so the guide and the recorder's lists cannot drift apart; the app writes the guide into its cache
+/// (`services`), and the demo's television is made from it (`television()`).
 public enum DemoLineUp {
     // MARK: - the stations
 

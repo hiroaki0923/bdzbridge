@@ -14,6 +14,17 @@ import Foundation
 /// in the list looks broken. So a reservation made here is added to the list, a changed one is changed, a
 /// deleted one goes, and the same for recordings and for the keyword conditions.
 ///
+/// It is kinder than the real one, where `DemoTV` is not: it answers as done a delete or a change of a
+/// reservation it does not hold, which the real one answers with 804, and the delete of a protected recording
+/// or of one being recorded, which the real one refuses with 820 or a bare 500 (`docs/porting.md`,
+/// `docs/xsrs-api.md`). It also takes as done a change of a recording and a delete of a keyword condition it
+/// does not hold, where what the real one answers has not been tried; a delete of a recording it does not hold,
+/// the real one answers as done too. The screens never send these to it -- they read the list and check
+/// first -- and a test that needs the real refusal scripts it in its own wrapper. The television's driver is
+/// tested on `DemoTV`, so a kinder answer there would hide a fault; the recorder's driver is tested on scripted
+/// answers and on vectors from real captures, so nothing of the app's or the driver's stands on this one's
+/// kindness: only the demo does, and the tests that hold this recorder itself, as it is.
+///
 /// It is an actor because the app's client sends from wherever it likes, and this holds state.
 public actor DemoRecorder: HTTPTransport {
     public static let host = "192.0.2.63"          // reserved for documentation (RFC 5737): never a real host

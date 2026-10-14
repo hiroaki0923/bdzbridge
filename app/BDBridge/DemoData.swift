@@ -67,7 +67,7 @@ enum DemoData {
             _ = try await store.replace(DemoLineUp.services(stations), broadcasting: broadcasting)
             try await store.replaceLogos(await logos(for: stations), broadcasting: broadcasting)
         }
-        // The demo's recorder answers every guide file with none, and these two are not invented here. Noting
+        // The demo's recorder answers every guide file with none, and these two are not in the line-up. Noting
         // that keeps a connect from asking it for them each time: the guide is judged fresh a broadcasting type
         // at a time, and one never answered for is always behind.
         for broadcasting in ["cs", "bs4k"] {
@@ -78,7 +78,7 @@ enum DemoData {
         try await store.removePending(waitingFor: .tv)
     }
 
-    /// Invented station logos: a coloured tile with two characters on it (`Station.logo`). A real recorder
+    /// Invented station logos: a coloured tile with two characters on it (`DemoLineUp.Station.logo`). A real recorder
     /// hands over the broadcasters' own logos, which are theirs and do not belong in a shop window, but a
     /// guide with nothing in the logo column does not look like the app either.
     @MainActor

@@ -111,13 +111,14 @@ in `docs/privacy.md`.
 ## Screenshots for the store
 
 `scripts/screenshots/capture.sh <simulator udid>` takes them, on the same demo the tutorial offers
-(`BDBridge/DemoData.swift`, turned on in the app or with `-demoData 1`). No recorder, no real programmes,
-nobody's recordings. See `scripts/screenshots/README.md`.
+(RecorderKit's `DemoRecorder` and `DemoLineUp`, turned on in the app by `BDBridge/DemoData.swift` or with
+`-demoData 1`). No recorder, no real programmes, nobody's recordings. See `scripts/screenshots/README.md`.
 
 ## The demo
 
-`DemoRecorder` answers the app's requests out of `DemoData` with the XML a BDZ-FBT4100 really sends, and
-remembers what is done to it, so a reservation made in the demo turns up in the list. It is in the shipped
+`DemoRecorder`, RecorderKit's, answers the app's requests out of its own lists, made from the package's
+invented stations and their days (`DemoLineUp`), with the XML a BDZ-FBT4100 really sends, and remembers what
+is done to it, so a reservation made in the demo turns up in the list. It is in the shipped
 build, offered at the end of the tutorial and in the settings, because the first thing the app asks for is a
 recorder on the network and not everybody has one to hand — an App Store reviewer least of all. Its guide goes
 in `guide-demo.sqlite3`, and ending the demo deletes that file and puts the previous recorder back. Choosing a
@@ -138,7 +139,7 @@ launches and a test that switched to CS would otherwise start the next one there
 
 The demo has a television too, which it starts without: the default demo, the screenshots' among them, is a
 home with a recorder alone, and its screens are that home's. The demo's search lists it, `KJ-SAMPLE` at
-192.0.2.64 (`DemoData.television()`: the package's `DemoTV`, on, receiving every station of the demo's guide by
+192.0.2.64 (`DemoLineUp.television()`: the package's `DemoTV`, on, receiving every station of the demo's guide by
 its service id and name, listing what it records under the guide's titles, and holding one recording of its
 own from the start, as if set with its remote, two days ahead). Tapped, it is registered as a real one is with
 its panel on, by its number, which the sheet says, since there is no panel to read it from; from then on the
@@ -170,7 +171,7 @@ And what the search begun by レコーダーとテレビを探す reaches: the i
 through, the pause between the single requests it makes after a look that was turned away, and where it writes
 its log. The app passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults
 suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an invented
-recorder as the transport -- the demo's `DemoRecorder`, which answers at once unless it is given the demo's
+recorder as the transport -- RecorderKit's `DemoRecorder`, which answers at once unless it is given the demo's
 pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse the
 calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and
 recorders that each say which they are, one of which can start answering as another or stop saying which, be

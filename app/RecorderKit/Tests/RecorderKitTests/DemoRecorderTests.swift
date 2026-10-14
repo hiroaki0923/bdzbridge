@@ -10,9 +10,9 @@ import XCTest
 /// Its lists are placed by the clock when it is made, on the broadcast day on air then. So nothing here reads the
 /// clock: a row is found by its id, and its start is held as a time of day in Japan and a number of broadcast
 /// days from the first weekly reservation's. The row being recorded started twenty minutes before the recorder
-/// was made, which is a moment rather than a time of day, and its start is not held. It is kind where a real
-/// recorder is not -- a delete or a change of something it does not hold, a protected recording or one being
-/// recorded, all go through -- and that is held as it is.
+/// was made, which is a moment rather than a time of day, and its start is not held. It is kinder than a real
+/// recorder where one was seen -- a delete or a change of something it does not hold, a protected recording or
+/// one being recorded, all go through (`DemoRecorder` says which) -- and that is held as it is.
 final class DemoRecorderTests: XCTestCase {
     /// Nine in the evening in Japan on Sunday 1 November 2026: when a reservation made here is for.
     private static let evening = Date(timeIntervalSince1970: 1_793_534_400)
