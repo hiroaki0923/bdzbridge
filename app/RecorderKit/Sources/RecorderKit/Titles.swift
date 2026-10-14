@@ -39,8 +39,11 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
     public var name: String
     public var count: Int
     public var sizeMB: Int
+    /// When the last of them to start started, which the groups are ordered by.
     public var latest: Date
     public var earliest: Date
+    /// When the last of them to end ends: the far side of the span the programme's recordings cover.
+    public var lastEnd: Date
     public var protectedCount: Int
     public var newCount: Int
 
@@ -91,10 +94,12 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
         private var newCount = 0
         private var latest: Date
         private var earliest: Date
+        private var lastEnd: Date
 
         init(_ title: RecordedTitle) {
             latest = title.start
             earliest = title.start
+            lastEnd = title.end
             add(title)
         }
 
@@ -109,13 +114,14 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
             sizeMB += title.sizeMB ?? 0
             latest = max(latest, title.start)
             earliest = min(earliest, title.start)
+            lastEnd = max(lastEnd, title.end)
             if title.protected { protectedCount += 1 }
             if title.isNew { newCount += 1 }
         }
 
         func group(key: String) -> TitleGroup {
             TitleGroup(key: key, name: names.max { $0.count < $1.count }?.name ?? "", count: count,
-                       sizeMB: sizeMB, latest: latest, earliest: earliest, protectedCount: protectedCount,
+                       sizeMB: sizeMB, latest: latest, earliest: earliest, lastEnd: lastEnd, protectedCount: protectedCount,
                        newCount: newCount)
         }
     }
