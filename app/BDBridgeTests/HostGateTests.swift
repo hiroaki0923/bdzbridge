@@ -486,6 +486,89 @@ final class HostGateTests: XCTestCase {
         try await untilTheTelevisionIsConnected(fresh)
     }
 
+    // MARK: - what the screens are told
+
+    /// What a screen reads of the recorder through the model's names is told of a change to it, as Observation
+    /// tells a view (`withObservationTracking`): the recorder's list, its recordings, its keyword conditions, the
+    /// job, what the strip says of its queue and its line, each when what was read or done is kept -- and every one
+    /// of them when the recorder is let go of. Each value here does change, so that what is told is the change and
+    /// not only the write.
+    func testWhatTheScreensReadOfTheRecorderIsToldOfAChange() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false)
+        addTeardownBlock { await recorder.letGo() }
+        XCTAssertFalse(model.reservations.isEmpty, "the demo was meant to list reservations")
+
+        await recorder.answer(Ask.reservations, with: .result("<xsrs xmlns=\"\(Upnp.xsrsMetadataNamespace)\"></xsrs>"))
+        var told = watching { _ = model.reservations }
+        _ = await readTheReservations(model)
+        XCTAssertTrue(model.reservations.isEmpty, "the list read was meant to be empty")
+        XCTAssertTrue(told.yes, "a screen that read the recorder's list was not told of the list kept")
+
+        told = watching { _ = model.titles }
+        await model.loadTitles()
+        XCTAssertFalse(model.titles.isEmpty, "the demo was meant to list recordings")
+        XCTAssertTrue(told.yes, "a screen that read the recordings was not told of the list kept")
+
+        told = watching { _ = model.recorderRules }
+        await model.loadRecorderRules()
+        XCTAssertFalse(model.recorderRules.isEmpty, "the demo was meant to list keyword conditions")
+        XCTAssertTrue(told.yes, "a screen that read the keyword conditions was not told of the list kept")
+
+        told = watching { _ = model.job }
+        model.startDuplicateScan()
+        try await until("the scan never ended") { !model.jobRunning }
+        XCTAssertNotNil(model.job, "the scan was meant to leave its job")
+        XCTAssertTrue(told.yes, "a screen that read the job was not told of the scan")
+
+        let store = try XCTUnwrap(model.store)
+        try await store.queue(waiting("サンプル紀行", startingIn: 180, programme: 4402,
+                                      problem: Said.heldForAnotherRecorder))
+        told = watching { _ = model.flushReport }
+        await model.refreshReservations()
+        XCTAssertEqual(model.flushReport, Said.heldBack(1), "the reservation held was not said on the strip")
+        XCTAssertTrue(told.yes, "a screen that read the strip's report was not told of what a sending said")
+        XCTAssertFalse(model.reservations.isEmpty, "the pull-down was meant to read the demo's list again")
+
+        leaveALine(on: model)
+        told = watching { _ = model.problem(for: .recorder) }
+        _ = await readTheReservations(model)
+        XCTAssertNil(model.problem(for: .recorder), "the read that went through left the line")
+        XCTAssertTrue(told.yes, "a screen that read the recorder's line was not told that it was taken away")
+
+        leaveALine(on: model)
+        let watched: [(String, Told)] = [
+            ("the reservations", watching { _ = model.reservations }),
+            ("the recordings", watching { _ = model.titles }),
+            ("the keyword conditions", watching { _ = model.recorderRules }),
+            ("the job", watching { _ = model.job }),
+            ("the strip's report", watching { _ = model.flushReport }),
+            ("the line", watching { _ = model.problem(for: .recorder) }),
+        ]
+        model.forgetTheRecorder()
+        for (what, told) in watched {
+            XCTAssertTrue(told.yes, "a screen that read \(what) was not told that the recorder was let go of")
+        }
+        XCTAssertTrue(model.reservations.isEmpty && model.titles.isEmpty && model.recorderRules.isEmpty)
+        XCTAssertNil(model.job)
+        XCTAssertNil(model.flushReport)
+    }
+
+    /// Whether what `read` read has been told of a change since: set by Observation, from whichever thread makes
+    /// the change, and read by the test.
+    private final class Told: @unchecked Sendable {
+        private let lock = NSLock()
+        private var told = false
+        var yes: Bool { lock.withLock { told } }
+        func tell() { lock.withLock { told = true } }
+    }
+
+    /// Reads what `read` reads as a view does, and hands back what says whether that was told of a change since.
+    private func watching(_ read: () -> Void) -> Told {
+        let told = Told()
+        withObservationTracking(read, onChange: { told.tell() })
+        return told
+    }
+
     // MARK: - what the tests start from
 
     /// At home with the first recorder at `Bench.host` and a television, both connected to and nothing under way:
