@@ -831,8 +831,9 @@ final class HostGateTests: XCTestCase {
     /// A television kept off the local network, its connect waiting for the permission, says so where a
     /// recorder's would: a delete of one of its reservations pressed meanwhile is not sent, and says that the
     /// local network is not allowed, and the strip says the permission with the way to the switch, not that
-    /// the television is not connected with 再接続; once the connect goes through, it says nothing of either.
-    /// The row is one of the test's own, picked by its id.
+    /// the television is not connected with 再接続; and Settings and the first screen, which have no strip,
+    /// show the permission's notice. Once the connect goes through, none of them says anything of it. The row
+    /// is one of the test's own, picked by its id.
     func testATelevisionKeptOffTheLocalNetworkSaysSoWhereARecorderWould() async throws {
         let schedule = DemoTV.Schedule(id: "recording.41", start: Date(timeIntervalSince1970: 1_893_456_000))
         let home = try await atHomeWithATelevision(holding: [schedule])
@@ -860,12 +861,14 @@ final class HostGateTests: XCTestCase {
         XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "the recorder did not come back")
         XCTAssertNotEqual(model.strip(), .tvGaveUp, "the strip offers 再接続 for a television kept off")
         XCTAssertEqual(model.strip(), .blocked)
+        XCTAssertTrue(model.lanBlocked, "Settings shows no notice for a television kept off")
 
         // Ended by a connect that went through, so that nothing is left waiting after the test.
         await television.goSilent(false)
         await link.connect()
         XCTAssertTrue(link.session.connected, "the television did not come back")
         XCTAssertNil(model.strip(), "the strip still says something once the television is connected")
+        XCTAssertFalse(model.lanBlocked, "Settings still shows the notice once the television is connected")
         bench.theLinksPermissionComes()
     }
 
