@@ -23,17 +23,20 @@ final class USBDiskChoiceTests: XCTestCase {
     /// names it is sent while the disk is kept, as the app waits for it in seconds, in milliseconds: six reads.
     /// With `sent`, each client the model makes reaches the recorder by a way of its own, which puts down there
     /// what it sent (`ThroughClient`). `connectFor` is how long that wait waits for a connect under way, the app's
-    /// unless given; `wakeable` saves the MAC the recorder's UDN carries, which the model sends nothing to.
+    /// unless given, and `every` how often it reads the slot again and looks again for a connect or a check, five
+    /// milliseconds unless given; `wakeable` saves the MAC the recorder's UDN carries, which the model sends
+    /// nothing to.
     private func connected(answering slot: String = USBDiskTests.slot(), times: Int = 1000,
                            readAgainAfter: Duration = RecorderDriver.slotReadAgainAfter,
                            numbering sent: SentByClient? = nil, wakeable: Bool = false,
+                           every interval: Duration = .milliseconds(5),
                            connectFor: Duration = SlotSettling.aConnect) async throws
         -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
         let bench = try aBench()
         try await bench.cacheAGuide()
         if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
         bench.slotReadAgainAfter = readAgainAfter
-        bench.slotSettling = SlotSettling(every: .milliseconds(5), for: .milliseconds(25), connectFor: connectFor)
+        bench.slotSettling = SlotSettling(every: interval, for: .milliseconds(25), connectFor: connectFor)
         let recorder = NamedRecorder(1)
         await recorder.answer("X_GetMediaInfo", with: .result(slot), times: times)
         let model = if let sent {
@@ -385,16 +388,21 @@ final class USBDiskChoiceTests: XCTestCase {
 
     /// A clash check for a kept disk, waiting for the slot, while a connect finds another recorder at the address,
     /// whose attach finds no USB disk: what the wait came to is about the recorder let go of, and nothing of it
-    /// is put down in the session, which is the newcomer's.
+    /// is put down in the session, which is the newcomer's, or said on its line, and no clashes are asked.
     func testAClashChecksWaitForTheSlotAcrossALetGoPutsNothingDown() async throws {
         let (_, recorder, model, checking, _, _) =
             try await aClashCheckWaitingForTheSlotBesideAConnect(becoming: 2, finding: false)
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
         leaveALine(on: model)
+        let afterTheConnect = await recorder.asked
         await recorder.letGo()
-        _ = try await within(10, "the clash check never ended") { await checking.value }
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
 
         XCTAssertNil(model.diskNotHad, "the newcomer was told a disk of the recorder let go of cannot be had")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+        expectNil(clashes, "a clash check across a let-go handed back an answer")
+        expectEqual(await recorder.asked("X_GetConflictList", since: afterTheConnect), 0,
+                    "the last recorder's clash check was asked across the let-go")
     }
 
     /// A clash check for a kept disk, waiting for the slot, while a connect to the same recorder is made beside
@@ -420,6 +428,282 @@ final class USBDiskChoiceTests: XCTestCase {
             XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "the replaced client's silence was said")
             XCTAssertNil(model.diskNotHad, "the disk the connect's attach answered was taken as not had, \(how)")
         }
+    }
+
+    /// A clash check that waited for the slot beside a connect is asked on the client the link holds once the
+    /// wait is over -- the connect's, whose attach has answered the disk -- and not on the one it began with:
+    /// silence on it is the recorder's, which is lost and said. And with another recorder described by that
+    /// connect, nothing is asked at all: the programme was the last recorder's to be checked against.
+    func testAClashCheckAfterTheSlotsWaitIsAskedOnTheClientTheLinkHoldsAndNotAcrossALetGo() async throws {
+        let (_, recorder, model, checking, _, _) = try await aClashCheckWaitingForTheSlotBesideAConnect()
+        await recorder.goQuiet(on: "X_GetConflictList")
+        await recorder.letGo()
+        let met = try await within(10, "the clash check that met silence never ended") { await checking.value }
+        expectNil(met, "a clash check that met silence handed back an answer")
+        XCTAssertTrue(model.gaveUp, "silence on the client the link holds was not taken for the recorder's")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence on the clash check was not said")
+
+        let (_, another, letGo, asking, _, _) = try await aClashCheckWaitingForTheSlotBesideAConnect(becoming: 2)
+        XCTAssertEqual(letGo.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
+        leaveALine(on: letGo)
+        let afterTheConnect = await another.asked
+        await another.letGo()
+        let across = try await within(10, "the clash check across a let-go never ended") { await asking.value }
+        expectNil(across, "a clash check across a let-go handed back an answer")
+        expectEqual(await another.asked("X_GetConflictList", since: afterTheConnect), 0,
+                    "the last recorder's clash check was asked across the let-go")
+        XCTAssertEqual(letGo.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+    }
+
+    /// A clash check for the internal disk -- with nothing to wait for on the slot's account -- asked while a
+    /// connect to the same recorder is under way beside it, held at its probe, which makes a client of its own
+    /// that has yet to hear which recorder answers it: nothing is asked on that client until the connect has
+    /// attached the recorder there -- not while the probe is out, nor, with a MAC kept and the probe met by
+    /// silence, while the recorder is woken, when a request to it meets silence as well -- and nobody gives the
+    /// recorder up or says that it did not answer. Once the connect has attached it, the clashes are asked on its
+    /// client, once.
+    func testAClashCheckBesideAConnectIsAskedOnlyOnceTheConnectHasAttachedTheRecorder() async throws {
+        for waking in [false, true] {
+            let how = waking ? "the connect waking the recorder" : "the connect's probe answered"
+            let (recorder, model, checking, connecting, scene) =
+                try await aClashCheckBesideAConnectHeldAtItsProbe(wakeable: waking)
+            if waking {
+                // Silent to the probe; the waking's first ask, which the recorder answers, is held in its turn.
+                await recorder.goQuiet(on: Ask.description)
+                await recorder.letTheFirstGo(of: Ask.description)
+                try await until("the recorder was never woken") {
+                    await recorder.asked(Ask.description, since: scene.before) == 2
+                }
+            }
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 0,
+                        "the clashes were asked before the connect had attached the recorder, \(how)")
+            XCTAssertFalse(model.gaveUp, "the recorder was given up on before the connect had attached it, \(how)")
+            XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "no answer was said mid-connect, \(how)")
+
+            // Up from here on: the clash check is answered as the demo answers it.
+            await recorder.answer("X_GetConflictList", with: .result(""))
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            let asked = await scene.sent.sent.dropFirst(scene.sentBefore).filter { $0.client == scene.connects }
+                .map(\.what)
+            let clash = try XCTUnwrap(asked.firstIndex(of: "X_GetConflictList"),
+                                      "the clashes were never asked on the connect's client, \(how): \(asked)")
+            let freeSpace = try XCTUnwrap(asked.firstIndex(of: Ask.freeSpace), "the connect never attached: \(asked)")
+            XCTAssertGreaterThan(clash, freeSpace,
+                                 "the clashes were asked on the connect's client before its attach, \(how): \(asked)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 1, "the clashes were not asked once, \(how)")
+            XCTAssertNotNil(clashes, "a clash check beside a connect that attached the recorder handed back nothing, \(how)")
+            XCTAssertTrue(model.connected, how)
+            XCTAssertFalse(model.gaveUp, "the recorder was given up on, \(how)")
+            XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "no answer was said, \(how)")
+        }
+    }
+
+    /// The same clash check beside a connect that does not attach the recorder the sheet opened for: silent to its
+    /// probe, with no MAC to wake it by; answered there by something that is not a recorder; or answered by
+    /// another recorder, which lets the first go and is attached in its place. The connect has said why, or the
+    /// line is the newcomer's: nothing is asked and nothing said, and the sheet is handed no clashes.
+    func testAClashCheckBesideAConnectThatDoesNotAttachTheRecorderAsksAndSaysNothing() async throws {
+        for end in ["silence", "something else", "another recorder"] {
+            let how = "the connect answered by \(end)"
+            let (recorder, model, checking, connecting, scene) = try await aClashCheckBesideAConnectHeldAtItsProbe()
+            switch end {
+            case "silence": await recorder.goQuiet(on: Ask.description)
+            case "something else": await recorder.answer(Ask.description, with: .status(404))
+            default: await recorder.become(2)
+            }
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            expectNil(clashes, "a clash check beside a connect that did not attach the recorder handed back an answer")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 0, how)
+            switch end {
+            case "silence":
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the connect's line was not left, \(how)")
+                XCTAssertTrue(model.gaveUp, how)
+            case "something else":
+                XCTAssertEqual(model.problem(for: .recorder), RecorderError.notARecorder(host: Bench.host).explanation,
+                               "the connect's line was not left, \(how)")
+                XCTAssertFalse(model.gaveUp, how)
+            default:
+                XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
+                XCTAssertTrue(model.connected, how)
+                XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "something was said, \(how)")
+            }
+        }
+    }
+
+    /// A programme's sheet opened once a connect has left the recorder connected without attaching it on the
+    /// connect's own client: the recorder answered that connect busy with somebody else, or something else
+    /// answered at its address. No client the recorder was attached on is in hand: nothing is asked, nothing is
+    /// said over the connect's line, and the sheet is handed no clashes.
+    func testAClashCheckAfterAConnectThatLeftTheRecorderUnattachedAsksAndSaysNothing() async throws {
+        for end in ["busy", "something else"] {
+            let how = "the connect answered \(end)"
+            let (_, recorder, model) = try await connected()
+            let program = try await programmesNotReserved(model, 1)[0]
+            if end == "busy" {
+                await recorder.busyAtTheDoor()
+            } else {
+                await recorder.answer(Ask.description, with: .status(404), times: 1000)
+            }
+            try await within(10, "the connect never ended, \(how)") { await model.connect() }
+            XCTAssertTrue(model.connected, "the connect was meant to leave the recorder connected, \(how)")
+            let line = model.problem(for: .recorder)
+            XCTAssertNotNil(line, "the connect was meant to say why it did not attach the recorder, \(how)")
+            let before = await recorder.asked
+            let clashes = try await within(10, "the clash check never ended, \(how)") {
+                await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+            }
+
+            expectNil(clashes, "a clash check with no client the recorder was attached on handed back an answer")
+            expectEqual(await recorder.asked("X_GetConflictList", since: before), 0, how)
+            XCTAssertEqual(model.problem(for: .recorder), line, "something was said over the connect's line, \(how)")
+            XCTAssertTrue(model.connected, how)
+        }
+    }
+
+    /// A clash check for the internal disk asked while a connect is under way, held at its probe, which then
+    /// attaches the recorder, and the check before another operation begins on the connect's client before the
+    /// clash check looks again, its probe held: the clash check waits for that check too, as the slot's wait does.
+    /// That check still out past the time the clash check waits for one, nothing is asked. Met by silence, with no
+    /// MAC to wake the recorder by, it loses the recorder and says so: nothing is asked, and nothing more said.
+    func testAClashCheckWaitingForAnotherCheckAsksNothingPastItsTimeOrOnceThatCheckHasLostTheRecorder()
+        async throws {
+        for past in [true, false] {
+            let how = past ? "the other check out past the time" : "the other check met by silence"
+            // Looking again every five seconds, so that the other check begins between two looks, seconds away
+            // from either.
+            let (_, recorder, model) = try await connected(every: .seconds(5),
+                                                           connectFor: past ? .seconds(10) : SlotSettling.aConnect)
+            addTeardownBlock { await recorder.letGo() }
+            let program = try await programmesNotReserved(model, 1)[0]
+            let before = await recorder.asked
+            await recorder.hold(only: Ask.description)
+            let connecting = Task { await model.connect() }
+            try await until("the connect never asked who answers") {
+                await recorder.asked(Ask.description, since: before) == 1
+            }
+            let checking = Task {
+                await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+            }
+            // Long enough for the clash check to have looked once, and three seconds short of its next look.
+            try await Task.sleep(for: .seconds(2))
+            await recorder.letGo()
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+            XCTAssertTrue(model.connected, "the connect was meant to attach the recorder, \(how)")
+            let described = await recorder.asked(Ask.description, since: before)
+            await recorder.holdTheNext(Ask.description)
+            let makingSure = Task { await makeSure(model) }
+            try await until("the other check never asked who answers") {
+                await recorder.asked(Ask.description, since: before) == described + 1
+            }
+            if !past {
+                await recorder.goQuiet(on: Ask.description)
+                await recorder.letGo()
+                let sure = try await within(10, "the other check never ended") { await makingSure.value }
+                XCTAssertFalse(sure, "the other check was meant to meet silence")
+            }
+            let clashes = try await within(15, "the clash check never ended, \(how)") { await checking.value }
+
+            expectNil(clashes, "a clash check handed back an answer, \(how)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: before), 0, how)
+            if past {
+                XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still, \(how)")
+                XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "something was said, \(how)")
+                await recorder.letGo()
+                _ = try await within(10, "the other check never ended") { await makingSure.value }
+            } else {
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the other check's line was not left")
+                XCTAssertTrue(model.gaveUp)
+            }
+        }
+    }
+
+    /// A clash check for a kept disk asked while the check before another operation is out, its probe held, and
+    /// so waiting for that check's answer, when the recorder is let go of -- as a check that hears another recorder
+    /// at the address lets it go -- and connected to again, the same recorder answering, whose attach keeps the
+    /// disk unanswered. The probe then answers: the recorder is there. The newcomer's slot answers none each time
+    /// it is read, but the programme was to be checked against the recorder in play when the sheet opened, and that
+    /// one was let go of: nothing is said over the newcomer's line, no clashes are asked, and the sheet is handed
+    /// none.
+    func testAClashCheckAcrossALetGoMadeWhileTheCheckBeforeItIsOutSaysNothing() async throws {
+        let (_, recorder, model) = try await connected(times: 1)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk was meant to be kept through an answer of none")
+        let program = try await programmesNotReserved(model, 1)[0]
+        // A disk put down as not had, which the clash check forgets as it begins: the sign that it has.
+        _ = try await within(10, "the first clash check never ended") {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        XCTAssertNotNil(model.diskNotHad, "the first clash check was meant to find the disk not had")
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.description)
+        let makingSure = Task { await makeSure(model) }
+        try await until("the other check never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertTrue(isMakingSure(model), "the other check was meant to be out")
+        let checking = Task {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the clash check never began") { model.diskNotHad == nil }
+        model.forgetTheRecorder()
+        try await within(10, "the connect never ended") { await model.connect() }
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the connect was meant to keep the disk unanswered")
+        XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still")
+        leaveALine(on: model)
+        let afterTheConnect = await recorder.asked
+        await recorder.letGo()
+        let sure = try await within(10, "the other check never ended") { await makingSure.value }
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
+
+        XCTAssertTrue(sure, "the other check's probe was meant to find the recorder there")
+        expectNil(clashes, "a clash check across a let-go handed back an answer")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+        expectEqual(await recorder.asked(Ask.slot, since: afterTheConnect), 6,
+                    "the newcomer's slot was meant to be read, and answer none, the six times the wait reads it")
+        expectEqual(await recorder.asked("X_GetConflictList", since: before), 0,
+                    "the last recorder's clash check was asked across the let-go")
+    }
+
+    /// A model connected to a recorder whose slot answers the disk, with a connect to the same recorder made beside
+    /// it, every ask of who answers held, which makes a client of its own; then a clash check for the internal
+    /// disk, a programme no reservation holds, asked while that connect's probe is out. With `wakeable` a MAC is
+    /// kept, for a connect silent to its probe to wake the recorder, and the recorder, asleep, is silent to the
+    /// clash check until a test says otherwise. Handed back with the check and the connect still out, and where
+    /// the scene stands; whatever is held is let go as the test ends.
+    private func aClashCheckBesideAConnectHeldAtItsProbe(wakeable: Bool = false) async throws
+        -> (recorder: NamedRecorder, model: AppModel, checking: Task<[Reservation]?, Never>,
+            connecting: Task<Void, Never>, scene: BesideAConnect) {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(numbering: sent, wakeable: wakeable)
+        addTeardownBlock { await recorder.letGo() }
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.hold(only: Ask.description)
+        let made = bench.clientsMade
+        leaveALine(on: model)
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        if wakeable { await recorder.answer("X_GetConflictList", with: .silence) }
+        let sentBefore = await sent.sent.count
+        let checking = Task {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+        }
+        // Long enough for the clash check to have been asked, had it gone at once.
+        try await Task.sleep(for: .milliseconds(300))
+        return (recorder, model, checking, connecting,
+                BesideAConnect(before: before, sentBefore: sentBefore, sent: sent, connects: made + 1))
     }
 
     /// A model whose recorder's disk is kept through an answer of none, with a clash check for the disk waiting for

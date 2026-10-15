@@ -631,10 +631,11 @@ public final class RecorderDriver: LinkDriver {
     /// own that has not yet heard which recorder answers it; a reconnect answered busy leaves the session
     /// connected from the attach before, beside a client that never heard it; and a check whose waking the
     /// recorder turned away leaves the attached client in hand with the session not connected. In each the
-    /// recorder has not said which it is, and nothing is written to it. Reads go as they always have. Never with
-    /// the link gone. A check before an operation that heard something else than the recorder saying which it is
-    /// leaves this as it was, as a television's: what is asked next makes the check again, and writes only once
-    /// a check has heard it (`DeviceLink.mayBeSent`).
+    /// recorder has not said which it is, and nothing is written to it. Reads go as they always have, except the
+    /// USB slot's and the clash check's, which go only on the client the recorder was attached on (`settleTheSlot`,
+    /// `conflicts`). Never with the link gone. A check before an operation that heard something else than the
+    /// recorder saying which it is leaves this as it was, as a television's: what is asked next makes the check
+    /// again, and writes only once a check has heard it (`DeviceLink.mayBeSent`).
     public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
 
     func canBeAsked(on link: DeviceLink) -> Bool {
@@ -1594,34 +1595,52 @@ public final class RecorderDriver: LinkDriver {
     /// silent or given up on says nothing more.
     ///
     /// No line of its own: it is asked as a programme's sheet opens, before anybody has asked for anything, and
-    /// the line of what went wrong is left as it was by an answer. It is asked on the client in hand at the door,
-    /// before the check. A failure is said on the line, silence losing the recorder, unless the link asks through
-    /// another client by then.
+    /// the line of what went wrong is left as it was by an answer. It is asked on the client the link holds once
+    /// the recorder has been made sure of and the slot waited for, as a condition's add and a reservation's
+    /// delete send on the client they find after their waits: a connect to the same recorder made meanwhile has
+    /// one of its own. And only once the recorder has been attached on that client (`DeviceLink.clientIsAttached`),
+    /// as the slot is read: the check lets a connect under way through at once, whose own client has yet to hear
+    /// which recorder answers it -- its probe out, a waking, a look at another address -- so, whatever the disk,
+    /// that connect is waited for, and the check before another operation that is out, as the slot's wait waits
+    /// for them (`SlotSettling.connect`), and the clashes asked once the connect has attached the recorder.
+    /// Nothing is asked or said when the recorder was let go of meanwhile, whatever the disk -- the programme was
+    /// to be checked against the recorder in play at the door -- nor when the connect or the check did not attach
+    /// the recorder, or lost it after, which has said why, nor past that time; nor asked when no client is in hand
+    /// by then. A failure is said on the line, silence losing the recorder, unless the link asks through another
+    /// client by the time it comes back.
     public func conflicts(for program: GuideProgramRow, quality: String, repeating: String,
                           disk: String) async -> [Reservation]? {
         clearTheDiskNotHad()
-        guard let link, let client = link.client as? RecorderClient, !link.session.unreachable,
+        guard let link, link.client is RecorderClient, !link.session.unreachable,
               let request = ReservationRequest(program: program, quality: quality, repeating: repeating,
                                                destination: disk)
         else { return nil }
         let owner = link.owner
+        let began = link.generation
         // Opening a programme is the moment to find out whether the recorder is still up, and to wake it if
         // not, so that the reservation which usually follows goes straight through.
         guard await link.ensureUp() else { return nil }
-        if let withheld = await withholds(disk) {
+        let withheld = await withholds(disk)
+        guard !link.letGo(since: began) else { return nil }
+        if let withheld {
             if withheld == .noDisk {
                 owner?.problem = RecorderDisk.chooseAnother(than: disk, usb: link.session.usbDisk)
             }
             return nil
         }
+        // On the client the recorder was attached on, as the slot is read: a connect the check let through, still
+        // to hear which recorder answers it, would meet a recorder it may be waking, and lose it mid-connect.
+        guard await Self.waitForAConnectOrACheck(of: link, by: link.environment.slotSettling),
+              !link.letGo(since: began), !link.offline, link.clientIsAttached,
+              let client = link.client as? RecorderClient else { return nil }
         do {
             return try await client.conflicts(elements: XsrsElements.create(request))
         } catch {
             // As for a recording's details, which the app reads with the client it had in hand: what a client
             // the link no longer asks through ran into is not about the recorder in play, and is neither taken
-            // for its silence nor put on its screens. As it is today, and to stay, by the client rather than by
-            // whether the recorder was let go of meanwhile: a connect to the same recorder made while this was
-            // out has a client of its own, and lets go of nothing.
+            // for its silence nor put on its screens. By the client rather than by whether the recorder was let
+            // go of meanwhile: a connect to the same recorder made while this was out has a client of its own,
+            // and lets go of nothing.
             guard client === link.client else { return nil }
             let deviceError = error as? any DeviceError
             if deviceError?.failure == .silent { link.lost() }
@@ -1974,7 +1993,8 @@ extension OperationFailure {
 /// (`RecorderDriver.settle`): read again every `interval`, until `limit` has gone by. Handed to a link with its
 /// surroundings (`LinkEnvironment.slotSettling`) and to a client for the queue's round, where a test gives less.
 /// A screen's wait also waits for a connect under way to attach the recorder, and for a check out to end, before it
-/// reads, looking again every `interval`, for `connect` at most (`RecorderDriver.settleTheSlot`).
+/// reads, looking again every `interval`, for `connect` at most (`RecorderDriver.settleTheSlot`); a clash check
+/// waits for them the same way before it asks, whatever the disk (`RecorderDriver.conflicts`).
 public struct SlotSettling: Sendable, Equatable {
     public var interval: Duration
     public var limit: Duration
