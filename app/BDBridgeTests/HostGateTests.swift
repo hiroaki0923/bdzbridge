@@ -12,8 +12,9 @@ import XCTest
 ///
 /// Gates, as `FunnelGateTests` and `ReservationGateTests` are: each pins what the app does today, and says so
 /// where that is not what anybody would choose. A test asks only what a screen asks and reads only what a screen
-/// reads, but where it says it stands for the reader's own press. Nothing here reads the clock or picks a
-/// reservation of the demo's: a row waiting is of the test's own making, relative to now.
+/// reads, but where it says it stands for the reader's own press. Nothing here picks a reservation of the demo's:
+/// a row waiting is of the test's own making, relative to now. The routed entries' gate reserves whatever
+/// programme an hour ahead the clock finds (`aProgramme`), and holds whichever station that is on.
 @MainActor
 final class HostGateTests: XCTestCase {
     // MARK: - the phone's own cache, on the phone's own line
@@ -825,6 +826,34 @@ final class HostGateTests: XCTestCase {
         await letTheEndOfAWaitRun()
         XCTAssertEqual(bench.televisionTransportsMade.count, made,
                        "the permission coming after the television was taken away set a connect going")
+    }
+
+    /// A television kept off the local network, its connect waiting for the permission, says so where a
+    /// recorder's would: a delete of one of its reservations pressed meanwhile is not sent, and says that the
+    /// local network is not allowed. The row is one of the test's own, picked by its id.
+    func testATelevisionKeptOffTheLocalNetworkSaysSoWhereARecorderWould() async throws {
+        let schedule = DemoTV.Schedule(id: "recording.41", start: Date(timeIntervalSince1970: 1_893_456_000))
+        let home = try await atHomeWithATelevision(holding: [schedule])
+        let (bench, television, model, link) = (home.bench, home.television, home.model, home.link)
+        let row = try XCTUnwrap(home.host.reservations.first { $0.id == schedule.id },
+                                "the television's list was meant to hold the test's own row")
+        bench.linksAreKeptOff = true
+        await television.goSilent()
+
+        await link.connect()
+
+        guard link.session.connectBlocked else {
+            return XCTFail("a television silent behind the permission was not waited for")
+        }
+        let calls = await television.calls
+        expectEqual(await model.cancel(row), .notDone(LocalNetwork.accessNotAllowed))
+        expectEqual(await television.calls, calls, "the delete was sent while the permission was waited for")
+
+        // Ended by a connect that went through, so that nothing is left waiting after the test.
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, "the television did not come back")
+        bench.theLinksPermissionComes()
     }
 
     /// Lets what the end of a wait for the permission sets going -- a connect, from a wait nobody ended -- come as

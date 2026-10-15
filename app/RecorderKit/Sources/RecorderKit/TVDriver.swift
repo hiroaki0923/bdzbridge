@@ -333,10 +333,16 @@ public final class TVDriver: LinkDriver {
         + "送り直していません。再接続してから一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
     public static let deleteRefused = "テレビが削除を受け付けませんでした（41200）。"
-    /// For the link to say when nothing could be asked because the app is not connected (`whyNotConnected`).
+    /// For the link to say when nothing could be asked because the app is not connected, unless the local
+    /// network permission is why (`whyNotConnected`).
     public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
-    /// Whatever stands in the way, the local network permission included: see `check`.
-    public var whyNotConnected: String { Self.notConnected }
+    /// Why something the reader asked for was not sent at all: the app is not connected. While the local network
+    /// permission is what stands in the way (`SessionState.connectBlocked`), the title the screens give that
+    /// (`LocalNetwork.accessNotAllowed`), as the recorder's driver says it; otherwise `notConnected`. What the
+    /// link says on the host's line when it has nothing to ask (`LinkDriver.whyNotConnected`).
+    public var whyNotConnected: String {
+        link?.session.connectBlocked == true ? LocalNetwork.accessNotAllowed : Self.notConnected
+    }
 
     /// What the sheet that adds a television says of what answered at the address it was given
     /// (`ScalarClient.presence`), when it cannot go on to the registration: nil for a television that is on,
@@ -465,7 +471,8 @@ public final class TVDriver: LinkDriver {
     ///
     /// The reads on the way go under the delete's line, not one of their own. When making sure of the
     /// television ends at the local network permission, the reason is on the session (`connectBlocked`) and
-    /// not on the line, and the result says that the app is not connected. Asked for by the reader, a delete
+    /// not on the line, and the result says that the local network is not allowed (`whyNotConnected`), as at
+    /// the door while the permission is waited for. Asked for by the reader, a delete
     /// is carried through on the link it began on though the app has let go of that link meanwhile: the link
     /// is read once, here, and held to the end. Two cancels of one reservation at once would each send their
     /// delete; the screens hold the second back while the first is out (the host's `isBusy`).
@@ -473,11 +480,11 @@ public final class TVDriver: LinkDriver {
         guard reservation.device == .tv else { return (nil, nil) }
         guard let link else { return (.notDone(Self.notConnected), nil) }
         guard canBeAsked(on: link) else {
-            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected), nil)
+            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : whyNotConnected), nil)
         }
         let owner = link.owner
         // What the link said on the line of a read or a check that failed, as for a change.
-        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? Self.notConnected) }
+        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? whyNotConnected) }
         let line = owner?.beginActivity(Self.deletingLine)
         defer { if let line { owner?.endActivity(line) } }
         guard await link.ensureUp(evenIfRecent: link.checksAgain), mayBeSent(on: link),
@@ -594,12 +601,12 @@ public final class TVDriver: LinkDriver {
         guard let link else { return (.notDone(Self.notConnected), nil) }
         if let why = Self.whyNot(changing: reservation) { return (.notDone(why), nil) }
         guard canBeAsked(on: link) else {
-            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected), nil)
+            return (.notDone(facts.needsPairing ? ScalarError.notRegistered.explanation : whyNotConnected), nil)
         }
         let owner = link.owner
         // What the link said on the line of a read or a check that failed: the check's no for the permission
-        // clears the line, and that the app is not connected stands for it.
-        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? Self.notConnected) }
+        // clears the line, and why the app is not connected stands for it.
+        func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? whyNotConnected) }
         return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
             guard await link.ensureUp(evenIfRecent: link.checksAgain), self.mayBeSent(on: link),
                   let client = link.client as? ScalarClient,
@@ -1019,11 +1026,12 @@ public final class TVDriver: LinkDriver {
     /// that can be asked, or the check before the round did not hear it say which it is. One with no reason
     /// goes when the television can next be asked, and is said so (`reserved`). One with a reason on it waits
     /// for the reader whatever the television does next: it is handed back with its reason, and what is said
-    /// is why it was not sent, in the two sentences a delete says at its own door (`cancel`). It is never
+    /// is why it was not sent, in the sentences a delete says at its own door (`cancel`): the registration, or
+    /// why the app is not connected (`whyNotConnected`, the permission while it is waited for). It is never
     /// said to go by itself.
     private func notSent(_ row: PendingReservation) -> Reserved {
         guard row.problem != nil else { return reserved(row, by: nil, listing: nil) }
-        return .waiting(row, saying: facts.needsPairing ? ScalarError.notRegistered.explanation : Self.notConnected)
+        return .waiting(row, saying: facts.needsPairing ? ScalarError.notRegistered.explanation : whyNotConnected)
     }
 
     // MARK: - sending a waiting row again
