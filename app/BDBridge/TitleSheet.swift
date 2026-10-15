@@ -23,6 +23,16 @@ struct TitleSheet: View {
     /// The live copy, since protecting it changes the list underneath.
     private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
 
+    /// Whether the list still has the recording: a bulk delete, or the list read again, can take it away under
+    /// the sheet, which then closes as after its own delete. By the whole list, not by what a filter shows.
+    private var listed: Bool { model.titles.contains { $0.id == title.id } }
+
+    /// Whether the sheet is to close for a recording gone from the list: once nothing of its own is out or up --
+    /// a request, or an alert, whose closing closes it then.
+    private var goneFromTheList: Bool {
+        !listed && !asking && !deleted && failure == nil && told == nil
+    }
+
     /// What the sheet asked for and did not come to pass, said in its alert: the recorder's answer, or why
     /// nothing was sent.
     private func say(_ came: Altered) {
@@ -167,6 +177,7 @@ struct TitleSheet: View {
                 }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }
+            .onChange(of: goneFromTheList) { if $1 { dismiss() } }
             .closesWithItsRecorder()
         }
     }
