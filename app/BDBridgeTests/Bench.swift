@@ -95,6 +95,14 @@ final class Bench {
         return model(saved: saved) { recorders[$0] ?? nobody }
     }
 
+    /// The same with one recorder at `host`, reached through a way made afresh for each client the model makes
+    /// there and given the number that client was made under (`clientsMade`): which client sent what is then the
+    /// way's to put down (`ThroughClient`). Nothing answers at any other address.
+    func model(clientByClient way: @escaping (_ client: Int) -> any HTTPTransport) -> AppModel {
+        let nobody = SilentRecorder()
+        return model(saved: Bench.host) { [weak self] in $0 == Bench.host ? way(self?.clientsMade ?? 0) : nobody }
+    }
+
     /// A model as the app makes one at its first launch: no recorder saved, and nothing answering anywhere.
     func modelWithNoRecorder() -> AppModel {
         let nobody = SilentRecorder()
@@ -645,10 +653,14 @@ actor NamedRecorder: HTTPTransport {
         lastElements[what]
     }
 
+    /// What kind of request `request` is: its SOAP action, or the file it asks for by its name.
+    static func kind(of request: HTTPRequest) -> String {
+        request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) } ?? request.url.lastPathComponent
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let action = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
-        let what = action ?? request.url.lastPathComponent
+        let what = Self.kind(of: request)
         asked[what, default: 0] += 1
         heard.append(what)
         if let body = request.body, let elements = (try? XmlNode.parse(body))?.firstDescendantText("Elements") {
@@ -684,7 +696,7 @@ actor NamedRecorder: HTTPTransport {
             }
         }
         if busy, request.url.path == "/description.xml" { return HTTPResponse(statusCode: 503) }
-        if action == "X_GetPrivateIp" { return HTTPResponse(statusCode: 500) }
+        if what == "X_GetPrivateIp" { return HTTPResponse(statusCode: 500) }
         let list = "X_GetRecordScheduleList"
         if what == list, let stale = staleList {
             staleList = nil
@@ -703,6 +715,34 @@ actor NamedRecorder: HTTPTransport {
         guard request.url.path == "/description.xml" else { return response }
         let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
         return HTTPResponse(statusCode: 200, body: Data(described.utf8))
+    }
+}
+
+/// One client's way to a `NamedRecorder` (`Bench.model(clientByClient:)`): it hands the recorder everything as it
+/// is, and puts down in `sent` the kind of each request with the number of the client that sent it.
+struct ThroughClient: HTTPTransport {
+    let client: Int
+    let recorder: NamedRecorder
+    let sent: SentByClient
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        await sent.put(NamedRecorder.kind(of: request), by: client)
+        return try await recorder.send(request)
+    }
+}
+
+/// What the clients of one model sent their recorder, in the order it was sent: each request's kind with the
+/// number of the client that sent it (`ThroughClient`).
+actor SentByClient {
+    private(set) var sent: [(client: Int, what: String)] = []
+
+    func put(_ what: String, by client: Int) {
+        sent.append((client, what))
+    }
+
+    /// The clients that sent a request of kind `what` since `count` requests had been sent, one for each request.
+    func clients(sending what: String, since count: Int) -> [Int] {
+        sent.dropFirst(count).filter { $0.what == what }.map { $0.client }
     }
 }
 

@@ -361,8 +361,9 @@ public final class RecorderDriver: LinkDriver {
     /// The slot read until it answers a disk: at once, and while it answers none, again every `settling.interval`
     /// until `settling.limit` has gone by -- six reads in about ten seconds, with the app's settling. A disk and
     /// none are what `usbDisk` reads them as, a refusal and a recorder still busy after the client's tries among
-    /// none; silence ends it there. Nothing is kept of what it read: that is for whoever asked. The one place the
-    /// slot is waited for, by the screens (`settleTheSlot`) and by the queue's round (`RecorderClient.send`).
+    /// none; silence ends it there. Nothing is kept of what it read: that is for whoever asked. The queue's round
+    /// waits for the slot so (`RecorderClient.send`); the screens' wait reads it the same way, on the client the
+    /// link has attached the recorder on (`settleTheSlot`).
     public nonisolated static func settle(_ client: RecorderClient, by settling: SlotSettling) async -> SlotSettled {
         for read in 1...settling.reads {
             if Task.isCancelled { return .cancelled }
@@ -388,22 +389,37 @@ public final class RecorderDriver: LinkDriver {
     /// clash check -- once the recorder has been made sure of. Nothing is sent to the slot on the strength of a disk
     /// it has not answered since the recorder last answered: from the moment an attach finds the recorder answering
     /// with a disk known -- what waits being sent, the slot still to be read -- until the slot answers it
-    /// (`SessionState.usbDiskUnanswered`), the slot is settled first (`settle`), under a line of its own on the
-    /// host's screen (`settlingLine`, `SessionState.settlingTheSlot`). That covers the whole time after a wake: the
-    /// attach's own read, the read again half a minute later, and a read again that met silence or a busy recorder
-    /// and left the disk kept with nothing more to read.
+    /// (`SessionState.usbDiskUnanswered`), the slot is settled first, read as `settle` reads it, under a line of
+    /// its own on the host's screen (`settlingLine`, `SessionState.settlingTheSlot`). That covers the whole time
+    /// after a wake: the attach's own read, the read again half a minute later, and a read again that met silence
+    /// or a busy recorder and left the disk kept with nothing more to read.
     ///
     /// A disk answered is taken as the read again takes one, in the session and with the cache, and the read is
-    /// ended -- unless the link asks through another client by then, whose attach reads the slot itself. None
-    /// throughout leaves the disk known and the read as they were, still waited for, and what to say of it is the
-    /// caller's, which knows what else its screen offers. Silence loses the recorder and says so, as a read that
-    /// meets it does; nothing has been sent. Not when the recorder was let go of while the slot was read
-    /// (`DeviceLink.say(_:since:ofARead:)`): the silence is not the one in play's, and nothing is said or lost. What it
-    /// came to is handed back. Nil, with nothing asked, for any other destination, and for a disk the slot has
-    /// answered since the recorder last answered: in a home with no USB disk nothing is added.
+    /// ended. None throughout leaves the disk known and the read as they were, still waited for, and what to say
+    /// of it is the caller's, which knows what else its screen offers. Silence loses the recorder and says so, as
+    /// a read that meets it does; nothing has been sent. What it came to is handed back. Nil, with nothing asked,
+    /// for any other destination, and for a disk the slot has answered since the recorder last answered: in a
+    /// home with no USB disk nothing is added.
+    ///
+    /// The slot is read only on the client the recorder was attached on (`DeviceLink.clientIsAttached`), so that
+    /// two clients do not ask the recorder at once and nothing goes to one that has yet to hear which recorder
+    /// answers it. A connect made meanwhile -- a return to the app, 再接続 -- puts such a client in the link: while
+    /// a connect is under way whose own client has yet to attach the recorder, the wait reads nothing
+    /// (`waitForAConnectOrACheck`), and gives up on one still under way past `SlotSettling.connect`. Nor does it
+    /// read while the check before another operation is out (`DeviceLink.wakeCheck`), whose probe can meet silence
+    /// and go on to wake the recorder on the attached client: it waits for that check the same way. What a read
+    /// met once the link asks through another client is not the recorder's answer -- a disk, none, silence -- and
+    /// is neither kept nor said; it counts among the reads all the same, and when the last of them was met so, the
+    /// wait, the slot still unanswered once the connect has attached the recorder, ends as given up. Once the
+    /// connect or the check has attached the recorder, the wait goes on on its client, one request at a time with
+    /// that attach's own, unless the slot has answered by then: the attach's own read, or a read again. A connect
+    /// or a check that has not attached the recorder -- silent, woken to no answer, something else at its address,
+    /// the permission -- or a connect that lost it after, has said why: the wait ends there as silence, with
+    /// nothing read, kept or said, and its caller says nothing over that line. A let-go ends it as given up, with
+    /// nothing kept or said, for a caller that asks whether the recorder was let go of before it says anything.
     public func settleTheSlot(for destination: String) async -> SlotSettled? {
         guard destination == RecorderDisk.usbID, let link, link.session.usbDiskUnanswered, !link.offline,
-              let client = link.client as? RecorderClient else { return nil }
+              link.client is RecorderClient else { return nil }
         let owner = link.owner
         let began = link.generation
         link.session.beganSettlingTheSlot()
@@ -412,18 +428,64 @@ public final class RecorderDriver: LinkDriver {
             link.session.endedSettlingTheSlot()
             if let line { owner?.endActivity(line) }
         }
-        let settled = await Self.settle(client, by: link.environment.slotSettling)
-        switch settled {
-        case .answered(let disk):
-            guard link.client === client else { break }
-            link.endTheReadLeftForLater()
-            await Self.keep(disk, link)
-        case .silent:
-            _ = link.say(.silentOnARead(sentence: noAnswerLine), since: began)
-        case .noDisk, .cancelled:
-            break
+        let settling = link.environment.slotSettling
+        var reads = 0
+        // Whether the last read was answered for the recorder: none met on a client the link has left is nobody's.
+        var answeredForIt = true
+        while true {
+            if Task.isCancelled { return .cancelled }
+            guard await Self.waitForAConnectOrACheck(of: link, by: settling), !link.letGo(since: began) else {
+                return .cancelled
+            }
+            guard !link.offline, link.clientIsAttached, let client = link.client as? RecorderClient else {
+                return .silent
+            }
+            guard link.session.usbDiskUnanswered else { return link.session.usbDisk.map { .answered($0) } ?? .noDisk }
+            guard reads < settling.reads else { return answeredForIt ? .noDisk : .cancelled }
+            reads += 1
+            var disk: RecorderDisk?
+            var silent = false
+            do {
+                disk = try await Self.usbDisk(of: client)
+            } catch {
+                silent = true
+            }
+            answeredForIt = link.client === client
+            guard answeredForIt else { continue }
+            if silent {
+                _ = link.say(.silentOnARead(sentence: noAnswerLine), since: began)
+                return .silent
+            }
+            if let disk {
+                link.endTheReadLeftForLater()
+                await Self.keep(disk, link)
+                return .answered(disk)
+            }
+            guard reads < settling.reads else { continue }
+            do {
+                try await Task.sleep(for: settling.interval)
+            } catch {
+                return .cancelled
+            }
         }
-        return settled
+    }
+
+    /// Waits while a connect is under way whose own client has yet to attach the recorder -- its probe out, a
+    /// waking, a look at another address -- or while the check before an operation is out -- its probe, a waking
+    /// (`DeviceLink.wakeCheck`) -- looking again every `settling.interval`, for `settling.connect` at most.
+    /// Whether neither is under way by then: false past that, and when whoever waited gave up first.
+    private static func waitForAConnectOrACheck(of link: DeviceLink, by settling: SlotSettling) async -> Bool {
+        var looks = settling.interval > .zero ? Int(settling.connect / settling.interval) : 0
+        while (link.session.connecting && !link.clientIsAttached) || link.wakeCheck != nil {
+            guard looks > 0 else { return false }
+            looks -= 1
+            do {
+                try await Task.sleep(for: settling.interval)
+            } catch {
+                return false
+            }
+        }
+        return true
     }
 
     /// Why something that names a disk of the recorder's is not sent once the slot has been waited for
@@ -432,9 +494,12 @@ public final class RecorderDriver: LinkDriver {
         /// The slot answered no disk each time, or a disk that takes no recordings: the disk cannot be had now.
         /// The caller says so, by what its sheet has left to offer.
         case noDisk
-        /// The recorder fell silent, which the link has said and lost it for. Nothing was sent.
+        /// The recorder fell silent, which the link has said and lost it for, or a connect or a check made while
+        /// the slot was waited for did not attach the recorder, or a connect lost it after, and has said why.
+        /// Nothing was sent, and nothing more is said.
         case silence
-        /// Whoever waited gave up first. Nothing is said.
+        /// Whoever waited gave up first, or the wait did: on a connect or a check still under way past its time,
+        /// or with its last read met on a client the link had left, the slot still unanswered. Nothing is said.
         case givenUp
     }
 
@@ -443,9 +508,11 @@ public final class RecorderDriver: LinkDriver {
     /// the slot is waited for (`settleTheSlot`). Nil when it may go: nothing had to be waited for -- another disk, a
     /// disk answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk that is
     /// offered, which is taken. Otherwise why not, with a disk not had put down in the session for the sheets
-    /// (`SessionState.diskNotHad`): a disk answered that takes no recordings is not had either.
+    /// (`SessionState.diskNotHad`): a disk answered that takes no recordings is not had either. Nothing is put
+    /// down when the recorder was let go of while the slot was waited for: the session is the newcomer's.
     public func withholds(_ disk: String) async -> Withheld? {
         guard let link else { return nil }
+        let began = link.generation
         switch await settleTheSlot(for: disk) {
         case nil:
             return nil
@@ -459,7 +526,7 @@ public final class RecorderDriver: LinkDriver {
         case .cancelled?:
             return .givenUp
         }
-        link.session.slotHadNoDisk(for: disk)
+        if !link.letGo(since: began) { link.session.slotHadNoDisk(for: disk) }
         return .noDisk
     }
 
@@ -1310,8 +1377,9 @@ public final class RecorderDriver: LinkDriver {
     /// send. No screen offers one; a reservation or a change that met one would otherwise have nothing to say.
     public static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
 
-    /// Said when the wait for the slot before something that names the USB disk was given up on by whoever
-    /// waited (`Withheld.givenUp`): nothing was sent.
+    /// Said when the wait for the slot before something that names the USB disk was given up on, by whoever
+    /// waited or by the wait itself, on a connect or a check still under way past its time, or with its last read
+    /// met on a client the link had left, the slot still unanswered (`Withheld.givenUp`): nothing was sent.
     public static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
     /// Said when the recorder answered a change as taken and the list read after it lists the reservation in
@@ -1905,18 +1973,26 @@ extension OperationFailure {
 /// How long the USB slot is waited for before something that names it is sent, while it answers none
 /// (`RecorderDriver.settle`): read again every `interval`, until `limit` has gone by. Handed to a link with its
 /// surroundings (`LinkEnvironment.slotSettling`) and to a client for the queue's round, where a test gives less.
+/// A screen's wait also waits for a connect under way to attach the recorder, and for a check out to end, before it
+/// reads, looking again every `interval`, for `connect` at most (`RecorderDriver.settleTheSlot`).
 public struct SlotSettling: Sendable, Equatable {
     public var interval: Duration
     public var limit: Duration
+    public var connect: Duration
 
-    public init(every interval: Duration, for limit: Duration) {
+    public init(every interval: Duration, for limit: Duration, connectFor connect: Duration = Self.aConnect) {
         self.interval = interval
         self.limit = limit
+        self.connect = connect
     }
 
     /// Every two seconds for ten: twice the five seconds after which a BDZ-FBT4100, timed once right after a
     /// waking, answered the disk it had first answered as none (`RecorderDriver.slotReadAgainAfter`).
     public static let afterAWaking = SlotSettling(every: .seconds(2), for: .seconds(10))
+
+    /// About as long as a connect, or a check, takes to reach a recorder that has to be woken: its probe's timeout,
+    /// the screens' waking, and the attach's first ask after it, added up.
+    public static let aConnect: Duration = .seconds(2 * RecorderClient.probeTimeout + Waking.screenLimit)
 
     /// How many times the slot is read at most: once, and once more after each interval the limit holds.
     var reads: Int { interval > .zero ? 1 + max(0, Int(limit / interval)) : 1 }
@@ -1928,9 +2004,12 @@ public enum SlotSettled: Sendable, Equatable {
     case answered(RecorderDisk)
     /// No disk, each time it was read.
     case noDisk
-    /// Nothing answered: the recorder has gone.
+    /// Nothing answered: the recorder has gone. Or, for a screen's wait, a connect or a check made meanwhile did
+    /// not attach the recorder, and has said why (`RecorderDriver.settleTheSlot`).
     case silent
-    /// Whoever waited for it gave up first.
+    /// Whoever waited for it gave up first. Or, for a screen's wait, the wait did: on a connect or a check still
+    /// under way past its time, on the recorder let go of, or with its last read met by a client the link had
+    /// left, the slot still unanswered.
     case cancelled
 }
 
