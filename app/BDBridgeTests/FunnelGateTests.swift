@@ -47,6 +47,8 @@ final class FunnelGateTests: XCTestCase {
     /// -- and the recorder in play cannot be changed, for another address or for the demo: what comes back would
     /// land on the screens of whichever came after. Once it has gone through, and only then, the failure is
     /// cleared. It went once, and the model holds what it did without reading again a list it can put right.
+    /// Where an operation asks something before its own request -- a recording's delete asks whether the
+    /// recording is still there -- what is held is that question, before which the line still stands.
     ///
     /// The last step is as it is today: a condition the recorder no longer has is sent for deletion all the
     /// same, with nothing read first. A later change reads the list first and says so instead, which puts a
@@ -61,10 +63,11 @@ final class FunnelGateTests: XCTestCase {
         for row in Funnelled.all {
             leaveALine(on: model)
             let before = await recorder.asked
-            await recorder.hold(only: row.kind)
+            let held = row.asksFirst ?? row.kind
+            await recorder.hold(only: held)
             let asking = Task { await row.ask(model, subjects) }
             try await until("the recorder was never asked for \(row.name)") {
-                await recorder.asked(row.kind, since: before) == 1
+                await recorder.asked(held, since: before) == 1
             }
 
             XCTAssertEqual(model.busy, row.line, row.name)
@@ -1714,7 +1717,10 @@ final class FunnelGateTests: XCTestCase {
     ///
     /// Queued behind a read, the write is answered as the newcomer's connect reads its own list, which waits for
     /// that read to be back and clears the line as it goes through: there the write is held to having gone once
-    /// and answered, the newcomer kept; what the line and the lists come to is the held write's to show.
+    /// and answered, the newcomer kept; what the line and the lists come to is the held write's to show. A
+    /// recording's delete asks first whether the recording is still there: queued behind a read, that question
+    /// is what waits, and once it is answered by the newcomer the delete is turned away as one let go of, saying
+    /// that another recorder answered, with nothing sent.
     func testAWriteAnsweredAfterAnotherRecorderDescribedItselfIsTakenAsAcrossALetGo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         var newcomer = 1
@@ -1772,6 +1778,13 @@ final class FunnelGateTests: XCTestCase {
                 let answer = await asking.value
                 await connecting.value
 
+                if queued, row.asksFirst != nil {
+                    XCTAssertEqual(answer, false, "\(how) was sent across the let-go")
+                    XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered, how)
+                    XCTAssertFalse(model.gaveUp, how)
+                    expectEqual(await recorder.asked(row.kind, since: before), 0, how)
+                    continue
+                }
                 XCTAssertEqual(answer, true, "\(how): \(model.problem(for: .recorder) ?? "no reason given")")
                 XCTAssertFalse(model.gaveUp, how)
                 expectEqual(await recorder.asked(row.kind, since: before), 1, how)
@@ -2332,6 +2345,8 @@ private struct Funnelled {
     /// Whether it reads a list, or the guide: not made at all of a recorder known to be away, and made again by
     /// the screens, or by a connect, once the recorder is back.
     var reads = false
+    /// What it asks the recorder before its own request, where it asks something first: nil for the others.
+    var asksFirst: String?
     /// Asks for it. What it returned, for the ones that say; nil for the others.
     let ask: @MainActor (AppModel, Subjects) async -> Bool?
     /// What the model holds once it has gone through.
@@ -2353,7 +2368,7 @@ private struct Funnelled {
         ask: { model, subjects in await protectARecording(model, subjects.title, false) },
         holds: { model, subjects in model.titles.first { $0.id == subjects.title.id }?.protected == false })
     static let delete = Funnelled(
-        name: "the delete", kind: Kind.deleteRecording, line: "削除中", sends: true,
+        name: "the delete", kind: Kind.deleteRecording, line: "削除中", sends: true, asksFirst: Kind.details,
         ask: { model, subjects in await deleteARecording(model, subjects.spare) },
         holds: { model, subjects in !model.titles.contains { $0.id == subjects.spare.id } })
     static let play = Funnelled(name: "the play", kind: Kind.playback, line: "再生を指示中",

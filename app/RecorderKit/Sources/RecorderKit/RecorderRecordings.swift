@@ -218,8 +218,22 @@ extension RecorderDriver {
     /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
     /// turned away before anything is sent, the result saying why and the line left as it was, and the
     /// recordings are not to be read again for it. The screens do not offer it, but a row can be a few minutes
-    /// old. Then as `protect`: its doors, silence saying that the delete may have arrived, and an answer across a
-    /// let-go, which neither takes the row out nor reads the free space.
+    /// old.
+    ///
+    /// The recorder answers success for an id it no longer has, so the recording is asked about first, as a
+    /// run's delete asks (`delete(_:in:)`), under the same line: something that acts on the recorder is to
+    /// follow, so nothing is asked after a check that heard something in place of the recorder saying which it
+    /// is (`asked`). An id the recorder does not know (UPnP error 820) is an answer: the question went through
+    /// and clears the line, nothing is sent, `keep` takes the row out, the free space is not read, and the
+    /// result says that the recording was deleted already (`ItemCame.gone`), in the result alone, as a
+    /// reservation's delete says a row the recorder does not hold (`Reserved`). Any other refusal of the
+    /// question, and silence on it, end it there with nothing sent: said as a read's are, on the line and in
+    /// the result, and the recordings not to be read again, nothing having changed. Let go of while the
+    /// question was out, nothing is sent and the result says why (`whyLetGo`), whatever it was answered, and
+    /// nothing it met is said on the line.
+    ///
+    /// Then the delete as `protect` sends: its check, silence saying that the delete may have arrived, and an
+    /// answer across a let-go, which neither takes the row out nor reads the free space.
     public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
@@ -229,6 +243,25 @@ extension RecorderDriver {
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         return await link.underALine(Self.deletingTitleLine) { _ in
+            let there = await self.asked(nil, .aWrite(sending: nil), on: link, since: began) { _, client in
+                do {
+                    _ = try await client.titleDetail(id: title.id)
+                    return true
+                } catch let error as any DeviceError where error.failure == .unknownItem {
+                    return false
+                } catch {
+                    // Refused or unanswered once the recorder has been let go of: about that one, and not said
+                    // on the line, which is the newcomer's.
+                    guard !link.letGo(since: began) else { throw TurnedAway(why: self.whyLetGo(on: link)) }
+                    throw error
+                }
+            }
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), false) }
+            guard case .went(let stillThere) = there else { return (self.altered(there, on: link), false) }
+            guard stillThere else {
+                keep()
+                return (.done(saying: ItemCame.gone.reason), false)
+            }
             let came = await self.asked(nil, .aWrite(sending: Self.mayHaveArrived), on: link,
                                         since: began) { _, client -> RecorderClient? in
                 try await client.deleteTitle(id: title.id)

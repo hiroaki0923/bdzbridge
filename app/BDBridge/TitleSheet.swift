@@ -10,6 +10,9 @@ struct TitleSheet: View {
     @State private var detail: (summary: String, details: [String])?
     @State private var confirmingDelete = false
     @State private var failure: String?
+    /// What a delete that went through had to say -- that the recording was deleted already -- said in the alert,
+    /// whose closing closes the sheet.
+    @State private var told: String?
     @State private var deleted = false
     /// Whether one of the sheet's own requests is out -- playback, the power, the protect, the delete -- which
     /// holds the sheet open until it is answered, so that what it came to is said here rather than lost with a
@@ -133,15 +136,19 @@ struct TitleSheet: View {
             .interactiveDismissDisabled(asking)
             .task { detail = await model.detail(of: title) }
             // One alert does both jobs: two on the same view is not something SwiftUI promises to honour.
-            .alert(failure == nil ? "この録画を削除しますか？" : "エラー",
-                   isPresented: Binding(get: { confirmingDelete || failure != nil },
-                                        set: { if !$0 { confirmingDelete = false; failure = nil } })) {
-                if failure == nil {
+            .alert(failure != nil ? "エラー" : told != nil ? "録画" : "この録画を削除しますか？",
+                   isPresented: Binding(get: { confirmingDelete || failure != nil || told != nil },
+                                        set: { if !$0 { alertClosed() } })) {
+                if failure == nil, told == nil {
                     Button("削除する", role: .destructive) {
                         let title = current
                         ask {
                             let came = await model.delete(title)
-                            if case .done = came { deleted = true }
+                            switch came {
+                            case .done(let more?): told = more
+                            case .done(nil): deleted = true
+                            case .notDone: break
+                            }
                             return came
                         }
                     }
@@ -153,6 +160,8 @@ struct TitleSheet: View {
             } message: {
                 if let failure {
                     Text(failure)
+                } else if let told {
+                    Text(told)
                 } else {
                     Text("\(current.title)\nレコーダーから削除され、元に戻せません。")
                 }
@@ -160,6 +169,14 @@ struct TitleSheet: View {
             .onChange(of: deleted) { if $1 { dismiss() } }
             .closesWithItsRecorder()
         }
+    }
+
+    /// What closing the alert does: a delete that went through with something to say closes the sheet with it.
+    private func alertClosed() {
+        if told != nil { deleted = true }
+        confirmingDelete = false
+        failure = nil
+        told = nil
     }
 
     private var viewing: String {

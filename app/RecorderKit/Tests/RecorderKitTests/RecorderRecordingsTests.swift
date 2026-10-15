@@ -831,8 +831,9 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(deleted.altered, .done(saying: nil), "a check that came in behind a delete failed it")
         XCTAssertEqual(noted.rowsTakenOut, 1, "the row of a delete that went through was not taken out")
         var asked = await recorder.actions
-        XCTAssertEqual(asked.first, "X_DeleteTitle")
-        XCTAssertEqual(Set(asked.dropFirst()), ["description.xml"],
+        XCTAssertEqual(Array(asked.prefix(2)), ["X_GetTitleDetail", "X_DeleteTitle"],
+                       "a single delete asks whether the recording is still there first")
+        XCTAssertEqual(Set(asked.dropFirst(2)), ["description.xml"],
                        "the free space was asked for after a delete, behind a check that heard busy: \(asked)")
         XCTAssertEqual(link.session.storage?.free, 30, "the free space kept is not as it was last read")
 
@@ -913,6 +914,95 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(came, rows.dropFirst().map { .passedOver(RecorderDriver.whyNot(deleting: $0) ?? "") })
         XCTAssertEqual(came.last, .passedOver("録画中のため削除できません。番組が終わるまでお待ちください。"))
         expectEqual(await recorder.actions, [], "a recording the door turns away was asked about, or sent")
+    }
+
+    /// A single delete asks whether the recording is still there first, as a run's does: the recorder answers
+    /// success for an id it no longer has. Answered that it has no such recording (820), nothing is sent, the
+    /// row is taken out of the list, and the result says it was deleted already, the question having gone
+    /// through and cleared the line the request before left. Refused otherwise, or met by silence, nothing is
+    /// sent, and the question's failure is said as a read's, on the line and in the result; the recordings are
+    /// not to be read again, nothing having changed. Answered, the delete goes after it, once.
+    func testASingleDeleteAsksWhetherTheRecordingIsStillThereFirst() async throws {
+        let detail = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        let title = try await Self.title()
+        var kept = 0
+
+        let (goneWorld, gone, goneRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [Stub.fault("820")], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let wentAlready = await gone.delete(title) { kept += 1 }
+        expectEqual(await goneRecorder.actions.filter { $0 == "X_DeleteTitle" }.count, 0,
+                    "a recording the recorder no longer has was sent to be deleted")
+        XCTAssertEqual(wentAlready.altered, .done(saying: ItemCame.gone.reason))
+        XCTAssertEqual(wentAlready.altered, .done(saying: "すでに削除されています"))
+        XCTAssertFalse(wentAlready.readAgain)
+        XCTAssertEqual(kept, 1, "the row of a recording the recorder no longer has stayed in the list")
+        XCTAssertNil(goneWorld.problem, "the question went through and left the line of the request before")
+        expectEqual(await goneRecorder.actions, ["X_GetTitleDetail"])
+
+        kept = 0
+        let (faultWorld, faulting, faultRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [Stub.fault("402")], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let refused = await faulting.delete(title) { kept += 1 }
+        expectEqual(await faultRecorder.actions, ["X_GetTitleDetail"], "deleted without an answer to the question")
+        let faulted = RecorderError.soap(action: "X_GetTitleDetail", status: 500, code: "402", body: "").explanation
+        XCTAssertEqual(refused.altered, .notDone(faulted))
+        XCTAssertEqual(faultWorld.problem, faulted)
+        XCTAssertFalse(refused.readAgain)
+        XCTAssertEqual(kept, 0)
+
+        let (silentWorld, silent, silentRecorder) = try await Self.playing(
+            ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]], silentTo: ["X_GetTitleDetail"])
+        let unanswered = await silent.delete(title) { kept += 1 }
+        expectEqual(await silentRecorder.actions, ["X_GetTitleDetail"], "deleted after silence on the question")
+        XCTAssertEqual(unanswered.altered, .notDone(silent.noAnswerLine), "silence on the question is a read's")
+        XCTAssertEqual(silentWorld.problem, silent.noAnswerLine)
+        XCTAssertFalse(unanswered.readAgain, "nothing was sent, and the recordings are to be read again")
+        XCTAssertTrue(silent.link?.session.unreachable == true, "silence on the question did not lose the recorder")
+        XCTAssertEqual(kept, 0)
+
+        let (answeredWorld, answered, answeredRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [detail], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let deleted = await answered.delete(title) { kept += 1 }
+        XCTAssertEqual(deleted.altered, .done(saying: nil))
+        XCTAssertEqual(kept, 1)
+        XCTAssertNil(answeredWorld.problem)
+        expectEqual(Array(await answeredRecorder.actions.prefix(2)), ["X_GetTitleDetail", "X_DeleteTitle"])
+        expectEqual(await answeredRecorder.actions.filter { $0 == "X_DeleteTitle" }.count, 1)
+    }
+
+    /// A single delete whose question is out as the recorder is let go of sends nothing, whatever the question is
+    /// answered -- that the recording is there, a refusal, or nothing: the result says why (`whyLetGo`), the list
+    /// is not touched, and nothing is said on the line, which is the newcomer's.
+    func testASingleDeleteLetGoOfWhileItsQuestionIsOutSendsNothing() async throws {
+        let detail = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        for answer in ["answered", "refused", "silent"] {
+            let (world, driver, recorder) = try await Self.playing([
+                "X_GetTitleDetail": [answer == "refused" ? Stub.fault("402") : detail],
+                "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+            ])
+            let link = try XCTUnwrap(driver.link)
+            let title = try await Self.title()
+            var kept = 0
+            await recorder.holdTheNext("X_GetTitleDetail")
+            let deleting = Task { await driver.delete(title) { kept += 1 } }
+            addTeardownBlock { await recorder.letGo() }
+            try await recorder.whenHeld()
+            link.forgetTheDevice()
+            world.problem = nil
+            if answer == "silent" { await recorder.sayNothing(to: "X_GetTitleDetail") }
+            await recorder.letGo()
+            let came = await deleting.value
+
+            expectEqual(await recorder.actions.filter { $0 == "X_DeleteTitle" }.count, 0,
+                        "a recording was deleted on a recorder let go of, the question \(answer)")
+            XCTAssertEqual(came.altered, .notDone(RecorderDriver.anotherAnswered), "the question \(answer)")
+            XCTAssertFalse(came.readAgain, "the question \(answer)")
+            XCTAssertEqual(kept, 0, "the list was edited for a recorder let go of, the question \(answer)")
+            XCTAssertNil(world.problem, "something was said on the newcomer's line, the question \(answer)")
+        }
     }
 
     func testARecordingTheRecorderNoLongerHasIsNotAnError() async throws {

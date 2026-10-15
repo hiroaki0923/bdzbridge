@@ -1398,8 +1398,8 @@ final class RunGateTests: XCTestCase {
         try await untilTheRunEnds(model)
         XCTAssertEqual(model.job?.changed, [idle[0].id])
         XCTAssertEqual(model.job?.skipped, [skip(idle[1], "一覧に見つかりません")])
-        expectEqual(await recorder.asked(Ask.details, since: before), 1,
-                    "the run asked about a recording that had left the list")
+        expectEqual(await recorder.asked(Ask.details, since: before), 2,
+                    "the run asked about a recording that had left the list, or the single delete did not ask first")
         expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 2,
                     "the single delete and the run's first, and no other")
 
