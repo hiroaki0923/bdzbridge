@@ -124,8 +124,9 @@ final class FunnelGateTests: XCTestCase {
     /// the list cleared, where it stays. And a condition's delete that was turned down is followed by
     /// a read, whose silence is the newer thing to say.
     ///
-    /// Playing, pausing, stopping and powering on say the read's sentence today, though each asks the recorder to
-    /// do something. A later change counts them as sent, which is four rows' sentence here.
+    /// Playing, pausing, stopping and powering on are sent too, and say that they may have arrived in a sentence
+    /// of their own, which sends the reader to the television's screen rather than to a list: on the line and in
+    /// what each hands back.
     func testSilenceOnAnOperationLosesTheRecorderAndSaysWhetherItMayHaveArrived() async throws {
         let (_, recorder, model, subjects) = try await settled()
         let unread: Set = [Kind.changeRecording, Kind.deleteRecording]
@@ -143,7 +144,13 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertFalse(model.connected, row.name)
             XCTAssertNil(model.busy, row.name)
             expectEqual(await recorder.asked(row.kind, since: before), 1, "\(row.name) was sent again")
-            XCTAssertEqual(model.problem(for: .recorder), row.sends ? Said.mayHaveArrived : Said.noAnswer, row.name)
+            let said = row.sends ? Said.mayHaveArrived : row.instructs ? Said.instructionMayHaveArrived : Said.noAnswer
+            XCTAssertEqual(model.problem(for: .recorder), said, row.name)
+            if row.instructs {
+                XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "\(row.name) said a read's silence")
+                XCTAssertEqual(whyNotJustNow(model), said, row.name)
+                XCTAssertEqual(said, RecorderDriver.instructionMayHaveArrived)
+            }
             XCTAssertTrue(Lists(model) == lists, "\(row.name) met silence and a list changed")
             XCTAssertEqual(model.titlesLoaded, !unread.contains(row.kind), row.name)
             if row.kind == Kind.conditions { XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer) }
@@ -608,8 +615,7 @@ final class FunnelGateTests: XCTestCase {
     /// Playing itself, which turns the recorder on and waits for it under a line that counts the seconds, is
     /// not here: the model hands the driver no interval, so a test of it waits a real second. The sequence is
     /// held in the package (`RecorderRecordingsTests`), and the app's part of it goes with the recordings' own
-    /// gates.
-    /// The sentence a power request's silence leaves is to change.
+    /// gates. A power request's silence says that it may have arrived, as playback's does.
     func testStandbyIsSaidAndPowerIsOfferedUntilItIsPutOnOrPlaybackIsAskedForAgain() async throws {
         let (_, recorder, model, subjects) = try await settled()
         let before = await recorder.asked
@@ -632,8 +638,8 @@ final class FunnelGateTests: XCTestCase {
         await recorder.goQuiet(on: Kind.power)
         await turnTheRecorderOn(model)
         XCTAssertTrue(model.gaveUp)
-        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer)
-        XCTAssertTrue(model.needsPower, "the offer went with a power request that never arrived")
+        XCTAssertEqual(model.problem(for: .recorder), Said.instructionMayHaveArrived)
+        XCTAssertTrue(model.needsPower, "the offer went with a power request that met silence")
         await reconnect(model)
         XCTAssertTrue(model.needsPower, "the offer went with the reconnect")
 
@@ -2347,6 +2353,9 @@ private struct Funnelled {
     var reads = false
     /// What it asks the recorder before its own request, where it asks something first: nil for the others.
     var asksFirst: String?
+    /// Whether it tells the recorder to do something on the television -- play, pause, stop, the power -- whose
+    /// silence says so in its own sentence (`Said.instructionMayHaveArrived`).
+    var instructs = false
     /// Asks for it. What it returned, for the ones that say; nil for the others.
     let ask: @MainActor (AppModel, Subjects) async -> Bool?
     /// What the model holds once it has gone through.
@@ -2371,16 +2380,16 @@ private struct Funnelled {
         name: "the delete", kind: Kind.deleteRecording, line: "削除中", sends: true, asksFirst: Kind.details,
         ask: { model, subjects in await deleteARecording(model, subjects.spare) },
         holds: { model, subjects in !model.titles.contains { $0.id == subjects.spare.id } })
-    static let play = Funnelled(name: "the play", kind: Kind.playback, line: "再生を指示中",
+    static let play = Funnelled(name: "the play", kind: Kind.playback, line: "再生を指示中", instructs: true,
                                 ask: { model, subjects in
                                     await playARecording(model, subjects.title, "play"); return nil })
-    static let pause = Funnelled(name: "the pause", kind: Kind.playback, line: "再生を指示中",
+    static let pause = Funnelled(name: "the pause", kind: Kind.playback, line: "再生を指示中", instructs: true,
                                  ask: { model, subjects in
                                      await playARecording(model, subjects.title, "pause"); return nil })
-    static let stop = Funnelled(name: "the stop", kind: Kind.playback, line: "停止中",
+    static let stop = Funnelled(name: "the stop", kind: Kind.playback, line: "停止中", instructs: true,
                                 ask: { model, subjects in
                                     await playARecording(model, subjects.title, "stop"); return nil })
-    static let power = Funnelled(name: "the power", kind: Kind.power, line: "電源を入れています",
+    static let power = Funnelled(name: "the power", kind: Kind.power, line: "電源を入れています", instructs: true,
                                  ask: { model, _ in await turnTheRecorderOn(model); return nil })
     static let add = Funnelled(
         name: "the condition added", kind: Kind.addCondition, line: "レコーダーに登録中", sends: true,

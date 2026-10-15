@@ -1256,6 +1256,9 @@ enum Said {
     static let notConnected = "レコーダーに接続していません。「再接続」を押してから、もう一度お試しください。"
     static let mayHaveArrived = "送信の途中でレコーダーの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。再接続してから一覧で確かめてください。"
+    /// What silence on playback, a pause, a stop or the power says: something was sent, and it may have arrived.
+    static let instructionMayHaveArrived = "指示の途中でレコーダーの応答がなくなりました。"
+        + "届いている場合もあるため、送り直していません。テレビの画面で確かめてください。"
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"

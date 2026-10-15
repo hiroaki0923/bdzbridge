@@ -119,10 +119,10 @@ public final class RecorderDriver: LinkDriver {
     }
 
     /// Whether the line says that something sent met silence and may have arrived (`mayHaveArrived`,
-    /// `heldAfterSilence`): all the reader has to go by until the recorder answers, which what an attach or a
-    /// waking meets on the way does not write over.
+    /// `heldAfterSilence`, `instructionMayHaveArrived`): all the reader has to go by until the recorder answers,
+    /// which what an attach or a waking meets on the way does not write over.
     private static func saysItMayHaveArrived(_ line: String?) -> Bool {
-        line == mayHaveArrived || line == heldAfterSilence
+        line == mayHaveArrived || line == heldAfterSilence || line == instructionMayHaveArrived
     }
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {

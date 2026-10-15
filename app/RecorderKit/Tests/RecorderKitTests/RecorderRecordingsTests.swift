@@ -171,6 +171,60 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(actions.contains("X_GetPlayStatus"))
     }
 
+    /// Silence on a play is silence on something sent: it may have arrived. Asked of the recorder in play and
+    /// answered by silence once another has described itself at the address, it is still said, on the line and
+    /// in the result, and loses nobody: the recorder now in play has not been asked anything.
+    func testSilenceOnAPlayAcrossALetGoIsStillSaidAndLosesNobody() async throws {
+        let (world, driver, first) = try await Self.playing([:], silentTo: ["X_PlayControlTitle"])
+        let link = try XCTUnwrap(driver.link)
+        let title = try await Self.title()
+        await first.holdTheNext("X_PlayControlTitle")
+        let playing = Task { await driver.play(title, "play") }
+        addTeardownBlock { await first.letGo() }
+        try await first.whenHeld()
+        world.devices[Stub.host] = try PlayingRecorder([:], udn: Self.anotherUDN)
+        await link.connect()
+        XCTAssertTrue(link.session.connected && link.clientIsAttached, world.problem ?? "no reason given")
+        world.problem = Self.left
+        await first.letGo()
+        let came = await playing.value
+
+        XCTAssertNotEqual(world.problem, Self.left, "silence on a play across a let-go was not said")
+        XCTAssertEqual(world.problem, RecorderDriver.instructionMayHaveArrived)
+        XCTAssertEqual(came, .notDone(RecorderDriver.instructionMayHaveArrived))
+        XCTAssertTrue(link.session.connected, "silence met across a let-go lost the newcomer")
+    }
+
+    /// What silence on a play wrote on the line stays there through what is met on the way back: a connect whose
+    /// attach meets silence too, and a waking that comes to nothing. It is all the reader has to go by.
+    func testWhatSilenceOnAPlaySaidIsNotWrittenOverByAConnectOrAWaking() async throws {
+        let world = LinkWorld()
+        let recorder = try PlayingRecorder([:], silentTo: ["X_PlayControlTitle"], udn: DeviceLinkTests.udn)
+        world.devices[Stub.host] = recorder
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: "F8-4E-17-00-00-00"), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        Self.links.append(link)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        world.problem = Self.left
+
+        let came = await driver.play(try await Self.title(), "play")
+        XCTAssertNotEqual(came, .notDone(driver.noAnswerLine), "silence on a play was said as a read's")
+        XCTAssertTrue(link.session.unreachable, "silence on a play did not lose the recorder")
+        let said = try XCTUnwrap(world.problem)
+        XCTAssertNotEqual(said, driver.noAnswerLine, "silence on a play was said as a read's")
+
+        await recorder.sayNothingOfWhoItIs()
+        world.events = []
+        await link.connect()
+        XCTAssertTrue(world.events.contains { $0.hasPrefix("packet") }, "the recorder was meant to be woken")
+        XCTAssertFalse(link.session.connected, "the recorder was meant to stay silent")
+        XCTAssertEqual(world.problem, said, "what met the connect or the waking wrote over the play's silence")
+        XCTAssertEqual(said, RecorderDriver.instructionMayHaveArrived)
+    }
+
     // MARK: - the free space as the screens show it
 
     /// The free space as the screens show it (`RecorderDriver.storage`): what the recorder said is free and what
