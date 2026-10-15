@@ -830,7 +830,9 @@ final class HostGateTests: XCTestCase {
 
     /// A television kept off the local network, its connect waiting for the permission, says so where a
     /// recorder's would: a delete of one of its reservations pressed meanwhile is not sent, and says that the
-    /// local network is not allowed. The row is one of the test's own, picked by its id.
+    /// local network is not allowed, and the strip says the permission with the way to the switch, not that
+    /// the television is not connected with 再接続; once the connect goes through, it says nothing of either.
+    /// The row is one of the test's own, picked by its id.
     func testATelevisionKeptOffTheLocalNetworkSaysSoWhereARecorderWould() async throws {
         let schedule = DemoTV.Schedule(id: "recording.41", start: Date(timeIntervalSince1970: 1_893_456_000))
         let home = try await atHomeWithATelevision(holding: [schedule])
@@ -848,11 +850,22 @@ final class HostGateTests: XCTestCase {
         let calls = await television.calls
         expectEqual(await model.cancel(row), .notDone(LocalNetwork.accessNotAllowed))
         expectEqual(await television.calls, calls, "the delete was sent while the permission was waited for")
+        // The recorder's lines come first, as ever: the recorder given up on meanwhile is what the strip says.
+        await home.recorder.goQuiet(on: Ask.reservations)
+        await model.loadReservations()
+        XCTAssertTrue(model.gaveUp, "the recorder was meant to have gone quiet")
+        XCTAssertTrue(link.session.connectBlocked, "the television's wait for the permission ended with the recorder")
+        XCTAssertEqual(model.strip(), .recorderGaveUp, "the television's permission is said ahead of the recorder")
+        await model.connect()
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "the recorder did not come back")
+        XCTAssertNotEqual(model.strip(), .tvGaveUp, "the strip offers 再接続 for a television kept off")
+        XCTAssertEqual(model.strip(), .blocked)
 
         // Ended by a connect that went through, so that nothing is left waiting after the test.
         await television.goSilent(false)
         await link.connect()
         XCTAssertTrue(link.session.connected, "the television did not come back")
+        XCTAssertNil(model.strip(), "the strip still says something once the television is connected")
         bench.theLinksPermissionComes()
     }
 

@@ -123,7 +123,7 @@ extension AppModel {
         case report(String, inFull: Bool)
         /// Everything on screen is invented.
         case demo
-        /// The local network permission stands between the app and the recorder.
+        /// The local network permission stands between the app and the recorder, or the television.
         case blocked
         /// The recorder was given every chance and did not answer.
         case recorderGaveUp
@@ -156,6 +156,7 @@ extension AppModel {
         if demo, DemoData.banner, !inSheet { return .demo }
         if connectBlocked { return .blocked }
         if gaveUp { return .recorderGaveUp }
+        if tv?.session.connectBlocked == true { return .blocked }
         if tvDriver?.facts.needsPairing == true { return .tvNeedsPairing }
         if tv?.session.gaveUp == true { return .tvGaveUp }
         if tvWaitsForItsDisk { return .tvDiskAway }
