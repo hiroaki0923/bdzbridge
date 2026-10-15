@@ -333,7 +333,8 @@ struct GuideEmptyView: View {
                 Button("すべての局を表示") { model.serviceFilter = nil }
             }
         } else if model.demo {
-            // The demo's guide is what DemoData invented, and a refresh would fetch the same again.
+            // The demo's guide is what DemoLineUp invented and DemoData's seed wrote, and a refresh would fetch
+            // the same again.
             ContentUnavailableView(cached == 0 ? "\(type)の番組表はありません" : "この日の番組表はありません",
                                    systemImage: "calendar", description: Text(DemoData.guideCoverage))
         } else if model.info?.epgCapable == false {

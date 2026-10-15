@@ -220,7 +220,7 @@ extension WhichRecorderTests {
                           "the demo did not start: \(model.problem(for: .recorder) ?? "no reason given")")
             let demos = try await GuideStore(path: Storage.guidePath(demo: true, in: bench.folder)).owner()
             XCTAssertNil(demos, "the demo's cache was written down as somebody's")
-            XCTAssertEqual(model.mac, DemoData.mac, "the demo went on under the real recorder's MAC")
+            XCTAssertEqual(model.mac, DemoRecorder.mac, "the demo went on under the real recorder's MAC")
             if leaving == "ending" { await model.leaveDemo() } else { await model.adopt(host: Bench.host) }
             try await untilIdle(model)
 

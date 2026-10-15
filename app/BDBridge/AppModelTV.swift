@@ -169,7 +169,7 @@ extension AppModel {
     /// lasts, because it holds what the reader has done to it: its registration and its reservations. The
     /// demo's search and the demo's link both reach this one.
     func theDemoTV() -> DemoTV {
-        let television = demoTV ?? DemoData.television()
+        let television = demoTV ?? DemoLineUp.television()
         demoTV = television
         return television
     }

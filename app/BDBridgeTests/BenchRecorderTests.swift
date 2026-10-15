@@ -229,7 +229,7 @@ final class BenchRecorderTests: XCTestCase {
         let disk = try await client.recordDestinationInfo()
         XCTAssertEqual(disk.totalBytes, 0)
         XCTAssertEqual(disk.freeBytes, 0)
-        expectEqual(try await client.recordDestinationInfo().totalBytes, DemoData.totalBytes,
+        expectEqual(try await client.recordDestinationInfo().totalBytes, DemoRecorder.totalBytes,
                     "told to answer once, it answered so twice")
 
         let guide = try vectorFile("epg-sample.dat")
@@ -340,7 +340,7 @@ final class BenchRecorderTests: XCTestCase {
         guard case .freeSpace(_, let total, let naming)? = night.said.dropFirst().first else {
             return XCTFail("the second thing told was not the free space: \(night.said)")
         }
-        XCTAssertEqual(total, DemoData.totalBytes)
+        XCTAssertEqual(total, DemoRecorder.totalBytes)
         XCTAssertNil(naming, "the demo's recorder has no USB disk for its own to be told from")
     }
 }

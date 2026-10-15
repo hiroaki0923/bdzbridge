@@ -78,13 +78,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-55 ファイル、15,877 行（空行とコメントを含み、`Package.swift` を除く）。テストは 29,800 行。
+57 ファイル、16,686 行（空行とコメントを含み、`Package.swift` を除く）。テストは 30,100 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
-| 入出力を持たないロジック | 3,544 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, ByProgram, TVSchedule, TVReservation |
+| 入出力を持たないロジック | 3,877 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, ByProgram, TVSchedule, TVReservation, DemoLineUp |
 | SQLite の上のもの | 1,092 | GuideStore, Sqlite |
-| 非同期の段取り | 10,320 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, DemoTV |
+| 非同期の段取り | 10,796 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, DemoTV, DemoRecorder |
 | OS に縛られるもの | 921 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 921 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -92,7 +92,7 @@ Android 版はないか、という問い合わせを受けての調査です。
 共有の価値がいちばん高いのは、直列化キュー、503 の送り直し、取り消されても送信中の要求は待ち切る、といった
 非同期の段取りです。C/C++ ではここがいちばん書きにくくなります。
 
-RecorderKit の外、アプリ（11,200 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
+RecorderKit の外、アプリ（10,500 行）にも端末側の規則があります。接続、起こす、諦める、ネットワークの変化は
 RecorderKit に移しましたが（`DeviceLink`、`RecorderDriver`）、それを動かす側が残ります。前面と背景の出入り、
 ネットワークの見張りと許可待ちの見張り、通知を出すこと、一括処理の繰り返しと一時停止、画面の無い処理の入口
 （いつ走らせるか、マジックパケット、言ったことの控え。何を送り、何を取り、何を知らせるかは RecorderKit に移

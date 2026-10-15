@@ -1022,7 +1022,7 @@ final class ScanTests: XCTestCase {
         try await until("the demo's search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(recorders: 1, televisions: 1))
-        XCTAssertEqual(model.found.map(\.host), [DemoData.host])
+        XCTAssertEqual(model.found.map(\.host), [DemoRecorder.host])
         XCTAssertTrue(model.found.first.map(model.inUse) ?? false, "the demo's recorder was not listed in use")
         XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoData.tvHost, model: DemoTV.model)])
         XCTAssertTrue(model.canAddAFoundTelevision, "the demo's television could not be tapped")
@@ -1039,10 +1039,10 @@ final class ScanTests: XCTestCase {
             "said: found 2",
         ])
 
-        await model.adopt(host: DemoData.host)
+        await model.adopt(host: DemoRecorder.host)
 
         XCTAssertTrue(model.demo, "choosing the demo's own recorder ended the demo")
-        XCTAssertEqual(model.host, DemoData.host)
+        XCTAssertEqual(model.host, DemoRecorder.host)
         XCTAssertTrue(model.connected,
                       "the demo's recorder was not connected to: \(model.problem(for: .recorder) ?? "no reason")")
     }
