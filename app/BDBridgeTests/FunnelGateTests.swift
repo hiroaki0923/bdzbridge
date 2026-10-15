@@ -1997,9 +1997,7 @@ final class FunnelGateTests: XCTestCase {
     ///
     /// A read turned away for the local network permission is not this last case: the link takes the line down
     /// as it begins to wait for the permission (`DeviceLink`), so no line left is the reason there, and what is
-    /// said is that the permission is not given. This bench cannot have a recorder's check meet the permission
-    /// -- it puts nothing on the network, and its recorder's check never looks at it -- so that is not pinned
-    /// here.
+    /// said is that the permission is not given. That is the test after this one.
     func testTheConditionsReasonIsTheLineOrThatTheAppIsNotConnected() async throws {
         let (_, recorder, model) = try await connectedHome(guide: false)
 
@@ -2048,6 +2046,34 @@ final class FunnelGateTests: XCTestCase {
         await reading.value
         XCTAssertNil(model.problem(for: .recorder), "the read's silence was said a second time")
         XCTAssertEqual(model.recorderRulesFailure, Said.notConnected)
+    }
+
+    /// A recorder silent at its address on a phone the system keeps off the local network, its connect waiting for
+    /// the permission (`connectBlocked`), with no keyword conditions read: the conditions' screen says that the
+    /// local network is not allowed, and so does a protect pressed meanwhile, and nothing is sent for either. The
+    /// recordings were read before, so that the protect has one to name.
+    func testTheConditionsReasonAndAWriteSayThePermissionWhileTheRecorderIsKeptOffTheLocalNetwork() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        addTeardownBlock { await recorder.letGo() }
+        await model.loadTitles()
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        XCTAssertFalse(model.recorderRulesLoaded, "the conditions were meant to be unread")
+        bench.linksAreKeptOff = true
+        await recorder.goQuiet(for: 1_000)
+        await model.connect()
+        guard model.connectBlocked else { return XCTFail("a recorder silent behind the permission was not waited for") }
+        let heard = await recorder.heard.count
+
+        await model.loadRecorderRules()
+        XCTAssertEqual(model.recorderRulesFailure, LocalNetwork.accessNotAllowed)
+        expectFalse(await protectARecording(model, title, true))
+        XCTAssertEqual(whyNotJustNow(model), LocalNetwork.accessNotAllowed)
+        expectEqual(await recorder.heard(since: heard), [], "something was sent while the permission was waited for")
+
+        // The wait ended by a connect that went through, so that nothing is left waiting after the test.
+        await recorder.goQuiet(for: 0)
+        await reconnect(model)
+        bench.theLinksPermissionComes()
     }
 
     /// What the strip says while a keyword condition is added or removed and the list is read after it: the
