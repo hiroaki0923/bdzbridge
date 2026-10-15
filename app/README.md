@@ -260,8 +260,10 @@ these writes through helpers named by what they do (`protectARecording`, `delete
 `playARecording`, `turnTheRecorderOn`, `addACondition`, `removeACondition`), which note why one was not done
 for `whyNotJustNow`, as the reservations' do. What the driver turns away at its doors, with no app around it,
 is tried in RecorderKit (`RecorderRecordingsTests`), and so is playing a recording in standby, whose steps
-moved from the client to the driver. The views' holds -- a recording's and a condition's sheet held while its
-own request is out, the recorder's buttons held while the recorder works -- are reached by no test.
+moved from the client to the driver, with what the steps ask first and say that needs no screen: a single
+delete's question, a condition's read before its delete, playback's silence. The views' holds -- a recording's
+and a condition's sheet held while its own request is out, the recorder's buttons held while the recorder works,
+a recording's sheet closing once its recording is no longer listed -- are reached by no test.
 
 The recorder's work over many recordings, its guide and its two runs with no screen went the same way, and with
 the guide the last of the app's funnel went (`AppModel.run`): gates first -- `RunGateTests` for the bulk delete,
@@ -875,10 +877,12 @@ only: no address and no name is written, the address the search asks again inclu
 a Mac the phone is connected to, or from an archive taken with `log collect --device`, by `log show --predicate
 'subsystem == "RecorderKit" && category == "scan"'`.
 
-How the waiting is done, what the technote says and what is still to be seen, and what the app says when the
-answer is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because
-the permission was taken away is not woken, since no magic packet could leave the phone either; the app says
-what is wrong and connects when it is put back. The look that decides this (`LocalNetwork.access`) reads as the
+How the waiting is done, what the technote says and what is still to be seen, and what the app says when the answer
+is no, is in `docs/porting.md` under the local network permission. A recorder that falls silent because the
+permission was taken away is not woken, since no magic packet could leave the phone either; the app says what is
+wrong and connects when it is put back. A television kept off so is said the same way: its driver gives the
+permission as the reason a delete, a change or a waiting row was not sent, the strip offers 設定を開く in place of 再接続,
+and Settings and the first screen show the notice. The look that decides this (`LocalNetwork.access`) reads as the
 link's wait does: one connection of the wait's kind towards the device's own address, read only once it has come to
 something, the first thing it comes to that says anything of the permission being the answer. Its path is not read
 while it is set up or on its way, where the look once read it. It is given three seconds, a second longer than the
@@ -942,8 +946,9 @@ that pinches. Today opens at the current time, and pinching keeps the hour under
 
 A programme can be reserved: the sheet offers the recording mode and the repeat, asks the recorder which
 reservations share its hours (時間が重なる予約, not 重複: the recorder has more than one tuner, so hours in
-common do not by themselves mean a programme will be missed), and creates it behind a confirmation. The mode
-starts at 既定の録画モード in the settings, and choosing another on the sheet is for that reservation only;
+common do not by themselves mean a programme will be missed), and creates it behind a confirmation. Beside a
+reconnect, whatever the disk, the clash check waits for the reconnect to attach the recorder (Recording to the USB disk).
+The mode starts at 既定の録画モード in the settings, and choosing another on the sheet is for that reservation only;
 the keyword conditions start from the same setting. Reserved programmes are tinted and labelled in both
 views. A reservation can be deleted from any of the three places it shows up: swiped in the list, from the
 reservation sheet the list opens, or from the guide's own sheet. It is 削除 in all three, as it is for a
@@ -952,7 +957,8 @@ the recorder's while any line of the recorder's is on the strip, so that a row s
 out cannot be deleted twice. A reservation the recorder marks 重複 names, on its
 sheet, the other reservations at the same hours, since the recorder does not say which one it clashes with.
 While the recorder cannot be asked -- given up on, not connected, or connected from before a reconnect it
-answered busy -- its list stays on the reservations tab and says when it was read,
+answered busy -- a programme's sheet asks nothing about clashes, and the recorder's list stays on the
+reservations tab and says when it was read,
 「レコーダーの予約は〈N 分前〉に読んだものです」, as a television's does: one rule for both (`DeviceHost.staleSince`).
 
 The guide's broadcasting type and the orders of the reservations and the recordings are kept between
@@ -1056,16 +1062,21 @@ ones the recorder's own automatic recording did. Sony's app splits those into tw
 marks its own with `reservationCreatorID` 1100 and will put one back after it is deleted, which the app says
 before it deletes.
 
-The recordings screen lists what the recorder holds, as a flat list or gathered into programmes, with the free
-space, the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the
-television, protects it against the recorder's own tidying, and deletes it behind a confirmation.
+The recordings screen lists what the recorder holds, as a flat list or gathered into programmes, with the free space,
+the genre counts, a sort and a watch-state filter. A recording opens a sheet that plays it on the television,
+protects it against the recorder's own tidying, and deletes it behind a confirmation. A delete asks the recorder
+first whether the recording is still there, as a bulk delete does, since the recorder answers a delete of one it no
+longer has as done: one it no longer has is taken out of the list with nothing sent, the alert saying that it was
+deleted already. The sheet closes once the recording is no longer in the list, after a bulk delete as after its own,
+once its own request is back and its alert closed.
 
 Playing a recording is one tap even when the recorder is in network standby, which is how it is found
 whenever nobody is watching it. The recorder answers the play with 880; only then does the app turn it on,
 wait for it to say it is on, with the seconds counting on the sheet, and play again. The power state is not
 asked beforehand, which would cost a request on every play of a recorder that is already on. The recorder
 cannot be told where to start -- `play` begins at the beginning whatever position is sent -- so the button
-on a recording watched partway says 最初から再生.
+on a recording watched partway says 最初から再生. Silence on a play, a pause, a stop or the power is said as
+something sent that may have arrived, pointing at the television's screen; it is not sent again.
 
 The duplicate copies of one broadcast can be found: recordings with the same title and nearly the same
 length are candidates, and asking the recorder what each one is about confirms them. Where the text agrees,
@@ -1223,7 +1234,9 @@ list is on its way and 条件を読み込めませんでした with the reason w
 there are none; with nothing read and the recorder not to be asked, the reason is that the app is not
 connected. A condition's add or delete keeps its line up until the list read after it is in, and a delete the
 recorder refused has the list read after it all the same, since the recorder renumbers a condition its own
-screen edits; the refusal is said in the alert.
+screen edits; the refusal is said in the alert. For the same reason a delete reads the list first and sends
+nothing for a condition not in it as the screen showed it -- by its number and everything else -- saying so,
+the list on screen being the one just read, or for a list that could not be read.
 
 At the larger text sizes every row wraps as lines of text do, rather than squeezing its small print into
 columns: the station's logo is set inside the line, and at the accessibility sizes the guide's list puts the
@@ -1419,8 +1432,27 @@ taken as the read again would take it, the read again is ended, and the request 
 None throughout sends nothing, leaves the disk and the read again as they were, still waited for, and is said as a
 disk no longer offered is (below), the sheet going back as it does then; so is a disk answered that takes no
 recordings. Silence loses the recorder, as a read's does, and a reservation then goes to the queue, nothing having
-been sent. With the disk answered since, and in a home with no USB disk, nothing is waited for and no request is
-added.
+been sent. The slot is read only on the client the recorder was attached on (`DeviceLink.clientIsAttached`): a
+connect made meanwhile (a return to the app, 再接続) makes a client of its own that has yet to hear which recorder
+answers it, and while a connect is under way whose own client has yet to attach the recorder, the wait reads
+nothing, looking every two seconds for about forty -- the probe's timeout, the screens' waking and the first ask
+after it (`SlotSettling.connect`) -- and gives up on one still under way past that. It waits the same way while the
+check before another operation is out, whose probe can meet silence and go on to wake the recorder. What a read met
+on the old client is not the recorder's answer and is neither kept nor said; it counts among the reads all the same,
+and when the last of them was met so, the wait, the slot still unanswered once the connect has attached the
+recorder, ends as given up. Once the connect or the check has attached the recorder, the wait goes on on its client,
+one request at a time with that attach's own -- unless the slot has answered by then, a disk or none the read again
+confirmed, which is then the slot's answer. A connect or a check that does not attach the recorder (silence, a
+waking that gets no answer, something else at the address, the permission), or a connect that loses it after, has
+said why: the wait ends there as silence, with nothing read or said, and its caller says nothing over that line; a
+reservation goes to the queue, as when the recorder is silent at that moment. A let-go ends the wait too, nothing of
+it put down for the newcomer. With the disk answered since, and in a home with no USB disk, the slot is not waited
+for and no request is added. A clash check, whatever the disk, then asks on the client the link holds, and only
+once the recorder has been attached on it: the check before it lets a connect under way through at once, so while
+a connect has yet to attach the recorder, or the check before another operation is out, it waits as the slot's
+wait does, for about forty seconds at most, and asks once the connect has attached the recorder. A connect or a
+check that does not attach the recorder, or loses it after, has it ask nothing and say nothing, as that time going
+by does; nothing is asked once the recorder has been let go of.
 
 Each sheet hands the model the disk the reader picked, and it is sent as picked or not at all. A USB disk
 let go of between the choice and the press -- or one the slot did not answer while it was waited for (above) -- is
@@ -1436,7 +1468,7 @@ programme's sheet a disk picked and let go of while it is open stays shown under
 nothing: no clash check is asked for it, and its row shows none, and 録画予約する refuses it at once, as 予約する would,
 without the question before reserving, which would promise a registration that is about to be refused; a question
 already up when the disk is let go of goes, as one does when the recorder is let go of. While the disk picked is
-offered, and in a home with no USB disk, the sheet asks and checks as it always has.
+offered, and in a home with no USB disk, the sheet asks as it always has, and checks as above.
 
 A reservation or a move to the USB disk that the recorder turns down is said as the recorder not taking a
 reservation to that disk, naming it, and asks for another destination, with the recorder's code kept for
