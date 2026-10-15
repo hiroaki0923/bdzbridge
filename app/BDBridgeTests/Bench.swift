@@ -1259,6 +1259,9 @@ enum Said {
     /// What silence on playback, a pause, a stop or the power says: something was sent, and it may have arrived.
     static let instructionMayHaveArrived = "指示の途中でレコーダーの応答がなくなりました。"
         + "届いている場合もあるため、送り直していません。テレビの画面で確かめてください。"
+    /// What a keyword condition's delete says of one not in the list read before it as the screen showed it.
+    static let conditionNotInList = "この条件はレコーダーのおまかせ・まる録の一覧に見つかりませんでした。"
+        + "レコーダーで変更された場合も含みます。一覧を更新しました。"
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
     static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"

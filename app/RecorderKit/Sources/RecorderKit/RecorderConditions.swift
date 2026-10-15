@@ -22,7 +22,7 @@ extension RecorderDriver {
     ///
     /// One read at a time, as for the recordings (`titles`, `folded`): whoever asks while one is out for the same
     /// recorder, on the same client, is handed what it came to, and one out otherwise is waited for first. The
-    /// list read after a condition added or deleted is one of them (`readAfter`).
+    /// list read before a condition is deleted, and after one is added or deleted, is one of them (`readAgain`).
     public func recorderRules() async -> ConditionsRead {
         guard let link else { return (nil, Self.notConnected) }
         guard let client = link.client as? RecorderClient, !link.session.unreachable else {
@@ -50,7 +50,7 @@ extension RecorderDriver {
     }
 
     /// Registers a condition on the recorder itself, which then records by it with nothing else running. What it
-    /// came to, with its sentence; the list read after it goes to `keep` (`readAfter`).
+    /// came to, with its sentence; the list read after it goes to `keep` (`readAgain`).
     ///
     /// Its disk is the one the reader picked, sent as picked or not at all: a USB disk no longer offered is
     /// refused before anything is sent, as a reservation's is (`reserve`), and so is one the slot has not answered
@@ -116,24 +116,40 @@ extension RecorderDriver {
                 _ = try await client.createRecorderRule(request)
             }
             let altered = self.altered(came, on: link)
-            if came.wentThrough { await self.readAfter(on: link, since: began, keep: keep) }
+            if came.wentThrough { await self.readAgain(on: link, since: began, keep: keep) }
             return altered
         }
     }
 
+    /// Said when a condition asked to be deleted is not in the list just read as the screen showed it: gone from
+    /// the recorder, or changed there -- the recorder renumbers a condition its own screen edits, so the two
+    /// are seldom told apart. Nothing was sent, and the list on screen is the one just read.
+    public nonisolated static let conditionNotInList = "この条件はレコーダーのおまかせ・まる録の一覧に見つかりませんでした。"
+        + "レコーダーで変更された場合も含みます。一覧を更新しました。"
+
     /// Deletes a condition, never edits one: a condition read over the LAN lacks the channel narrowing the
     /// recorder's own screen can set, and writing it back would erase that. What it came to, with its sentence;
-    /// the list read after it goes to `keep` (`readAfter`). Turned away at the door as a condition added is, the
-    /// result saying that the app is not connected and the line left as it was. Otherwise one operation, as
-    /// `DeviceLink.run` makes one, on the client in hand at the door, under one line until the list read after it
-    /// is in: silence says that the delete may have arrived, and what the check or a failure said is in the
-    /// result as well as on the line (`altered`).
+    /// the lists read before and after it go to `keep` (`readAgain`). Turned away at the door as a condition
+    /// added is, the result saying that the app is not connected and the line left as it was. Otherwise under one
+    /// line until the list read after it is in.
+    ///
+    /// The id a condition was read with is not to be trusted later: the recorder renumbers a condition its own
+    /// screen edits (docs/xsrs-api.md). So the list is read again first, with no line of its own, and the delete
+    /// goes only from it, as a reservation's does (`cancel`): a read that did not go through ends it there,
+    /// nothing sent, the result saying what the read left; a read that went through has cleared the line. A
+    /// condition not in that list as the screen showed it -- by its id and everything else it was read with --
+    /// is not sent for, and the result says so (`conditionNotInList`), the list on screen being the one just
+    /// read. Let go of while the read was out, nothing is sent and the result says why (`whyLetGo`).
+    ///
+    /// Then the delete, as `DeviceLink.run` makes one, on the client the check is asked with then: silence says
+    /// that the delete may have arrived, and what the check or a failure said is in the result as well as on the
+    /// line (`altered`).
     ///
     /// The list is read after a delete the recorder answered, whether it went through or was refused: the
     /// recorder renumbers a condition whenever its own screen edits one, so a refusal may be of a number it no
     /// longer has, and which code it answers to one has not been seen. Not after one that was not sent -- turned
-    /// away at the door, or after the check -- nor after silence: nothing has changed that the reader did, or the
-    /// recorder is not there to read.
+    /// away at the door, by the read before it, or after the check -- nor after silence: nothing has changed
+    /// that the reader did, or the recorder is not there to read.
     public func removeRule(_ rule: RecorderRule, keep: @MainActor (ConditionsRead) -> Void) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
@@ -141,36 +157,45 @@ extension RecorderDriver {
         }
         let began = link.generation
         return await link.underALine(Self.removingConditionLine) { _ -> Altered in
+            guard let read = await self.readAgain(on: link, since: began, keep: keep) else {
+                return .notDone(self.whyLetGo(on: link))
+            }
+            guard let list = read.list else { return .notDone(read.why ?? self.whyNotConnected) }
+            guard list.contains(rule) else { return .notDone(Self.conditionNotInList) }
             let came = await self.asked(nil, .aWrite(sending: Self.mayHaveArrived), on: link,
                                         since: began) { _, client in
                 try await client.deleteRecorderRule(id: rule.id)
             }
             let altered = self.altered(came, on: link)
-            if came.answered { await self.readAfter(on: link, since: began, keep: keep) }
+            if came.answered { await self.readAgain(on: link, since: began, keep: keep) }
             return altered
         }
     }
 
-    /// The list read again after a condition was added or deleted, as a step of that operation: under its line,
-    /// with none of its own, and by the count it noted at its door. Handed to `keep` as any read of the list is
-    /// (`recorderRules`), with why when it could not be read. Not across a let-go: the list to read is the
-    /// newcomer's, which its own connect reads, and one that comes back once the recorder has been let go of is
-    /// neither handed over nor said.
+    /// The list read again as a step of a condition's add or delete -- before a delete, and after either -- under
+    /// its line, with none of its own, and by the count it noted at its door. Handed to `keep` as any read of the
+    /// list is (`recorderRules`), with why when it could not be read, and handed back; nil across a let-go: the
+    /// list to read is the newcomer's, which its own connect reads, and one that comes back once the recorder has
+    /// been let go of is neither handed over nor said.
     ///
     /// One of the conditions' reads (`folded`), but one that takes no other's answer: a read out as it begins was
-    /// asked before the write was answered, and its list may not show the write, so it is waited for, and the
-    /// list read after it. Whoever asks for the conditions while this read is out is handed what it comes to, and
-    /// a newcomer's connect, which reads them, waits for it as for any read of them out for a recorder let go of.
-    private func readAfter(on link: DeviceLink, since began: Int, keep: @MainActor (ConditionsRead) -> Void) async {
+    /// asked before what this step follows was answered, and its list may not show it, so it is waited for, and
+    /// the list read after it. Whoever asks for the conditions while this read is out is handed what it comes
+    /// to, and a newcomer's connect, which reads them, waits for it as for any read of them out for a recorder
+    /// let go of.
+    @discardableResult
+    private func readAgain(on link: DeviceLink, since began: Int,
+                           keep: @MainActor (ConditionsRead) -> Void) async -> ConditionsRead? {
         if let out = conditionsReading { _ = await out.value.value }
         // The client is gone only once the recorder has been let go of (`DeviceLink.forgetTheDevice`).
-        guard !link.letGo(since: began), let client = link.client as? RecorderClient else { return }
+        guard !link.letGo(since: began), let client = link.client as? RecorderClient else { return nil }
         let read = await folded(\.conditionsReading, on: link, client) {
             self.conditionsRead(await self.asked(nil, .aRead, on: link, since: began) { _, client in
                 try await client.recorderRules()
             }, on: link)
         }
-        guard !link.letGo(since: began) else { return }
+        guard !link.letGo(since: began) else { return nil }
         keep(read)
+        return read
     }
 }

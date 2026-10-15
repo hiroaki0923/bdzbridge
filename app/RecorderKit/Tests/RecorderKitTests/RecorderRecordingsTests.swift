@@ -95,6 +95,33 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(link.session.connected)
     }
 
+    /// A keyword condition's delete goes only from the list read just before it: a read refused, or met by
+    /// silence, ends it there with nothing sent, the result saying what the read left -- the recorder's words,
+    /// or the read's silence, which loses the recorder.
+    func testAConditionsDeleteSendsNothingWhenTheListBeforeItCannotBeRead() async throws {
+        let rule = try await Self.rule()
+        let refusal = RecorderError.soap(action: "X_GetPrefRecSettingList", status: 500, code: "402", body: "")
+
+        let (refusedWorld, refusing, refusedRecorder) = try await Self.playing([
+            "X_GetPrefRecSettingList": [Stub.fault("402")],
+            "X_DeletePrefRecSetting": [Stub.soap("X_DeletePrefRecSetting")],
+        ])
+        let refused = await refusing.removeRule(rule) { _ in }
+        expectEqual(await refusedRecorder.actions, ["X_GetPrefRecSettingList"],
+                    "a condition was deleted with no list read before it")
+        XCTAssertEqual(refused, .notDone(refusal.explanation))
+        XCTAssertEqual(refusedWorld.problem, refusal.explanation)
+
+        let (silentWorld, silent, silentRecorder) = try await Self.playing(
+            ["X_DeletePrefRecSetting": [Stub.soap("X_DeletePrefRecSetting")]], silentTo: ["X_GetPrefRecSettingList"])
+        let unanswered = await silent.removeRule(rule) { _ in }
+        expectEqual(await silentRecorder.actions, ["X_GetPrefRecSettingList"],
+                    "a condition was deleted after silence on the list before it")
+        XCTAssertEqual(unanswered, .notDone(silent.noAnswerLine))
+        XCTAssertEqual(silentWorld.problem, silent.noAnswerLine)
+        XCTAssertTrue(silent.link?.session.unreachable == true, "silence on the list did not lose the recorder")
+    }
+
     // MARK: - playing, and turning the recorder on for it
 
     /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,

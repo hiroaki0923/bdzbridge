@@ -593,11 +593,12 @@ final class RecorderHost: RecorderLinkHost {
         return await recorderDriver.addRule(request) { said.keep(rules: $0) }
     }
 
-    /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list again after any answer, kept
+    /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list first, sending nothing for a
+    /// condition not in it as shown (`RecorderDriver.conditionNotInList`), and again after any answer, both kept
     /// as a condition added has its list kept: a refusal may be of a number the recorder no longer has. What it
     /// came to, for the screen to say: a refusal is said there, and the read after it clears the line when it
     /// goes through, as the read after a reservation's delete refused so does, or says its own failure when it
-    /// does not. Counted while it is out, as a condition added is.
+    /// does not. Counted while it is out, both reads among it, as a condition added is.
     func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
         let said = self.said
         await model?.start()
