@@ -33,6 +33,25 @@ struct SettingsScreen: View {
         NavigationStack {
             Form {
                 Section {
+                    // What the recorder says of itself once connected, then how the link stands and where it is,
+                    // in the order the television's section gives its own.
+                    if let info = model.info {
+                        LabeledContent("機種", value: info.product)
+                        LabeledContent("名前", value: info.friendlyName)
+                        // empty when the recorder would not say, which another model may not
+                        if !model.firmware.isEmpty {
+                            LabeledContent("ファームウェア", value: model.firmware)
+                        }
+                        LabeledContent("番組表", value: info.epgCapable ? "あり" : "なし")
+                        // By position: a disk the owner named HDD on the recorder would share the internal one's label.
+                        ForEach(Array(Self.storageRows(storage: model.storage, usb: model.usbDisk).enumerated()),
+                                id: \.offset) { _, row in
+                            LabeledContent(row.label, value: row.value)
+                        }
+                    }
+                    if !model.host.isEmpty {
+                        LabeledContent("状態", value: recorderState)
+                    }
                     LabeledContent("IP アドレス") {
                         TextField("192.168.1.10", text: $typedHost)
                             .multilineTextAlignment(.trailing)
@@ -84,22 +103,17 @@ struct SettingsScreen: View {
                 }
 
                 Section {
-                    // Not while a connect, a load or a job is under way: see `canChangeRecorder`.
-                    if model.demo {
-                        Button("サンプルデータを終了する", role: .destructive) {
-                            Task { await model.leaveDemo() }
+                    Picker("既定の録画モード", selection: $defaultQuality) {
+                        ForEach(Codes.qualityOrder, id: \.self) { code in
+                            Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
-                        .disabled(!model.canChangeRecorder)
-                    } else {
-                        Button("サンプルデータで試す") { Task { await model.enterDemo() } }
-                            .disabled(!model.canChangeRecorder)
                     }
                 } footer: {
-                    Text(model.demo
-                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表と、追加した架空のテレビは削除され、"
-                           + "元のレコーダーとテレビの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
-                         : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
+                    Text("録画予約とおまかせ・まる録の条件を追加するときに、最初に選ばれている録画モードです。"
+                         + "予約するときに変えても、ここは変わりません。")
                 }
+
+                TVSection(sheet: $tvSheet)
 
                 Section {
                     Button("レコーダーとテレビを探す") {
@@ -152,25 +166,6 @@ struct SettingsScreen: View {
                 }
                 FoundTelevisionsSection(sheet: $tvSheet)
 
-                if let info = model.info {
-                    Section("接続中のレコーダー") {
-                        LabeledContent("機種", value: info.product)
-                        LabeledContent("名前", value: info.friendlyName)
-                        // empty when the recorder would not say, which another model may not
-                        if !model.firmware.isEmpty {
-                            LabeledContent("ファームウェア", value: model.firmware)
-                        }
-                        LabeledContent("番組表", value: info.epgCapable ? "対応" : "非対応")
-                        // By position: a disk the owner named HDD on the recorder would share the internal one's label.
-                        ForEach(Array(Self.storageRows(storage: model.storage, usb: model.usbDisk).enumerated()),
-                                id: \.offset) { _, row in
-                            LabeledContent(row.label, value: row.value)
-                        }
-                    }
-                }
-
-                TVSection(sheet: $tvSheet)
-
                 Section {
                     NavigationLink("チャンネルの表示と並び順") {
                         ChannelsScreen(broadcasting: model.broadcasting)
@@ -178,17 +173,6 @@ struct SettingsScreen: View {
                 } footer: {
                     Text("番組表に出す局と、その並び順を放送ごとに選べます。この iPhone の番組表だけが変わり、"
                          + "レコーダーの録画には影響しません。")
-                }
-
-                Section {
-                    Picker("既定の録画モード", selection: $defaultQuality) {
-                        ForEach(Codes.qualityOrder, id: \.self) { code in
-                            Text(Codes.qualityLabel[code] ?? code).tag(code)
-                        }
-                    }
-                } footer: {
-                    Text("録画予約とおまかせ・まる録の条件を追加するときに、最初に選ばれている録画モードです。"
-                         + "予約するときに変えても、ここは変わりません。")
                 }
 
                 Section("保存されている番組表") {
@@ -214,6 +198,24 @@ struct SettingsScreen: View {
 
                 notificationsSection
                 arrivingHomeSection
+
+                Section {
+                    // Not while a connect, a load or a job is under way: see `canChangeRecorder`.
+                    if model.demo {
+                        Button("サンプルデータを終了する", role: .destructive) {
+                            Task { await model.leaveDemo() }
+                        }
+                        .disabled(!model.canChangeRecorder)
+                    } else {
+                        Button("サンプルデータで試す") { Task { await model.enterDemo() } }
+                            .disabled(!model.canChangeRecorder)
+                    }
+                } footer: {
+                    Text(model.demo
+                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表と、追加した架空のテレビは削除され、"
+                           + "元のレコーダーとテレビの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
+                         : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
+                }
 
                 Section {
                     Button("セットアップ手順を見る") { showingGuide = true }
@@ -261,6 +263,13 @@ struct SettingsScreen: View {
                 Text(guideFailure ?? "")
             }
         }
+    }
+
+    /// How the link to the recorder stands, in the words the television's section uses for its own.
+    private var recorderState: String {
+        if model.connecting { return "接続しています" }
+        if model.connected { return "接続済み" }
+        return model.gaveUp ? "応答がありません" : "接続していません"
     }
 
     /// Whether the overnight run can say anything, and the way to change it. The provisional permission the

@@ -19,6 +19,9 @@ struct SearchScreen: View {
     @State private var openedProgram: GuideProgramRow?
     @State private var openedReservation: Reservation?
     @State private var openedTitle: RecordedTitle?
+    /// Whether the search field is in use. The scopes show only while it is, so before that the screen says
+    /// what can be searched rather than what the chosen scope searches.
+    @State private var searching = false
 
     enum Scope: String, CaseIterable, Identifiable {
         case guide, reservations, recordings
@@ -104,7 +107,13 @@ struct SearchScreen: View {
     var body: some View {
         NavigationStack {
             Group {
-                if blank {
+                if blank && !searching {
+                    ContentUnavailableView {
+                        Label("検索", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("番組表・予約・録画を検索できます。検索欄をタップすると、どれを検索するか選べます。")
+                    }
+                } else if blank {
                     ContentUnavailableView {
                         Label("\(scope.label)を検索", systemImage: "magnifyingglass")
                     } description: {
@@ -133,8 +142,10 @@ struct SearchScreen: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: scope.prompt)
-            .searchScopes($scope) {
+            .searchable(text: $query, isPresented: $searching, prompt: scope.prompt)
+            // Offered as soon as the field is tapped, before anything is typed, which is what the screen says
+            // until then; left to the system, they would wait for the first letter.
+            .searchScopes($scope, activation: .onSearchPresentation) {
                 ForEach(Scope.allCases) { Text($0.label).tag($0) }
             }
             // The task is cancelled whenever the text or the scope changes, so the wait is the debounce. The
