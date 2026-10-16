@@ -172,7 +172,8 @@ extension AppModel {
     var canStartARun: Bool { recorderHost.canStartARun }
     var canAlterARecording: Bool { recorderHost.canAlterARecording }
     var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
-    func startBulk(_ kind: BulkJob.Kind, ids: [String]) { recorderHost.startBulk(kind, ids: ids) }
+    @discardableResult
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool { recorderHost.startBulk(kind, ids: ids) }
     func cancelBulk() { recorderHost.cancelBulk() }
     func clearJob() { recorderHost.clearJob() }
     func startDuplicateScan() { recorderHost.startDuplicateScan() }

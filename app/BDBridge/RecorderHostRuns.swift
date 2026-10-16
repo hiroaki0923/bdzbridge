@@ -46,12 +46,13 @@ extension RecorderHost {
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
 
     /// Whether a run may be started now, for the buttons that start one -- a bulk delete, a bulk protect, the
-    /// scan for duplicates: only with the recorder at rest. Not beside another run, which `startBulk` and
-    /// `startDuplicateScan` refuse themselves. Nor while the recorder works or a connect is under way: a run
-    /// started then would write beside what is out, or be turned away as it begins for a recorder that has not
-    /// yet said which it is (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a
-    /// connect has between two lines of its own, as in `canChangeRecorder`. The television's work does not
-    /// count: it is on a client of its own.
+    /// scan for duplicates -- and for `startBulk` and `startDuplicateScan` themselves, which a confirm or a menu
+    /// left open can reach after its button has gone grey: only with the recorder at rest. Not beside another
+    /// run. Nor while the recorder works or a connect is under way: a run started then would write beside what
+    /// is out, or be turned away as it begins for a recorder that has not yet said which it is
+    /// (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a connect has between two
+    /// lines of its own, as in `canChangeRecorder`. The television's work does not count: it is on a client of
+    /// its own.
     var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
@@ -73,8 +74,15 @@ extension RecorderHost {
 
     /// A run the driver will not begin (`RecorderDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
-    func startBulk(_ kind: BulkJob.Kind, ids: [String]) {
-        guard jobTask == nil, !ids.isEmpty, let driver = recorderDriver else { return }
+    ///
+    /// Nothing starts, and nothing is said, while a run may not be started (`canStartARun`): the press came
+    /// from a confirm or a menu left open after its button went grey, and the job that stands is left as it
+    /// is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
+    /// none asked for.
+    @discardableResult
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool {
+        guard canStartARun, jobTask == nil else { return false }
+        guard !ids.isEmpty, let driver = recorderDriver else { return true }
         job = BulkJob(kind: kind, total: ids.count)
         switch driver.beginRun(kind) {
         case .success(let run):
@@ -84,6 +92,7 @@ extension RecorderHost {
         case .failure(let stop):
             endJob(stoppedBy: stop)
         }
+        return true
     }
 
     /// Ends the job just set up, its run not begun, with why.
@@ -194,9 +203,10 @@ extension RecorderHost {
     /// why this is a job with a progress bar and a stop button.
     ///
     /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
-    /// reader gave it. Ticking waits until it has finished.
+    /// reader gave it. Ticking waits until it has finished. Not while a run may not be started
+    /// (`canStartARun`), as `startBulk`.
     func startDuplicateScan() {
-        guard jobTask == nil, let store = model?.store, let driver = recorderDriver else { return }
+        guard canStartARun, jobTask == nil, let store = model?.store, let driver = recorderDriver else { return }
         let candidates = Duplicates.candidates(said.titles)
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         switch driver.beginRun(.scanning) {
