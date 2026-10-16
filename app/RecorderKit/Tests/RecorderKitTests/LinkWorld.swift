@@ -103,7 +103,10 @@ final class LinkWorld: RecorderLinkHost {
     var isDemo: Bool { false }
     /// The phone's cache, for a test of what is sent from it: none unless a test gives one.
     var cache: GuideStore?
-    func cacheForAttempt() async {}
+    /// What the host does as it opens the cache, the first thing a connect does once it is under way, before
+    /// it makes a client of its own: for a test of what is asked for meanwhile.
+    var onCacheForAttempt: (@MainActor () async -> Void)?
+    func cacheForAttempt() async { await onCacheForAttempt?() }
     func keepAddress(_ host: String) { events.append("address \(host)") }
     func keepMAC(_ text: String) { events.append("MAC \(text)") }
     func macWasReadAt(_ host: String) {
