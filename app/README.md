@@ -56,7 +56,7 @@
   duplicates: when a run may begin and go on, what is asked for one recording, why it stopped and the free space
   as it ends (`beginRun`, `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`, in
   `RecorderRuns.swift`), while the recorder's host keeps the loop and the job (`RecorderHostRuns.swift`). So is
-  the guide fetched by hand and at a connect (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`),
+  the guide fetched by hand and after a connect (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`),
   which `AppModelGuide` asks for and puts on screen. And so are the recorder's two runs with no screen, the
   overnight run and the Shortcuts action's sending (`refreshWithNoScreen`, `sendWithNoScreen`, and what each
   says, in `RecorderNoScreen.swift`): `BackgroundWork`, `Notify` and `SendWaitingIntent` keep the entries the
@@ -997,15 +997,22 @@ faulted. It goes only into the cache of the recorder it was fetched from -- the 
 inside their own transaction -- so another recorder taken up while a file is out gets nothing of the last one's
 guide. And one refresh runs at a time in the whole app, whoever asks: the screens and the overnight run each
 have a client of their own, and would otherwise ask the recorder for the same files at once. A refresh waits its
-turn behind the one that is out -- a connect's inside the connect, under 番組表を取得中, to fetch then only what is
-still behind. The wait can be as long as the refresh in front and a file can take minutes, so the recorder is
-made sure of once the turn has come and again before each later file, a type's logos included, by the asking a
-bulk run makes before each recording (below); inside a connect that asking's check is answered at once, and the
-rest of it makes sure. The night looks at its time and at whose cache it is as its turn comes. The files go to
-the client in hand once the turn has come. A reconnect made while a refresh is out has a client of its own: the
-refresh ends before its next file, or as a file out on the client before meets silence, saying only which types
-had failed, and a connect that goes through fetches what is behind in its turn. The recorder's own busy answer,
-which stops a refresh or a run, can be about the app's own overnight run, on its other client.
+turn behind the one that is out -- a connect's after the connect, under 番組表を取得中, to fetch then only what is
+still behind. The connect ends once its reservations and lists are in, so that Settings says 接続済み and the
+first screen's choice is over while the guide is still to come. It starts none where its reads lost the recorder.
+The refresh it started holds a second connect off while it is out, as a job does, and one asked for meanwhile is
+made once it ends -- unless the recorder is let go of first, which lifts that hold at once. From the screens that
+is, in practice, 再接続 or a pull-down in the few turns after a refresh that met silence has taken its line down;
+a return before its line is up, or after a refresh that went through, finds the recorder's last answer fresh and
+asks for nothing, and while 番組表を取得中 stands, no 再接続 is offered and a return only looks at the network.
+The wait can be as long as the refresh in front and a file can take minutes, so the recorder is made sure of once
+the turn has come and again before each later file, a type's logos included, by the asking a bulk run makes before
+each recording (below), a connect's refresh as any other. The night looks at its time and at whose cache it is as
+its turn comes. The files go to the client in hand once the turn has come. A reconnect made while a refresh is out
+has a client of its own: the refresh ends before its next file, or as a file out on the client before meets
+silence, saying only which types had failed, and a connect that goes through fetches what is behind in its turn.
+The recorder's own busy answer, which stops a refresh or a run, can be about the app's own overnight run, on its
+other client.
 
 A cache that cannot be opened, at launch or as the demo begins or ends, and a guide that cannot be read from it,
 whoever asked for the read, are said on the phone's own line (`AppModel.phoneProblem`), which nothing a device
@@ -1093,7 +1100,12 @@ and it lives outside the sheet that started it: closing the sheet neither stops 
 Leaving the app pauses it rather than breaking it: the step under way is finished under a background task,
 the job waits before the next one until the app is back, makes sure of the recorder, which has had all that
 time to fall asleep, and goes on. The job bar says so. Nothing reconnects while a job or the duplicate scan
-is running, since a second client beside the one in hand would be answered 503.
+is running, since a second client beside the one in hand would be answered 503; a connect asked for meanwhile --
+a return to the app after more than a minute away, or a look that finds another network while not connected;
+再接続 is grey during a job -- is made once the job has ended, unless an attach, a let-go of the recorder or the
+app's leaving has come in between. Nor does a run begin while a connect is under way, and the entries behind the
+buttons that start one ask what the buttons ask: a press from a confirm or a menu left open after its button went
+grey starts nothing and says nothing.
 
 What a run asks of the recorder, and when, is the recorder driver's (`RecorderKit/RecorderRuns.swift`), by the
 rules a single delete or protect keeps. Before each recording, and before the delete that follows the question
@@ -1112,7 +1124,10 @@ as it was until the recordings are next read. 中止 tapped on the way out of th
 recording that was out, without waiting for the return or waking the recorder for it. The buttons that start a
 run are held while the recorder works or a connect is under way, and a single delete or protect while a run is
 under way; playback and the power are not, so that a playback begun before a long scan can still be stopped. The
-duplicates' screen says that there are none only after a scan the recorder did not stop.
+duplicates' screen says that there are none only after a scan the recorder did not stop, and goes on saying it,
+with what it could not read, across later jobs and the bar's ✕, until the recorder is let go of: that a scan has
+looked is kept with what the recorder said. A scan, and a bulk run, read and write what the recorder said as they
+began, to their ends, and stop before anything more is asked once that recorder has been let go of.
 An episode opened from a programme's recordings comes up over them, and closing it goes back to them.
 
 Waking the recorder, without being asked to: a BDZ-FBT4100 leaves the LAN on its own after a while and
