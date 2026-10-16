@@ -92,8 +92,9 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// What a sending came to goes with the host that kept it, and a host the app has let go of sends
     /// nothing. Registered again over the one saved, the television is on a host of its own, and the strip
     /// has nothing left of what the last one's sending came to. The host before, told to send what waits
-    /// with its link still standing -- as it does while something asked earlier is carried through -- and
-    /// with a registration the television still takes, asks the television nothing: the reservation waits.
+    /// with its link let go of its television and connected again by hand -- as a link stands while what was
+    /// on the wire is carried through -- and with a registration the television still takes, asks the
+    /// television nothing: the reservation waits.
     /// (Taken away, a television leaves no registration to send anything with, whatever its host did.)
     func testALaunchSendsWhatWaitsForTheTelevisionAsItsOwnWork() async throws {
         let recorder = NamedRecorder(1)
@@ -108,12 +109,16 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(model.queueReport, "the strip still says what the last host's sending came to")
         let left = forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402))
         try await home.store.queue(left)
+        XCTAssertFalse(firstLink.session.connected, "the first link did not let go of its television")
+        XCTAssertNil(firstLink.client, "the first link kept a client to ask the television with")
+        // Connected again by hand, so that only the host stands between it and the television.
+        try await within(10, "the first link never connected again") { await firstLink.connect() }
+        XCTAssertTrue(firstLink.session.connected, "the first link did not connect again")
         let calls = await television.calls
 
         await first.sendWhatWaits()
 
         expectEqual(await television.calls, calls, "a host the app let go of sent what waits")
-        XCTAssertTrue(firstLink.session.connected, "the first link is not one the television would still answer")
         expectEqual(try await home.store.pendingReservations().map(\.id), [left.id])
     }
 

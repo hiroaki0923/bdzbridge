@@ -214,6 +214,41 @@ final class TVReservationTests: XCTestCase {
 
     // MARK: - what a delete came to
 
+    /// What waits on the television's client when the app lets go of the television -- here as the demo is
+    /// entered; 外す and a registration again let go of it the same way -- is not sent: a delete whose read of
+    /// the list waits behind a request held at the television asks it nothing more once that request is back.
+    /// The delete answers that the app is not connected to the television; the television's host, gone, shows no
+    /// line of it. The read is put in the client's queue by a bounded number of turns: one that reached the link
+    /// only after the let-go would be turned away there, with the same answer.
+    func testWhatWaitsOnTheClientOfATelevisionLetGoOfIsNotSent() async throws {
+        let later = Date(timeIntervalSince1970: 1_900_000_000)
+        let home = try await atHome([DemoTV.Schedule(id: "recording.61", start: later, eventId: 50_061)])
+        let (television, door, model) = (home.television, home.door, home.model)
+        let host = try XCTUnwrap(model.tvHost), link = try XCTUnwrap(model.tv)
+        let row = try XCTUnwrap(host.reservations.first { $0.id == "recording.61" })
+        let client = try XCTUnwrap(link.client as? ScalarClient)
+        await door.hold(only: "getPowerStatus")
+        let asking = Task { try? await client.powerStatus() }
+        addTeardownBlock { await door.letGo() }
+        try await until("the request was never held") { await door.isHolding }
+        let calls = await television.calls
+        let deleting = Task { await host.cancel(row) }
+        try await until("the delete never began") { model.busy == TVDriver.deletingLine }
+        for _ in 0..<10_000 { await Task.yield() }
+
+        let entering = Task { await model.enterDemo() }
+        try await until("the television was never let go of") { model.tv == nil }
+        await door.letGo()
+        _ = try await within(10, "the held request never came back") { await asking.value }
+        let deleted = try await within(10, "the delete never came back") { await deleting.value }
+        try await within(10, "the demo was never entered") { await entering.value }
+
+        expectEqual(Array(await television.calls.dropFirst(calls.count)), ["getPowerStatus cookie=no pin=no"],
+                    "what waited on the client of a television let go of was sent")
+        expectEqual(await television.schedules.map(\.id), ["recording.61"])
+        XCTAssertEqual(deleted, .notDone(TVDriver.notConnected), "the delete not sent was not said as such")
+    }
+
     /// What a delete turned away at its door came to is in its result, whichever device holds the row, and the
     /// line of what went wrong is left as an earlier operation left it: nothing was sent, and that line is not
     /// the delete's to write over. A television given up on, a television the app has let go of -- asked of
@@ -352,13 +387,13 @@ final class TVReservationTests: XCTestCase {
 
     /// The television's list is its host's, and goes with it. Registered again over the one saved, the
     /// television is on a host of its own that has read nothing yet. The host before is then not the model's,
-    /// though the model has one: with its link still standing, as it does while something asked earlier is
-    /// carried through, it writes nothing over what the registration saved, puts no line up and asks the
-    /// television nothing. Taken away while a read of its list is out, the television leaves no host and no
-    /// row behind, the screens are told, and the read's line comes down there and then, not when the read
-    /// ends. A row held from before is then nobody's: its buttons are held back, and asked to delete or change
-    /// it all the same, the app sends neither device anything and writes on no line; the change answers that
-    /// the television is not connected.
+    /// though the model has one: it writes nothing over what the registration saved, puts no line up, and,
+    /// its link let go of its television and connected again by hand -- as a link stands while what was on
+    /// the wire is carried through -- asks the television nothing. Taken away while a read of its list is out,
+    /// the television leaves no host and no row behind, the screens are told, and the read's line comes down
+    /// there and then, not when the read ends. A row held from before is then nobody's: its buttons are held
+    /// back, and asked to delete or change it all the same, the app sends neither device anything and writes on
+    /// no line; the change answers that the television is not connected.
     func testATelevisionLetGoOfTakesItsListWithIt() async throws {
         let home = try await atHome([Self.row(41), Self.row(42)])
         let (recorder, television, door, model) = (home.recorder, home.television, home.door, home.model)
@@ -391,13 +426,17 @@ final class TVReservationTests: XCTestCase {
         XCTAssertNil(model.busy, "a host that is no longer the model's put a line on the screens")
         XCTAssertTrue(model.televisionLines.isEmpty)
         first.endActivity(line)
+        XCTAssertFalse(firstLink.session.connected, "the first link did not let go of its television")
+        XCTAssertNil(firstLink.client, "the first link kept a client to ask the television with")
+        // Connected again by hand, so that only the host stands between it and the television.
+        try await within(10, "the first link never connected again") { await firstLink.connect() }
+        XCTAssertTrue(firstLink.session.connected, "the first link did not connect again")
         let heard = await television.calls
         await first.reached()
         await first.loadReservations()
         await first.refreshReservations()
         expectFalse(await deleteThroughTheHost(first, held))
         expectEqual(await television.calls, heard, "a host that is no longer the model's asked the television")
-        XCTAssertTrue(firstLink.session.connected, "the first link is not one the television would still answer")
 
         told = model.tvTimesForgotten
         await door.hold(only: "getScheduleList")
@@ -465,8 +504,8 @@ final class TVReservationTests: XCTestCase {
     /// row of the television's, though a read of them was out as the demo began. A row held from before
     /// reaches neither the invented recorder nor the television, and a change of it answers that the
     /// television is not connected. Nor does the host the app let go of ask the
-    /// television anything more, or put a line on the screens, though its link still stands -- as it does
-    /// while something asked before the demo is carried through -- and the television would answer.
+    /// television anything more, or put a line on the screens, its link standing still -- as it does while
+    /// what was on the wire as the demo began is carried through -- and let go of the television.
     func testTheDemoLetsGoOfTheTelevisionsListToo() async throws {
         let home = try await atHome([Self.row(41)])
         let (television, door, model) = (home.television, home.door, home.model)
@@ -499,7 +538,8 @@ final class TVReservationTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), Self.left)
         expectEqual(await television.calls, calls, "the real television was asked from inside the demo")
 
-        XCTAssertTrue(link.session.connected, "the link let go of is not one the television would still answer")
+        XCTAssertFalse(link.session.connected, "the link let go of did not let go of its television")
+        XCTAssertNil(link.client, "the link let go of kept a client to ask the television with")
         await host.reached()
         await host.loadReservations()
         await host.refreshReservations()

@@ -478,9 +478,11 @@ public final class TVDriver: LinkDriver {
     /// television ends at the local network permission, the reason is on the session (`connectBlocked`) and
     /// not on the line, and the result says that the local network is not allowed (`whyNotConnected`), as at
     /// the door while the permission is waited for. Asked for by the reader, a delete
-    /// is carried through on the link it began on though the app has let go of that link meanwhile: the link
-    /// is read once, here, and held to the end. Two cancels of one reservation at once would each send their
-    /// delete; the screens hold the second back while the first is out (the host's `isBusy`).
+    /// is carried through on the link it began on though the app has let go of that link meanwhile, as far as
+    /// what was already on the wire: the link is read once, here, and held to the end, and a link let go of
+    /// with its device (`DeviceLink.forgetTheDevice`) sends nothing more that waited in its client's queue.
+    /// Two cancels of one reservation at once would each send their delete; the screens hold the second back
+    /// while the first is out (the host's `isBusy`).
     public func cancel(_ reservation: Reservation) async -> (deleted: Altered?, list: [Reservation]?) {
         guard reservation.device == .tv else { return (nil, nil) }
         guard let link else { return (.notDone(Self.notConnected), nil) }
