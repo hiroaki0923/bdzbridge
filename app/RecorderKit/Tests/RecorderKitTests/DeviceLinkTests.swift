@@ -1033,6 +1033,62 @@ final class DeviceLinkTests: XCTestCase {
         XCTAssertEqual(world.count("search for television"), 1, "looked again on the same network")
     }
 
+    // MARK: - a connect held off
+
+    /// A connect the host holds off -- asked for on a return to the app, or by hand, each on a link of its own --
+    /// asks nothing, and is owed: made once the host says the hold has lifted, and only once.
+    func testAConnectHeldOffIsMadeOnceTheHoldLifts() async {
+        let asks: [(what: String, ask: @MainActor (DeviceLink) async -> Void)] = [
+            ("on a return to the app", { await $0.returned(wasAway: true, busy: false) }),
+            ("by hand", { await $0.connect() }),
+        ]
+        for (what, ask) in asks {
+            let world = LinkWorld()
+            place(in: world)
+            let link = makeLink(world)
+
+            world.holdsOffConnect = true
+            await ask(link)
+            XCTAssertEqual(world.count("ask description.xml"), 0, "a connect asked for \(what) was made while held off")
+            XCTAssertFalse(link.session.connected, what)
+
+            world.holdsOffConnect = false
+            await link.connectIfOwed()
+            XCTAssertEqual(world.count("ask description.xml"), 1,
+                           "the connect asked for \(what) was not made once the hold lifted")
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            await link.connectIfOwed()
+            XCTAssertEqual(world.count("ask description.xml"), 1, "the connect asked for \(what) was made twice")
+        }
+    }
+
+    /// A connect held off is owed no more once something has done what it would have, or made it pointless: an
+    /// attach meanwhile, a let-go of the device it was asked for, the app's leaving. The hold lifted, nothing is
+    /// asked.
+    func testAConnectHeldOffIsDroppedByAnAttachALetGoOrTheAppsLeaving() async {
+        let world = LinkWorld()
+        place(in: world)
+        let link = makeLink(world)
+        let ways: [(what: String, drop: @MainActor () async -> Void)] = [
+            ("an attach meanwhile", {
+                await link.connect()
+                XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            }),
+            ("a let-go", { link.forgetTheDevice() }),
+            ("the app's leaving", { link.dropTheConnectOwed() }),
+        ]
+        for (what, drop) in ways {
+            world.holdsOffConnect = true
+            await link.returned(wasAway: true, busy: false)
+            await link.connect()
+            world.holdsOffConnect = false
+            await drop()
+            let asked = world.count("ask description.xml")
+            await link.connectIfOwed()
+            XCTAssertEqual(world.count("ask description.xml"), asked, "a connect held off was made after \(what)")
+        }
+    }
+
     // MARK: - letting go
 
     /// A link goes when the app lets go of it, though its driver is kept: the link holds the driver, and the

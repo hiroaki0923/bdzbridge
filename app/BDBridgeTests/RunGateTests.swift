@@ -303,8 +303,8 @@ final class RunGateTests: XCTestCase {
     /// A job stands from the turn it is asked for, before its task has had a turn of its own: the screens say a
     /// run is under way, the recorder in play cannot be changed -- for another address or for the demo -- and a
     /// connect asked for in that very turn asks nothing, since a second client would be a second conversation
-    /// with the recorder beside the run's. Pulling the recordings down while it runs reads nothing either: the
-    /// run is walking that list. A run of no recordings is not started at all.
+    /// with the recorder beside the run's, and is made once the run has ended. Pulling the recordings down while
+    /// it runs reads nothing either: the run is walking that list. A run of no recordings is not started at all.
     func testAJobStandsInTheTurnItIsAskedForAndKeepsTheRecorderToItself() async throws {
         let (_, recorder, model, idle) = try await settled()
         model.startBulk(.delete, ids: [])
@@ -339,10 +339,13 @@ final class RunGateTests: XCTestCase {
         try await until("the pull-down neither came back nor went on to read") { back.came || model.busy != nil }
         XCTAssertNil(model.busy, "the recordings were being read again beside a job")
         await recorder.letGo()
-        await pulling.value
+        try await within(10, "the pull-down never came back") { await pulling.value }
         try await untilTheRunEnds(model)
+        // The connect asked for beside the job is made once it has ended, and only then.
+        try await until("the connect asked for beside the job was never made once it had ended") {
+            await recorder.asked(Ask.description, since: before) == 1 && !isConnecting(model) && model.busy == nil
+        }
         expectEqual(await recorder.asked(Ask.recordings, since: before), 0, "the recordings were read beside a job")
-        expectEqual(await recorder.asked(Ask.description, since: before), 0)
         XCTAssertEqual(model.job?.changed, [idle[0].id])
     }
 
@@ -1833,6 +1836,34 @@ final class RunGateTests: XCTestCase {
             model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil && !model.jobRunning
         }
         XCTAssertNil(model.job, "what the run came to is shown over a recorder it was not about")
+    }
+
+    /// A run waiting for the app to come back when a look at the network hears another recorder at the address.
+    /// The return asks for a connect while the run has yet to stop -- the app holds no recorder -- which is owed,
+    /// and made as the run ends, and takes the newcomer up. The connect the check set going, which waits for the
+    /// run by hand, is not made on top of it: the newcomer is asked who it is once.
+    func testANewcomerHeardWhileARunWaitedForTheAppIsConnectedToOnceTheAppIsBack() async throws {
+        let (bench, recorder, model, idle) = try await settled()
+        addTeardownBlock { await recorder.letGo() }
+        model.wentToBackground()
+        model.startBulk(.delete, ids: [idle[0].id])
+        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        await recorder.become(2)
+        bench.network = "another"
+        await lookAtTheNetwork(model)
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "the look at the network was meant to hear another recorder, and say so")
+        XCTAssertTrue(model.jobRunning, "the run was meant to be waiting still")
+
+        let before = await recorder.asked
+        try await within(10, "the return waited for the run") { await model.returnedToForeground() }
+        // The run's job goes once its end has been waited for, by the check's own connect if it is made.
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && model.job == nil && !isConnecting(model) && model.busy == nil
+        }
+        expectEqual(await recorder.asked(Ask.description, since: before), 1,
+                    "the newcomer was connected to twice, or not at all")
+        expectEqual(await recorder.asked(Ask.details, since: before), 0, "the run asked the newcomer something")
     }
 
     /// A run waiting for the app to come back when a look at the network wakes the recorder, finds another one

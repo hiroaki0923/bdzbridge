@@ -140,6 +140,9 @@ final class RecorderHost: RecorderLinkHost {
     /// which is not put on that one's screens and is read from it instead.
     private(set) var titleReads = 0
     private(set) var conditionReads = 0
+    /// Counts the connects that reached the recorder (`reached`), so that the connect a check that heard another
+    /// recorder sets going is not made over one that has taken the newcomer up since (`anotherAnsweredTheCheck`).
+    @ObservationIgnored private var timesReached = 0
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     private var accessWatch: Task<Void, Never>?
@@ -344,6 +347,7 @@ final class RecorderHost: RecorderLinkHost {
     func reached() async {
         guard let model else { return }
         let surroundings = model.surroundings
+        timesReached += 1
         if !demo, surroundings.asksAboutNotifications {
             Task {
                 await Notify.allowQuietly()
@@ -359,7 +363,9 @@ final class RecorderHost: RecorderLinkHost {
     /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
     /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
     /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
-    /// beside a job. Said twice: the failure line for whoever asked, which the link writes once this has returned
+    /// beside a job. A connect asked for while that job winds down -- a return to the app -- is owed, and made as
+    /// the job ends (`jobEnded`): where it reached the newcomer, this one is not made on top of it. Said twice: the
+    /// failure line for whoever asked, which the link writes once this has returned
     /// (`RecorderDriver.anotherAnswered`) and the connect takes away, and the strip after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
@@ -367,9 +373,11 @@ final class RecorderHost: RecorderLinkHost {
         anotherTookOver = true
         let model = self.model
         let running = jobTask
+        let reached = timesReached
         Task {
             await running?.value
             self.clearJob()
+            guard self.timesReached == reached else { return }
             await model?.connect()
         }
     }

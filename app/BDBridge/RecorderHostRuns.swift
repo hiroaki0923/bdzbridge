@@ -156,8 +156,16 @@ extension RecorderHost {
         await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
         // the sets were built from recordings that may no longer all be there
         if !said.duplicates.isEmpty { said.recomputeDuplicates() }
+        await jobEnded()
+    }
+
+    /// The job is over: it no longer holds a connect off (`holdsOffConnect`), and a connect turned away while it
+    /// ran -- a return to the app, a look that found another network -- is made now (`DeviceLink.connectIfOwed`),
+    /// as it would have been without the job. The last thing either loop does.
+    private func jobEnded() async {
         job?.finished = true
         jobTask = nil
+        await link.connectIfOwed()
     }
 
     /// Waits, before a bulk job or the scan takes its next step, for as long as the app is in the background.
@@ -278,8 +286,7 @@ extension RecorderHost {
         if let found = try? await store.fixedBlurbs(among: titleKeys) { self.said.fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
         self.said.recomputeDuplicates()
-        job?.finished = true
-        jobTask = nil
+        await jobEnded()
     }
 
     /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and

@@ -99,7 +99,8 @@ final class LinkWorld: RecorderLinkHost {
     }
     func endActivity(_ token: Activities.Token) { lines.end(token) }
     var isBusy: Bool { false }
-    var holdsOffConnect: Bool { false }
+    /// Whether a connect is held off, as an app's is while a job runs: set by a test of a connect turned away.
+    var holdsOffConnect = false
     var isDemo: Bool { false }
     /// The phone's cache, for a test of what is sent from it: none unless a test gives one.
     var cache: GuideStore?
