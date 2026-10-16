@@ -218,8 +218,22 @@ extension RecorderDriver {
     /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
     /// turned away before anything is sent, the result saying why and the line left as it was, and the
     /// recordings are not to be read again for it. The screens do not offer it, but a row can be a few minutes
-    /// old. Then as `protect`: its doors, silence saying that the delete may have arrived, and an answer across a
-    /// let-go, which neither takes the row out nor reads the free space.
+    /// old.
+    ///
+    /// The recorder answers success for an id it no longer has, so the recording is asked about first, as a
+    /// run's delete asks (`delete(_:in:)`), under the same line: something that acts on the recorder is to
+    /// follow, so nothing is asked after a check that heard something in place of the recorder saying which it
+    /// is (`asked`). An id the recorder does not know (UPnP error 820) is an answer: the question went through
+    /// and clears the line, nothing is sent, `keep` takes the row out, the free space is not read, and the
+    /// result says that the recording was deleted already (`ItemCame.gone`), in the result alone, as a
+    /// reservation's delete says a row the recorder does not hold (`Reserved`). Any other refusal of the
+    /// question, and silence on it, end it there with nothing sent: said as a read's are, on the line and in
+    /// the result, and the recordings not to be read again, nothing having changed. Let go of while the
+    /// question was out, nothing is sent and the result says why (`whyLetGo`), whatever it was answered, and
+    /// nothing it met is said on the line.
+    ///
+    /// Then the delete as `protect` sends: its check, silence saying that the delete may have arrived, and an
+    /// answer across a let-go, which neither takes the row out nor reads the free space.
     public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
@@ -229,6 +243,25 @@ extension RecorderDriver {
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         return await link.underALine(Self.deletingTitleLine) { _ in
+            let there = await self.asked(nil, .aWrite(sending: nil), on: link, since: began) { _, client in
+                do {
+                    _ = try await client.titleDetail(id: title.id)
+                    return true
+                } catch let error as any DeviceError where error.failure == .unknownItem {
+                    return false
+                } catch {
+                    // Refused or unanswered once the recorder has been let go of: about that one, and not said
+                    // on the line, which is the newcomer's.
+                    guard !link.letGo(since: began) else { throw TurnedAway(why: self.whyLetGo(on: link)) }
+                    throw error
+                }
+            }
+            guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), false) }
+            guard case .went(let stillThere) = there else { return (self.altered(there, on: link), false) }
+            guard stillThere else {
+                keep()
+                return (.done(saying: ItemCame.gone.reason), false)
+            }
             let came = await self.asked(nil, .aWrite(sending: Self.mayHaveArrived), on: link,
                                         since: began) { _, client -> RecorderClient? in
                 try await client.deleteTitle(id: title.id)
@@ -256,10 +289,16 @@ extension RecorderDriver {
         "レコーダーの電源を入れています（\(seconds) 秒）"
     }
 
+    /// Said when playback, a pause, a stop or the power met silence: something was sent, and whether it arrived
+    /// is not known, which is why it is not sent again; where to look is the television's screen, not a list.
+    public nonisolated static let instructionMayHaveArrived = "指示の途中でレコーダーの応答がなくなりました。"
+        + "届いている場合もあるため、送り直していません。テレビの画面で確かめてください。"
+
     /// Playback happens on the television the recorder is attached to, not here. `operation` is the recorder's own
     /// word: `play`, `pause` or `stop`; `pause` toggles, so the same call resumes.
     ///
-    /// Playing turns a recorder in network standby on first and waits for it (`playTurningItOn`), saying on the
+    /// Playing turns a recorder in network standby on first -- as it usually is, since it keeps answering the LAN
+    /// in standby and is only switched on to be watched -- and waits for it (`playTurningItOn`), saying on the
     /// line how long it has been (`poweringOnLine`). One still not on by the end of the wait, or a pause or a
     /// stop sent to one in standby, answers 880, which the session keeps (`SessionState.needsPower`) for the
     /// sheet to offer to turn it on. What it came to, with its sentence.
@@ -268,8 +307,11 @@ extension RecorderDriver {
     /// the line left as it was; the offer to turn the recorder on is left as it was too, since nothing was asked.
     /// Past the door the offer goes, whatever becomes of the request. Then one operation, as `DeviceLink.run`
     /// makes one, on the client in hand at the door: something that acts on the recorder, so not sent after a
-    /// check that heard something else than the recorder saying which it is (`asked`), but whose silence is said
-    /// as a read's; what the check or a failure said is in the result as well as on the line (`altered`). For
+    /// check that heard something else than the recorder saying which it is (`asked`), and whose silence -- on
+    /// the play itself, the power, a look at the power state, or the play after it, each after something was
+    /// sent -- says that it may have arrived (`instructionMayHaveArrived`), losing the recorder, and across a
+    /// let-go losing nobody, as other writes' silence does; what the check or a failure said is in the result as
+    /// well as on the line (`altered`). For
     /// the recorder in play as it was asked for, as a protect is, the play after the power wait among it: a play
     /// by its number to another recorder would play another recording. The offer is not set by an answer across
     /// a let-go, which is about the recorder let go of.
@@ -281,8 +323,9 @@ extension RecorderDriver {
         }
         let began = link.generation
         link.session.powerNeeded(false)
-        let came = await asked(operation == "stop" ? Self.stoppingLine : Self.playingLine, .aWrite(sending: nil),
-                               on: link, since: began) { line, client in
+        let shown = operation == "stop" ? Self.stoppingLine : Self.playingLine
+        let came = await asked(shown, .aWrite(sending: Self.instructionMayHaveArrived), on: link,
+                               since: began) { line, client in
             do {
                 if operation == "play" {
                     try await self.playTurningItOn(title, on: client, link, since: began, line: line)
@@ -344,7 +387,8 @@ extension RecorderDriver {
             return .notDone(whyNotConnected)
         }
         let began = link.generation
-        let came = await asked(Self.turningOnLine, .aWrite(sending: nil), on: link, since: began) { _, client in
+        let came = await asked(Self.turningOnLine, .aWrite(sending: Self.instructionMayHaveArrived), on: link,
+                               since: began) { _, client in
             _ = try await client.powerOn()
             if !link.letGo(since: began) { link.session.powerNeeded(false) }
         }
@@ -355,7 +399,7 @@ extension RecorderDriver {
 
     /// What is asked through `asked`, for the check before it and for its failure: a read of a list, or
     /// something that acts on the recorder, `sending` being the sentence for its silence -- nil where that is
-    /// said as a read's, for playback and the power.
+    /// said as a read's, for the question a delete asks before it.
     enum Asking {
         case aRead
         case aWrite(sending: String?)

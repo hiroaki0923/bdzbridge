@@ -40,7 +40,9 @@ public struct LinkEnvironment {
     public var slotReadAgainAfter: Duration
     /// How long the slot is waited for before something that names it is sent while it has not answered the disk
     /// known since the recorder last answered (`RecorderDriver.settleTheSlot`), and in the queue's round of the
-    /// clients the link makes: the driver's ten seconds, unless a test gives less.
+    /// clients the link makes: the driver's ten seconds, unless a test gives less. And how long that wait waits
+    /// for a connect under way to attach the recorder, or a check out to end, before it reads
+    /// (`SlotSettling.connect`), as a clash check waits for them before it asks (`RecorderDriver.conflicts`).
     public var slotSettling: SlotSettling
 
     public init(transport: @escaping (_ host: String) -> any HTTPTransport,

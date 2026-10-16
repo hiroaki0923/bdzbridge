@@ -433,8 +433,13 @@ extension DemoRecorder {
         return String(xml[open.lowerBound..<close.upperBound])
     }
 
+    /// The element with its `id` attribute set to `id`, the attribute put in where the element has none: a
+    /// keyword condition is created with no id at all, and is listed with the one the create answers.
     private static func setting(id: String, in element: String) -> String {
-        guard let quote = element.range(of: "id=\"") else { return element }
+        guard let opening = element.firstIndex(of: ">") else { return element }
+        guard let quote = element.range(of: "id=\"", range: element.startIndex..<opening) else {
+            return element.replacingCharacters(in: opening..<opening, with: " id=\"\(id)\"")
+        }
         let rest = element[quote.upperBound...]
         let end = rest.firstIndex(of: "\"") ?? rest.endIndex
         return element.replacingCharacters(in: quote.upperBound..<end, with: id)

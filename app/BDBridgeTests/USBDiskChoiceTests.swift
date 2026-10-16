@@ -21,16 +21,29 @@ final class USBDiskChoiceTests: XCTestCase {
     /// as the demo's does after that, which is none. `readAgainAfter` is how long an attach that finds none
     /// while a disk is known waits before reading the slot again. The slot is waited for, before something that
     /// names it is sent while the disk is kept, as the app waits for it in seconds, in milliseconds: six reads.
+    /// With `sent`, each client the model makes reaches the recorder by a way of its own, which puts down there
+    /// what it sent (`ThroughClient`). `connectFor` is how long that wait waits for a connect under way, the app's
+    /// unless given, and `every` how often it reads the slot again and looks again for a connect or a check, five
+    /// milliseconds unless given; `wakeable` saves the MAC the recorder's UDN carries, which the model sends
+    /// nothing to.
     private func connected(answering slot: String = USBDiskTests.slot(), times: Int = 1000,
-                           readAgainAfter: Duration = RecorderDriver.slotReadAgainAfter) async throws
+                           readAgainAfter: Duration = RecorderDriver.slotReadAgainAfter,
+                           numbering sent: SentByClient? = nil, wakeable: Bool = false,
+                           every interval: Duration = .milliseconds(5),
+                           connectFor: Duration = SlotSettling.aConnect) async throws
         -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
         let bench = try aBench()
         try await bench.cacheAGuide()
+        if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
         bench.slotReadAgainAfter = readAgainAfter
-        bench.slotSettling = SlotSettling(every: .milliseconds(5), for: .milliseconds(25))
+        bench.slotSettling = SlotSettling(every: interval, for: .milliseconds(25), connectFor: connectFor)
         let recorder = NamedRecorder(1)
         await recorder.answer("X_GetMediaInfo", with: .result(slot), times: times)
-        let model = bench.model(recorders: [Bench.host: recorder])
+        let model = if let sent {
+            bench.model(clientByClient: { ThroughClient(client: $0, recorder: recorder, sent: sent) })
+        } else {
+            bench.model(recorders: [Bench.host: recorder])
+        }
         await model.start()
         try await untilConnected(model)
         return (bench, recorder, model)
@@ -339,6 +352,852 @@ final class USBDiskChoiceTests: XCTestCase {
         }
     }
 
+    /// A clash check for a kept disk, waiting for the slot, while a connect to the same recorder is made beside
+    /// it whose attach reads the slot on a client of its own and finds none either, the disk still kept and
+    /// waited for: the wait goes on on the connect's client, not on the one it began with, and what that one
+    /// met is nothing. The slot answering the disk there, the disk is had, as the slot's answer on the client the
+    /// link holds is, and the clashes are asked.
+    func testAClashChecksWaitForTheSlotGoesOnOnTheConnectsClient() async throws {
+        let (bench, recorder, model, checking, program, sent) =
+            try await aClashCheckWaitingForTheSlotBesideAConnect(finding: false)
+        // The held read answers none as it is let go; the next read of the slot answers the disk.
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()), after: 1)
+        leaveALine(on: model)
+        let afterTheConnect = await recorder.asked
+        let sentBefore = await sent.sent.count
+        await recorder.letGo()
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
+
+        XCTAssertNil(model.diskNotHad, "the disk was taken as not had with the connect's client still to be asked")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft,
+                       "something was said with the connect's client still to be asked")
+        expectEqual(await recorder.asked(Ask.slot, since: afterTheConnect), 1,
+                    "the slot was not read on the connect's client once the held read was back")
+        expectEqual(await sent.clients(sending: Ask.slot, since: sentBefore), [bench.clientsMade],
+                    "the slot was read again on the client the connect replaced")
+        expectEqual(await recorder.asked("X_GetConflictList", since: afterTheConnect), 1,
+                    "the clashes were not asked once the slot had answered the disk")
+        XCTAssertNotNil(clashes, "a clash check whose slot answered the disk handed back nothing")
+        XCTAssertTrue(model.connected)
+
+        let again = await recorder.asked
+        _ = await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        expectEqual(await recorder.asked(Ask.slot, since: again), 0,
+                    "the disk the slot answered on the connect's client was not kept")
+    }
+
+    /// A clash check for a kept disk, waiting for the slot, while a connect finds another recorder at the address,
+    /// whose attach finds no USB disk: what the wait came to is about the recorder let go of, and nothing of it
+    /// is put down in the session, which is the newcomer's, or said on its line, and no clashes are asked.
+    func testAClashChecksWaitForTheSlotAcrossALetGoPutsNothingDown() async throws {
+        let (_, recorder, model, checking, _, _) =
+            try await aClashCheckWaitingForTheSlotBesideAConnect(becoming: 2, finding: false)
+        XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
+        leaveALine(on: model)
+        let afterTheConnect = await recorder.asked
+        await recorder.letGo()
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
+
+        XCTAssertNil(model.diskNotHad, "the newcomer was told a disk of the recorder let go of cannot be had")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+        expectNil(clashes, "a clash check across a let-go handed back an answer")
+        expectEqual(await recorder.asked("X_GetConflictList", since: afterTheConnect), 0,
+                    "the last recorder's clash check was asked across the let-go")
+    }
+
+    /// A clash check for a kept disk, waiting for the slot, while a connect to the same recorder is made beside
+    /// it -- a return to the app, 再接続 -- whose attach reads the slot itself on a client of its own and finds
+    /// the disk: the wait ends at its next read, and the client it began with is asked nothing more. What that
+    /// client then met is not the recorder's: the slot's read held through the connect and let go answering
+    /// none, nothing more is read; let go into silence, the recorder is not lost and nothing is said. Either way
+    /// the disk the connect's attach answered is what the slot says, and is not said to be unavailable.
+    func testAClashChecksWaitForTheSlotEndsOnceAConnectHasAClientOfItsOwn() async throws {
+        for silent in [false, true] {
+            let how = silent ? "the held read met silence" : "the held read answered none"
+            let (_, recorder, model, checking, _, _) = try await aClashCheckWaitingForTheSlotBesideAConnect()
+            if silent { await recorder.answer(Ask.slot, with: .silence) }
+            leaveALine(on: model)
+            let afterTheConnect = await recorder.asked
+            await recorder.letGo()
+            _ = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+
+            expectEqual(await recorder.asked(Ask.slot, since: afterTheConnect), 0,
+                        "the slot was read again on the client the connect replaced, \(how)")
+            XCTAssertTrue(model.connected, "what the replaced client met lost the recorder, \(how)")
+            XCTAssertFalse(model.gaveUp, how)
+            XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "the replaced client's silence was said")
+            XCTAssertNil(model.diskNotHad, "the disk the connect's attach answered was taken as not had, \(how)")
+        }
+    }
+
+    /// A clash check that waited for the slot beside a connect is asked on the client the link holds once the
+    /// wait is over -- the connect's, whose attach has answered the disk -- and not on the one it began with:
+    /// silence on it is the recorder's, which is lost and said. And with another recorder described by that
+    /// connect, nothing is asked at all: the programme was the last recorder's to be checked against.
+    func testAClashCheckAfterTheSlotsWaitIsAskedOnTheClientTheLinkHoldsAndNotAcrossALetGo() async throws {
+        let (_, recorder, model, checking, _, _) = try await aClashCheckWaitingForTheSlotBesideAConnect()
+        await recorder.goQuiet(on: "X_GetConflictList")
+        await recorder.letGo()
+        let met = try await within(10, "the clash check that met silence never ended") { await checking.value }
+        expectNil(met, "a clash check that met silence handed back an answer")
+        XCTAssertTrue(model.gaveUp, "silence on the client the link holds was not taken for the recorder's")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence on the clash check was not said")
+
+        let (_, another, letGo, asking, _, _) = try await aClashCheckWaitingForTheSlotBesideAConnect(becoming: 2)
+        XCTAssertEqual(letGo.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
+        leaveALine(on: letGo)
+        let afterTheConnect = await another.asked
+        await another.letGo()
+        let across = try await within(10, "the clash check across a let-go never ended") { await asking.value }
+        expectNil(across, "a clash check across a let-go handed back an answer")
+        expectEqual(await another.asked("X_GetConflictList", since: afterTheConnect), 0,
+                    "the last recorder's clash check was asked across the let-go")
+        XCTAssertEqual(letGo.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+    }
+
+    /// A clash check for the internal disk -- with nothing to wait for on the slot's account -- asked while a
+    /// connect to the same recorder is under way beside it, held at its probe, which makes a client of its own
+    /// that has yet to hear which recorder answers it: nothing is asked on that client until the connect has
+    /// attached the recorder there -- not while the probe is out, nor, with a MAC kept and the probe met by
+    /// silence, while the recorder is woken, when a request to it meets silence as well -- and nobody gives the
+    /// recorder up or says that it did not answer. Once the connect has attached it, the clashes are asked on its
+    /// client, once.
+    func testAClashCheckBesideAConnectIsAskedOnlyOnceTheConnectHasAttachedTheRecorder() async throws {
+        for waking in [false, true] {
+            let how = waking ? "the connect waking the recorder" : "the connect's probe answered"
+            let (recorder, model, checking, connecting, scene) =
+                try await aClashCheckBesideAConnectHeldAtItsProbe(wakeable: waking)
+            if waking {
+                // Silent to the probe; the waking's first ask, which the recorder answers, is held in its turn.
+                await recorder.goQuiet(on: Ask.description)
+                await recorder.letTheFirstGo(of: Ask.description)
+                try await until("the recorder was never woken") {
+                    await recorder.asked(Ask.description, since: scene.before) == 2
+                }
+            }
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 0,
+                        "the clashes were asked before the connect had attached the recorder, \(how)")
+            XCTAssertFalse(model.gaveUp, "the recorder was given up on before the connect had attached it, \(how)")
+            XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "no answer was said mid-connect, \(how)")
+
+            // Up from here on: the clash check is answered as the demo answers it.
+            await recorder.answer("X_GetConflictList", with: .result(""))
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            let asked = await scene.sent.sent.dropFirst(scene.sentBefore).filter { $0.client == scene.connects }
+                .map(\.what)
+            let clash = try XCTUnwrap(asked.firstIndex(of: "X_GetConflictList"),
+                                      "the clashes were never asked on the connect's client, \(how): \(asked)")
+            let freeSpace = try XCTUnwrap(asked.firstIndex(of: Ask.freeSpace), "the connect never attached: \(asked)")
+            XCTAssertGreaterThan(clash, freeSpace,
+                                 "the clashes were asked on the connect's client before its attach, \(how): \(asked)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 1, "the clashes were not asked once, \(how)")
+            XCTAssertNotNil(clashes, "a clash check beside a connect that attached the recorder handed back nothing, \(how)")
+            XCTAssertTrue(model.connected, how)
+            XCTAssertFalse(model.gaveUp, "the recorder was given up on, \(how)")
+            XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "no answer was said, \(how)")
+        }
+    }
+
+    /// The same clash check beside a connect that does not attach the recorder the sheet opened for: silent to its
+    /// probe, with no MAC to wake it by; answered there by something that is not a recorder; or answered by
+    /// another recorder, which lets the first go and is attached in its place. The connect has said why, or the
+    /// line is the newcomer's: nothing is asked and nothing said, and the sheet is handed no clashes.
+    func testAClashCheckBesideAConnectThatDoesNotAttachTheRecorderAsksAndSaysNothing() async throws {
+        for end in ["silence", "something else", "another recorder"] {
+            let how = "the connect answered by \(end)"
+            let (recorder, model, checking, connecting, scene) = try await aClashCheckBesideAConnectHeldAtItsProbe()
+            switch end {
+            case "silence": await recorder.goQuiet(on: Ask.description)
+            case "something else": await recorder.answer(Ask.description, with: .status(404))
+            default: await recorder.become(2)
+            }
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            expectNil(clashes, "a clash check beside a connect that did not attach the recorder handed back an answer")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 0, how)
+            switch end {
+            case "silence":
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the connect's line was not left, \(how)")
+                XCTAssertTrue(model.gaveUp, how)
+            case "something else":
+                XCTAssertEqual(model.problem(for: .recorder), RecorderError.notARecorder(host: Bench.host).explanation,
+                               "the connect's line was not left, \(how)")
+                XCTAssertFalse(model.gaveUp, how)
+            default:
+                XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), "the connect was meant to take up another recorder")
+                XCTAssertTrue(model.connected, how)
+                XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "something was said, \(how)")
+            }
+        }
+    }
+
+    /// A programme's sheet opened once a connect has left the recorder connected without attaching it on the
+    /// connect's own client: the recorder answered that connect busy with somebody else, or something else
+    /// answered at its address. No client the recorder was attached on is in hand: nothing is asked, nothing is
+    /// said over the connect's line, and the sheet is handed no clashes.
+    func testAClashCheckAfterAConnectThatLeftTheRecorderUnattachedAsksAndSaysNothing() async throws {
+        for end in ["busy", "something else"] {
+            let how = "the connect answered \(end)"
+            let (_, recorder, model) = try await connected()
+            let program = try await programmesNotReserved(model, 1)[0]
+            if end == "busy" {
+                await recorder.busyAtTheDoor()
+            } else {
+                await recorder.answer(Ask.description, with: .status(404), times: 1000)
+            }
+            try await within(10, "the connect never ended, \(how)") { await model.connect() }
+            XCTAssertTrue(model.connected, "the connect was meant to leave the recorder connected, \(how)")
+            let line = model.problem(for: .recorder)
+            XCTAssertNotNil(line, "the connect was meant to say why it did not attach the recorder, \(how)")
+            let before = await recorder.asked
+            let clashes = try await within(10, "the clash check never ended, \(how)") {
+                await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+            }
+
+            expectNil(clashes, "a clash check with no client the recorder was attached on handed back an answer")
+            expectEqual(await recorder.asked("X_GetConflictList", since: before), 0, how)
+            XCTAssertEqual(model.problem(for: .recorder), line, "something was said over the connect's line, \(how)")
+            XCTAssertTrue(model.connected, how)
+        }
+    }
+
+    /// A clash check for the internal disk asked while a connect is under way, held at its probe, which then
+    /// attaches the recorder, and the check before another operation begins on the connect's client before the
+    /// clash check looks again, its probe held: the clash check waits for that check too, as the slot's wait does.
+    /// That check still out past the time the clash check waits for one, nothing is asked. Met by silence, with no
+    /// MAC to wake the recorder by, it loses the recorder and says so: nothing is asked, and nothing more said.
+    func testAClashCheckWaitingForAnotherCheckAsksNothingPastItsTimeOrOnceThatCheckHasLostTheRecorder()
+        async throws {
+        for past in [true, false] {
+            let how = past ? "the other check out past the time" : "the other check met by silence"
+            // Looking again every five seconds, so that the other check begins between two looks, seconds away
+            // from either.
+            let (_, recorder, model) = try await connected(every: .seconds(5),
+                                                           connectFor: past ? .seconds(10) : SlotSettling.aConnect)
+            addTeardownBlock { await recorder.letGo() }
+            let program = try await programmesNotReserved(model, 1)[0]
+            let before = await recorder.asked
+            await recorder.hold(only: Ask.description)
+            let connecting = Task { await model.connect() }
+            try await until("the connect never asked who answers") {
+                await recorder.asked(Ask.description, since: before) == 1
+            }
+            let checking = Task {
+                await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+            }
+            // Long enough for the clash check to have looked once, and three seconds short of its next look.
+            try await Task.sleep(for: .seconds(2))
+            await recorder.letGo()
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+            XCTAssertTrue(model.connected, "the connect was meant to attach the recorder, \(how)")
+            let described = await recorder.asked(Ask.description, since: before)
+            await recorder.holdTheNext(Ask.description)
+            let makingSure = Task { await makeSure(model) }
+            try await until("the other check never asked who answers") {
+                await recorder.asked(Ask.description, since: before) == described + 1
+            }
+            if !past {
+                await recorder.goQuiet(on: Ask.description)
+                await recorder.letGo()
+                let sure = try await within(10, "the other check never ended") { await makingSure.value }
+                XCTAssertFalse(sure, "the other check was meant to meet silence")
+            }
+            let clashes = try await within(15, "the clash check never ended, \(how)") { await checking.value }
+
+            expectNil(clashes, "a clash check handed back an answer, \(how)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: before), 0, how)
+            if past {
+                XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still, \(how)")
+                XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "something was said, \(how)")
+                await recorder.letGo()
+                _ = try await within(10, "the other check never ended") { await makingSure.value }
+            } else {
+                XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the other check's line was not left")
+                XCTAssertTrue(model.gaveUp)
+            }
+        }
+    }
+
+    /// A clash check for a kept disk asked while the check before another operation is out, its probe held, and
+    /// so waiting for that check's answer, when the recorder is let go of -- as a check that hears another recorder
+    /// at the address lets it go -- and connected to again, the same recorder answering, whose attach keeps the
+    /// disk unanswered. The probe then answers: the recorder is there. The newcomer's slot answers none each time
+    /// it is read, but the programme was to be checked against the recorder in play when the sheet opened, and that
+    /// one was let go of: nothing is said over the newcomer's line, no clashes are asked, and the sheet is handed
+    /// none.
+    func testAClashCheckAcrossALetGoMadeWhileTheCheckBeforeItIsOutSaysNothing() async throws {
+        let (_, recorder, model) = try await connected(times: 1)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk was meant to be kept through an answer of none")
+        let program = try await programmesNotReserved(model, 1)[0]
+        // A disk put down as not had, which the clash check forgets as it begins: the sign that it has.
+        _ = try await within(10, "the first clash check never ended") {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        XCTAssertNotNil(model.diskNotHad, "the first clash check was meant to find the disk not had")
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.description)
+        let makingSure = Task { await makeSure(model) }
+        try await until("the other check never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertTrue(isMakingSure(model), "the other check was meant to be out")
+        let checking = Task {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the clash check never began") { model.diskNotHad == nil }
+        model.forgetTheRecorder()
+        try await within(10, "the connect never ended") { await model.connect() }
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the connect was meant to keep the disk unanswered")
+        XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still")
+        leaveALine(on: model)
+        let afterTheConnect = await recorder.asked
+        await recorder.letGo()
+        let sure = try await within(10, "the other check never ended") { await makingSure.value }
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
+
+        XCTAssertTrue(sure, "the other check's probe was meant to find the recorder there")
+        expectNil(clashes, "a clash check across a let-go handed back an answer")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said on the newcomer's line")
+        expectEqual(await recorder.asked(Ask.slot, since: afterTheConnect), 6,
+                    "the newcomer's slot was meant to be read, and answer none, the six times the wait reads it")
+        expectEqual(await recorder.asked("X_GetConflictList", since: before), 0,
+                    "the last recorder's clash check was asked across the let-go")
+    }
+
+    /// A model connected to a recorder whose slot answers the disk, with a connect to the same recorder made beside
+    /// it, every ask of who answers held, which makes a client of its own; then a clash check for the internal
+    /// disk, a programme no reservation holds, asked while that connect's probe is out. With `wakeable` a MAC is
+    /// kept, for a connect silent to its probe to wake the recorder, and the recorder, asleep, is silent to the
+    /// clash check until a test says otherwise. Handed back with the check and the connect still out, and where
+    /// the scene stands; whatever is held is let go as the test ends.
+    private func aClashCheckBesideAConnectHeldAtItsProbe(wakeable: Bool = false) async throws
+        -> (recorder: NamedRecorder, model: AppModel, checking: Task<[Reservation]?, Never>,
+            connecting: Task<Void, Never>, scene: BesideAConnect) {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(numbering: sent, wakeable: wakeable)
+        addTeardownBlock { await recorder.letGo() }
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.hold(only: Ask.description)
+        let made = bench.clientsMade
+        leaveALine(on: model)
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        if wakeable { await recorder.answer("X_GetConflictList", with: .silence) }
+        let sentBefore = await sent.sent.count
+        let checking = Task {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
+        }
+        // Long enough for the clash check to have been asked, had it gone at once.
+        try await Task.sleep(for: .milliseconds(300))
+        return (recorder, model, checking, connecting,
+                BesideAConnect(before: before, sentBefore: sentBefore, sent: sent, connects: made + 1))
+    }
+
+    /// A model whose recorder's disk is kept through an answer of none, with a clash check for the disk waiting for
+    /// the slot, the slot's next read held on the client in hand, and a connect made beside it and let end, whose
+    /// own read of the slot answers the disk, or with `finding` false none, as the demo's does; with `becoming`,
+    /// the recorder at the address is another one by then. Any programme of the guide serves: nothing turns on
+    /// which. The check is handed back still out, with its programme and what each client sent; whatever is held
+    /// is let go as the test ends.
+    private func aClashCheckWaitingForTheSlotBesideAConnect(becoming last: Int? = nil,
+                                                            finding: Bool = true) async throws
+        -> (bench: Bench, recorder: NamedRecorder, model: AppModel, checking: Task<[Reservation]?, Never>,
+            program: GuideProgramRow, sent: SentByClient) {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(times: 1, numbering: sent)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk was meant to be kept through an answer of none")
+        let found = await model.search("サンプル").hits.first?.program
+        let program = try XCTUnwrap(found, "the cached guide had no programme")
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let checking = Task { await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD") }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        if finding { await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot())) }
+        if let last { await recorder.become(last) }
+        let made = bench.clientsMade
+        await reconnect(model)
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        expectEqual(await recorder.asked(Ask.slot, since: before), 2, "the connect's attach did not read the slot")
+        XCTAssertEqual(model.usbDisk, finding || last == nil ? USBDiskTests.disk : nil,
+                       "the connect's attach was meant to answer the disk, or for a newcomer none")
+        return (bench, recorder, model, checking, program, sent)
+    }
+
+    /// A clash check for a kept disk, waiting for the slot, while a connect to the same recorder is made beside it
+    /// and held at its probe, which makes a client of its own that has yet to hear which recorder answers it: the
+    /// wait reads nothing on that client until the connect has attached the recorder there -- not while the
+    /// probe is out, nor, with a MAC kept and the probe met by silence, while the recorder is woken. The read the
+    /// client the connect replaced had out answers none, which is not taken for the recorder's, and nobody gives
+    /// the recorder up. Once the connect has attached it, the slot answering the disk, the disk is had and the
+    /// clashes are asked.
+    func testAClashChecksWaitForTheSlotReadsOnAConnectsClientOnlyOnceItHasAttachedTheRecorder() async throws {
+        for waking in [false, true] {
+            let how = waking ? "the connect waking the recorder" : "the connect's probe answered"
+            let (_, recorder, model, checking, connecting, scene) =
+                try await waitingForTheSlotBesideAConnectHeldAtItsProbe(wakeable: waking) { model, program in
+                    await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+                }
+            if waking {
+                // Silent to the probe; the waking's first ask, which the recorder answers, is held in its turn.
+                await recorder.answer(Ask.slot, with: .silence)
+                await recorder.goQuiet(on: Ask.description)
+                await recorder.letTheFirstGo(of: Ask.description)
+                try await until("the recorder was never woken") {
+                    await recorder.asked(Ask.description, since: scene.before) == 2
+                }
+                expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
+                            "the slot was read on the connect's client while it woke the recorder")
+                XCTAssertFalse(model.gaveUp, "the recorder was given up on while the connect woke it")
+            }
+            // The slot answers the disk from here on.
+            await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()), times: 1000)
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            let asked = await scene.sent.sent.dropFirst(scene.sentBefore).filter { $0.client == scene.connects }
+                .map(\.what)
+            let slot = try XCTUnwrap(asked.firstIndex(of: Ask.slot), "the slot was never read again, \(how): \(asked)")
+            let freeSpace = try XCTUnwrap(asked.firstIndex(of: Ask.freeSpace), "the connect never attached: \(asked)")
+            XCTAssertGreaterThan(slot, freeSpace,
+                                 "the slot was read on the connect's client before its attach, \(how): \(asked)")
+            XCTAssertNotNil(clashes, "a clash check whose slot answered the disk handed back nothing, \(how)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 1,
+                        "the clashes were not asked once, \(how)")
+            XCTAssertTrue(model.connected, how)
+            XCTAssertFalse(model.gaveUp, "the recorder was given up on, \(how)")
+            XCTAssertNil(model.diskNotHad, "the disk was taken as not had, \(how)")
+        }
+    }
+
+    /// The same wait, with the connect beside it not attaching the recorder: silent to its probe, with no MAC to
+    /// wake it by, or answered there by something that is not a recorder. The connect has said why, and the wait
+    /// ends with nothing read on the connect's client and nothing said over that line: the disk is not taken as
+    /// not had, and no clashes are asked.
+    func testAClashChecksWaitForTheSlotEndsUnsaidOnAConnectThatDoesNotAttachTheRecorder() async throws {
+        for stranger in [false, true] {
+            let how = stranger ? "something else answering the connect" : "the connect met by silence"
+            let (_, recorder, model, checking, connecting, scene) =
+                try await waitingForTheSlotBesideAConnectHeldAtItsProbe { model, program in
+                    await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+                }
+            if stranger {
+                await recorder.answer(Ask.description, with: .status(404))
+            } else {
+                await recorder.goQuiet(on: Ask.description)
+            }
+            await recorder.letGo()
+            let clashes = try await within(10, "the clash check never ended, \(how)") { await checking.value }
+            try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+            let line = stranger ? RecorderError.notARecorder(host: Bench.host).explanation : Said.noAnswer
+            XCTAssertEqual(model.problem(for: .recorder), line, "the connect's line was not left as it said it, \(how)")
+            expectNil(clashes, "a clash check beside a connect that did not attach the recorder handed back an answer")
+            expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
+                        "the slot was read on a client the recorder was never attached on, \(how)")
+            expectEqual(await recorder.asked("X_GetConflictList", since: scene.before), 0, how)
+            XCTAssertNil(model.diskNotHad, "the disk was taken as not had, \(how)")
+            XCTAssertEqual(model.gaveUp, !stranger, how)
+        }
+    }
+
+    /// A reservation to a kept disk, waiting for the slot beside a connect that something else at the address
+    /// answers: nothing was sent, and it is kept on the phone, as when the recorder is silent at that moment, the
+    /// connect's line standing as it said it.
+    func testAReservationWaitingForTheSlotBesideAConnectThatDoesNotAttachTheRecorderIsKept() async throws {
+        let (_, recorder, model, reserving, connecting, scene) =
+            try await waitingForTheSlotBesideAConnectHeldAtItsProbe { model, program in
+                await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+            }
+        await recorder.answer(Ask.description, with: .status(404))
+        await recorder.letGo()
+        let came = try await within(10, "the reservation never came back") { await reserving.value }
+        try await within(10, "the connect never ended") { await connecting.value }
+
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation beside a connect that did not attach the recorder was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
+        XCTAssertEqual(model.problem(for: .recorder), RecorderError.notARecorder(host: Bench.host).explanation,
+                       "something was said over the connect's line")
+        expectEqual(await recorder.asked(Ask.create, since: scene.before), 0)
+        expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
+                    "the slot was read on a client the recorder was never attached on")
+    }
+
+    /// A reservation to a kept disk, waiting for the slot beside a connect held at its probe for longer than the
+    /// wait waits for a connect: the wait gives up, which the result says, nothing read on the connect's client,
+    /// nothing sent or kept, and the line left to the connect.
+    func testAWaitForTheSlotGivesUpOnAConnectStillUnderWayPastItsTime() async throws {
+        let (_, recorder, model, reserving, connecting, scene) =
+            try await waitingForTheSlotBesideAConnectHeldAtItsProbe(connectFor: .milliseconds(100)) { model, program in
+                await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+            }
+        let came = try await within(5, "the wait for the slot did not give up on the connect") {
+            await reserving.value
+        }
+
+        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        XCTAssertTrue(isConnecting(model), "the connect was meant to be under way still")
+        XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said over the connect's line")
+        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
+        expectEqual(await recorder.asked(Ask.create, since: scene.before), 0)
+        expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
+                    "the slot was read on the client of a connect still under way")
+        await recorder.letGo()
+        try await within(10, "the connect never ended") { await connecting.value }
+    }
+
+    /// A reservation to a kept disk whose wait for the slot has its last read out when a connect to the same
+    /// recorder replaces the client it went on, the connect's own read of the slot answering none with the disk
+    /// kept: the six reads are spent, the last of them on a client the link has left, so the slot was never heard
+    /// to answer none to the last of them. The wait ends as given up, which the result says, and not as a disk
+    /// that cannot be had; nothing is sent or kept.
+    func testAWaitForTheSlotWhoseLastReadAConnectOvertookEndsAsGivenUp() async throws {
+        let (_, recorder, model) = try await connected(times: 1)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.hold(only: Ask.slot)
+        let reserving = Task {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        for read in 1...5 {
+            try await until("the slot's read \(read) never came") { await recorder.asked(Ask.slot, since: before) == read }
+            await recorder.letTheFirstGo(of: Ask.slot)
+        }
+        try await until("the last read never came") { await recorder.asked(Ask.slot, since: before) == 6 }
+        let connecting = Task { await model.connect() }
+        try await until("the connect's attach never read the slot") {
+            await recorder.asked(Ask.slot, since: before) == 7
+        }
+        await recorder.letGo(only: Ask.slot)
+        let came = try await within(10, "the reservation never came back") { await reserving.value }
+        try await within(10, "the connect never ended") { await connecting.value }
+
+        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        XCTAssertNil(model.diskNotHad, "the disk was taken as not had on a read the link had left")
+        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
+        expectEqual(await recorder.asked(Ask.create, since: before), 0)
+        expectEqual(await recorder.asked(Ask.slot, since: before), 7, "the slot was read after the six")
+    }
+
+    /// A clash check for a kept disk, waiting for the slot, while the check before another operation -- a look at
+    /// a changed network, another sheet -- makes sure of the recorder on the client the wait reads on, its probe
+    /// met by silence and the recorder woken, with a MAC kept: the wait reads nothing while that check is out,
+    /// says nothing and gives nobody up, and once the waking has attached the recorder, whose attach answers the
+    /// disk, the disk is had and the clashes are asked.
+    func testAClashChecksWaitForTheSlotReadsNothingWhileAnotherChecksWakingIsOut() async throws {
+        let (_, recorder, model) = try await connected(times: 1, wakeable: true)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk was meant to be kept through an answer of none")
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let checking = Task {
+            await model.conflicts(for: program, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        // The other check's probe, which goes behind the held read, is silent; the waking's asks are held.
+        await recorder.hold(only: Ask.description)
+        await recorder.goQuiet(on: Ask.description)
+        let makingSure = Task { await makeSure(model) }
+        try await until("the other check never began") { isMakingSure(model) }
+        await recorder.letGo(only: Ask.slot)
+        try await until("the other check never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        await recorder.letTheFirstGo(of: Ask.description)
+        try await until("the recorder was never woken") {
+            await recorder.asked(Ask.description, since: before) == 2
+        }
+
+        expectEqual(await recorder.asked(Ask.slot, since: before), 1,
+                    "the slot was read beside the other check's probe or its waking")
+        XCTAssertTrue(model.settlingTheSlot, "the wait ended while the other check woke the recorder")
+        XCTAssertFalse(model.gaveUp, "the recorder was given up on while the other check woke it")
+
+        // The slot answers the disk from here on.
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()), times: 1000)
+        await recorder.letGo()
+        let sure = try await within(10, "the other check never ended") { await makingSure.value }
+        let clashes = try await within(10, "the clash check never ended") { await checking.value }
+
+        XCTAssertTrue(sure, "the waking was meant to attach the recorder")
+        XCTAssertNotNil(clashes, "a clash check whose slot the waking's attach answered handed back nothing")
+        expectEqual(await recorder.asked("X_GetConflictList", since: before), 1, "the clashes were not asked once")
+        expectEqual(await recorder.asked(Ask.slot, since: before), 2,
+                    "the slot was read other than by the held read and the waking's attach")
+        XCTAssertTrue(model.connected)
+        XCTAssertFalse(model.gaveUp, "the recorder was given up on")
+        XCTAssertNotEqual(model.problem(for: .recorder), Said.noAnswer, "the other check's silence was said")
+        XCTAssertNil(model.diskNotHad, "the disk the waking's attach answered was taken as not had")
+    }
+
+    /// A reservation to a kept disk, waiting for the slot while the check before another operation is out on the
+    /// client it reads on, its probe held for longer than the wait waits for one: the wait gives up, which the
+    /// result says, with nothing more read, sent or kept.
+    func testAWaitForTheSlotGivesUpOnAnotherCheckStillOutPastItsTime() async throws {
+        let (_, recorder, model) = try await connected(times: 1, connectFor: .milliseconds(100))
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let reserving = Task {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        await recorder.hold(only: Ask.description)
+        let makingSure = Task { await makeSure(model) }
+        try await until("the other check never began") { isMakingSure(model) }
+        await recorder.letGo(only: Ask.slot)
+        let came = try await within(5, "the wait for the slot did not give up on the other check") {
+            await reserving.value
+        }
+
+        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still")
+        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
+        expectEqual(await recorder.asked(Ask.create, since: before), 0)
+        expectEqual(await recorder.asked(Ask.slot, since: before), 1, "the slot was read beside the other check")
+        await recorder.letGo()
+        _ = try await within(10, "the other check never ended") { await makingSure.value }
+    }
+
+    /// A change moving a reservation to a kept disk, and a condition to it, each waiting for the slot beside a
+    /// connect that does not attach the recorder: silent to its probe, with no MAC to wake it by, or answered there
+    /// by something that is not a recorder. The connect has said why, and each hands back that sentence and says
+    /// nothing over it: nothing is sent, nothing is read on the connect's client, and the disk is not taken as not
+    /// had.
+    func testAChangeAndAConditionWaitingForTheSlotBesideAConnectThatDoesNotAttachTheRecorderSayWhatItSaid()
+        async throws {
+        for stranger in [false, true] {
+            for condition in [false, true] {
+                let how = (condition ? "a condition" : "a change")
+                    + (stranger ? ", something else answering the connect" : ", the connect met by silence")
+                let (_, recorder, model, asking, connecting, scene) =
+                    try await waitingForTheSlotBesideAConnectHeldAtItsProbe(reserved: !condition) { model, program in
+                        if condition { return await addACondition(model, Self.condition(to: "USBHDD")) }
+                        guard let row = model.reservation(for: program) else { return true }
+                        return await changeOnTheRecorder(model, row, quality: "DR", repeating: "none", disk: "USBHDD")
+                    }
+                if stranger {
+                    await recorder.answer(Ask.description, with: .status(404))
+                } else {
+                    await recorder.goQuiet(on: Ask.description)
+                }
+                await recorder.letGo()
+                let done = try await within(10, "\(how) never came back") { await asking.value }
+                try await within(10, "the connect never ended, \(how)") { await connecting.value }
+
+                let line = stranger ? RecorderError.notARecorder(host: Bench.host).explanation : Said.noAnswer
+                XCTAssertFalse(done, "\(how) went through, or found no reservation to change")
+                XCTAssertEqual(whyNotJustNow(model), line, "\(how) handed back other than what the connect said")
+                XCTAssertEqual(model.problem(for: .recorder), line,
+                               "something was said over the connect's line, \(how)")
+                XCTAssertNil(model.diskNotHad, "the disk was taken as not had, \(how)")
+                expectEqual(await recorder.asked(condition ? "X_CreatePrefRecSetting" : "X_UpdateRecordSchedule",
+                                                 since: scene.before), 0, how)
+                expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
+                            "the slot was read on a client the recorder was never attached on, \(how)")
+            }
+        }
+    }
+
+    /// A reservation to a kept disk waiting for the slot while the check before another operation makes sure of
+    /// the recorder, which is silent to it, with no MAC to wake it by: that check has lost the recorder and said
+    /// so, and the wait ends there with nothing more read, nothing put down and nothing said, the reservation kept
+    /// on the phone as when the recorder is silent at that moment.
+    func testAWaitForTheSlotEndsUnsaidOnAnotherCheckThatDoesNotFindTheRecorder() async throws {
+        let (_, recorder, model) = try await connected(times: 1)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let reserving = Task {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        // The other check's probe, which goes behind the held read, meets silence.
+        await recorder.goQuiet(on: Ask.description)
+        let makingSure = Task { await makeSure(model) }
+        try await until("the other check never began") { isMakingSure(model) }
+        await recorder.letGo()
+        let sure = try await within(10, "the other check never ended") { await makingSure.value }
+        let came = try await within(10, "the reservation never came back") { await reserving.value }
+
+        XCTAssertFalse(sure, "the other check was meant to find the recorder silent")
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation beside a check that lost the recorder was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the other check's line was not left as it said it")
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertNil(model.diskNotHad, "the disk was taken as not had")
+        expectEqual(await recorder.asked(Ask.slot, since: before), 1,
+                    "the slot was read again once the other check had lost the recorder")
+        expectEqual(await recorder.asked(Ask.create, since: before), 0)
+    }
+
+    /// A reservation to a kept disk waiting for the slot, its read held, while a connect to the same recorder is
+    /// made beside it that attaches the recorder on a client of its own and then loses it, silent to that attach's
+    /// read of the slot, with no MAC to wake it by. The connect has said so; once the held read is back, met on a
+    /// client the link has left, the wait reads nothing more and says nothing, and the reservation is kept on the
+    /// phone as when the recorder is silent at that moment.
+    func testAWaitForTheSlotReadsNothingOnAConnectThatAttachedTheRecorderAndLostIt() async throws {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(times: 1, numbering: sent)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let reserving = Task {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        // Silent to the next read of the slot: the connect's attach's own.
+        await recorder.goQuiet(on: Ask.slot)
+        let made = bench.clientsMade
+        let sentBefore = await sent.sent.count
+        try await within(10, "the connect never ended") { await model.connect() }
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        XCTAssertTrue(model.gaveUp, "the connect was meant to lose the recorder at the slot")
+        expectEqual(await sent.clients(sending: Ask.freeSpace, since: sentBefore), [made + 1],
+                    "the connect was meant to attach the recorder")
+        await recorder.letGo()
+        let came = try await within(10, "the reservation never came back") { await reserving.value }
+
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation beside a connect that lost the recorder was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the connect's line was not left as it said it")
+        XCTAssertNil(model.diskNotHad, "the disk was taken as not had")
+        expectEqual(await sent.clients(sending: Ask.slot, since: sentBefore), [made + 1],
+                    "the slot was read again on the client of a connect that had lost the recorder")
+        expectEqual(await recorder.asked(Ask.create, since: before), 0)
+    }
+
+    /// A reservation to a kept disk waiting for the slot, its read held, while the recorder is let go of -- as a
+    /// check that hears another recorder at the address lets it go before it connects again -- and connected to
+    /// again, the same recorder answering, whose attach keeps the disk unanswered. The let-go ends the wait: once
+    /// the held read is back, nothing is read on the new client beyond its attach's own, nothing is put down, and
+    /// the reservation is not made, saying that another recorder answered.
+    func testALetGoWhileTheSlotIsWaitedForEndsTheWait() async throws {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(times: 1, numbering: sent)
+        addTeardownBlock { await recorder.letGo() }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        let program = try await programmesNotReserved(model, 1)[0]
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let reserving = Task {
+            await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
+        }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        let made = bench.clientsMade
+        let sentBefore = await sent.sent.count
+        model.forgetTheRecorder()
+        try await within(10, "the connect never ended") { await model.connect() }
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the connect was meant to keep the disk unanswered")
+        await recorder.letGo()
+        let came = try await within(10, "the reservation never came back") { await reserving.value }
+
+        XCTAssertEqual(came, .notDone(RecorderDriver.anotherAnswered))
+        expectEqual(await sent.clients(sending: Ask.slot, since: sentBefore), [made + 1],
+                    "the slot was read on the new client after the let-go")
+        XCTAssertNil(model.diskNotHad, "the disk was put down as not had across the let-go")
+        XCTAssertTrue(model.pending.isEmpty, "a reservation across a let-go was kept")
+        expectEqual(await recorder.asked(Ask.create, since: before), 0)
+    }
+
+    /// Where a wait for the slot beside a connect held at its probe stands (`waitingForTheSlotBesideAConnectHeldAtItsProbe`):
+    /// what the recorder had been asked before, how many requests the clients had sent once the held read was let
+    /// go, what each client sent, and the number the connect's client was made under.
+    private struct BesideAConnect {
+        let before: [String: Int]
+        let sentBefore: Int
+        let sent: SentByClient
+        let connects: Int
+    }
+
+    /// A model whose recorder's disk is kept through an answer of none, with `ask` waiting for the slot for a
+    /// programme no reservation holds -- or with `reserved`, one reserved on the internal disk before the disk was
+    /// kept -- the slot's read held on the client in hand, and a connect to the same recorder made beside it, with
+    /// every ask of who answers held, which makes a client of its own; then the held read let go, answering none,
+    /// while the connect's probe is out. With `wakeable` a MAC is kept, for a connect silent to its probe to wake
+    /// the recorder; `connectFor` is how long the wait waits for a connect. Handed back with `ask` and the connect
+    /// still out; whatever is held is let go as the test ends.
+    private func waitingForTheSlotBesideAConnectHeldAtItsProbe<T: Sendable>(
+        wakeable: Bool = false, connectFor: Duration = SlotSettling.aConnect, reserved: Bool = false,
+        _ ask: @escaping @MainActor (AppModel, GuideProgramRow) async -> T) async throws
+        -> (bench: Bench, recorder: NamedRecorder, model: AppModel, asking: Task<T, Never>,
+            connecting: Task<Void, Never>, scene: BesideAConnect) {
+        let sent = SentByClient()
+        let (bench, recorder, model) = try await connected(times: 1, numbering: sent, wakeable: wakeable,
+                                                           connectFor: connectFor)
+        addTeardownBlock { await recorder.letGo() }
+        var reservedFirst: GuideProgramRow?
+        if reserved {
+            let first = try await programmesNotReserved(model, 1)[0]
+            expectTrue(await reserveOnTheRecorder(model, first, quality: "DR", repeating: "none"),
+                       model.problem(for: .recorder) ?? "no reason given")
+            reservedFirst = first
+        }
+        // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
+        await reconnect(model)
+        XCTAssertEqual(model.usbDisk, USBDiskTests.disk, "the disk was meant to be kept through an answer of none")
+        let program: GuideProgramRow
+        if let reservedFirst { program = reservedFirst } else { program = try await programmesNotReserved(model, 1)[0] }
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.slot)
+        let asking = Task { await ask(model, program) }
+        try await until("the slot was never waited for") { await recorder.asked(Ask.slot, since: before) == 1 }
+        await recorder.hold(only: Ask.description)
+        let made = bench.clientsMade
+        leaveALine(on: model)
+        let connecting = Task { await model.connect() }
+        try await until("the connect never asked who answers") {
+            await recorder.asked(Ask.description, since: before) == 1
+        }
+        XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own")
+        let sentBefore = await sent.sent.count
+        await recorder.letGo(only: Ask.slot)
+        // Long enough for the wait to have taken in what the held read came to while the probe is out.
+        try await Task.sleep(for: .milliseconds(300))
+        return (bench, recorder, model, asking, connecting,
+                BesideAConnect(before: before, sentBefore: sentBefore, sent: sent, connects: made + 1))
+    }
+
     /// A clash check asked for a kept disk waits for the slot as a reservation does. The slot answering none each
     /// time, the clashes are not asked, and it is said as for a disk that cannot be had, its sheet going back to the
     /// internal disk.
@@ -443,8 +1302,10 @@ final class USBDiskChoiceTests: XCTestCase {
     /// recorder it was asked of is still the one in play. Another recorder taken up by that connect, it is not
     /// done and not kept: kept, it would wait as one made for the first, and go to the newcomer at its next
     /// connect. The same recorder answering the connect lets go of nothing, though the connect makes a client
-    /// of its own: the reservation is kept as if the connect had not come. Nothing is created either way. The
-    /// silence of a slot read for the recorder let go of is not the newcomer's, which is not given up on.
+    /// of its own: what the client it replaced met is not the recorder's, the wait goes on on the connect's
+    /// client, and silence there keeps the reservation as if the connect had not come. Nothing is created
+    /// either way. The silence of a slot read for the recorder let go of is not the newcomer's, which is not
+    /// given up on.
     func testASilentSlotKeepsAReservationOnlyForTheRecorderItWasAskedOf() async throws {
         for anotherAnswers in [true, false] {
             let (bench, recorder, model) = try await connected(times: 1)
@@ -470,7 +1331,9 @@ final class USBDiskChoiceTests: XCTestCase {
             XCTAssertEqual(bench.clientsMade, made + 1, "the connect was meant to make a client of its own, \(who)")
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(anotherAnswers ? 2 : 1),
                            "the connect was meant to be answered so, \(who)")
-            await recorder.goQuiet(on: "X_GetMediaInfo")
+            // Silent to the held read, which the client the connect replaced sent, and to the next, which the
+            // wait sends on the connect's client with the same recorder answering it.
+            await recorder.answer("X_GetMediaInfo", with: .silence, times: 2)
             await recorder.letGo()
             let came = await reserving.value
 

@@ -49,7 +49,8 @@ public final class SessionState {
     /// at another address after that.
     public private(set) var waking = false
     /// Set while a recorder's USB slot is waited for before something that names it is sent
-    /// (`RecorderDriver.settleTheSlot`), some seconds at most: a sheet says so, as it says a waking.
+    /// (`RecorderDriver.settleTheSlot`), some seconds at most, or as long as a connect or a check it waits for
+    /// takes: a sheet says so, as it says a waking.
     public var settlingTheSlot: Bool { slotSettlings > 0 }
     private var slotSettlings = 0
     /// The slot, when the last request that could name a disk of the recorder's -- a reservation, a change, a

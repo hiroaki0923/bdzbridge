@@ -95,6 +95,33 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(link.session.connected)
     }
 
+    /// A keyword condition's delete goes only from the list read just before it: a read refused, or met by
+    /// silence, ends it there with nothing sent, the result saying what the read left -- the recorder's words,
+    /// or the read's silence, which loses the recorder.
+    func testAConditionsDeleteSendsNothingWhenTheListBeforeItCannotBeRead() async throws {
+        let rule = try await Self.rule()
+        let refusal = RecorderError.soap(action: "X_GetPrefRecSettingList", status: 500, code: "402", body: "")
+
+        let (refusedWorld, refusing, refusedRecorder) = try await Self.playing([
+            "X_GetPrefRecSettingList": [Stub.fault("402")],
+            "X_DeletePrefRecSetting": [Stub.soap("X_DeletePrefRecSetting")],
+        ])
+        let refused = await refusing.removeRule(rule) { _ in }
+        expectEqual(await refusedRecorder.actions, ["X_GetPrefRecSettingList"],
+                    "a condition was deleted with no list read before it")
+        XCTAssertEqual(refused, .notDone(refusal.explanation))
+        XCTAssertEqual(refusedWorld.problem, refusal.explanation)
+
+        let (silentWorld, silent, silentRecorder) = try await Self.playing(
+            ["X_DeletePrefRecSetting": [Stub.soap("X_DeletePrefRecSetting")]], silentTo: ["X_GetPrefRecSettingList"])
+        let unanswered = await silent.removeRule(rule) { _ in }
+        expectEqual(await silentRecorder.actions, ["X_GetPrefRecSettingList"],
+                    "a condition was deleted after silence on the list before it")
+        XCTAssertEqual(unanswered, .notDone(silent.noAnswerLine))
+        XCTAssertEqual(silentWorld.problem, silent.noAnswerLine)
+        XCTAssertTrue(silent.link?.session.unreachable == true, "silence on the list did not lose the recorder")
+    }
+
     // MARK: - playing, and turning the recorder on for it
 
     /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,
@@ -169,6 +196,60 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(actions.last, "X_PlayControlTitle")
         XCTAssertEqual(actions.filter { $0 == "X_PowerControl" }.count, 1, "turned on once, not on every look")
         XCTAssertTrue(actions.contains("X_GetPlayStatus"))
+    }
+
+    /// Silence on a play is silence on something sent: it may have arrived. Asked of the recorder in play and
+    /// answered by silence once another has described itself at the address, it is still said, on the line and
+    /// in the result, and loses nobody: the recorder now in play has not been asked anything.
+    func testSilenceOnAPlayAcrossALetGoIsStillSaidAndLosesNobody() async throws {
+        let (world, driver, first) = try await Self.playing([:], silentTo: ["X_PlayControlTitle"])
+        let link = try XCTUnwrap(driver.link)
+        let title = try await Self.title()
+        await first.holdTheNext("X_PlayControlTitle")
+        let playing = Task { await driver.play(title, "play") }
+        addTeardownBlock { await first.letGo() }
+        try await first.whenHeld()
+        world.devices[Stub.host] = try PlayingRecorder([:], udn: Self.anotherUDN)
+        await link.connect()
+        XCTAssertTrue(link.session.connected && link.clientIsAttached, world.problem ?? "no reason given")
+        world.problem = Self.left
+        await first.letGo()
+        let came = await playing.value
+
+        XCTAssertNotEqual(world.problem, Self.left, "silence on a play across a let-go was not said")
+        XCTAssertEqual(world.problem, RecorderDriver.instructionMayHaveArrived)
+        XCTAssertEqual(came, .notDone(RecorderDriver.instructionMayHaveArrived))
+        XCTAssertTrue(link.session.connected, "silence met across a let-go lost the newcomer")
+    }
+
+    /// What silence on a play wrote on the line stays there through what is met on the way back: a connect whose
+    /// attach meets silence too, and a waking that comes to nothing. It is all the reader has to go by.
+    func testWhatSilenceOnAPlaySaidIsNotWrittenOverByAConnectOrAWaking() async throws {
+        let world = LinkWorld()
+        let recorder = try PlayingRecorder([:], silentTo: ["X_PlayControlTitle"], udn: DeviceLinkTests.udn)
+        world.devices[Stub.host] = recorder
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: "F8-4E-17-00-00-00"), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        Self.links.append(link)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        world.problem = Self.left
+
+        let came = await driver.play(try await Self.title(), "play")
+        XCTAssertNotEqual(came, .notDone(driver.noAnswerLine), "silence on a play was said as a read's")
+        XCTAssertTrue(link.session.unreachable, "silence on a play did not lose the recorder")
+        let said = try XCTUnwrap(world.problem)
+        XCTAssertNotEqual(said, driver.noAnswerLine, "silence on a play was said as a read's")
+
+        await recorder.sayNothingOfWhoItIs()
+        world.events = []
+        await link.connect()
+        XCTAssertTrue(world.events.contains { $0.hasPrefix("packet") }, "the recorder was meant to be woken")
+        XCTAssertFalse(link.session.connected, "the recorder was meant to stay silent")
+        XCTAssertEqual(world.problem, said, "what met the connect or the waking wrote over the play's silence")
+        XCTAssertEqual(said, RecorderDriver.instructionMayHaveArrived)
     }
 
     // MARK: - the free space as the screens show it
@@ -831,8 +912,9 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(deleted.altered, .done(saying: nil), "a check that came in behind a delete failed it")
         XCTAssertEqual(noted.rowsTakenOut, 1, "the row of a delete that went through was not taken out")
         var asked = await recorder.actions
-        XCTAssertEqual(asked.first, "X_DeleteTitle")
-        XCTAssertEqual(Set(asked.dropFirst()), ["description.xml"],
+        XCTAssertEqual(Array(asked.prefix(2)), ["X_GetTitleDetail", "X_DeleteTitle"],
+                       "a single delete asks whether the recording is still there first")
+        XCTAssertEqual(Set(asked.dropFirst(2)), ["description.xml"],
                        "the free space was asked for after a delete, behind a check that heard busy: \(asked)")
         XCTAssertEqual(link.session.storage?.free, 30, "the free space kept is not as it was last read")
 
@@ -913,6 +995,95 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(came, rows.dropFirst().map { .passedOver(RecorderDriver.whyNot(deleting: $0) ?? "") })
         XCTAssertEqual(came.last, .passedOver("録画中のため削除できません。番組が終わるまでお待ちください。"))
         expectEqual(await recorder.actions, [], "a recording the door turns away was asked about, or sent")
+    }
+
+    /// A single delete asks whether the recording is still there first, as a run's does: the recorder answers
+    /// success for an id it no longer has. Answered that it has no such recording (820), nothing is sent, the
+    /// row is taken out of the list, and the result says it was deleted already, the question having gone
+    /// through and cleared the line the request before left. Refused otherwise, or met by silence, nothing is
+    /// sent, and the question's failure is said as a read's, on the line and in the result; the recordings are
+    /// not to be read again, nothing having changed. Answered, the delete goes after it, once.
+    func testASingleDeleteAsksWhetherTheRecordingIsStillThereFirst() async throws {
+        let detail = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        let title = try await Self.title()
+        var kept = 0
+
+        let (goneWorld, gone, goneRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [Stub.fault("820")], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let wentAlready = await gone.delete(title) { kept += 1 }
+        expectEqual(await goneRecorder.actions.filter { $0 == "X_DeleteTitle" }.count, 0,
+                    "a recording the recorder no longer has was sent to be deleted")
+        XCTAssertEqual(wentAlready.altered, .done(saying: ItemCame.gone.reason))
+        XCTAssertEqual(wentAlready.altered, .done(saying: "すでに削除されています"))
+        XCTAssertFalse(wentAlready.readAgain)
+        XCTAssertEqual(kept, 1, "the row of a recording the recorder no longer has stayed in the list")
+        XCTAssertNil(goneWorld.problem, "the question went through and left the line of the request before")
+        expectEqual(await goneRecorder.actions, ["X_GetTitleDetail"])
+
+        kept = 0
+        let (faultWorld, faulting, faultRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [Stub.fault("402")], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let refused = await faulting.delete(title) { kept += 1 }
+        expectEqual(await faultRecorder.actions, ["X_GetTitleDetail"], "deleted without an answer to the question")
+        let faulted = RecorderError.soap(action: "X_GetTitleDetail", status: 500, code: "402", body: "").explanation
+        XCTAssertEqual(refused.altered, .notDone(faulted))
+        XCTAssertEqual(faultWorld.problem, faulted)
+        XCTAssertFalse(refused.readAgain)
+        XCTAssertEqual(kept, 0)
+
+        let (silentWorld, silent, silentRecorder) = try await Self.playing(
+            ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]], silentTo: ["X_GetTitleDetail"])
+        let unanswered = await silent.delete(title) { kept += 1 }
+        expectEqual(await silentRecorder.actions, ["X_GetTitleDetail"], "deleted after silence on the question")
+        XCTAssertEqual(unanswered.altered, .notDone(silent.noAnswerLine), "silence on the question is a read's")
+        XCTAssertEqual(silentWorld.problem, silent.noAnswerLine)
+        XCTAssertFalse(unanswered.readAgain, "nothing was sent, and the recordings are to be read again")
+        XCTAssertTrue(silent.link?.session.unreachable == true, "silence on the question did not lose the recorder")
+        XCTAssertEqual(kept, 0)
+
+        let (answeredWorld, answered, answeredRecorder) = try await Self.playing([
+            "X_GetTitleDetail": [detail], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+        ])
+        let deleted = await answered.delete(title) { kept += 1 }
+        XCTAssertEqual(deleted.altered, .done(saying: nil))
+        XCTAssertEqual(kept, 1)
+        XCTAssertNil(answeredWorld.problem)
+        expectEqual(Array(await answeredRecorder.actions.prefix(2)), ["X_GetTitleDetail", "X_DeleteTitle"])
+        expectEqual(await answeredRecorder.actions.filter { $0 == "X_DeleteTitle" }.count, 1)
+    }
+
+    /// A single delete whose question is out as the recorder is let go of sends nothing, whatever the question is
+    /// answered -- that the recording is there, a refusal, or nothing: the result says why (`whyLetGo`), the list
+    /// is not touched, and nothing is said on the line, which is the newcomer's.
+    func testASingleDeleteLetGoOfWhileItsQuestionIsOutSendsNothing() async throws {
+        let detail = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        for answer in ["answered", "refused", "silent"] {
+            let (world, driver, recorder) = try await Self.playing([
+                "X_GetTitleDetail": [answer == "refused" ? Stub.fault("402") : detail],
+                "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+            ])
+            let link = try XCTUnwrap(driver.link)
+            let title = try await Self.title()
+            var kept = 0
+            await recorder.holdTheNext("X_GetTitleDetail")
+            let deleting = Task { await driver.delete(title) { kept += 1 } }
+            addTeardownBlock { await recorder.letGo() }
+            try await recorder.whenHeld()
+            link.forgetTheDevice()
+            world.problem = nil
+            if answer == "silent" { await recorder.sayNothing(to: "X_GetTitleDetail") }
+            await recorder.letGo()
+            let came = await deleting.value
+
+            expectEqual(await recorder.actions.filter { $0 == "X_DeleteTitle" }.count, 0,
+                        "a recording was deleted on a recorder let go of, the question \(answer)")
+            XCTAssertEqual(came.altered, .notDone(RecorderDriver.anotherAnswered), "the question \(answer)")
+            XCTAssertFalse(came.readAgain, "the question \(answer)")
+            XCTAssertEqual(kept, 0, "the list was edited for a recorder let go of, the question \(answer)")
+            XCTAssertNil(world.problem, "something was said on the newcomer's line, the question \(answer)")
+        }
     }
 
     func testARecordingTheRecorderNoLongerHasIsNotAnError() async throws {

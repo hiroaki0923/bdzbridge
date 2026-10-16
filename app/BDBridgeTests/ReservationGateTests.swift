@@ -1344,9 +1344,8 @@ final class ReservationGateTests: XCTestCase {
     /// line is left as it was after the connect -- what a client the model no longer holds ran into is not
     /// about the recorder in play.
     ///
-    /// As it is today, and to stay: the check asks whether its client is still the one in hand. A later change
-    /// that asks instead whether the recorder was let go of meanwhile has to answer this as it is answered
-    /// here, since nothing was let go of.
+    /// The check asks whether its client is still the one in hand once its request is back, and not whether the
+    /// recorder was let go of meanwhile: nothing was let go of here, and its silence is still not the recorder's.
     func testAClashCheckOutAcrossAConnectToTheSameRecorderSaysNothingOfItsSilence() async throws {
         let (bench, recorder, model) = try await connectedHome()
         addTeardownBlock { await recorder.letGo() }

@@ -10,6 +10,9 @@ struct TitleSheet: View {
     @State private var detail: (summary: String, details: [String])?
     @State private var confirmingDelete = false
     @State private var failure: String?
+    /// What a delete that went through had to say -- that the recording was deleted already -- said in the alert,
+    /// whose closing closes the sheet.
+    @State private var told: String?
     @State private var deleted = false
     /// Whether one of the sheet's own requests is out -- playback, the power, the protect, the delete -- which
     /// holds the sheet open until it is answered, so that what it came to is said here rather than lost with a
@@ -19,6 +22,16 @@ struct TitleSheet: View {
 
     /// The live copy, since protecting it changes the list underneath.
     private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
+
+    /// Whether the list still has the recording: a bulk delete, or the list read again, can take it away under
+    /// the sheet, which then closes as after its own delete. By the whole list, not by what a filter shows.
+    private var listed: Bool { model.titles.contains { $0.id == title.id } }
+
+    /// Whether the sheet is to close for a recording gone from the list: once nothing of its own is out or up --
+    /// a request, or an alert, whose closing closes it then.
+    private var goneFromTheList: Bool {
+        !listed && !asking && !deleted && failure == nil && told == nil
+    }
 
     /// What the sheet asked for and did not come to pass, said in its alert: the recorder's answer, or why
     /// nothing was sent.
@@ -133,15 +146,19 @@ struct TitleSheet: View {
             .interactiveDismissDisabled(asking)
             .task { detail = await model.detail(of: title) }
             // One alert does both jobs: two on the same view is not something SwiftUI promises to honour.
-            .alert(failure == nil ? "この録画を削除しますか？" : "エラー",
-                   isPresented: Binding(get: { confirmingDelete || failure != nil },
-                                        set: { if !$0 { confirmingDelete = false; failure = nil } })) {
-                if failure == nil {
+            .alert(failure != nil ? "エラー" : told != nil ? "録画" : "この録画を削除しますか？",
+                   isPresented: Binding(get: { confirmingDelete || failure != nil || told != nil },
+                                        set: { if !$0 { alertClosed() } })) {
+                if failure == nil, told == nil {
                     Button("削除する", role: .destructive) {
                         let title = current
                         ask {
                             let came = await model.delete(title)
-                            if case .done = came { deleted = true }
+                            switch came {
+                            case .done(let more?): told = more
+                            case .done(nil): deleted = true
+                            case .notDone: break
+                            }
                             return came
                         }
                     }
@@ -153,13 +170,24 @@ struct TitleSheet: View {
             } message: {
                 if let failure {
                     Text(failure)
+                } else if let told {
+                    Text(told)
                 } else {
                     Text("\(current.title)\nレコーダーから削除され、元に戻せません。")
                 }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }
+            .onChange(of: goneFromTheList) { if $1 { dismiss() } }
             .closesWithItsRecorder()
         }
+    }
+
+    /// What closing the alert does: a delete that went through with something to say closes the sheet with it.
+    private func alertClosed() {
+        if told != nil { deleted = true }
+        confirmingDelete = false
+        failure = nil
+        told = nil
     }
 
     private var viewing: String {

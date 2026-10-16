@@ -988,6 +988,50 @@ final class TVDriverTests: XCTestCase {
         return String(format: "%d/%d %02d:%02d", parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
     }
 
+    /// While the television's connect waits for the local network permission, its driver says so where the
+    /// recorder's does: as why the app is not connected, at the doors of a delete and a change, and as the answer
+    /// for a waiting row with a reason that could not be sent again -- in the letters the screens show. Nothing is
+    /// sent to the television for any of them: the row sent again makes a connect, which asks who answers and
+    /// waits for the permission again.
+    func testWhileThePermissionIsWaitedForTheDriverSaysSoWhereTheRecordersDoes() async throws {
+        let television = DemoTV()
+        await television.receives([DemoTV.Station()])
+        await television.put([Self.drama])
+        let credentials = await registered(with: television)
+        let (link, driver, world) = makeLink(television, credentials)
+        let store = try temporaryStore()
+        world.cache = store
+        let request = ReservationRequest(title: "サンプル紀行", start: Self.start.addingTimeInterval(7200),
+                                         durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: Codes.broadcasting["td"] ?? 0,
+                                         serviceID: DemoTV.Station().serviceID, qualityCode: 100, eventID: 50102)
+        // Held for what it would stop from recording, in the television's own sentence, so that sending it again
+        // carries the reader's consent and is not left to a connect.
+        let reason = "この予約を入れると、次の予約は録画されません: サンプル劇場（サンプルテレビ 11/1（日）21:00）。"
+            + "「もう一度送る」を選ぶと、それでも予約します。"
+        let held = PendingReservation(request: request, serviceName: DemoTV.Station().name,
+                                      queuedAt: Date(timeIntervalSince1970: 1_793_000_000), problem: reason,
+                                      target: .tv)
+        try await store.queue(held)
+        XCTAssertEqual(driver.whyNotConnected, TVDriver.notConnected)
+
+        await television.goSilent()
+        world.blocked = true
+        await link.connect()
+        XCTAssertTrue(link.session.connectBlocked, "the connect did not end waiting for the permission")
+        let row = try XCTUnwrap(Self.drama.row.reservation(now: Self.start.addingTimeInterval(-86_400)))
+        let calls = await television.calls
+
+        XCTAssertEqual(driver.whyNotConnected, "ローカルネットワークへのアクセスが許可されていません")
+        XCTAssertEqual(driver.whyNotConnected, LocalNetwork.accessNotAllowed)
+        expectEqual(await driver.cancel(row).deleted, .notDone(LocalNetwork.accessNotAllowed))
+        expectEqual(await driver.update(row, repeating: "daily").altered, .notDone(LocalNetwork.accessNotAllowed))
+        expectEqual(await television.calls, calls, "something was sent while the permission was waited for")
+        expectEqual(await driver.resend(held).came, .waiting(held, saying: LocalNetwork.accessNotAllowed))
+        expectEqual(await television.calls.dropFirst(calls.count).filter { !$0.hasPrefix(Self.asksWhich) }, [],
+                    "a waiting row was sent while the permission was waited for")
+    }
+
     /// What the door of a change turns away is said in the result: nothing is sent for it, no line goes up,
     /// no connect is made, and the line of what went wrong stays as an earlier operation left it. With the
     /// link gone, that the app is not connected. A television that cannot be asked -- its cookie refused at

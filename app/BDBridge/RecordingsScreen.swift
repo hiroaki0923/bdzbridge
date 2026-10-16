@@ -14,6 +14,8 @@ struct RecordingsScreen: View {
     /// dialog asks, so a delete can only ever be sent for a row the list still holds.
     @State private var removing: String?
     @State private var failure: String?
+    /// What a delete that went through had to say: that the recording was deleted already.
+    @State private var told: String?
 
     private var grouped: Bool { mode == "groups" }
     private var duplicating: Bool { mode == "dups" }
@@ -22,10 +24,12 @@ struct RecordingsScreen: View {
     private enum Shown {
         case confirm(RecordedTitle)
         case failed(String)
+        case told(String)
     }
 
     private var shown: Shown? {
         if let failure { return .failed(failure) }
+        if let told { return .told(told) }
         if let id = removing, let title = model.titles.first(where: { $0.id == id }) {
             return .confirm(title)
         }
@@ -108,22 +112,27 @@ struct RecordingsScreen: View {
             .onChange(of: model.timesForgotten) { removing = nil }
             .alert(shownTitle,
                    isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { removing = nil; failure = nil } }),
+                                        set: { if !$0 { removing = nil; failure = nil; told = nil } }),
                    presenting: shown) { shown in
                 switch shown {
                 case .confirm(let title):
                     Button("削除する", role: .destructive) {
-                        Task { if case .notDone(let why) = await model.delete(title) { failure = why } }
+                        Task {
+                            switch await model.delete(title) {
+                            case .notDone(let why): failure = why
+                            case .done(let more): told = more
+                            }
+                        }
                     }
                     .disabled(!model.canAlterARecording)
                     Button("キャンセル", role: .cancel) {}
-                case .failed:
+                case .failed, .told:
                     Button("OK", role: .cancel) {}
                 }
             } message: { shown in
                 switch shown {
                 case .confirm(let title): Text(Self.deleteMessage(title))
-                case .failed(let reason): Text(reason)
+                case .failed(let reason), .told(let reason): Text(reason)
                 }
             }
         }
@@ -131,8 +140,11 @@ struct RecordingsScreen: View {
     }
 
     private var shownTitle: String {
-        if case .failed = shown { return "エラー" }
-        return "この録画を削除しますか？"
+        switch shown {
+        case .failed: "エラー"
+        case .told: "録画"
+        case .confirm, nil: "この録画を削除しますか？"
+        }
     }
 
     /// What is about to go, and how much of the disk it gives back. Said in full because there is no undo.
@@ -349,6 +361,8 @@ struct GroupSheet: View {
     /// The row swiped, by id, read back out of the model when the dialog asks.
     @State private var removing: String?
     @State private var failure: String?
+    /// What a single delete that went through had to say: that the recording was deleted already.
+    @State private var told: String?
     /// Whether the sheet's own single delete, or a swipe's 保護解除, is out: the sheet is held open until it is
     /// answered, so that what it came to is said here rather than lost with a closed sheet, and the swipes and
     /// the delete's confirm are held, so that a second is not sent meanwhile.
@@ -360,10 +374,12 @@ struct GroupSheet: View {
         case bulk
         case one(RecordedTitle)
         case failed(String)
+        case told(String)
     }
 
     private func shown(among members: [RecordedTitle]) -> Shown? {
         if let failure { return .failed(failure) }
+        if let told { return .told(told) }
         if let id = removing, let title = members.first(where: { $0.id == id }) { return .one(title) }
         return confirmingDelete ? .bulk : nil
     }
@@ -420,7 +436,7 @@ struct GroupSheet: View {
             .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { confirmingDelete = false; removing = nil
-                                                        failure = nil } }),
+                                                        failure = nil; told = nil } }),
                    presenting: shown) { shown in
                 switch shown {
                 case .bulk:
@@ -436,7 +452,7 @@ struct GroupSheet: View {
                     Button("削除する", role: .destructive) { ask { await model.delete(title) } }
                         .disabled(!model.canAlterARecording || asking)
                     Button("キャンセル", role: .cancel) {}
-                case .failed:
+                case .failed, .told:
                     Button("OK", role: .cancel) {}
                 }
             } message: { shown in
@@ -445,7 +461,7 @@ struct GroupSheet: View {
                     Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
                                 + "レコーダーから削除され、元に戻せません。", Self.gigabytes(chosen)))
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
-                case .failed(let reason): Text(reason)
+                case .failed(let reason), .told(let reason): Text(reason)
                 }
             }
         }
@@ -457,7 +473,10 @@ struct GroupSheet: View {
         Task {
             let came = await operation()
             asking = false
-            if case .notDone(let why) = came { failure = why }
+            switch came {
+            case .notDone(let why): failure = why
+            case .done(let more): told = more
+            }
         }
     }
 
@@ -465,6 +484,7 @@ struct GroupSheet: View {
         switch shown {
         case .bulk: "選択した \(chosen.count) 件を削除しますか？"
         case .failed: "エラー"
+        case .told: "録画"
         case .one, nil: "この録画を削除しますか？"
         }
     }

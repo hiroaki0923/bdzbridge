@@ -196,8 +196,10 @@ final class AppModel {
     /// Set when the recorder said nothing because local network privacy stopped the app asking. The app
     /// is then waiting for the permission rather than for the recorder; see `waitForPermission(at:)`.
     var connectBlocked: Bool { session.connectBlocked }
-    /// Either of the two: something the reader wants is waiting on the local network permission.
-    var lanBlocked: Bool { scanBlocked || connectBlocked }
+    /// Either of the two, or the television's connect waiting for the permission as the recorder's does:
+    /// something the reader wants is waiting on the local network permission. Settings and the first screen
+    /// show their notice by it, having no strip.
+    var lanBlocked: Bool { scanBlocked || connectBlocked || tv?.session.connectBlocked == true }
     /// The scan under way, kept so that leaving the tutorial or turning to the demo can stop it -- above all
     /// while it asks again behind the system's question, which could otherwise outlive the screen that asked.
     var scanTask: Task<Void, Never>?

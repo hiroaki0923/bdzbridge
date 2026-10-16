@@ -342,10 +342,27 @@ final class DemoRecorderTests: XCTestCase {
 
     // MARK: - its keyword conditions
 
+    /// Two keyword conditions made, and one of them deleted by the id its create answered: that one goes, and
+    /// the other is still listed under its own id, as are the three it started with.
+    func testAConditionMadeIsDeletedByItsOwnIdAlone() async throws {
+        let recorder = client()
+        let first = try await recorder.createRecorderRule(RecorderRuleRequest(keywords: ["ひとつめ"], qualityCode: 220))
+        let second = try await recorder.createRecorderRule(RecorderRuleRequest(keywords: ["ふたつめ"], qualityCode: 220))
+        XCTAssertNotEqual(first, second)
+
+        try await recorder.deleteRecorderRule(id: first)
+
+        let rules = try await recorder.recorderRules()
+        XCTAssertFalse(rules.contains { $0.keywords == ["ひとつめ"] }, "the condition deleted is still listed")
+        XCTAssertEqual(rules.filter { $0.keywords == ["ふたつめ"] }.map(\.id), [second],
+                       "the other condition made is not listed under the id its create answered")
+        XCTAssertEqual(rules.count, 4, "a delete by one id took more than that condition away")
+    }
+
     /// Three keyword conditions of its own, every field of them. One made is answered with the next of the one
-    /// numbering its reservations take theirs from, and listed -- with no id, as what the client sends carries
-    /// none for the recorder to put the new one in, so a delete by the id it answered leaves it there. A delete
-    /// takes one of its own away, and a delete of an id it does not hold changes nothing.
+    /// numbering its reservations take theirs from, and listed with that id, though what the client sends
+    /// carries none, so a delete by the id it answered takes it away. A delete takes one of its own away, and a
+    /// delete of an id it does not hold changes nothing.
     func testItsKeywordConditions() async throws {
         let recorder = client()
 
@@ -361,14 +378,14 @@ final class DemoRecorderTests: XCTestCase {
         XCTAssertEqual(id, "0x0000af02")
         rules = try await recorder.recorderRules()
         XCTAssertEqual(rules.count, 4)
-        XCTAssertEqual(rules.last.map(line), " テスト [\"テスト\"] -[] OR gnil/nil ALL ALL q220 4K q220 HDD")
+        XCTAssertEqual(rules.last.map(line), "0x0000af02 テスト [\"テスト\"] -[] OR gnil/nil ALL ALL q220 4K q220 HDD")
         try await recorder.deleteRecorderRule(id: id)
         rules = try await recorder.recorderRules()
-        XCTAssertEqual(rules.count, 4)
+        XCTAssertEqual(rules.count, 3)
 
         try await recorder.deleteRecorderRule(id: "0x0000470f")
         rules = try await recorder.recorderRules()
-        XCTAssertEqual(rules.count, 3)
+        XCTAssertEqual(rules.count, 2)
         XCTAssertFalse(rules.contains { $0.id == "0x0000470f" }, "a deleted condition is still listed")
 
         let before = rules
