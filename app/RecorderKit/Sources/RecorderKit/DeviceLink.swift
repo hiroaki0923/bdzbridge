@@ -80,7 +80,8 @@ public protocol LinkHost: AnyObject, Sendable {
     func endActivity(_ token: Activities.Token)
     /// Something is under way that a second client would only get in the way of.
     var isBusy: Bool { get }
-    /// A bulk job is under way, its requests going on the client in hand: no connect starts beside it, which
+    /// A bulk job is under way, its requests going on the client in hand, or something else the host's requests
+    /// are out for over many turns -- the recorder's guide after a connect: no connect starts beside it, which
     /// would put a client that has yet to hear which device answers in that one's place. A connect turned away
     /// for it is owed, and made once the host says the hold has lifted (`DeviceLink.connectIfOwed`).
     var holdsOffConnect: Bool { get }
@@ -101,7 +102,8 @@ public protocol LinkHost: AnyObject, Sendable {
     /// The phone's queue may have changed -- the driver has written it, or is about to send from it: what the
     /// screens show of it is to be read again.
     func queueWritten() async
-    /// A connect reached the device: the reads that follow one, inside the connect.
+    /// A connect reached the device: the reads that follow one, inside the connect. What the host starts here
+    /// and does not wait for is not the connect's: the recorder's guide, once its lists are in.
     func reached() async
     /// The check before an operation heard another device where this one was. What was asked is not sent. The
     /// link says so on the line once this has returned (`LinkDriver.anotherAnsweredLine`).
@@ -315,12 +317,13 @@ public final class DeviceLink {
 
     // MARK: - connecting
 
-    /// Connects, waking the device first if that is what it needs. Not beside another connect or a bulk job --
-    /// two clients would be two conversations with a device that answers the second with 503 -- and a check
-    /// already waking this device is waited for rather than started again. One turned away for the job is owed,
-    /// and made when the job ends (`connectIfOwed`): whatever asked for it -- a return to the app, a look that
-    /// found another network -- asked for what it does, the lists read again and what waits sent among it. The
-    /// reader's 再接続 is not offered while a job runs.
+    /// Connects, waking the device first if that is what it needs. Not beside another connect, or while the host
+    /// holds one off (`LinkHost.holdsOffConnect`: a bulk job, the recorder's guide after a connect) -- two clients
+    /// would be two conversations with a device that answers the second with 503 -- and a check already waking
+    /// this device is waited for rather than started again. One turned away so is owed, and made once the hold
+    /// lifts (`connectIfOwed`): whatever asked for it -- a return to the app, a look that found another network --
+    /// asked for what it does, the lists read again and what waits sent among it. The reader's 再接続 is not
+    /// offered while a job runs.
     public func connect() async {
         guard !host.isEmpty, !session.connecting else { return }
         if owner?.holdsOffConnect ?? false {

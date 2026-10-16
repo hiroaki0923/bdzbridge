@@ -187,7 +187,7 @@ extension RecorderDriver {
     /// hand, with the types that failed before it said and nothing of the silence.
     ///
     /// The types a refresh ended so had not come to are left as they were. A connect that goes through asks
-    /// for what is behind as any connect does (`LinkHost.reached`), inside the connect, and that refresh
+    /// for what is behind as any connect does (`LinkHost.reached`), as the connect ends, and that refresh
     /// waits its turn behind this one: where the marks are behind, it fetches them. A press for every type
     /// over marks that are fresh, of which that connect finds nothing behind, ends with the types it had not
     /// come to as they were, and nothing said of them.
@@ -198,10 +198,10 @@ extension RecorderDriver {
     /// a waking, and that waking's attach. None of those asks for a guide. A waking attaches without the reads
     /// that follow a connect (`LinkHost.reached`), which are what ask for one, and sends what waits in the
     /// queue's turn, in which nothing asks for a guide either. A connect, which does ask for one, is never
-    /// that check: beside a check that is out it waits for it, and a check asked from inside a connect, whose
-    /// own refresh this then is, is answered at once. And where a check hears another recorder, the connect
-    /// that takes it up is made in a task of its own, which no check waits for, and whose refresh waits its
-    /// turn like any other.
+    /// that check: beside a check that is out it waits for it, and the refresh it asks for begins as it ends, so
+    /// that the refresh's check once its turn has come is an ordinary one, asking the recorder when it has been
+    /// quiet. And where a check hears another recorder, the connect that takes it up is made in a task of its
+    /// own, which no check waits for, and whose refresh waits its turn like any other.
     ///
     /// `stored` is called with each type once its programmes and logos are in the cache, and waited for before
     /// the next type is asked for, so that a screen can show the type without waiting for the rest. A type
@@ -335,12 +335,14 @@ extension RecorderDriver {
     /// let go of the recorder, another having described itself at the address: the newcomer's connect fetches
     /// its own guide (`LinkHost.reached`), and the press says that another recorder answered (`whyLetGo`).
     ///
-    /// Each file that answered is asked for once. A connect that goes through has fetched what the cache says
-    /// is behind by the time it hands back (`LinkHost.reached`), so after its own connect the press asks only
-    /// for the types not answered for since it began (`GuideAsked.notAnsweredSince`), by the cache's marks. A
-    /// type the recorder could not give that connect has no mark, and is asked for once more by the press,
-    /// which is what puts it in what the press says. The moment is noted to the whole second, as the marks are
-    /// written (`GuideRefresh.toTheSecond`): kept with its fraction it would be later than a mark that connect
+    /// Each file that answered is asked for once. A connect that goes through starts the refresh of what the
+    /// cache says is behind as it hands back (`LinkHost.reached`), which waits its turn as the press's does, and
+    /// whichever has the turn second goes by the cache's marks then: after its own connect the press asks only
+    /// for the types not answered for since it began (`GuideAsked.notAnsweredSince`), and the connect's refresh
+    /// only for what is still behind. A type the recorder could not give has no mark, and is asked for once more
+    /// by whichever of the two comes second; the press asks for it either way, which is what puts it in what the
+    /// press says. The moment is noted to the whole second, as the marks are written
+    /// (`GuideRefresh.toTheSecond`): kept with its fraction it would be later than a mark that connect's refresh
     /// writes within the same second, and every file would be asked for twice. So a type counts as answered
     /// for when its mark is of the second the press began in or later, whoever wrote it -- the overnight run,
     /// through a connection of its own, among them -- and is not asked for again. Not provided for: marks

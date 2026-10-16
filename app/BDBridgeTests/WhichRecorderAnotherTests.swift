@@ -141,16 +141,16 @@ extension WhichRecorderTests {
         XCTAssertFalse(model.anotherTookOver)
 
         await recorder.become(2)
-        await model.connect()
+        await reconnect(model)
         XCTAssertTrue(model.anotherTookOver)
         // Answering again, it is the recorder the app has by now: said still, and not said a second time.
-        await model.connect()
+        await reconnect(model)
         XCTAssertTrue(model.anotherTookOver, "taken back by the next connect to the same recorder")
         model.wentToBackground()
         XCTAssertFalse(model.anotherTookOver, "still said on coming back to the app")
 
         await recorder.become(1)
-        await model.connect()
+        await reconnect(model)
         XCTAssertTrue(model.anotherTookOver)
         await model.adopt(host: Bench.otherHost)
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(3), model.problem(for: .recorder) ?? "no reason given")

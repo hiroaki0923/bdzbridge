@@ -689,6 +689,8 @@ final class ReservationGateTests: XCTestCase {
                 // Counted from here: that delete was the newcomer's own screen's.
                 let sent = await recorder.asked
                 await model.connect()
+                // And the newcomer's guide, which its connect started and did not wait for.
+                try await until("\(what): the newcomer's guide was never fetched") { !isConnecting(model) }
                 XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2),
                                model.problem(for: .recorder) ?? "no reason given")
                 XCTAssertEqual(model.reservations.contains { $0.id == row.id }, newcomerHoldsIt,
@@ -892,6 +894,8 @@ final class ReservationGateTests: XCTestCase {
 
         await recorder.become(2)
         await model.connect()
+        // And the newcomer's guide, which its connect started and did not wait for.
+        try await until("the newcomer's guide was never fetched") { !isConnecting(model) }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         await recorder.goQuiet(on: Kind.create)
         await recorder.letGo()

@@ -335,11 +335,15 @@ final class AppModel {
     /// Not while anything is under way with the one in play: a connect or a load carries on with the client
     /// it started with, and what it reads lands on the screens of whichever recorder came after it. `busy`
     /// alone leaves gaps inside a connect, such as the check of the local network permission, so `connecting`
-    /// counts as well. Nor while a bulk job runs, which is for the recorder it began with and walks the list it
-    /// was started from. Nor while the recorder is being made sure of (`DeviceLink.ensureUp`), whose first ask
-    /// has no line of its own: a recorder it wakes would be attached as whichever recorder is in play by then.
-    /// The television's work does not count: it is on a client of its own.
-    var canChangeRecorder: Bool { !isBusy && !connecting && !jobRunning && wakeCheck == nil }
+    /// counts as well, and so does the refresh of the guide a connect started, for the turns before its line is
+    /// up (`RecorderHost.refreshesTheGuideAfterAConnect`). Nor while a bulk job runs, which is for the recorder
+    /// it began with and walks the list it was started from. Nor while the recorder is being made sure of
+    /// (`DeviceLink.ensureUp`), whose first ask has no line of its own: a recorder it wakes would be attached as
+    /// whichever recorder is in play by then. The television's work does not count: it is on a client of its
+    /// own.
+    var canChangeRecorder: Bool {
+        !isBusy && !connecting && !recorderHost.refreshesTheGuideAfterAConnect && !jobRunning && wakeCheck == nil
+    }
 
     /// True while there is no point asking the recorder anything: either nothing has been set up, or the
     /// last ask got silence. Every list guards on it, so that going out of range costs one timeout rather

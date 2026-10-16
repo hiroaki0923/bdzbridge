@@ -49,26 +49,20 @@ extension AppModel {
     var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
 
     /// Whether the guide is on its way: being downloaded, or about to be, by a connect that has reached the
-    /// recorder and found the cache behind -- it reads the reservations first (see `connect()`). An empty
-    /// guide says so then, rather than that there is nothing for the day.
-    var guideOnItsWay: Bool { guideDownloads > 0 || (connecting && connected && guideIsStale) }
+    /// recorder and found the cache behind -- it reads the reservations and the lists first, and then starts
+    /// the refresh (`RecorderHost.refreshTheGuideAfterTheConnect`), which is about to be counted for the turns
+    /// before it is. An empty guide says so then, rather than that there is nothing for the day.
+    var guideOnItsWay: Bool {
+        guideDownloads > 0 || (connecting && connected && guideIsStale)
+            || (recorderHost.refreshesTheGuideAfterAConnect && guideIsStale)
+    }
 
-    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run would
-    /// otherwise land on an empty guide, and a cache the overnight run never got to would stay a day behind.
-    /// A cache that is already current costs nothing, which is what makes this safe on every launch: with
-    /// nothing behind, no refresh is asked for, so that no line goes up and none is counted as out.
-    ///
-    /// What is fetched is what is behind once the refresh has its turn (`GuideAsked.whatIsBehind`), and not
-    /// what was behind here: a refresh that is out as the connect is made -- the overnight run's -- is waited
-    /// for, and what it fetched meanwhile is not fetched again.
-    func refreshGuideIfStale() async {
-        guard connected else { return }
-        // Judged by what the cache holds now, not by what this model read from it last, which would fetch
-        // every type again each morning: the overnight run writes the cache without going through the model,
-        // in this very process when the app was kept alive behind it. What it wrote goes on screen as well.
+    /// What the cache holds now, read again where it differs from what this model read from it last, so that
+    /// whether the guide is behind (`guideIsStale`) is judged by the cache and not by this model's copy, which
+    /// would fetch every type again each morning: the overnight run writes the cache without going through the
+    /// model, in this very process when the app was kept alive behind it. What it wrote goes on screen as well.
+    func keepUpWithTheCache() async {
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
-        guard guideIsStale else { return }
-        await refreshGuide(.whatIsBehind)
     }
 
     /// Downloads the broadcasting types told and replaces what the cache holds for each, as a connect asks for

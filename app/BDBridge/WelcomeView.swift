@@ -157,10 +157,11 @@ struct WelcomeView: View {
     /// The reservations and the guide are still to be read, the longest wait in the app on a first run, and
     /// the screens behind this one can show them arriving.
     ///
-    /// The connect is not split to get there, since the rest would run with `connecting` off and a second
-    /// connect could start beside it. It says instead that it has reached the recorder (`timesAttached`), and
-    /// the count taken here tells that answer from a connection that was already up, as it is when the
-    /// tutorial is opened again from the settings.
+    /// The connect is not split to get there: the reservations and the lists are read inside it, with
+    /// `connecting` on, so that no second connect starts beside them, and the guide is fetched after it, by a
+    /// refresh that holds a second connect off in its own right (`RecorderHost.holdsOffConnect`). It says
+    /// instead that it has reached the recorder (`timesAttached`), and the count taken here tells that answer
+    /// from a connection that was already up, as it is when the tutorial is opened again from the settings.
     ///
     /// A connect held up by the local network permission answers later, when the reader allows it; the
     /// screen waits for that. Any other that returns without an answer is over, and the choice with it.

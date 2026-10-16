@@ -51,9 +51,10 @@ extension RecorderHost {
     /// run. Nor while the recorder works or a connect is under way: a run started then would write beside what
     /// is out, or be turned away as it begins for a recorder that has not yet said which it is
     /// (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a connect has between two
-    /// lines of its own, as in `canChangeRecorder`. The television's work does not count: it is on a client of
-    /// its own.
-    var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting }
+    /// lines of its own, as in `canChangeRecorder`, and so does the refresh of the guide a connect started for
+    /// the turns before its line is up (`refreshesTheGuideAfterAConnect`). The television's work does not count:
+    /// it is on a client of its own.
+    var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting && !refreshesTheGuideAfterAConnect }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
     /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
