@@ -164,7 +164,18 @@ public actor ScalarClient {
     /// as well, so this is generous.
     static let timeout: TimeInterval = 10
 
+    /// Its place among the clients of the link that made it, nil for a client made outside any link
+    /// (`LinkClients`).
+    nonisolated let place: LinkPlace?
+
     public init(host: String, transport: any HTTPTransport, credentials: any TVCredentialStore) {
+        self.init(host: host, transport: transport, credentials: credentials, madeBy: nil)
+    }
+
+    /// A client of a link's, given its place among the clients the link has made (`clients`).
+    init(host: String, transport: any HTTPTransport, credentials: any TVCredentialStore,
+         madeBy clients: LinkClients?) {
+        place = clients?.enrol()
         self.host = host
         self.transport = transport
         self.credentials = credentials

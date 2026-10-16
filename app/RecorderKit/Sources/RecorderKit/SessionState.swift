@@ -86,6 +86,11 @@ public final class SessionState {
     /// with a count noted earlier (`DeviceLink.letGo(since:)`), never counted, since one newcomer can move it
     /// twice.
     public private(set) var timesLetGo = 0
+    /// The clients the link has made, and which of them are retired: each that was made before the device was
+    /// let go of is, in the same turn as `timesLetGo` moves -- every one when the device is forgotten, every one
+    /// made before the client that heard another describe or name itself in its place. A client made for the
+    /// same device anew, at whatever address, retires none.
+    let clients = LinkClients()
 
     /// `mac` is what was saved, as it was saved. `device` is which device was saved, for one that has nothing
     /// else to be known by from one launch to the next -- a television, by its MAC; a recorder is known by its
@@ -138,11 +143,15 @@ public final class SessionState {
     /// before, by its UDN and not by its address (`Recognition`): when it is another one, what the last one
     /// said of itself goes before this one's description is put down, and the caller is told, since the lists
     /// it holds are the other one's as well.
+    ///
+    /// `client` is the one that heard it, the attach's: another device retires every client the link made before
+    /// that one (`clients`), and with none handed in, every client.
     @discardableResult
-    public func described(_ description: RecorderDescription) -> Recognition {
+    public func described(_ description: RecorderDescription, heardBy client: (any LinkClient)? = nil)
+        -> Recognition {
         let who = recognises(description)
         if who == .another {
-            timesLetGo += 1
+            letGo(keeping: client)
             firmware = ""
             storage = nil
             usbDisk = nil
@@ -170,12 +179,12 @@ public final class SessionState {
     }
 
     /// `described`, for such a device: it said who it is, and the app is connected. Another one forgets what
-    /// the last said of itself, as `described` does.
+    /// the last said of itself, as `described` does, and retires the clients as `described` does.
     @discardableResult
-    public func identified(as identity: String) -> Recognition {
+    public func identified(as identity: String, heardBy client: (any LinkClient)? = nil) -> Recognition {
         let who = recognises(identity: identity)
         if who == .another {
-            timesLetGo += 1
+            letGo(keeping: client)
             firmware = ""
             storage = nil
             usbDisk = nil
@@ -295,7 +304,7 @@ public final class SessionState {
     /// first. The MAC and where the app last tried are the caller's to change. The device has been let go of
     /// (`timesLetGo`).
     public func forgotTheDevice() {
-        timesLetGo += 1
+        letGo(keeping: nil)
         device = nil
         info = nil
         named = false
@@ -307,5 +316,16 @@ public final class SessionState {
         gaveUp = false
         connectBlocked = false
         needsPower = false
+    }
+
+    /// The device this is all about is let go of: the count moves, and in the same turn the clients made for it
+    /// are retired -- those made before `client`, the one that heard who is in its place, or every one.
+    private func letGo(keeping client: (any LinkClient)?) {
+        timesLetGo += 1
+        if let number = ((client as? RecorderClient)?.place ?? (client as? ScalarClient)?.place)?.number {
+            clients.retire(before: number)
+        } else {
+            clients.retireAll()
+        }
     }
 }

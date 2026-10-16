@@ -127,7 +127,8 @@ public final class RecorderDriver: LinkDriver {
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         RecorderClient(host: link.host, transport: link.environment.transport(link.host),
-                       busyRetryDelay: busyRetryDelay, slotSettling: link.environment.slotSettling)
+                       busyRetryDelay: busyRetryDelay, slotSettling: link.environment.slotSettling,
+                       madeBy: link.session.clients)
     }
 
     /// Once a MAC is known, which is what a magic packet needs. The address cannot be guessed and iOS will not
@@ -165,7 +166,7 @@ public final class RecorderDriver: LinkDriver {
         do {
             // A cache that is another recorder's and could not be made over to this one is no recorder to
             // connect to: the app would go on over the other's guide and texts.
-            guard await settle(link, whoAnswered: try await client.describe(timeout: timeout)) else {
+            guard await settle(link, whoAnswered: try await client.describe(timeout: timeout), on: client) else {
                 recorderHost(owner)?.cacheCouldNotBeMadeOver()
                 owner?.problem = Self.cacheNotMadeOver
                 return false
@@ -214,12 +215,13 @@ public final class RecorderDriver: LinkDriver {
     /// keeps everything wherever it answers, and another one gets nothing that was the last one's. Asked at every
     /// attach, before anything is read from the recorder or sent to it. False when the cache is another's and
     /// could not be made over: the caller does not go on.
-    private func settle(_ link: DeviceLink, whoAnswered recorder: RecorderDescription) async -> Bool {
+    private func settle(_ link: DeviceLink, whoAnswered recorder: RecorderDescription,
+                        on client: RecorderClient) async -> Bool {
         // It has said which it is: whatever a check heard in its place before says nothing of it now.
         link.heardInstead = nil
         let owner = link.owner
         let wasConnected = link.session.connected
-        let inMemory = link.session.described(recorder)
+        let inMemory = link.session.described(recorder, heardBy: client)
         if inMemory == .another {
             recorderHost(owner)?.anotherDeviceDescribedItself(wasConnected: wasConnected)
             // The disk the slot was to be read again for was the last one's.

@@ -43,9 +43,21 @@ public actor RecorderClient {
     /// and the waking is seen almost as soon as it happens.
     public static let wakeProbeTimeout: TimeInterval = 2
 
+    /// Its place among the clients of the link that made it, nil for a client made outside any link
+    /// (`LinkClients`).
+    nonisolated let place: LinkPlace?
+
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
                 upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1,
                 slotSettling: SlotSettling = .afterAWaking) {
+        self.init(host: host, transport: transport, upnpPort: upnpPort, streamPort: streamPort,
+                  busyRetryDelay: busyRetryDelay, slotSettling: slotSettling, madeBy: nil)
+    }
+
+    /// A client of a link's, given its place among the clients the link has made (`clients`).
+    init(host: String, transport: any HTTPTransport, upnpPort: Int = Upnp.port, streamPort: Int? = nil,
+         busyRetryDelay: ClosedRange<Double>, slotSettling: SlotSettling, madeBy clients: LinkClients?) {
+        place = clients?.enrol()
         self.host = host
         self.upnpPort = upnpPort
         self.transport = transport

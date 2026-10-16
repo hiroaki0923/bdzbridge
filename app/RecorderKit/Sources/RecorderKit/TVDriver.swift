@@ -63,7 +63,8 @@ public final class TVDriver: LinkDriver {
     public func takesSilenceOnARead(_ link: DeviceLink) -> Bool { link.session.connected }
 
     public func makeClient(for link: DeviceLink) -> any LinkClient {
-        ScalarClient(host: link.host, transport: link.environment.transport(link.host), credentials: credentials)
+        ScalarClient(host: link.host, transport: link.environment.transport(link.host), credentials: credentials,
+                     madeBy: link.session.clients)
     }
 
     public func canWake(_ link: DeviceLink) -> Bool { false }
@@ -130,7 +131,7 @@ public final class TVDriver: LinkDriver {
             // a check heard in its place is over.
             lookedInVain = []
             link.heardInstead = nil
-            link.session.identified(as: identity)
+            link.session.identified(as: identity, heardBy: client)
             owner?.keepAddress(link.host)
             if !identity.isEmpty { owner?.keepMAC(identity) }
             if let model = try await RecorderError.silenceOnly({ try await client.interface().modelName }),
