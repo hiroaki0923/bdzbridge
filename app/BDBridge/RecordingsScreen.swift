@@ -441,10 +441,12 @@ struct GroupSheet: View {
                 switch shown {
                 case .bulk:
                     Button("\(chosen.count) 件を削除する", role: .destructive) {
-                        model.startBulk(.delete,
-                                        ids: chosen.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
-                        selecting = false
-                        selected = []
+                        // The selection stays when the press was held off: nothing was started.
+                        let deletable = chosen.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id)
+                        if model.startBulk(.delete, ids: deletable) {
+                            selecting = false
+                            selected = []
+                        }
                     }
                     .disabled(!model.canStartARun)
                     Button("キャンセル", role: .cancel) {}
@@ -566,7 +568,7 @@ struct GroupSheet: View {
     }
 
     private func bulkProtect(_ on: Bool, _ chosen: [RecordedTitle]) {
-        model.startBulk(.protecting(on), ids: chosen.map(\.id))
+        guard model.startBulk(.protecting(on), ids: chosen.map(\.id)) else { return }
         selecting = false
         selected = []
     }

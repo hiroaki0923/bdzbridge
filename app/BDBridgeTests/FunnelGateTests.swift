@@ -595,8 +595,11 @@ final class FunnelGateTests: XCTestCase {
         // The read out comes back with a list of its own, to be told from the newcomer's.
         await recorder.answer(Kind.recordings, with: .result(Self.aListOfOne))
         await recorder.letGo()
-        await reading.value
-        await connecting.value
+        try await within(10, "the read across the arrival never came back") { await reading.value }
+        try await within(10, "the newcomer's connect never came back") { await connecting.value }
+        // And the newcomer's guide, which its connect started and did not wait for: a connect asked for while it
+        // is out is made once it has ended.
+        try await until("the newcomer's guide was never fetched") { !isConnecting(model) }
         XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were not read by its connect")
         XCTAssertGreaterThan(model.titles.count, 1, "the last recorder's list was put over the newcomer's")
         expectEqual(await recorder.asked(Kind.recordings, since: before), 2)
@@ -825,25 +828,26 @@ final class FunnelGateTests: XCTestCase {
     /// its own, and is on screen. A recording's and a condition's writes are turned away there and connect for
     /// nothing (`testAWriteIsNotSentOnAClientThatHasNotHeardWhichRecorderAnswersIt`).
     ///
-    /// Each file is asked for once, whoever asks for it. A connect that goes through fetches what the cache
-    /// says is behind before it hands back, and the press then asks only for the types not answered for since
-    /// it began. With every type's mark two days old, the connect fetches all four and the press none. With
-    /// the marks fresh and older than the press -- at the recorder's last rebuild, to the second -- the connect
-    /// fetches none and the press all four. Either way the eight files, each type's guide and its logos, are
-    /// asked for once each.
+    /// Each file is asked for once, whoever asks for it. A connect that goes through starts the refresh of what
+    /// the cache says is behind as it hands back, and the press asks only for the types not answered for since
+    /// it began: the two wait their turns, and whichever comes second goes by the cache's marks then. With
+    /// every type's mark two days old, whichever comes first fetches all four and the other none. With the
+    /// marks fresh and older than the press -- at the recorder's last rebuild, to the second -- the connect
+    /// starts no refresh and the press fetches all four. Either way the eight files, each type's guide and its
+    /// logos, are asked for once each.
     ///
-    /// A type the recorder could not give the press's connect has no mark, and is asked for once more by the
-    /// press itself: with none of the four files built, each is asked for twice, the press went through, and
-    /// what it says is a line for each type, the four the line of what went wrong holds.
+    /// A type the recorder could not give has no mark, and is asked for once more by whichever comes second:
+    /// with none of the four files built, each is asked for twice, the press went through, and what it says is
+    /// a line for each type, the four the line of what went wrong holds.
     ///
     /// With the recorder busy still as the press connects, the connect comes to no recorder that can be asked:
     /// nothing is fetched, the app stays connected from the attach before, and the press says what the connect
     /// heard, which the line of what went wrong holds, as after a check that said no. It does not say that the
     /// app is not connected, with no 再接続 on offer.
     ///
-    /// And where another recorder answers the press's connect, it is taken up, and its guide is fetched by that
-    /// connect as by any that takes a recorder up, each file once. The press fetches nothing after it, and says
-    /// that another recorder answered.
+    /// And where another recorder answers the press's connect, it is taken up, and its guide is fetched by the
+    /// refresh that connect starts, as any that takes a recorder up does, each file once. The press fetches
+    /// nothing after it, and says that another recorder answered.
     ///
     /// The marks are the test's own. Those at the last rebuild are read as fresh unless the recorder's hour of
     /// rebuilding passes between their writing and the press.
@@ -877,6 +881,9 @@ final class FunnelGateTests: XCTestCase {
             let count = await recorder.heard.count
 
             expectTrue(await refreshTheGuideByHand(model), "\(row.name): \(whyNotJustNow(model) ?? "nothing said")")
+            try await until("\(row.name): the refresh the press's connect started never ended") {
+                !isConnecting(model) && model.guideDownloads == 0
+            }
 
             XCTAssertNil(whyNotJustNow(model), row.name)
             XCTAssertNil(model.problem(for: .recorder), row.name)
@@ -906,9 +913,12 @@ final class FunnelGateTests: XCTestCase {
         for file in Kind.guide { await unbuilt.answer(file, with: .status(500), times: 2) }
         let asked = await unbuilt.asked
         expectTrue(await refreshTheGuideByHand(home), "a press that passed every type over did not go through")
+        try await until("the refresh the press's connect started never ended") {
+            !isConnecting(home) && home.guideDownloads == 0
+        }
         for file in Kind.guide {
             expectEqual(await unbuilt.asked(file, since: asked), 2,
-                        "\(file): once by the press's connect and once more by the press")
+                        "\(file): once by the press and once by the refresh its connect started")
         }
         let lines = zip(["地上デジタル", "BS ", "CS ", "BS4K "], Kind.guide).map { type, file in
             "\(type)の番組表：\(RecorderError.guideFileMissing(name: file, status: 500).explanation)"
@@ -938,11 +948,12 @@ final class FunnelGateTests: XCTestCase {
         made = bench.clientsMade
         count = await recorder.heard.count
         expectFalse(await refreshTheGuideByHand(model), "a press that took another recorder up went through")
+        try await until("the newcomer's refresh never ended") { !isConnecting(model) && model.guideDownloads == 0 }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered)
         XCTAssertEqual(bench.clientsMade, made + 1, "the press was meant to connect, once")
         expectEqual(await files(recorder, since: count), Kind.guide,
-                    "the newcomer's guide was meant to be fetched once, by the connect that took it up")
+                    "the newcomer's guide was meant to be fetched once, by the refresh its connect started")
         XCTAssertEqual(model.guideDownloads, 0)
         XCTAssertNil(model.busy)
     }
@@ -1032,14 +1043,14 @@ final class FunnelGateTests: XCTestCase {
 
     /// A refresh that is out when another recorder takes the address: a guide goes only into the cache of the
     /// recorder it was fetched from. The newcomer is taken up by a connect while the first file is held, which
-    /// makes the cache over to it; its own refresh, on a client of its own, waits its turn behind the one that
-    /// is out, and has asked for no file. Then the file held comes back with a guide, and the newcomer's
-    /// refresh has its turn: its own first file is held in its turn, so that nothing of its own has answered.
-    /// Nothing of the last recorder's is in the cache, which is the newcomer's by now, or on its screens: no
-    /// programme, and no type marked as answered for. No further file was asked for of a recorder the press was
-    /// not made for. The line left for the newcomer stands, neither cleared nor written. And the press did not
-    /// go through: it says that another recorder answered. The newcomer's refresh then asks for each of its
-    /// files once.
+    /// makes the cache over to it, and comes back once its lists are in; its own refresh, on a client of its own,
+    /// waits its turn behind the one that is out, and has asked for no file. Then the file held comes back with a
+    /// guide, and the newcomer's refresh has its turn: its own first file is held in its turn, so that nothing of
+    /// its own has answered. Nothing of the last recorder's is in the cache, which is the newcomer's by now, or
+    /// on its screens: no programme, and no type marked as answered for. No further file was asked for of a
+    /// recorder the press was not made for. The line left for the newcomer stands, neither cleared nor written.
+    /// And the press did not go through: it says that another recorder answered. The newcomer's refresh then asks
+    /// for each of its files once.
     func testAGuideFetchedAcrossAnotherRecordersArrivalStaysOutOfTheNewcomersCacheAndLeavesItsLine() async throws {
         let (bench, recorder, model) = try await connectedHome(guide: false)
         let cache = try GuideStore(path: bench.guidePath)
@@ -1049,16 +1060,12 @@ final class FunnelGateTests: XCTestCase {
         let asking = Task { await refreshTheGuideByHand(model) }
         try await until("the guide was never asked for") { await recorder.asked(Kind.guide[0], since: before) == 1 }
 
-        // The newcomer's connect is begun and not waited for: its refresh waits its turn behind the file held.
+        // The newcomer's connect comes back once its lists are in: its refresh waits its turn behind the file
+        // held.
         let arrived = await recorder.heard.count
         await recorder.become(2)
-        let back = Back()
-        let connecting = Task {
-            await model.connect()
-            back.came = true
-        }
-        try await until("the newcomer's refresh was never asked for") { model.guideDownloads == 2 || back.came }
-        XCTAssertFalse(back.came, "the newcomer's connect did not wait for the refresh that was out")
+        try await within(5, "the newcomer's connect waited for the refresh that was out") { await model.connect() }
+        try await until("the newcomer's refresh was never asked for") { model.guideDownloads == 2 }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         expectEqual(try await cache.owner(), NamedRecorder.udn(2), "the cache was meant to be the newcomer's")
         leaveALine(on: model)
@@ -1068,7 +1075,8 @@ final class FunnelGateTests: XCTestCase {
         await recorder.answer(Kind.guide[0], with: .body(try vectorFile("epg-sample.dat")))
         await recorder.holdTheNext(Kind.guide[0])
         await recorder.letTheFirstGo(of: Kind.guide[0])
-        expectFalse(await asking.value, "a refresh went through for a recorder let go of meanwhile")
+        expectFalse(try await within(10, "the refresh let go of never came back") { await asking.value },
+                    "a refresh went through for a recorder let go of meanwhile")
         // Whichever file the newcomer's refresh asks for first: its own first, unless the cache says otherwise.
         try await until("the newcomer's refresh never had its turn") {
             await recorder.heard(since: arrived).contains { Kind.guide.contains($0) }
@@ -1089,20 +1097,22 @@ final class FunnelGateTests: XCTestCase {
 
         heard = await recorder.heard.count
         await recorder.letGo()
-        await connecting.value
+        try await until("the newcomer's refresh never ended") { !isConnecting(model) && model.guideDownloads == 0 }
         expectEqual(await recorder.heard(since: heard), Array(Kind.guide.dropFirst()),
                     "the newcomer's refresh was meant to ask for the rest of its files, each once")
-        XCTAssertEqual(model.guideDownloads, 0)
     }
 
     /// One refresh of the guide at a time, whoever asks. The screens and the overnight run each have a client
     /// and a connection to the cache of their own, and a client's queue keeps apart only what is asked of that
     /// client: asked together, the two would ask the recorder for the same files at once. Here every type is
     /// behind, by marks two days old, and a refresh as the night makes one is out, its first file held, when a
-    /// connect is made. The connect's refresh is counted as out and waits its turn: it asks for no file beside
-    /// the one that is out. Let go, the night's refresh fetches its four types; and the connect's, its turn
-    /// come, fetches what is still behind by the cache's marks then, which is nothing. Each file was asked for
-    /// once, where each would have been asked for twice.
+    /// connect is made. The connect reads its lists and comes back: the guide is on its way meanwhile, as the
+    /// guide's tab says on a first run, and the refresh it starts is counted as out and waits its turn under its
+    /// line, asking for no file beside the one that is out. A second connect asked for meanwhile asks nothing.
+    /// Let go, the night's refresh fetches its four types; and the connect's, its turn come, fetches what is
+    /// still behind by the cache's marks then, which is nothing. Each file was asked for once, where each would
+    /// have been asked for twice. Then the second connect, held off while the refresh was out, is made (in the
+    /// first row only).
     ///
     /// A refresh that has asked the recorder for nothing leaves the line of what went wrong as it stands. In
     /// the second row the connect's read of the reservations, which comes before its guide, is answered busy
@@ -1119,6 +1129,9 @@ final class FunnelGateTests: XCTestCase {
             let cache = try GuideStore(path: bench.guidePath)
             let behind = Date().addingTimeInterval(-2 * 86_400)
             for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: behind) }
+            // On screen too, as a launch reads them, so that the guide is behind before the connect looks.
+            await model.reloadFromCache()
+            XCTAssertTrue(model.guideIsStale, "the cache was meant to say that every type is behind")
             let night = aClient(of: recorder)
             let before = await recorder.asked
             await recorder.holdTheNext(Kind.guide[0])
@@ -1128,18 +1141,53 @@ final class FunnelGateTests: XCTestCase {
                 await recorder.asked(Kind.guide[0], since: before) == 1
             }
 
-            if readIsAnsweredBusy { await recorder.beBusy(with: Kind.reservations) }
-            let back = Back()
-            let connecting = Task {
-                await model.connect()
-                back.came = true
+            if readIsAnsweredBusy {
+                await recorder.beBusy(with: Kind.reservations)
+            } else {
+                await recorder.hold(only: Kind.reservations)
             }
-            try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 || back.came }
-            XCTAssertFalse(back.came, "\(row): the connect did not wait for the refresh that was out")
+            // What stands as the connect ends, before the refresh it started has had a turn of its own.
+            let connecting = Task { () -> (connecting: Bool, onItsWay: Bool, run: Bool, choice: Bool) in
+                await model.connect()
+                return (model.connecting, model.guideOnItsWay, model.canStartARun, model.canChangeRecorder)
+            }
+            if !readIsAnsweredBusy {
+                try await until("the connect never read the reservations") {
+                    await recorder.asked(Kind.reservations, since: before) == 1
+                }
+                XCTAssertTrue(model.guideOnItsWay, "the guide is not said to be on its way while the connect reads")
+                XCTAssertEqual(model.guideDownloads, 0)
+                await recorder.letTheFirstGo(of: Kind.reservations)
+            }
+            let back = try await within(5, "\(row): the connect waited for its refresh") { await connecting.value }
+            XCTAssertFalse(back.connecting, row)
+            XCTAssertTrue(back.onItsWay, "\(row): the guide is not said to be on its way as the connect ends")
+            XCTAssertFalse(back.run, "\(row): a run could be started as the connect ended")
+            XCTAssertFalse(back.choice, "\(row): the recorder could be changed as the connect ended")
             XCTAssertTrue(model.guideIsStale, "the cache was meant to say that every type is behind")
+            try await until("\(row): the connect's refresh was never asked for") {
+                model.guideDownloads == 1 && model.busy == "番組表を取得中"
+            }
+            XCTAssertTrue(model.guideOnItsWay, row)
+            // A second connect meanwhile asks nothing, and is made once the refresh has ended. Not in the row
+            // whose read was answered busy: made, it would read the reservations again and clear the line, which
+            // is what that row looks at.
+            let asked = await recorder.asked(Kind.description, since: before)
+            if !readIsAnsweredBusy {
+                try await within(5, "\(row): a second connect waited for the refresh") { await model.connect() }
+                expectEqual(await recorder.asked(Kind.description, since: before), asked,
+                            "\(row): a second connect was made beside the connect's refresh")
+            }
+
             await recorder.letGo()
-            let fetched = await out.value
-            await connecting.value
+            let fetched = try await within(10, "the night's refresh never ended") { await out.value }
+            try await until("\(row): the connect's refresh never ended") {
+                model.guideDownloads == 0 && !model.recorderHost.refreshesTheGuideAfterAConnect
+            }
+            try await until("\(row): the connect held off was never made once the refresh had ended") {
+                await recorder.asked(Kind.description, since: before) == asked + (readIsAnsweredBusy ? 0 : 1)
+                    && !isConnecting(model) && model.busy == nil
+            }
 
             XCTAssertEqual(fetched.answered, GuideRefresh.broadcastingTypes, "the night's refresh did not end as asked")
             for file in Kind.guide {
@@ -1151,6 +1199,165 @@ final class FunnelGateTests: XCTestCase {
                            "\(row): a refresh that asked for nothing wrote on the line, or cleared it")
             XCTAssertEqual(model.guideDownloads, 0)
             XCTAssertNil(model.busy)
+        }
+    }
+
+    /// The refresh a connect started is made sure of once its turn has come, as any refresh is, and not as part
+    /// of the connect, whose checks pass without asking: here a check made while the refresh waits its turn hears
+    /// the recorder busy with somebody else, and once the recorder is free and the night's refresh is let go,
+    /// the connect's refresh asks who answers before it asks for the one type the night could not fetch.
+    func testAConnectsRefreshIsMadeSureOfOnceItsTurnHasComeAsAnyRefreshIs() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        let cache = try GuideStore(path: bench.guidePath)
+        // Behind whatever the hour: marks from years ago.
+        let behind = Date(timeIntervalSince1970: 1_700_000_000)
+        for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: behind) }
+        let night = aClient(of: recorder)
+        let before = await recorder.asked
+        await recorder.answer(Kind.guide[1], with: .status(500))
+        await recorder.holdTheNext(Kind.guide[0])
+        addTeardownBlock { await recorder.letGo() }
+        let out = Task { await GuideRefresh.run(client: night, store: cache) }
+        try await until("the night's guide was never asked for") {
+            await recorder.asked(Kind.guide[0], since: before) == 1
+        }
+        let connecting = Task { await model.connect() }
+        try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 }
+
+        await recorder.busyAtTheDoor()
+        expectTrue(await makeSure(model), "a recorder that answered busy was taken for gone")
+        await recorder.comeFree()
+        let heard = await recorder.heard.count
+        await recorder.letGo()
+        let fetched = try await within(10, "the night's refresh never ended") { await out.value }
+        XCTAssertFalse(fetched.answered.contains("bs"), "the night was meant to be turned away for one type")
+        try await within(10, "the connect never ended") { await connecting.value }
+        try await until("the connect's refresh never ended") { !isConnecting(model) && model.busy == nil }
+
+        let since = await recorder.heard(since: heard).filter { $0 == Kind.description || Kind.guide.contains($0) }
+        // The night's ask for that type, answered with a fault after `heard` was noted, and the connect's after it.
+        XCTAssertEqual(since.filter { $0 == Kind.guide[1] }.count, 2,
+                       "the connect's refresh did not fetch the type the night could not: \(since)")
+        let fileOfTheConnect = since.lastIndex(of: Kind.guide[1])
+        XCTAssertTrue(since.prefix(upTo: fileOfTheConnect ?? 0).contains(Kind.description),
+                      "the connect's refresh asked for its file without asking who answers first: \(since)")
+        XCTAssertFalse(model.guideIsStale, model.problem(for: .recorder) ?? "no reason given")
+    }
+
+    /// A connect's refresh holds a second connect off only while the recorder it was for is in play. Here it
+    /// waits its turn behind the night's refresh when a check hears another recorder at the address: the connect
+    /// that takes the newcomer up is made at once, and not kept waiting behind a refresh of the recorder let go
+    /// of, which is still waiting its turn.
+    func testAConnectsRefreshDoesNotHoldOffTheConnectThatTakesANewcomerUp() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        let cache = try GuideStore(path: bench.guidePath)
+        // Behind whatever the hour: marks from years ago.
+        let behind = Date(timeIntervalSince1970: 1_700_000_000)
+        for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: behind) }
+        let night = aClient(of: recorder)
+        let before = await recorder.asked
+        await recorder.holdTheNext(Kind.guide[0])
+        addTeardownBlock { await recorder.letGo() }
+        let out = Task { await GuideRefresh.run(client: night, store: cache) }
+        try await until("the night's guide was never asked for") {
+            await recorder.asked(Kind.guide[0], since: before) == 1
+        }
+        try await within(5, "the connect waited for its refresh") { await model.connect() }
+        try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 }
+
+        await recorder.become(2)
+        expectFalse(await makeSure(model), "the check was meant to hear another recorder")
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered)
+        try await until("the newcomer was not taken up while the refresh of the last recorder was out") {
+            model.info?.udn == NamedRecorder.udn(2)
+        }
+        expectEqual(await recorder.asked(Kind.guide[0], since: before), 1,
+                    "the night's file was meant to be held still")
+
+        await recorder.letGo()
+        _ = try await within(10, "the night's refresh never ended") { await out.value }
+        try await until("the newcomer's connect never ended", within: 20) { !isConnecting(model) && model.busy == nil }
+    }
+
+    /// Only the refresh a connect started last takes its hold on a second connect down as it ends. The turn is
+    /// another refresh's, on a recorder and into a cache of the test's own, its first file held, when a connect's
+    /// refresh starts and waits behind it, and then a check hears another recorder: the newcomer is taken up, and
+    /// its own refresh waits behind the one for the recorder let go of. A connect asked for then is held off. Once
+    /// the other refresh is let go, the refresh for the recorder let go of ends first, fetching nothing; the
+    /// newcomer's, its first file held, still holds that connect off, which is made once the newcomer's refresh
+    /// has ended.
+    func testARefreshForARecorderLetGoOfEndingFirstLeavesTheNewcomersHoldInPlace() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        let cache = try GuideStore(path: bench.guidePath)
+        // Behind whatever the hour: marks from years ago.
+        let behind = Date(timeIntervalSince1970: 1_700_000_000)
+        for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: behind) }
+        let other = NamedRecorder(1)
+        let elsewhere = try GuideStore(path: bench.folder.appendingPathComponent("another.sqlite3").path)
+        await other.holdTheNext(Kind.guide[0])
+        addTeardownBlock { await other.letGo() }
+        addTeardownBlock { await recorder.letGo() }
+        let out = Task { await GuideRefresh.run(client: aClient(of: other), store: elsewhere) }
+        try await until("the other refresh was never asked for") { await other.asked(Kind.guide[0]) == 1 }
+        let before = await recorder.asked
+        try await within(5, "the connect waited for its refresh") { await model.connect() }
+        try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 }
+
+        await recorder.become(2)
+        expectFalse(await makeSure(model), "the check was meant to hear another recorder")
+        try await until("the newcomer's refresh was never asked for", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !model.connecting && model.guideDownloads == 2
+        }
+        let asked = await recorder.asked(Kind.description, since: before)
+        try await within(5, "a second connect waited for the newcomer's refresh") { await model.connect() }
+        expectEqual(await recorder.asked(Kind.description, since: before), asked,
+                    "a second connect was made beside the newcomer's refresh")
+
+        // The other refresh goes, and the newcomer's own first file is held as it is asked for.
+        await recorder.holdTheNext(Kind.guide[0])
+        await other.letGo()
+        _ = try await within(10, "the other refresh never ended") { await out.value }
+        try await until("the refresh for the recorder let go of never ended", within: 20) {
+            await recorder.asked(Kind.guide[0], since: before) == 1 && model.guideDownloads == 1
+        }
+        XCTAssertTrue(model.recorderHost.refreshesTheGuideAfterAConnect,
+                      "the refresh for the recorder let go of took the newcomer's hold down as it ended")
+        expectEqual(await recorder.asked(Kind.description, since: before), asked,
+                    "the connect held off was made beside the newcomer's refresh")
+
+        await recorder.letGo()
+        try await until("the connect held off was never made once the newcomer's refresh had ended", within: 20) {
+            await recorder.asked(Kind.description, since: before) == asked + 1 && !isConnecting(model)
+                && model.busy == nil
+        }
+        XCTAssertFalse(model.guideIsStale, model.problem(for: .recorder) ?? "no reason given")
+    }
+
+    /// A connect whose reads lost the recorder starts no refresh of the guide: the guide is behind, but there is
+    /// nothing to fetch it from. Here the connect's read of the reservations meets silence. As the connect ends,
+    /// no refresh is out, the guide is not said to be on its way, and nothing of the guide is asked.
+    func testAConnectWhoseReadsLostTheRecorderStartsNoRefreshOfTheGuide() async throws {
+        let (bench, recorder, model) = try await connectedHome(guide: false)
+        let cache = try GuideStore(path: bench.guidePath)
+        // Behind whatever the hour: marks from years ago.
+        let behind = Date(timeIntervalSince1970: 1_700_000_000)
+        for type in GuideRefresh.broadcastingTypes { try await cache.noteNoGuide(broadcasting: type, at: behind) }
+        await model.reloadFromCache()
+        XCTAssertTrue(model.guideIsStale, "the cache was meant to say that every type is behind")
+        let before = await recorder.asked
+        await recorder.goQuiet(on: Kind.reservations)
+        // What stands as the connect ends, before anything it might have started has had a turn of its own.
+        let connecting = Task { () -> (out: Bool, onItsWay: Bool) in
+            await model.connect()
+            return (model.recorderHost.refreshesTheGuideAfterAConnect, model.guideOnItsWay)
+        }
+        let back = try await within(20, "the connect never came back") { await connecting.value }
+        XCTAssertFalse(model.connected, "the read was meant to lose the recorder")
+        XCTAssertFalse(back.out, "a refresh of the guide was started for a recorder lost")
+        XCTAssertFalse(back.onItsWay, "the guide was said to be on its way from a recorder lost")
+        try await untilIdle(model)
+        for file in Kind.guide {
+            expectEqual(await recorder.asked(file, since: before), 0, "\(file) was asked of a recorder lost")
         }
     }
 
@@ -1786,7 +1993,9 @@ final class FunnelGateTests: XCTestCase {
                         return await recorder.asked(Kind.recordings, since: before) > 1
                     }
                 } else {
-                    await connecting.value
+                    try await within(10, "the newcomer's connect never came back, \(how)") { await connecting.value }
+                    // And the newcomer's guide, which its connect started and did not wait for.
+                    try await until("the newcomer's guide was never fetched, \(how)") { !isConnecting(model) }
                 }
                 XCTAssertEqual(model.info?.udn, NamedRecorder.udn(newcomer),
                                model.problem(for: .recorder) ?? "no reason given")
@@ -1801,9 +2010,10 @@ final class FunnelGateTests: XCTestCase {
                 leaveALine(on: model)
                 let newcomers = Lists(model)
                 await recorder.letGo()
-                await reading?.value
-                let answer = await asking.value
-                await connecting.value
+                _ = try await within(10, "the read never came back, \(how)") { await reading?.value }
+                let answer = try await within(10, "\(how) never came back") { await asking.value }
+                try await within(10, "the newcomer's connect never came back, \(how)") { await connecting.value }
+                try await until("the newcomer's guide was never fetched, \(how)") { !isConnecting(model) }
 
                 if queued, row.asksFirst != nil {
                     XCTAssertEqual(answer, false, "\(how) was sent across the let-go")
@@ -2176,11 +2386,14 @@ final class FunnelGateTests: XCTestCase {
             }
             await recorder.become(newcomer)
             await model.connect()
+            // And the newcomer's guide, which its connect started and did not wait for.
+            try await until("the newcomer's guide was never fetched, \(row.name)") { !isConnecting(model) }
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(newcomer),
                            model.problem(for: .recorder) ?? "no reason given")
             let read = await recorder.asked
             await recorder.letGo()
-            expectEqual(await asking.value, true, model.problem(for: .recorder) ?? "no reason given")
+            expectEqual(try await within(10, "\(row.name) never came back") { await asking.value }, true,
+                        model.problem(for: .recorder) ?? "no reason given")
             expectEqual(await recorder.asked(Kind.conditions, since: read), 0,
                         "the list was read after \(row.name), across the arrival")
         }

@@ -99,11 +99,15 @@ final class LinkWorld: RecorderLinkHost {
     }
     func endActivity(_ token: Activities.Token) { lines.end(token) }
     var isBusy: Bool { false }
-    var holdsOffConnect: Bool { false }
+    /// Whether a connect is held off, as an app's is while a job runs: set by a test of a connect turned away.
+    var holdsOffConnect = false
     var isDemo: Bool { false }
     /// The phone's cache, for a test of what is sent from it: none unless a test gives one.
     var cache: GuideStore?
-    func cacheForAttempt() async {}
+    /// What the host does as it opens the cache, the first thing a connect does once it is under way, before
+    /// it makes a client of its own: for a test of what is asked for meanwhile.
+    var onCacheForAttempt: (@MainActor () async -> Void)?
+    func cacheForAttempt() async { await onCacheForAttempt?() }
     func keepAddress(_ host: String) { events.append("address \(host)") }
     func keepMAC(_ text: String) { events.append("MAC \(text)") }
     func macWasReadAt(_ host: String) {

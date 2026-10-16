@@ -148,14 +148,23 @@ final class SessionRuleTests: XCTestCase {
     }
 
     /// Nor beside a bulk job, whose requests go on the client in hand, beside which a connect's would be a
-    /// second conversation with the recorder: 再接続 and pulling down wait for it.
-    func testNoConnectStartsWhileAJobIsRunning() async throws {
+    /// second conversation with the recorder: a connect asked for during the job -- as a return to the app asks
+    /// for one, 再接続 being grey then -- does not wait for it, and asks nothing then. It is made once the job has
+    /// ended, whole: who answers asked again, and what waits sent.
+    func testAConnectAskedForDuringAJobIsMadeOnceTheJobHasEnded() async throws {
         let bench = try aBench()
         let recorder = NamedRecorder(1)
         let model = try await started(bench, recorder: recorder)
         XCTAssertTrue(model.connected)
+        addTeardownBlock { await recorder.letGo() }
         await model.loadTitles()
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        // A reservation left waiting, years ahead on the demo's first channel.
+        let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")
+        let request = ReservationRequest(title: "待っている予約", start: Date(timeIntervalSince1970: 1_900_000_000),
+                                         durationSec: 1800, repeatCode: "1", broadcastingType: 2, serviceID: 1024,
+                                         qualityCode: 100, eventID: 0xe100)
+        try await store.queue(PendingReservation(request: request, serviceName: "サンプルテレビ"))
         await recorder.hold(only: "X_GetTitleDetail")
         model.startBulk(.delete, ids: [title.id])
         try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
@@ -166,6 +175,38 @@ final class SessionRuleTests: XCTestCase {
 
         await recorder.letGo()
         try await until("the job never finished") { model.job?.finished == true }
+        // The connect owed begins in the turn the job is marked finished in, so idle is after it.
+        try await untilIdle(model, "the connect made once the job had ended never ended")
+        expectEqual(await recorder.asked("description.xml", since: before), 1,
+                    "the connect asked for during the job was not made once it had ended")
+        XCTAssertTrue(model.connected, model.problem(for: .recorder) ?? "no reason given")
+        expectEqual(await recorder.asked("X_CreateRecordSchedule", since: before), 1,
+                    "what waits was not sent by the connect made after the job")
+        expectEqual(try await store.pendingReservations(), [], "the reservation waiting is waiting still")
+    }
+
+    /// A connect asked for during a job is not made once the job has ended if the app has left meanwhile: iOS
+    /// suspends it soon after, and the connect would meet silence. Coming back asks afresh what that is worth.
+    func testAConnectAskedForDuringAJobIsNotMadeOnceItHasEndedWithTheAppAway() async throws {
+        let bench = try aBench()
+        let recorder = NamedRecorder(1)
+        let model = try await started(bench, recorder: recorder)
+        XCTAssertTrue(model.connected)
+        addTeardownBlock { await recorder.letGo() }
+        await model.loadTitles()
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        await recorder.hold(only: "X_GetTitleDetail")
+        model.startBulk(.delete, ids: [title.id])
+        try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
+        let before = await recorder.asked
+
+        try await within(5, "a connect waited on the job") { await model.connect() }
+        model.wentToBackground()
+        await recorder.letGo()
+        try await until("the job never finished") { model.job?.finished == true }
+        try await untilIdle(model, "a connect made once the job had ended never ended")
+        expectEqual(await recorder.asked("description.xml", since: before), 0,
+                    "a connect asked for during the job was made with the app away")
     }
 
     /// Nor does a second job start over one that is running: the first is for the recorder and walks the list

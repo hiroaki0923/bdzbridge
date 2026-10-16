@@ -538,6 +538,8 @@ final class QueueGateTests: XCTestCase {
 
             await recorder.become(2)
             await model.connect()
+            // And the newcomer's guide, which its connect started and did not wait for.
+            try await until("\(name): the newcomer's guide was never fetched") { !isConnecting(model) }
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
             leaveALine(on: model)
             if silent { await recorder.goQuiet(on: Kind.create) } else { await recorder.beBusy(with: Kind.create) }

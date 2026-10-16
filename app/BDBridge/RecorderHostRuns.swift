@@ -46,13 +46,15 @@ extension RecorderHost {
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
 
     /// Whether a run may be started now, for the buttons that start one -- a bulk delete, a bulk protect, the
-    /// scan for duplicates: only with the recorder at rest. Not beside another run, which `startBulk` and
-    /// `startDuplicateScan` refuse themselves. Nor while the recorder works or a connect is under way: a run
-    /// started then would write beside what is out, or be turned away as it begins for a recorder that has not
-    /// yet said which it is (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a
-    /// connect has between two lines of its own, as in `canChangeRecorder`. The television's work does not
-    /// count: it is on a client of its own.
-    var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting }
+    /// scan for duplicates -- and for `startBulk` and `startDuplicateScan` themselves, which a confirm or a menu
+    /// left open can reach after its button has gone grey: only with the recorder at rest. Not beside another
+    /// run. Nor while the recorder works or a connect is under way: a run started then would write beside what
+    /// is out, or be turned away as it begins for a recorder that has not yet said which it is
+    /// (`RecorderDriver.beginRun`). `connecting` counts beside the lines for the turns a connect has between two
+    /// lines of its own, as in `canChangeRecorder`, and so does the refresh of the guide a connect started for
+    /// the turns before its line is up (`refreshesTheGuideAfterAConnect`). The television's work does not count:
+    /// it is on a client of its own.
+    var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting && !refreshesTheGuideAfterAConnect }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
     /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
@@ -60,30 +62,33 @@ extension RecorderHost {
     /// the list, and a playback begun before a long scan has to be stoppable from the app.
     var canAlterARecording: Bool { !isBusy && !jobRunning }
 
-    /// Whether the duplicates have been looked for, for their screen to say that none were found: the job that
-    /// stands is a scan that came to its end, or that 中止 stopped, either of which has worked the sets out from
-    /// what it read and counted what it left unread. Not a scan the recorder stopped or kept from reading
-    /// (`BulkJob.stopped`): the recorder may have been let go of under it, its recordings gone from memory, and
-    /// there is then nothing left to count as unread -- that scan would have the screen say of a recorder never
-    /// looked at that it holds no duplicates.
-    var scannedForDuplicates: Bool {
-        guard let job, case .scanning = job.kind else { return false }
-        return job.finished && job.stopped == nil
-    }
+    /// Whether the duplicates have been looked for, for their screen to say that none were found: kept on what
+    /// the recorder said (`RecorderSaid.lookedForDuplicates`), and not read off the job that stands, which a later
+    /// bulk job or the bar's ✕ replaces while the sets still stand.
+    var scannedForDuplicates: Bool { said.lookedForDuplicates }
 
     /// A run the driver will not begin (`RecorderDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
-    func startBulk(_ kind: BulkJob.Kind, ids: [String]) {
-        guard jobTask == nil, !ids.isEmpty, let driver = recorderDriver else { return }
+    ///
+    /// Nothing starts, and nothing is said, while a run may not be started (`canStartARun`): the press came
+    /// from a confirm or a menu left open after its button went grey, and the job that stands is left as it
+    /// is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
+    /// none asked for.
+    @discardableResult
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool {
+        guard canStartARun, jobTask == nil else { return false }
+        guard !ids.isEmpty, let driver = recorderDriver else { return true }
         job = BulkJob(kind: kind, total: ids.count)
         switch driver.beginRun(kind) {
         case .success(let run):
+            let said = self.said
             jobTask = Task { [weak self] in
-                await self?.runBulk(kind, ids: ids, run, driver)
+                await self?.runBulk(kind, ids: ids, run, driver, on: said)
             }
         case .failure(let stop):
             endJob(stoppedBy: stop)
         }
+        return true
     }
 
     /// Ends the job just set up, its run not begun, with why.
@@ -106,7 +111,12 @@ extension RecorderHost {
     /// recorder for one, what stops the run on its account and the free space read as it ends are the driver's
     /// (`RecorderDriver.mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `end`), on the run begun as the job was set
     /// up; whatever stops it there is kept with the job, which says it (`BulkJob.stopped`).
-    private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ run: Run, _ driver: RecorderDriver) async {
+    ///
+    /// `said` is what the recorder said as the run was set up: the list it walks and writes to, whatever has
+    /// been let go of since, as the scan keeps to its own (`runScan`). The run stops before anything more is sent
+    /// once its recorder has been let go of (`RecorderDriver.mayGoOn`), and the newcomer's list is left alone.
+    private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ run: Run, _ driver: RecorderDriver,
+                         on said: RecorderSaid) async {
         var stopped: RunStop?
         for id in ids {
             // Before the wait for the app to come back: a run the reader stopped on the way out, a recording's
@@ -123,8 +133,8 @@ extension RecorderHost {
             if job?.cancelled == true { break }
             stopped = await keepingAlive { () -> RunStop? in
                 switch kind {
-                case .delete: return await deleteOne(id, in: run, driver)
-                case .protecting(let on): return await protectOne(id, on, in: run, driver)
+                case .delete: return await deleteOne(id, in: run, driver, on: said)
+                case .protecting(let on): return await protectOne(id, on, in: run, driver, on: said)
                 case .scanning: return nil
                 }
             }
@@ -147,8 +157,16 @@ extension RecorderHost {
         await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
         // the sets were built from recordings that may no longer all be there
         if !said.duplicates.isEmpty { said.recomputeDuplicates() }
+        await jobEnded()
+    }
+
+    /// The job is over: it no longer holds a connect off (`holdsOffConnect`), and a connect turned away while it
+    /// ran -- a return to the app, a look that found another network -- is made now (`DeviceLink.connectIfOwed`),
+    /// as it would have been without the job. The last thing either loop does.
+    private func jobEnded() async {
         job?.finished = true
         jobTask = nil
+        await link.connectIfOwed()
     }
 
     /// Waits, before a bulk job or the scan takes its next step, for as long as the app is in the background.
@@ -194,9 +212,10 @@ extension RecorderHost {
     /// why this is a job with a progress bar and a stop button.
     ///
     /// The sets already on screen stay there while it runs, so that one it finds again keeps the ticks the
-    /// reader gave it. Ticking waits until it has finished.
+    /// reader gave it. Ticking waits until it has finished. Not while a run may not be started
+    /// (`canStartARun`), as `startBulk`.
     func startDuplicateScan() {
-        guard jobTask == nil, let store = model?.store, let driver = recorderDriver else { return }
+        guard canStartARun, jobTask == nil, let store = model?.store, let driver = recorderDriver else { return }
         let candidates = Duplicates.candidates(said.titles)
         job = BulkJob(kind: .scanning, total: candidates.reduce(0) { $0 + $1.count })
         switch driver.beginRun(.scanning) {
@@ -215,6 +234,11 @@ extension RecorderHost {
     /// (`RecorderSaid.keep`). The cache is read across a turn, and a recorder let go of meanwhile has had its
     /// texts emptied out of memory; the next one gives out the same numbers for its own recordings, and would be
     /// compared on these, were they not kept where no screen reads them.
+    ///
+    /// So the scan reads and writes `said` throughout, to its end: the texts, a recording gone, the guide's fixed
+    /// blurbs, the sets worked out again. Once `said` is no longer the one in play -- the recorder let go of --
+    /// the driver is asked before the next candidate, cached or not, which answers that with nothing sent
+    /// (`RecorderDriver.mayGoOn`), and the scan stops there.
     private func runScan(_ candidates: [[RecordedTitle]], store: GuideStore, _ run: Run,
                          _ driver: RecorderDriver, into said: RecorderSaid) async {
         let ids = candidates.flatMap { $0.map(\.id) }
@@ -224,14 +248,18 @@ extension RecorderHost {
         // The recorder is needed only for what the cache does not already hold, and made sure of only then,
         // and not for a scan that 中止 has stopped already.
         var stopped: RunStop?
-        if job?.cancelled != true, ids.contains(where: { self.said.summaries[$0] == nil }) {
+        if job?.cancelled != true, ids.contains(where: { said.summaries[$0] == nil }) {
             stopped = await driver.mayGoOn(run)
         }
 
         scan: for group in candidates {
             for title in group {
                 if stopped != nil || job?.cancelled == true { break scan }
-                if self.said.summaries[title.id] == nil {
+                if said !== self.said {
+                    stopped = await driver.mayGoOn(run)
+                    if stopped != nil { break scan }
+                }
+                if said.summaries[title.id] == nil {
                     await readyForNextStep()
                     // before the recorder is made sure of, and after, as in `runBulk`: 中止 may have been tapped
                     // while the app was away, and a check heard out meanwhile may have stopped the scan
@@ -241,11 +269,11 @@ extension RecorderHost {
                     if job?.cancelled == true { break scan }
                     switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):
-                        self.said.summaries[title.id] = summary
+                        said.summaries[title.id] = summary
                         try? await store.setTitleSummary(title.id, summary)
                     case .gone:
                         // deleted on the recorder since the list was read, so it is not a copy of anything
-                        self.said.titles.removeAll { $0.id == title.id }
+                        said.titles.removeAll { $0.id == title.id }
                     case .failed(let reason):
                         // Nothing is kept, so it is left out of the sets and asked about again next time.
                         job?.skipped.append(.init(id: title.id, reason: reason))
@@ -265,18 +293,23 @@ extension RecorderHost {
         // Read again each time, since the guide moves on a day at a time. It is the cache on this device, so
         // it is read whether or not the recorder answered; one that cannot be read leaves what was read last.
         let titleKeys = Set(candidates.compactMap { $0.first.map { Series.sameTitleKey($0.title) } })
-        if let found = try? await store.fixedBlurbs(among: titleKeys) { self.said.fixedBlurbs = found }
+        if let found = try? await store.fixedBlurbs(among: titleKeys) { said.fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
-        self.said.recomputeDuplicates()
-        job?.finished = true
-        jobTask = nil
+        said.recomputeDuplicates()
+        // Looked for, unless the recorder stopped the scan or kept it from reading (`BulkJob.stopped`), and only
+        // for the recorder still in play: the recorder may have been let go of under such a scan, its recordings
+        // gone from memory, with nothing left to count as unread, and the screen would then say of a recorder
+        // never looked at that it holds no duplicates. 中止 stops a scan with nothing of the recorder's.
+        if stopped == nil, said === self.said { said.lookedForDuplicates = true }
+        await jobEnded()
     }
 
     /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and
     /// the job brought into step with what that came to. What stopped the run at it -- silence, a no before
     /// its delete was sent (`RecorderDriver.mayGoOn`), or the recorder let go of, when nothing is counted and
     /// the list, which is no longer that recorder's, is left alone -- or nil: see `runBulk`.
-    private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
+    private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver, on said: RecorderSaid) async
+        -> RunStop? {
         guard let title = said.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
@@ -299,7 +332,8 @@ extension RecorderHost {
     }
 
     /// One recording of a bulk protect, as `deleteOne`.
-    private func protectOne(_ id: String, _ on: Bool, in run: Run, _ driver: RecorderDriver) async -> RunStop? {
+    private func protectOne(_ id: String, _ on: Bool, in run: Run, _ driver: RecorderDriver,
+                            on said: RecorderSaid) async -> RunStop? {
         guard let title = said.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil

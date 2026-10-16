@@ -71,6 +71,8 @@ extension AppModel {
         // reads. A return that makes no attach leaves it for later again, and the disk known stays as it was read
         // until then.
         recorder.setTheReadLeftForLaterAside()
+        // So does a connect a job held off: made once the job ends while the app is away, it would meet silence.
+        recorder.dropTheConnectOwed()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends
@@ -172,7 +174,8 @@ extension AppModel {
     var canStartARun: Bool { recorderHost.canStartARun }
     var canAlterARecording: Bool { recorderHost.canAlterARecording }
     var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
-    func startBulk(_ kind: BulkJob.Kind, ids: [String]) { recorderHost.startBulk(kind, ids: ids) }
+    @discardableResult
+    func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool { recorderHost.startBulk(kind, ids: ids) }
     func cancelBulk() { recorderHost.cancelBulk() }
     func clearJob() { recorderHost.clearJob() }
     func startDuplicateScan() { recorderHost.startDuplicateScan() }

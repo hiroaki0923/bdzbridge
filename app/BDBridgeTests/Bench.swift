@@ -1110,10 +1110,13 @@ extension XCTestCase {
     }
 
     /// 再接続, as the reader asks for it once silence has lost the recorder. Over when the reads that follow a
-    /// connect are.
+    /// connect are, the guide's among them, which the connect starts and does not wait for: ten seconds at most.
     @MainActor
     func reconnect(_ model: AppModel, file: StaticString = #filePath, line: UInt = #line) async {
         await model.connect()
+        let deadline = Date().addingTimeInterval(10)
+        while isConnecting(model), Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(isConnecting(model), "the guide's refresh after the connect never ended", file: file, line: line)
         let why = model.problem(for: .recorder) ?? "no reason given"
         XCTAssertTrue(model.connected, "the recorder did not come back: \(why)", file: file, line: line)
     }
@@ -1428,10 +1431,10 @@ func isMakingSure(_ model: AppModel) -> Bool {
     model.wakeCheck != nil
 }
 
-/// Whether a connect is under way.
+/// Whether a connect is under way, with the refresh of the guide it started, which it does not wait for.
 @MainActor
 func isConnecting(_ model: AppModel) -> Bool {
-    model.connecting
+    model.connecting || model.recorderHost.refreshesTheGuideAfterAConnect
 }
 
 // MARK: - what the tests ask of the recorder's reservations

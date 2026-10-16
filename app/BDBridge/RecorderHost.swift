@@ -46,6 +46,11 @@ final class RecorderSaid {
     /// How many candidates were left out of the sets because their text has not been read, which a scan run
     /// again reads.
     var unreadDuplicates = 0
+    /// Whether the duplicates have been looked for: a scan of this recorder has come to its end, or 中止 has
+    /// stopped one, either of which has worked the sets out from what it read and counted what it left unread.
+    /// Set as such a scan ends (`RecorderHost.runScan`) and never taken back but with everything here, when the
+    /// recorder is let go of: a later job, the bar's ✕, a scan run again, stopped or not, leave it.
+    var lookedForDuplicates = false
     /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
     /// a recording missing here has not been read.
     var summaries: [String: String] = [:]
@@ -140,6 +145,9 @@ final class RecorderHost: RecorderLinkHost {
     /// which is not put on that one's screens and is read from it instead.
     private(set) var titleReads = 0
     private(set) var conditionReads = 0
+    /// Counts the connects that reached the recorder (`reached`), so that the connect a check that heard another
+    /// recorder sets going is not made over one that has taken the newcomer up since (`anotherAnsweredTheCheck`).
+    @ObservationIgnored private var timesReached = 0
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     private var accessWatch: Task<Void, Never>?
@@ -148,6 +156,11 @@ final class RecorderHost: RecorderLinkHost {
     var jobTask: Task<Void, Never>?
     /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
     var backInFront: CheckedContinuation<Void, Never>?
+    /// The recorder a connect's refresh of the guide is for (`DeviceLink.generation`), while that refresh is
+    /// out; nil otherwise. See `refreshTheGuideAfterTheConnect`.
+    private(set) var guideAfterAConnect: Int?
+    /// Counts the refreshes connects have started, so that one that ends takes down only itself.
+    @ObservationIgnored private var guideRefreshesStarted = 0
     /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
     var stepTask = UIBackgroundTaskIdentifier.invalid
     /// The recorder's link, for the model's life.
@@ -188,10 +201,10 @@ final class RecorderHost: RecorderLinkHost {
     ///
     /// What was said goes as one object, replaced here and only here, where the count moves: an entry that
     /// noted the one in play as it began keeps what it reads on that one, which no screen reads once this has
-    /// run.
+    /// run. Whether the duplicates were looked for goes with it (`RecorderSaid.lookedForDuplicates`).
     ///
-    /// A finished job goes because the duplicates view takes it for having looked. One still running is
-    /// stopped by the check that hears the other recorder (`anotherAnsweredTheCheck`).
+    /// A finished job goes because what it says is about the recorder let go of. One still running is stopped
+    /// by the check that hears the other recorder (`anotherAnsweredTheCheck`).
     func forgetWhatTheRecorderSaid() {
         said = RecorderSaid()
         anotherTookOver = false
@@ -250,7 +263,18 @@ final class RecorderHost: RecorderLinkHost {
         guard let model else { return false }
         return model.activities.any(besides: model.televisionLines)
     }
-    var holdsOffConnect: Bool { jobRunning }
+    /// A job holds a connect off while it runs, and so does the refresh of the guide a connect started, while
+    /// it is out for the recorder still in play: a second connect would put a client of its own beside the
+    /// refresh's files. A let-go lifts the refresh's hold at once, so that the connect whoever let go makes is
+    /// not kept behind a refresh of the recorder let go of, which may still be waiting its turn behind another.
+    /// A connect turned away for either is made once it ends (`DeviceLink.connectIfOwed`).
+    var holdsOffConnect: Bool {
+        jobRunning || guideAfterAConnect.map { !link.letGo(since: $0) } ?? false
+    }
+    /// Whether the refresh of the guide a connect started is out, whichever recorder it was for: the turns
+    /// before it has put its line up count as the connect's did, for what is held while a connect is under way
+    /// (`canStartARun`, `AppModel.canChangeRecorder`, `AppModel.guideOnItsWay`).
+    var refreshesTheGuideAfterAConnect: Bool { guideAfterAConnect != nil }
     var isDemo: Bool { demo }
     var cache: GuideStore? { model?.store }
 
@@ -340,10 +364,13 @@ final class RecorderHost: RecorderLinkHost {
     /// so nothing lands on the local network question just answered (`Notify`). Not for the demo. Then the
     /// reservations before the guide, which marks what is already set to record from that list: the driver's
     /// read, kept on what was said as it began (`DeviceHost.readReservationsNow`), which opens nothing. Inside the
-    /// connect, so nothing here may await `start()`.
+    /// connect, so nothing here may await `start()`. Then whether the guide is behind, by what the cache holds
+    /// now, which is read here as it was; the refresh itself is not awaited here, and is started as the connect
+    /// ends, only where there is something to fetch (`refreshTheGuideAfterTheConnect`).
     func reached() async {
         guard let model else { return }
         let surroundings = model.surroundings
+        timesReached += 1
         if !demo, surroundings.asksAboutNotifications {
             Task {
                 await Notify.allowQuietly()
@@ -352,14 +379,52 @@ final class RecorderHost: RecorderLinkHost {
         }
         await readReservationsNow()
         await readAgainWhatWasUp()
-        await model.refreshGuideIfStale()
+        // A read that met silence has lost the recorder: there is no guide to fetch from it.
+        guard model.connected else { return }
+        await model.keepUpWithTheCache()
+        if model.guideIsStale { refreshTheGuideAfterTheConnect(model) }
+    }
+
+    /// The guide, fetched where it is behind, in a task of the host's own that the connect does not wait for.
+    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run would
+    /// otherwise land on an empty guide, and a cache the overnight run never got to would stay a day behind. A
+    /// cache that is already current costs nothing, which is what makes this safe on every launch: where the
+    /// cache read inside the connect says nothing is behind (`AppModel.keepUpWithTheCache`), none is started, so
+    /// that no line goes up, none is counted as out, and nothing holds a second connect off after the connect.
+    ///
+    /// Not inside the connect: a refresh that is out as the connect is made -- the overnight run's, a press of
+    /// 番組表を更新 -- holds the turn until it has fetched its files, and the connect would stand as under way all
+    /// that time, and its checks pass without asking. What is fetched is what is behind once the refresh has its
+    /// turn (`GuideAsked.whatIsBehind`), not what was behind here: what the refresh in front fetched is not
+    /// fetched again. Started in the connect's last turn, so that the connect's end and the refresh being out are
+    /// never apart (`refreshesTheGuideAfterAConnect`), and asked for in the task's first turn, for the recorder it
+    /// was started for or not at all: its line goes up there. While it is out for the recorder still in play it
+    /// holds a second connect off (`holdsOffConnect`), and a connect turned away meanwhile is made once it ends.
+    /// From the screens that is, in practice, 再接続 or a pull-down in the few turns after a refresh that met
+    /// silence has taken its line down. A return in the turn before its line is up, or after a refresh that went
+    /// through, finds the recorder's last answer fresh and asks for nothing; while 番組表を取得中 stands, no 再接続
+    /// is offered, and a return or a look at the network only looks, as beside any line.
+    private func refreshTheGuideAfterTheConnect(_ model: AppModel) {
+        guideRefreshesStarted += 1
+        let this = guideRefreshesStarted
+        let noted = link.generation
+        guideAfterAConnect = noted
+        Task {
+            if model.connected, !link.letGo(since: noted) { await model.refreshGuide(.whatIsBehind) }
+            // Only the last one started takes the hold down: an older one ending first leaves a newer one's.
+            guard guideRefreshesStarted == this else { return }
+            guideAfterAConnect = nil
+            await link.connectIfOwed()
+        }
     }
 
     /// Its lists go at once, and the newcomer is taken up by a connect of its own, which reads its reservations
     /// and its guide as a waking's attach does not. A job under way was the last recorder's: it is stopped before
     /// its next step -- as its run stops itself for a recorder it did not begin with (`RecorderDriver.mayGoOn`),
     /// each of the two standing in for the other -- and the connect waits for it to end, since one does not start
-    /// beside a job. Said twice: the failure line for whoever asked, which the link writes once this has returned
+    /// beside a job. A connect asked for while that job winds down -- a return to the app -- is owed, and made as
+    /// the job ends (`jobEnded`): where it reached the newcomer, this one is not made on top of it. Said twice: the
+    /// failure line for whoever asked, which the link writes once this has returned
     /// (`RecorderDriver.anotherAnswered`) and the connect takes away, and the strip after that.
     func anotherAnsweredTheCheck() {
         forgetTheRecorder()
@@ -367,9 +432,11 @@ final class RecorderHost: RecorderLinkHost {
         anotherTookOver = true
         let model = self.model
         let running = jobTask
+        let reached = timesReached
         Task {
             await running?.value
             self.clearJob()
+            guard self.timesReached == reached else { return }
             await model?.connect()
         }
     }

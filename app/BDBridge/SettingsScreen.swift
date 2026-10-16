@@ -91,8 +91,8 @@ struct SettingsScreen: View {
                         }
                         .disabled(!RecorderAddress.isUsable(tidied.host) || !model.canChangeRecorder)
                     } else if !model.connected, !model.host.isEmpty {
-                        // Held while the recorder works, and while a run is under way, when connecting does
-                        // nothing (`connect()`); by nothing the television does.
+                        // Held while the recorder works, and while a run is under way, when a connect is only
+                        // owed until the run ends (`connect()`); by nothing the television does.
                         Button("再接続") { Task { await model.connect() } }
                             .disabled(model.isBusy(for: .recorder) || model.jobRunning)
                     }

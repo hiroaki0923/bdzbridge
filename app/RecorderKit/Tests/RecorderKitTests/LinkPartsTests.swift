@@ -305,6 +305,38 @@ final class LinkPartsTests: XCTestCase {
         XCTAssertFalse(television.clientIsAttached)
     }
 
+    // MARK: - a run beside a connect
+
+    /// No run begins while a connect is under way, whatever it is to do: not as the connect opens the host's
+    /// cache, before it has made a client of its own -- the last one is in hand still, and is still the one whose
+    /// attach went through -- nor as its attach sends what waits, its own client having heard which recorder
+    /// answers. Each is turned away with the sentence that the app is not connected, as at its other doors. Once
+    /// the connect is over, each begins.
+    func testNoRunBeginsWhileAConnectIsUnderWay() async throws {
+        let (world, _, link) = try await connected()
+        let driver = try XCTUnwrap(link.driver as? RecorderDriver)
+        let kinds: [RunKind] = [.delete, .protecting(true), .scanning]
+        /// Why each kind of run is turned away as it is asked for now, or nil for one that begins.
+        func turnedAway() -> [RunStop?] {
+            kinds.map { kind in
+                if case .failure(let stop) = driver.beginRun(kind) { stop } else { nil }
+            }
+        }
+        var seen: [String: [RunStop?]] = [:]
+        world.onCacheForAttempt = { seen["opening the cache"] = turnedAway() }
+        world.onSendWhatWaits = { seen["sending what waits"] = turnedAway() }
+
+        await link.connect()
+
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+        let notConnected = [RunStop?](repeating: .said(driver.whyNotConnected), count: kinds.count)
+        XCTAssertEqual(seen["opening the cache"], notConnected,
+                       "a run began as a connect opened the cache, before it had made a client of its own")
+        XCTAssertEqual(seen["sending what waits"], notConnected,
+                       "a run began as a connect's attach sent what waits")
+        XCTAssertEqual(turnedAway(), [nil, nil, nil], "a run was turned away once the connect was over")
+    }
+
     // MARK: - an operation through the link
 
     /// One thing asked through the link, the work a closure of the test's. Going through, it hands back what

@@ -135,15 +135,21 @@ extension RecorderDriver {
     ///
     /// A run that deletes or protects has the doors of a single protect (`protect(_:_:keep:)`): the link gone,
     /// no recorder's client in hand, the recorder known to be away, or nothing that can be written to it
-    /// (`canBeAsked`) -- a connect being under way, or the recorder not having said which it is, as after a
-    /// reconnect it answered busy with somebody else -- each that the app is not connected (`whyNotConnected`).
+    /// (`canBeAsked`) -- the recorder not having said which it is, as after a reconnect it answered busy with
+    /// somebody else -- each that the app is not connected (`whyNotConnected`).
     ///
     /// A scan has the one door, a recorder's client in hand: one whose texts are all in the cache asks the
     /// recorder nothing, and comes to its end with the recorder known to be away. Whether a text may be read is
     /// `mayGoOn`'s to say, asked before the first that is to be.
+    ///
+    /// And neither begins while a connect is under way, with the same sentence: the client in hand is the last
+    /// one until the connect has made its own, which has then yet to hear which recorder answers, and once it
+    /// has, the attach is still sending what waits, whose silence has the connect try again with another client.
+    /// A connect does not start beside a run either (`LinkHost.holdsOffConnect`), so the two keep out of each
+    /// other's way in whichever order they are asked for.
     public func beginRun(_ kind: RunKind) -> Result<Run, RunStop> {
         guard let link else { return .failure(.said(Self.notConnected)) }
-        guard link.client is RecorderClient else { return .failure(.said(whyNotConnected)) }
+        guard link.client is RecorderClient, !link.session.connecting else { return .failure(.said(whyNotConnected)) }
         if kind != .scanning {
             guard !link.session.unreachable, canBeAsked(on: link) else { return .failure(.said(whyNotConnected)) }
         }
