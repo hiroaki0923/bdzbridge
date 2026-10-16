@@ -34,7 +34,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `WakeOnLan.swift` | The magic packet, and where to aim it for a recorder that has left the network |
 | `Models.swift` | `Reservation`, `RecordedTitle`, `RecorderDescription`, `Recognition`, `RecorderRule`, `NetworkSettings` |
 | `Http.swift` | Request and response types and the transport protocol, so the tests can stub the network |
-| `SerialQueue.swift` | One request at a time, in the order the calls arrive; and a turn that is waited for and given back, for work that has to stay in the task that asked for it |
+| `SerialQueue.swift` | One request at a time, in the order the calls arrive; a turn that is waited for and given back, for work that has to stay in the task that asked for it; and the clients a link has made (`LinkClients`): which are retired, sending nothing once the device they were made for has been let go of, and which has a request on the wire at an address, for the link's other clients to wait for |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
 | `DeviceFailure.swift` | What a failure means whichever device it came from: silent, busy, refused and the rest |
 | `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one, which reads its list first and leaves a row it holds already unsent |
