@@ -61,16 +61,10 @@ extension RecorderHost {
     /// the list, and a playback begun before a long scan has to be stoppable from the app.
     var canAlterARecording: Bool { !isBusy && !jobRunning }
 
-    /// Whether the duplicates have been looked for, for their screen to say that none were found: the job that
-    /// stands is a scan that came to its end, or that 中止 stopped, either of which has worked the sets out from
-    /// what it read and counted what it left unread. Not a scan the recorder stopped or kept from reading
-    /// (`BulkJob.stopped`): the recorder may have been let go of under it, its recordings gone from memory, and
-    /// there is then nothing left to count as unread -- that scan would have the screen say of a recorder never
-    /// looked at that it holds no duplicates.
-    var scannedForDuplicates: Bool {
-        guard let job, case .scanning = job.kind else { return false }
-        return job.finished && job.stopped == nil
-    }
+    /// Whether the duplicates have been looked for, for their screen to say that none were found: kept on what
+    /// the recorder said (`RecorderSaid.lookedForDuplicates`), and not read off the job that stands, which a later
+    /// bulk job or the bar's ✕ replaces while the sets still stand.
+    var scannedForDuplicates: Bool { said.lookedForDuplicates }
 
     /// A run the driver will not begin (`RecorderDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
@@ -301,6 +295,11 @@ extension RecorderHost {
         if let found = try? await store.fixedBlurbs(among: titleKeys) { said.fixedBlurbs = found }
         // from the list as it is now, which a recording deleted meanwhile has left
         said.recomputeDuplicates()
+        // Looked for, unless the recorder stopped the scan or kept it from reading (`BulkJob.stopped`), and only
+        // for the recorder still in play: the recorder may have been let go of under such a scan, its recordings
+        // gone from memory, with nothing left to count as unread, and the screen would then say of a recorder
+        // never looked at that it holds no duplicates. 中止 stops a scan with nothing of the recorder's.
+        if stopped == nil, said === self.said { said.lookedForDuplicates = true }
         await jobEnded()
     }
 

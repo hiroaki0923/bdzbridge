@@ -2234,6 +2234,35 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
         XCTAssertTrue(model.scannedForDuplicates, "not looked for, after a scan that came to its end")
     }
+
+    /// Once looked for, the duplicates count as looked for until the recorder is let go of, whatever job comes
+    /// after: a bulk run to its end, the bar's ✕ taking the job away. Their screen goes on saying what the scan
+    /// found, where it went back to the prompt of a first scan. Another recorder taken up has not been looked at.
+    func testTheDuplicatesStayLookedForUntilTheRecorderIsLetGoOf() async throws {
+        let (bench, recorder, model, idle) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        let spare = try XCTUnwrap(idle.first { $0.id != first && $0.id != second },
+                                  "the demo was meant to hold a recording beside the copies")
+        try await scan(model)
+        XCTAssertEqual(model.job?.outcome, "2 件の確認が完了しました")
+        XCTAssertTrue(model.scannedForDuplicates, "not looked for, after a scan that came to its end")
+
+        try await run(model, .protecting(true), [spare.id])
+        XCTAssertEqual(model.job?.kind, .protecting(true))
+        XCTAssertEqual(model.job?.changed, [spare.id])
+        XCTAssertTrue(model.scannedForDuplicates, "a bulk protect that came to its end took the look away")
+        model.clearJob()
+        XCTAssertNil(model.job)
+        XCTAssertTrue(model.scannedForDuplicates, "taking the job off the screen took the look away")
+
+        await recorder.become(2)
+        bench.network = "another"
+        await lookAtTheNetwork(model)
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil
+        }
+        XCTAssertFalse(model.scannedForDuplicates, "a recorder taken up in place of the last counts as looked for")
+    }
 }
 
 /// Whether what a test set going has come back, for a test that does not wait for it to.

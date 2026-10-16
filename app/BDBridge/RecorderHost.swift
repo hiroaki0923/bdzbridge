@@ -46,6 +46,11 @@ final class RecorderSaid {
     /// How many candidates were left out of the sets because their text has not been read, which a scan run
     /// again reads.
     var unreadDuplicates = 0
+    /// Whether the duplicates have been looked for: a scan of this recorder has come to its end, or 中止 has
+    /// stopped one, either of which has worked the sets out from what it read and counted what it left unread.
+    /// Set as such a scan ends (`RecorderHost.runScan`) and never taken back but with everything here, when the
+    /// recorder is let go of: a later job, the bar's ✕, a scan run again, stopped or not, leave it.
+    var lookedForDuplicates = false
     /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
     /// a recording missing here has not been read.
     var summaries: [String: String] = [:]
@@ -191,10 +196,10 @@ final class RecorderHost: RecorderLinkHost {
     ///
     /// What was said goes as one object, replaced here and only here, where the count moves: an entry that
     /// noted the one in play as it began keeps what it reads on that one, which no screen reads once this has
-    /// run.
+    /// run. Whether the duplicates were looked for goes with it (`RecorderSaid.lookedForDuplicates`).
     ///
-    /// A finished job goes because the duplicates view takes it for having looked. One still running is
-    /// stopped by the check that hears the other recorder (`anotherAnsweredTheCheck`).
+    /// A finished job goes because what it says is about the recorder let go of. One still running is stopped
+    /// by the check that hears the other recorder (`anotherAnsweredTheCheck`).
     func forgetWhatTheRecorderSaid() {
         said = RecorderSaid()
         anotherTookOver = false
