@@ -82,6 +82,11 @@ final class LinkClients: @unchecked Sendable {
 
     private struct Wire {
         var holder: Int?
+        /// How many of the holder's claims are not given back yet: a request of its on the wire, and a
+        /// description it keeps (`kept`), which a request the client sends next, while it keeps it, adds to.
+        var claims = 0
+        /// Whether one of the claims is a description the holder keeps (`keep`), given back by `letGoOfTheKept`.
+        var kept = false
         var waiting: [Waiting] = []
     }
 
@@ -118,12 +123,15 @@ final class LinkClients: @unchecked Sendable {
 
     /// Returns once no other client of the link has a request on the wire at `host`, and puts `client`'s down
     /// there, or once `limit` seconds have gone by first. True when it was put down, which the caller takes up
-    /// again as its transport returns (`release`); false when the limit came first, and nothing was put down.
+    /// again as its transport returns (`release`) or keeps (`keep`); false when the limit came first, and
+    /// nothing was put down. A client that holds the wire already -- a description it keeps -- puts another
+    /// claim down at once, and the wire is the others' only once every claim of its is given back.
     func claimTheWire(at host: String, for client: Int, waitingAtMost limit: TimeInterval) async -> Bool {
         await withCheckedContinuation { resume in
             let free: Bool = lock.withLock {
                 if wires[host]?.holder ?? client == client {
                     wires[host, default: Wire()].holder = client
+                    wires[host]?.claims += 1
                     return true
                 }
                 waitsBegun += 1
@@ -140,16 +148,42 @@ final class LinkClients: @unchecked Sendable {
         }
     }
 
-    /// `client`'s request at `host` has come back: the wire goes to whoever has waited longest for it there.
+    /// `client`'s request at `host` has come back: its claim is given back, and once it has none left the wire
+    /// goes to whoever has waited longest for it there.
     func release(at host: String, by client: Int) {
+        giveBack(at: host, by: client, kept: false)
+    }
+
+    /// `client`'s request at `host` has come back with a description it keeps: the claim stays, as the one
+    /// `letGoOfTheKept` gives back.
+    func keep(at host: String, by client: Int) {
+        lock.withLock {
+            guard wires[host]?.holder == client else { return }
+            wires[host]?.kept = true
+        }
+    }
+
+    /// Gives back the claim of the description `client` keeps at `host` (`keep`). Nothing when it keeps none.
+    func letGoOfTheKept(at host: String, by client: Int) {
+        giveBack(at: host, by: client, kept: true)
+    }
+
+    private func giveBack(at host: String, by client: Int, kept: Bool) {
         let next: Waiting? = lock.withLock {
-            guard wires[host]?.holder == client else { return nil }
-            guard var wire = wires[host], !wire.waiting.isEmpty else {
+            guard var wire = wires[host], wire.holder == client, !kept || wire.kept else { return nil }
+            if kept { wire.kept = false }
+            wire.claims -= 1
+            guard wire.claims == 0 else {
+                wires[host] = wire
+                return nil
+            }
+            guard !wire.waiting.isEmpty else {
                 wires[host] = nil
                 return nil
             }
             let next = wire.waiting.removeFirst()
             wire.holder = next.client
+            wire.claims = 1
             wires[host] = wire
             return next
         }

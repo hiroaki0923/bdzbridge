@@ -20,6 +20,12 @@ actor PlayingRecorder: HTTPTransport {
     private var busyWhenAsked = false
     private var holdsTheNext: String?
     private var held: CheckedContinuation<Void, Never>?
+    /// The actions answered so far, in the order they were answered: what a test can look at without a turn on
+    /// the recorder, from a thread it keeps busy.
+    nonisolated let answered = Answered()
+    /// The actions asked so far, held or not, in the order they came: the same, for what has reached the recorder
+    /// whether or not it has been answered.
+    nonisolated let heard = Answered()
 
     init(_ answers: [String: [HTTPResponse]], silentTo silent: Set<String> = [], udn: String) throws {
         self.answers = answers
@@ -90,6 +96,7 @@ actor PlayingRecorder: HTTPTransport {
         let action = String((request.headers["SOAPACTION"] ?? "").split(separator: "#").last ?? "")
             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         actions.append(action)
+        heard.put(action)
         bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
         if holdsTheNext == action {
             holdsTheNext = nil
@@ -99,8 +106,21 @@ actor PlayingRecorder: HTTPTransport {
         guard var given = answers[action], let answer = given.first else { return HTTPResponse(statusCode: 500) }
         if given.count > 1 { given.removeFirst() }
         answers[action] = given
+        answered.put(action)
         return answer
     }
+}
+
+/// What a recorder has answered, behind a lock: looked at from any thread, in no turn of the recorder's.
+final class Answered: @unchecked Sendable {
+    private let lock = NSLock()
+    private var actions: [String] = []
+
+    func put(_ action: String) { lock.withLock { actions.append(action) } }
+
+    func contains(_ action: String) -> Bool { lock.withLock { actions.contains(action) } }
+
+    func count(_ action: String) -> Int { lock.withLock { actions.filter { $0 == action }.count } }
 }
 
 /// Thrown to end a test whose request never came to be held, once the failure is recorded.

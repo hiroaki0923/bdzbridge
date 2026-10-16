@@ -46,6 +46,8 @@ public actor RecorderClient {
     /// Its place among the clients of the link that made it, nil for a client made outside any link
     /// (`LinkClients`).
     nonisolated let place: LinkPlace?
+    /// How long at most a request waits for the wire, nil for its own timeout (`LinkEnvironment.wireWaitLimit`).
+    private let wireWaitLimit: TimeInterval?
 
     public init(host: String, transport: any HTTPTransport = URLSessionTransport(),
                 upnpPort: Int = Upnp.port, streamPort: Int? = nil, busyRetryDelay: ClosedRange<Double> = 0.5...1,
@@ -54,10 +56,13 @@ public actor RecorderClient {
                   busyRetryDelay: busyRetryDelay, slotSettling: slotSettling, madeBy: nil)
     }
 
-    /// A client of a link's, given its place among the clients the link has made (`clients`).
+    /// A client of a link's, given its place among the clients the link has made (`clients`), and how long at
+    /// most a request of it waits for the wire (`onTheWire`), nil for its own timeout.
     init(host: String, transport: any HTTPTransport, upnpPort: Int = Upnp.port, streamPort: Int? = nil,
-         busyRetryDelay: ClosedRange<Double>, slotSettling: SlotSettling, madeBy clients: LinkClients?) {
+         busyRetryDelay: ClosedRange<Double>, slotSettling: SlotSettling, madeBy clients: LinkClients?,
+         waitingForTheWireAtMost wireWaitLimit: TimeInterval? = nil) {
         place = clients?.enrol()
+        self.wireWaitLimit = wireWaitLimit
         self.host = host
         self.upnpPort = upnpPort
         self.transport = transport
@@ -78,15 +83,37 @@ public actor RecorderClient {
     @discardableResult
     public func describe(via: String = "manual", timeout: TimeInterval? = nil) async throws
         -> RecorderDescription {
+        try await describe(via: via, timeout: timeout, keepingTheWire: false)
+    }
+
+    /// `describe`, for an attach, which has yet to hear which recorder this is: a description read keeps the
+    /// wire at the address (`onTheWire`) until the attach lets it go (`letTheWireGo`), once the session has heard
+    /// who answered and retired the clients that were the last recorder's. Let go of before that, what was queued
+    /// on a client of the last one would go in between, to the recorder that has just described itself. Kept
+    /// only when the description reads. What this client is handed meanwhile goes at once, and keeps the wire
+    /// from the other clients as well until it is back: theirs once the attach has let it go and nothing of
+    /// this client's is out.
+    func describe(via: String = "manual", timeout: TimeInterval?, keepingTheWire: Bool) async throws
+        -> RecorderDescription {
         let location = try url(port: upnpPort, path: "/description.xml")
         let response = try await send(HTTPRequest(url: location, timeout: timeout ?? Self.soapTimeout),
-                                      asking: "description.xml")
+                                      asking: "description.xml", keepingTheWire: keepingTheWire)
         guard response.statusCode == 200,
               let described = Discovery.parseDescription(response.text, host: host, port: upnpPort,
                                                          location: location.absoluteString, via: via)
-        else { throw RecorderError.notARecorder(host: host) }
+        else {
+            if keepingTheWire { letTheWireGo() }
+            throw RecorderError.notARecorder(host: host)
+        }
         info = described
         return described
+    }
+
+    /// Lets go of the wire a description kept (`describe(via:timeout:keepingTheWire:)`): whoever waits for it at
+    /// the address goes, once nothing else of this client's is out there. Nothing when it keeps none.
+    nonisolated func letTheWireGo() {
+        guard let place else { return }
+        place.clients.letGoOfTheKept(at: host, by: place.number)
     }
 
     /// Walks the DLNA tree until an item carries a `<res>` URL; its port is where the guide files live.
@@ -400,25 +427,62 @@ public actor RecorderClient {
     ///
     /// A client of a link's sends nothing once it is retired (`LinkClients`): asked just before the request
     /// goes and before each time it is sent again, inside the queue, so that what was handed over before the
-    /// device was let go of and waited its turn is not sent to whatever answers at the address now.
-    private func send(_ request: HTTPRequest, asking: String) async throws -> HTTPResponse {
+    /// device was let go of and waited its turn is not sent to whatever answers at the address now. Nor does it
+    /// send beside another client of the same link that has a request on the wire at the same address, which
+    /// the recorder would answer 503 or answer out of order (`onTheWire`).
+    private func send(_ request: HTTPRequest, asking: String,
+                      keepingTheWire: Bool = false) async throws -> HTTPResponse {
         let transport = self.transport
         let delay = busyRetryDelay
-        let place = self.place
+        let place = self.place, host = self.host
+        let waitingAtMost = min(request.timeout, wireWaitLimit ?? request.timeout)
         let response = try await queue.run {
-            try place?.mayStillSend()
-            var response = try await transport.send(request)
+            var response = try await Self.onTheWire(request, through: transport, as: place, at: host,
+                                                    waitingAtMost: waitingAtMost, keeping: keepingTheWire)
             var retries = 0
             while response.statusCode == 503, retries < Self.busyRetries {
                 retries += 1
                 try await Task.sleep(for: .seconds(Double.random(in: delay)))
-                try place?.mayStillSend()
-                response = try await transport.send(request)
+                response = try await Self.onTheWire(request, through: transport, as: place, at: host,
+                                                    waitingAtMost: waitingAtMost, keeping: keepingTheWire)
             }
             return response
         }
         lastAnswer = Date()
         if response.statusCode == 503 { throw RecorderError.busy(action: asking) }
+        return response
+    }
+
+    /// Sends `request` once, as the client of a link's at `place`, or as any other client with no place. One of a
+    /// link's sends nothing once retired, and waits while another client of the same link has a request on the
+    /// wire at `host` -- from the moment it is sent until its transport returns, however it returns -- in the
+    /// order the waits began: a new client's describe, and its reads, behind what the client before it still has
+    /// out, which is at most that request's own timeout, a guide file's being for its whole transfer. A wait goes
+    /// on no longer than `request`'s own timeout (`waitingAtMost`, which a test can make shorter): past it, the
+    /// request goes as it would have, beside the other.
+    /// Only what is on the wire is waited for, so nothing waits for a request that is waiting itself; and the
+    /// wire is claimed afresh for each try after a 503, so that the other client's request can go in between.
+    /// `keeping`: an answer other than a 503 keeps the wire, for the caller to let go (`letTheWireGo`). What
+    /// the client sends meanwhile goes at once, and does not give the kept wire up as it comes back: the wire is
+    /// the other clients' once the caller has let it go and nothing of this client's is out.
+    private static func onTheWire(_ request: HTTPRequest, through transport: any HTTPTransport,
+                                  as place: LinkPlace?, at host: String, waitingAtMost limit: TimeInterval,
+                                  keeping: Bool) async throws -> HTTPResponse {
+        guard let place else { return try await transport.send(request) }
+        try place.mayStillSend()
+        let claimed = await place.clients.claimTheWire(at: host, for: place.number, waitingAtMost: limit)
+        var kept = false
+        defer {
+            if claimed, kept {
+                place.clients.keep(at: host, by: place.number)
+            } else if claimed {
+                place.clients.release(at: host, by: place.number)
+            }
+        }
+        // Retired while it waited: what let the device go came in the meantime.
+        try place.mayStillSend()
+        let response = try await transport.send(request)
+        kept = keeping && response.statusCode != 503
         return response
     }
 

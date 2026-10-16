@@ -128,7 +128,7 @@ public final class RecorderDriver: LinkDriver {
     public func makeClient(for link: DeviceLink) -> any LinkClient {
         RecorderClient(host: link.host, transport: link.environment.transport(link.host),
                        busyRetryDelay: busyRetryDelay, slotSettling: link.environment.slotSettling,
-                       madeBy: link.session.clients)
+                       madeBy: link.session.clients, waitingForTheWireAtMost: link.environment.wireWaitLimit)
     }
 
     /// Once a MAC is known, which is what a magic packet needs. The address cannot be guessed and iOS will not
@@ -166,7 +166,8 @@ public final class RecorderDriver: LinkDriver {
         do {
             // A cache that is another recorder's and could not be made over to this one is no recorder to
             // connect to: the app would go on over the other's guide and texts.
-            guard await settle(link, whoAnswered: try await client.describe(timeout: timeout), on: client) else {
+            let answered = try await client.describe(timeout: timeout, keepingTheWire: true)
+            guard await settle(link, whoAnswered: answered, on: client) else {
                 recorderHost(owner)?.cacheCouldNotBeMadeOver()
                 owner?.problem = Self.cacheNotMadeOver
                 return false
@@ -226,6 +227,8 @@ public final class RecorderDriver: LinkDriver {
         let owner = link.owner
         let wasConnected = link.session.connected
         let inMemory = link.session.described(recorder, heardBy: client)
+        // Heard: the last recorder's clients are retired, and the wire the description kept goes.
+        client.letTheWireGo()
         if inMemory == .another {
             recorderHost(owner)?.anotherDeviceDescribedItself(wasConnected: wasConnected)
             // The disk the slot was to be read again for was the last one's.
@@ -2033,7 +2036,8 @@ public struct SlotSettling: Sendable, Equatable {
     public static let afterAWaking = SlotSettling(every: .seconds(2), for: .seconds(10))
 
     /// About as long as a connect, or a check, takes to reach a recorder that has to be woken: its probe's timeout,
-    /// the screens' waking, and the attach's first ask after it, added up.
+    /// the screens' waking, and the attach's first ask after it, added up. Not counted: a wait of the connect's
+    /// requests for the wire, behind what the client before still has out at the address (`RecorderClient`).
     public static let aConnect: Duration = .seconds(2 * RecorderClient.probeTimeout + Waking.screenLimit)
 
     /// How many times the slot is read at most: once, and once more after each interval the limit holds.

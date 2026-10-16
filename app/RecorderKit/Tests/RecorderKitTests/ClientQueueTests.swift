@@ -74,7 +74,7 @@ final class ClientQueueTests: XCTestCase {
         let newcomer = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
         world.devices[Stub.host] = newcomer
         let connecting = Task { await link.connect() }
-        await yield()
+        await attaching(link, in: world, after: last)
         await recorder.letGo()
         try await within(10, "the newcomer's connect never came back") { await connecting.value }
 
@@ -318,9 +318,12 @@ final class ClientQueueTests: XCTestCase {
 
         let newcomer = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
         world.devices[Stub.host] = newcomer
-        await link.connect()
-        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, world.problem ?? "no reason given")
+        // The newcomer's connect asks who answers once the read out on the last client is back.
+        let connecting = Task { await link.connect() }
+        await attaching(link, in: world, after: last)
         await recorder.letGo()
+        try await within(10, "the newcomer's connect never came back") { await connecting.value }
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, world.problem ?? "no reason given")
         _ = try await within(10, "the held read never came back") { await reading.result }
         let cancelled = try await within(10, "the delete never came back") { await cancelling.value }
 
@@ -379,6 +382,239 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertNoThrow(try protect.get(), "the protect queued on a client outside the link failed")
         expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 1,
                     "the protect queued on a client outside the link was not sent")
+    }
+
+    // MARK: - one request on the wire at an address
+
+    /// A connect to the address while the last client has a write out there, the recorder that answers now
+    /// another: the connect's ask of who answers is not sent until the write has come back, and then is, and the
+    /// newcomer taken up.
+    func testANewcomersDescribeWaitsForTheWriteOutOnTheLastClient() async throws {
+        let (world, link, recorder) = try await connected()
+        let newcomer = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
+        try await askedOnlyOnceTheWriteIsBack(on: link, in: world, last: recorder, now: newcomer,
+                                              answering: Self.anotherUDN)
+    }
+
+    /// The same for a connect to the same recorder, which lets go of nothing.
+    func testAReconnectsDescribeWaitsForTheWriteOutOnTheLastClient() async throws {
+        let (world, link, recorder) = try await connected()
+        try await askedOnlyOnceTheWriteIsBack(on: link, in: world, last: recorder, now: recorder,
+                                              answering: DeviceLinkTests.udn)
+    }
+
+    /// A connect to another address waits for nothing the last client has out where it was.
+    func testAConnectToAnotherAddressWaitsForNothing() async throws {
+        let (world, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_UpdateTitle")
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        try await recorder.whenHeld()
+
+        let elsewhere = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
+        world.devices["192.0.2.11"] = elsewhere
+        link.forgetTheDevice()
+        link.host = "192.0.2.11"
+        try await within(10, "the connect to another address never came back") { await link.connect() }
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, world.problem ?? "no reason given")
+        expectEqual(await elsewhere.actions.first, "description.xml")
+        expectTrue(await recorder.isHolding, "the write out where the recorder was came back meanwhile")
+
+        await recorder.letGo()
+        _ = try await within(10, "the held write never came back") { await protecting.result }
+    }
+
+    /// A request of a link's client that waits for the wire goes once its own timeout has gone by, as it would
+    /// have gone before: it waits for nothing longer than it would wait for its own answer.
+    func testARequestWaitsForTheWireNoLongerThanItsOwnTimeout() async throws {
+        let (_, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_UpdateTitle")
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        try await recorder.whenHeld()
+
+        let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let described = try await within(10, "the describe waited past its own timeout") {
+            await Task { try await another.describe(timeout: 0.2) }.result
+        }
+        XCTAssertNoThrow(try described.get())
+        expectTrue(await recorder.isHolding, "the write out came back meanwhile")
+
+        await recorder.letGo()
+        _ = try await within(10, "the held write never came back") { await protecting.result }
+    }
+
+    /// A read handed to the connect's client while its ask of who answers waits for the wire, and so queued
+    /// behind it, keeps the wire from the other clients as the ask does: back before the attach has heard that
+    /// another recorder answers -- the attach kept from its turn here -- it gives the wire to nobody, and a
+    /// write queued on the last client goes only once the attach has heard, and so not at all.
+    func testAReadBehindTheConnectsDescribeKeepsTheWireUntilTheAttachHasHeard() async throws {
+        let (world, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { try await last.titles() }
+        try await recorder.whenHeld()
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        await yield()
+        let newcomer = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
+        world.devices[Stub.host] = newcomer
+        let connecting = Task { await link.connect() }
+        await attaching(link, in: world, after: last)
+        let fresh = try XCTUnwrap(link.client as? RecorderClient)
+        let readingFresh = Task { try await fresh.titles() }
+        await yield()
+
+        await recorder.letGo()
+        // The attach goes on in a turn of the main actor's, which this keeps until the newcomer has answered the
+        // read behind the ask, and a moment more for whatever the read's return would let go. (The last client
+        // sends where the address led when it was made, to the recorder put there then.)
+        var turns = 0
+        while !newcomer.answered.contains("X_GetTitleList"), turns < 5_000 {
+            turns += 1
+            usleep(1_000)
+        }
+        XCTAssertTrue(newcomer.answered.contains("X_GetTitleList"), "the read behind the ask was never answered")
+        for _ in 0..<200 where !recorder.answered.contains("X_UpdateTitle") { usleep(1_000) }
+
+        try await within(10, "the newcomer's connect never came back") { await connecting.value }
+        XCTAssertEqual(link.session.info?.udn, Self.anotherUDN, world.problem ?? "no reason given")
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        _ = try await within(10, "the read behind the ask never came back") { await readingFresh.result }
+        let protect = try await within(10, "the queued protect never came back") { await protecting.result }
+        expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 0,
+                    "the protect queued on the last client went before the attach had heard who answered")
+        expectEqual(await newcomer.actions.filter { $0 == "X_UpdateTitle" }.count, 0)
+        XCTAssertEqual(failure(of: protect), .letGoMeanwhile)
+    }
+
+    /// The same across a reconnect to the same recorder, which retires nothing: the attach lets go of what its
+    /// description kept while the read behind it is still out, and a write queued on the last client waits for
+    /// that read rather than go beside it.
+    func testAReadBehindAReconnectsDescribeKeepsTheWireUntilItIsBack() async throws {
+        let (world, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { try await last.titles() }
+        try await recorder.whenHeld()
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        await yield()
+        let connecting = Task { await link.connect() }
+        await attaching(link, in: world, after: last)
+        let fresh = try XCTUnwrap(link.client as? RecorderClient)
+        let readingFresh = Task { try await fresh.titles() }
+        await yield()
+
+        let reads = recorder.heard.count("X_GetTitleList")
+        await recorder.holdTheNext("X_GetTitleList")
+        await recorder.letGo()
+        // The attach goes on in a turn of the main actor's, which this keeps until the read behind the ask has
+        // reached the recorder, so that the attach lets go of what the description kept with the read out.
+        var turns = 0
+        while recorder.heard.count("X_GetTitleList") == reads, turns < 5_000 {
+            turns += 1
+            usleep(1_000)
+        }
+        XCTAssertEqual(recorder.heard.count("X_GetTitleList"), reads + 1, "the read behind the ask never came")
+        try await recorder.whenHeld()
+        // The attach has heard who answered once it keeps the address; a moment more for what that let go.
+        for _ in 0..<100_000 where !world.events.contains("address \(Stub.host)") { await Task.yield() }
+        XCTAssertTrue(world.events.contains("address \(Stub.host)"), "the attach never heard who answered")
+        for _ in 0..<100_000 { await Task.yield() }
+        expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 0,
+                    "the protect went beside the read out on the connect's client")
+
+        await recorder.letGo()
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        _ = try await within(10, "the read behind the ask never came back") { await readingFresh.result }
+        let protect = try await within(10, "the queued protect never came back") { await protecting.result }
+        XCTAssertNoThrow(try protect.get(), "the protect queued on the last client failed")
+        try await within(10, "the reconnect never came back") { await connecting.value }
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+    }
+
+    /// A connect's description keeps the wire only until the attach has heard it: the next connect at the
+    /// address asks who answers at once, and does not wait out its ask's own timeout.
+    func testTheWireADescriptionKeptIsTheOthersOnceTheAttachHasHeard() async throws {
+        let (world, link, recorder) = try await connected()
+        try await within(4, "the next connect waited for what the last one's description kept") {
+            await link.connect()
+        }
+        expectEqual(await recorder.actions.first, "description.xml")
+        XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+    }
+
+    /// Requests that wait for the wire at an address go in the order their waits began.
+    func testWaitsForTheWireEndInTheOrderTheyBegan() async throws {
+        let (_, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { try await last.titles() }
+        try await recorder.whenHeld()
+        let first = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let second = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let protecting = Task { try await first.updateTitle(id: "0x1", protected: true) }
+        await yield()
+        let deleting = Task { try await second.deleteTitle(id: "0x2") }
+        await yield()
+
+        await recorder.letGo()
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        _ = try await within(10, "the protect never came back") { await protecting.result }
+        _ = try await within(10, "the delete never came back") { await deleting.result }
+        expectEqual(await recorder.actions, ["X_GetTitleList", "X_UpdateTitle", "X_DeleteTitle"])
+    }
+
+    /// A request answered 503 waits for the wire again before its next try: a request of another client's that
+    /// went in between is not sent beside.
+    func testATryAfterABusyAnswerWaitsForTheWireAgain() async throws {
+        var answers = Self.answers
+        answers["X_UpdateTitle"] = [HTTPResponse(statusCode: 503), Stub.soap("X_UpdateTitle")]
+        let (_, link, recorder) = try await connected(answers)
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_UpdateTitle")
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        try await recorder.whenHeld()
+        let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let reading = Task { try await another.titles() }
+        await yield()
+
+        await recorder.holdTheNext("X_GetTitleList")
+        await recorder.letGo()
+        try await recorder.whenHeld()
+        for _ in 0..<100_000 { await Task.yield() }
+        expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 1,
+                    "the protect's next try went beside the read of another client")
+
+        await recorder.letGo()
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        let protect = try await within(10, "the protect never came back") { await protecting.result }
+        XCTAssertNoThrow(try protect.get())
+        expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 2)
+    }
+
+    /// A write held on the last client, a connect begun at its address with `now` answering there as the
+    /// recorder `answering`: nothing is asked of `now` while the write is out, and once it is back the connect
+    /// asks who answers and takes it up.
+    private func askedOnlyOnceTheWriteIsBack(on link: DeviceLink, in world: LinkWorld, last recorder: PlayingRecorder,
+                                             now: PlayingRecorder, answering udn: String) async throws {
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_UpdateTitle")
+        let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
+        try await recorder.whenHeld()
+        await now.forget()
+
+        world.devices[Stub.host] = now
+        let connecting = Task { await link.connect() }
+        for _ in 0..<100_000 { await Task.yield() }
+        expectFalse(await now.actions.contains("description.xml"),
+                    "who answers was asked while the last client had a write out at the address")
+
+        await recorder.letGo()
+        _ = try await within(10, "the held write never came back") { await protecting.result }
+        try await within(10, "the connect never came back") { await connecting.value }
+        expectTrue(await now.actions.contains("description.xml"), "who answers was never asked")
+        XCTAssertEqual(link.session.info?.udn, udn, world.problem ?? "no reason given")
+        XCTAssertTrue(link.clientIsAttached, world.problem ?? "no reason given")
     }
 
     // MARK: - a television's
@@ -557,10 +793,12 @@ final class ClientQueueTests: XCTestCase {
 
     /// A link of the test's own to a recorder at the bench's address that answers as `answers` says and can hold
     /// a request (`PlayingRecorder`), connected a moment ago; the recorder has put down nothing yet. Whatever it
-    /// holds is let go as the test is torn down.
+    /// holds is let go as the test is torn down. A request waits for the wire as long as its own timeout, as in
+    /// the app.
     private func connected(_ answers: [String: [HTTPResponse]] = ClientQueueTests.answers) async throws
         -> (LinkWorld, DeviceLink, PlayingRecorder) {
         let world = LinkWorld()
+        world.wireWaitLimit = nil
         let recorder = try PlayingRecorder(answers, udn: DeviceLinkTests.udn)
         world.devices[Stub.host] = recorder
         addTeardownBlock { await recorder.letGo() }
@@ -612,6 +850,16 @@ final class ClientQueueTests: XCTestCase {
     /// A bounded number of turns, for what was set going to get as far as its first wait.
     private func yield() async {
         for _ in 0..<1_000 { await Task.yield() }
+    }
+
+    /// Returns once a connect begun on `link` has made a client in place of `last` and its attach is under way
+    /// (接続中), and its ask of who answers has had the turns to get as far as its wait for the wire: waited
+    /// for a bounded number of turns, and a failure when it has not come by then.
+    private func attaching(_ link: DeviceLink, in world: LinkWorld, after last: RecorderClient) async {
+        for _ in 0..<100_000 where link.client === last || world.line != "接続中" { await Task.yield() }
+        XCTAssertFalse(link.client === last, "the connect made no client of its own")
+        XCTAssertEqual(world.line, "接続中", "the connect's attach never began")
+        await yield()
     }
 
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`:

@@ -44,6 +44,11 @@ public struct LinkEnvironment {
     /// for a connect under way to attach the recorder, or a check out to end, before it reads
     /// (`SlotSettling.connect`), as a clash check waits for them before it asks (`RecorderDriver.conflicts`).
     public var slotSettling: SlotSettling
+    /// How long, at most, a request of a recorder's client the link makes waits while another of its clients has
+    /// one on the wire at the same address (`RecorderClient`): nil for as long as the request's own timeout,
+    /// unless a test gives less -- a test holds a request for as long as it likes, and that a request waits is
+    /// the package's to test.
+    public var wireWaitLimit: TimeInterval?
 
     public init(transport: @escaping (_ host: String) -> any HTTPTransport,
                 networkSignature: @escaping () -> String,
@@ -53,7 +58,7 @@ public struct LinkEnvironment {
                 findRecorder: @escaping (_ mac: String, _ hosts: [String]) async -> RecorderDescription?,
                 findTelevision: @escaping (_ mac: String, _ hosts: [String]) async -> String? = { _, _ in nil },
                 slotReadAgainAfter: Duration = RecorderDriver.slotReadAgainAfter,
-                slotSettling: SlotSettling = .afterAWaking) {
+                slotSettling: SlotSettling = .afterAWaking, wireWaitLimit: TimeInterval? = nil) {
         self.transport = transport
         self.networkSignature = networkSignature
         self.sendPacket = sendPacket
@@ -63,6 +68,7 @@ public struct LinkEnvironment {
         self.findTelevision = findTelevision
         self.slotReadAgainAfter = slotReadAgainAfter
         self.slotSettling = slotSettling
+        self.wireWaitLimit = wireWaitLimit
     }
 }
 

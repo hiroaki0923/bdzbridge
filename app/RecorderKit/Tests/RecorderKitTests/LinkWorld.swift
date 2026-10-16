@@ -24,6 +24,10 @@ final class LinkWorld: RecorderLinkHost {
     /// How long the slot is waited for before something that names it is sent: the app's two seconds for ten, as
     /// milliseconds. Read as the link is made.
     var slotSettling = SlotSettling(every: .milliseconds(2), for: .milliseconds(10))
+    /// How long a request of the link's recorder clients waits while another of them has one on the wire at the
+    /// same address: a moment, for tests that hold a request across a connect at its address, unless a test of
+    /// that wait gives nil, the request's own timeout. Read as the link is made.
+    var wireWaitLimit: TimeInterval? = 0.05
 
     var problem: String?
     var macReadAt: String?
@@ -50,7 +54,8 @@ final class LinkWorld: RecorderLinkHost {
                 return await TVDiscovery.find(mac: mac, among: hosts, transport: Routed(world: self))
             },
             slotReadAgainAfter: slotReadAgainAfter,
-            slotSettling: slotSettling)
+            slotSettling: slotSettling,
+            wireWaitLimit: wireWaitLimit)
     }
 
     func put(_ event: String) { events.append(event) }

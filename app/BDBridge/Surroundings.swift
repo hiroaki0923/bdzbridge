@@ -45,6 +45,10 @@ struct Surroundings {
     /// How long the USB slot is waited for before something that names it is sent while the slot has not answered
     /// the disk known since the recorder last answered: the driver's ten seconds, shortened only by a test.
     var slotSettling: SlotSettling = .afterAWaking
+    /// How long a request to the recorder waits at most while another of the link's clients has one out at the same
+    /// address: its own timeout, shortened only by a test, which holds requests for as long as it likes. That a
+    /// request waits is RecorderKit's to test.
+    var wireWaitLimit: TimeInterval?
     /// How requests reach the television at an address: a transport that keeps no cookies of its own, since
     /// the client sends its registration's by hand. Nothing answers unless a test says otherwise.
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
