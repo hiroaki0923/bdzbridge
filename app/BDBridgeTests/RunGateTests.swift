@@ -1947,6 +1947,75 @@ final class RunGateTests: XCTestCase {
         XCTAssertNil(model.job, "what the scan came to is shown over a recorder it was not about")
     }
 
+    /// What a scan works out as it ends goes on what the recorder said as the scan began, and nowhere else: the
+    /// fixed blurbs the guide shows for its candidates -- here a programme of the copies' title with one text on
+    /// two days -- are not put on what the newcomer said, where the newcomer's own next scan, should it fail to
+    /// read the guide, would judge its copies by them. The scan is held on the cache as it begins, as above,
+    /// while a look at the network hears another recorder at the address.
+    func testAScanEndsOnWhatItsRecorderSaidOnceThatRecorderWasLetGoOf() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        let title = try XCTUnwrap(model.titles.first { $0.id == first }?.title)
+        let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")
+        try await store.setTitleSummary(first, "前に読んだ番組内容")
+        try await store.setTitleSummary(second, "前に読んだ番組内容")
+        // Two broadcast days a week apart, fixed: what makes a blurb fixed is the days, not the hour.
+        let day = Date(timeIntervalSince1970: 1_900_000_000)
+        let programmes = [0, 7].map { days in
+            GuideProgram(serviceID: 1024, eventID: 0xf000 + days, start: day.addingTimeInterval(Double(days) * 86_400),
+                         end: day.addingTimeInterval(Double(days) * 86_400 + 1800), title: title,
+                         summary: "毎回同じ番組紹介の文です。")
+        }
+        try await store.replace([GuideService(serviceID: 1024, name: "サンプルテレビ", programs: programmes)],
+                                broadcasting: "td")
+        expectFalse(try await store.fixedBlurbs(among: [Series.sameTitleKey(title)]).isEmpty,
+                    "the guide was meant to show the copies' title with one text on two days")
+
+        let writer = Writer(to: bench.guidePath)
+        let waiting = Task { try? await store.setTitleSummary("0x0", "") }
+        model.startDuplicateScan()
+        await recorder.become(2)
+        bench.network = "another"
+        await lookAtTheNetwork(model)
+        XCTAssertEqual(model.problem(for: .recorder), Said.anotherAnswered,
+                       "the look at the network was meant to hear another recorder, and say so")
+        XCTAssertTrue(model.jobRunning, "the scan was meant to be waiting for the cache still")
+        writer.letGo()
+        _ = try await within(10, "the write held behind the other connection never ended") { await waiting.value }
+        try await until("the newcomer was never taken up", within: 20) {
+            model.info?.udn == NamedRecorder.udn(2) && !isConnecting(model) && model.busy == nil && !model.jobRunning
+        }
+
+        XCTAssertTrue(model.fixedBlurbs.isEmpty,
+                      "a scan of the recorder let go of put its fixed blurbs on what the newcomer said")
+    }
+
+    /// A scan whose recorder is let go of while it is held on the cache stops before its next candidate, though
+    /// every candidate's text is in the cache and nothing would be asked for it: nothing is counted, and the job
+    /// says that it was stopped and why, as a single write says it then. The job stands: nothing let go of it.
+    func testAScanWhoseRecorderWasLetGoOfStopsThoughEveryTextIsCached() async throws {
+        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        let (first, second) = try copies(model)
+        let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")
+        try await store.setTitleSummary(first, "前に読んだ番組内容")
+        try await store.setTitleSummary(second, "前に読んだ番組内容")
+        let before = await recorder.asked
+
+        let writer = Writer(to: bench.guidePath)
+        let waiting = Task { try? await store.setTitleSummary("0x0", "") }
+        model.startDuplicateScan()
+        model.forgetTheRecorder()
+        XCTAssertTrue(model.jobRunning, "the scan was meant to be waiting for the cache still")
+        writer.letGo()
+        _ = try await within(10, "the write held behind the other connection never ended") { await waiting.value }
+        try await untilTheRunEnds(model, "the scan never ended")
+
+        XCTAssertEqual(model.job?.done, 0, "a scan counted candidates of a recorder let go of")
+        XCTAssertEqual(model.job?.outcome, "0 件まで調べて中止しました")
+        XCTAssertEqual(model.job?.stopped, .said(Said.anotherAnswered))
+        expectEqual(await recorder.asked(Ask.details, since: before), 0)
+    }
+
     /// A scan in front, waiting for a check that is out before its next candidate, when that check wakes the
     /// recorder, finds another one answering, and cannot make the cache over to it: the app lets go of the
     /// recorder it had, and nobody stops the scan as 中止 would. The scan stops all the same, on what the check
