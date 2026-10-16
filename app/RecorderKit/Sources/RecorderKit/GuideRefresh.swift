@@ -30,8 +30,9 @@ public enum GuideRefresh {
         /// The recorder stopped answering, over a type's guide or over its logos.
         case silent
         /// The guide is no longer for the recorder it was being fetched from: the cache has been made over to
-        /// another recorder and took nothing of what came for the last one (`GuideStore.replace`), or whoever
-        /// asked said before a type not to go on (`onType`). The write that was refused changed nothing.
+        /// another recorder and took nothing of what came for the last one (`GuideStore.replace`), whoever
+        /// asked said before a type not to go on (`onType`), or the client was retired, the recorder let go of,
+        /// and sent nothing for the type (`DeviceLetGo`). The write that was refused changed nothing.
         case letGo
         /// Whoever asked for the refresh would not have it made once its turn had come (`OnTurn.turnedAway`),
         /// nothing having been asked for, or would not have it go on to its next file (`beforeAFile`): why, in
@@ -207,6 +208,8 @@ public enum GuideRefresh {
                     throw error
                 } catch is CacheIsAnothers {
                     throw CacheIsAnothers()
+                } catch is DeviceLetGo {
+                    throw DeviceLetGo()
                 } catch {
                     // The logos are only looks, and the programmes are in: the type keeps the logos it had.
                 }
@@ -215,6 +218,10 @@ public enum GuideRefresh {
                 outcome.stopped = .silent
                 break
             } catch is CacheIsAnothers {
+                outcome.stopped = .letGo
+                break
+            } catch is DeviceLetGo {
+                // The client was retired, the recorder let go of: nothing was asked for this type.
                 outcome.stopped = .letGo
                 break
             } catch {

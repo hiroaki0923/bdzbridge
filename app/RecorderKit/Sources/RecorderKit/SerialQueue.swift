@@ -10,6 +10,10 @@ import Foundation
 /// for it. A write the recorder has begun to apply wants that, and a request abandoned half way would look to
 /// the caller like silence, which is read as the recorder gone. Whoever has to stop sooner -- the overnight
 /// run, when the system's time for it is up -- looks at its own cancellation between requests.
+///
+/// What is handed over goes in its turn, unless the device its client was made for has been let go of by then:
+/// a client of a link's asks first, inside its work, whether it is retired (`LinkClients`), and sends nothing
+/// if it is.
 actor SerialQueue {
     private var tail: Task<Void, Never>?
 
@@ -167,4 +171,17 @@ final class LinkClients: @unchecked Sendable {
 struct LinkPlace: Sendable {
     let clients: LinkClients
     let number: Int
+
+    /// Throws, with nothing sent, once the client is retired (`DeviceLetGo`): asked in the client's queue just
+    /// before each request goes, and before each time one is sent again.
+    func mayStillSend() throws {
+        if clients.isRetired(number) { throw DeviceLetGo() }
+    }
 }
+
+/// What a client a link made throws in place of sending once it is retired: the device it was made for has
+/// been let go of (`LinkClients`), and whatever answers at its address now is not the device it was handed the
+/// request for. Not a device's error: nothing was asked, so it is neither silence nor a refusal. What an
+/// operation makes of it is `OperationFailure.letGoMeanwhile`; a queue's round stops on it, leaving its rows as
+/// they were (`SendingStop.letGo`).
+struct DeviceLetGo: Error, Sendable, Equatable {}

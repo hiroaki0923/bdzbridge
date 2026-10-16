@@ -154,6 +154,10 @@ public final class TVDriver: LinkDriver {
             guard !link.session.unreachable else { return false }
             link.session.attached()
             return true
+        } catch is DeviceLetGo {
+            // The client was retired: the television was let go of during the attach, and whatever let go of
+            // it has said why. Nothing of it is the session's or the line's now.
+            return false
         } catch {
             let deviceError = error as? any DeviceError
             if deviceError?.failure == .needsPairing { facts.needsPairing = true }
@@ -505,6 +509,10 @@ public final class TVDriver: LinkDriver {
             // The read comes first: one that goes through clears the line, and one that fails has said why.
             guard let newer = await read(link, underALine: false) else { return (whatTheLinkSaid(), list) }
             return (.notDone(newer.contains { $0.id == row.id } ? Self.deleteRefused : Self.notInList), newer)
+        } catch is DeviceLetGo {
+            // Not sent: the client was retired, its link dropped while the delete waited its turn. The host that
+            // would show the link's line has gone with it.
+            return (.notDone(Self.notConnected), nil)
         } catch {
             say(error, on: link)
             return (.notDone((error as? any DeviceError)?.explanation ?? String(describing: error)), list)
@@ -630,6 +638,9 @@ public final class TVDriver: LinkDriver {
             } catch let error as any DeviceError where error.failure == .unknownItem {
                 guard let newer = await self.read(link, underALine: false) else { return (whatTheLinkSaid(), list) }
                 return (.notDone(newer.contains { $0.id == row.id } ? Self.changeRefused : Self.notInList), newer)
+            } catch is DeviceLetGo {
+                // Not sent: the client was retired, as for a delete.
+                return (.notDone(Self.notConnected), nil)
             } catch {
                 self.say(error, on: link)
                 return (.notDone((error as? any DeviceError)?.explanation ?? String(describing: error)), list)
@@ -726,7 +737,7 @@ public final class TVDriver: LinkDriver {
             _ = link.say(.silentOnARead(sentence: noAnswerLine))
         case .needsPairing?:
             note(link.say(.refused(.needsPairing, sentence: ScalarError.notRegistered.explanation)))
-        case .cannotRecord?, .saysNothing?, .notKnownThere?, nil:
+        case .cannotRecord?, .saysNothing?, .notKnownThere?, .letGo?, nil:
             break
         }
     }
@@ -990,7 +1001,7 @@ public final class TVDriver: LinkDriver {
         if has(round.deferred) { return .waiting(row, saying: Self.waitsUnanswered) }
         switch round.stopped {
         case .silent(afterSending: true)?: return .waiting(row, saying: Self.createMetSilence)
-        case .silent(afterSending: false)?: return .waiting(row, saying: Self.waitsNotConnected)
+        case .silent(afterSending: false)?, .letGo?: return .waiting(row, saying: Self.waitsNotConnected)
         case .needsPairing?: return .waiting(row, saying: Self.waitsForTheRegistration)
         case .cannotRecord?: return .waiting(row, saying: Self.waitsForTheDisk)
         case .saysNothing?, .notKnownThere?: return .waiting(row, saying: Self.waitsUnanswered)
@@ -1174,7 +1185,9 @@ public final class TVDriver: LinkDriver {
     /// it. It is not taken for another device, and nothing is given up: the next operation checks again, and
     /// sends once a check hears the television say which it is. The link takes it for an answer, as it takes a
     /// recorder's, and lets the operation go on to this driver, which sends nothing. Silence is the link's to
-    /// read, as ever.
+    /// read, as ever, and so is a check whose client was retired while it waited its turn: it asked nothing,
+    /// wrote nothing, and answers as silence, which the link, the television let go of since, takes for the
+    /// let-go's (`NotUp.letGo`).
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
         guard let client = client as? ScalarClient else { return (.unexpected("not a television's client"), false) }
         do {
@@ -1184,6 +1197,10 @@ public final class TVDriver: LinkDriver {
             }
             link.heardInstead = nil
             return (nil, false)
+        } catch is DeviceLetGo {
+            // Nothing was asked: the client was retired, its link let go of the television while the check waited
+            // its turn. Heard as nothing, which the link, its count moved, reads as the let-go's (`NotUp.letGo`).
+            return (.silent, false)
         } catch {
             let heard = (error as? any DeviceError) ?? ScalarError.unreadable(method: "getSystemSupportedFunction")
             guard heard.failure != .silent else { return (.silent, false) }

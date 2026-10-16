@@ -197,6 +197,10 @@ public final class RecorderDriver: LinkDriver {
             await Self.learnTheSlot(try await Self.usbDisk(of: client), link, client: client)
             link.session.attached()
             return true
+        } catch is DeviceLetGo {
+            // The client was retired: the recorder was let go of during the attach, and whatever let go of it
+            // has said why. Nothing of it is the session's or the line's now.
+            return false
         } catch {
             let deviceError = error as? any DeviceError
             // Nothing answered, so the app is not connected; nor when the address is not an address. Anything
@@ -266,7 +270,7 @@ public final class RecorderDriver: LinkDriver {
     /// The free space as the screens show it, or nil when the recorder will not say. A disk of no size counts as
     /// not saying: the screens would show it as a full disk. The one place that decides it, for the screens and
     /// for the overnight run alike, whose low-space notice is therefore never asked about such a disk. Throws
-    /// only silence.
+    /// only silence, or, from a client a link has retired, that nothing was sent (`DeviceLetGo`).
     public static func storage(of client: RecorderClient) async throws -> (free: Int, total: Int)? {
         guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
               capacity.totalBytes > 0 else { return nil }
@@ -276,7 +280,8 @@ public final class RecorderDriver: LinkDriver {
     /// The disk in the recorder's USB slot, when the recorder has registered one; nil when the slot is refused, its
     /// answer cannot be read or describes no disk, or the disk it describes was never registered. The one place
     /// that decides whether a USB disk is known, for the screens and for the overnight run alike, so that no
-    /// answer from a recorder that never had one draws anything. Throws only silence.
+    /// answer from a recorder that never had one draws anything. Throws only silence, or, from a client a link
+    /// has retired, that nothing was sent (`DeviceLetGo`).
     ///
     /// What the slot answers with the disk unplugged has not been seen. A registered disk described as not
     /// mounted is kept, and offered nowhere (`RecorderDisk.takesRecordings`).
@@ -371,6 +376,9 @@ public final class RecorderDriver: LinkDriver {
             if Task.isCancelled { return .cancelled }
             do {
                 if let disk = try await usbDisk(of: client) { return .answered(disk) }
+            } catch is DeviceLetGo {
+                // The client was retired, the recorder let go of: nothing was read, and nothing is said of it.
+                return .cancelled
             } catch {
                 return .silent
             }
@@ -812,8 +820,9 @@ public final class RecorderDriver: LinkDriver {
     /// queued for the next answer, and the recorder is lost as for any silence and said so, as a television's
     /// round is (`say(stopped:on:)`). Not when it was let go of while the round was out: the silence is not the
     /// one in play's, nothing is said and nobody is lost, and the list read after it is not kept for it either.
-    /// A round that waits for the queue's turn sends on its client when its turn comes, whatever became of the
-    /// recorder meanwhile (`PendingQueue.flush`): as it is today. What became of the round is the host's to say.
+    /// A round that waits for the queue's turn sends on its client when its turn comes (`PendingQueue.flush`),
+    /// unless the recorder has been let go of meanwhile: the client, retired, sends nothing, and the round stops
+    /// with every row as it waited (`SendingStop.letGo`). What became of the round is the host's to say.
     public func sendWhatWaits() async -> (round: PendingQueue.Outcome?, list: [Reservation]?) {
         await sendWhatWaits(sendingAgain: nil)
     }
@@ -890,7 +899,7 @@ public final class RecorderDriver: LinkDriver {
             _ = link.say(.silentAfterSending(sentence: Self.heldAfterSilence))
         case .silent(afterSending: false)?:
             _ = link.say(.silentOnARead(sentence: noAnswerLine))
-        case .needsPairing?, .cannotRecord?, .saysNothing?, .notKnownThere?, nil:
+        case .needsPairing?, .cannotRecord?, .saysNothing?, .notKnownThere?, .letGo?, nil:
             break
         }
     }
@@ -1124,7 +1133,7 @@ public final class RecorderDriver: LinkDriver {
             return .waiting(held, saying: Self.heldAfterSilence)
         case .notKnownThere(let listRead)?:
             return .waiting(row, saying: listRead ? Self.notKnownThere : Self.notKnownThereUnread)
-        case .silent(afterSending: false)?, .needsPairing?, .cannotRecord?, .saysNothing?:
+        case .silent(afterSending: false)?, .needsPairing?, .cannotRecord?, .saysNothing?, .letGo?:
             return notSent(row)
         case nil:
             break
@@ -1358,6 +1367,8 @@ public final class RecorderDriver: LinkDriver {
             do {
                 try await client.deleteReservation(id: target.id)
             } catch {
+                // Not sent: the client was retired, the recorder let go of while the delete waited its turn.
+                if error is DeviceLetGo { return (.notDone(self.whyLetGo(on: link)), nil) }
                 if (error as? any DeviceError)?.failure == .unknownItem {
                     let newer = await self.reservations(since: began, underALine: false)
                     return (newer == nil ? whatTheLinkSaid() : .notDone(Self.renumbered), newer ?? read)
@@ -1545,6 +1556,9 @@ public final class RecorderDriver: LinkDriver {
                                                    usb: link.session.usbDisk)
                 owner?.problem = said
                 return (.notDone(said), read)
+            } catch is DeviceLetGo {
+                // Not sent: the client was retired, the recorder let go of while the change waited its turn.
+                return (.notDone(self.whyLetGo(on: link)), nil)
             } catch {
                 owner?.problem = String(describing: error)
                 return (.notDone(String(describing: error)), read)
@@ -1915,7 +1929,9 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - the check before an operation
 
     /// Asks which recorder answers, as an attach asks it first. Another one, by its UDN, is a stranger, and the
-    /// link tells the host (`anotherAnsweredTheCheck`). Silence is the link's to read, as ever.
+    /// link tells the host (`anotherAnsweredTheCheck`). Silence is the link's to read, as ever, and so is a
+    /// check whose client was retired while it waited its turn: it asked nothing, and answers as silence, which
+    /// the link, the recorder let go of since, takes for the let-go's (`NotUp.letGo`).
     ///
     /// Anything else -- busy with somebody else after the client's tries, a fault, an answer that does not
     /// read -- says nothing of which recorder gave it, and is kept on the link (`DeviceLink.heardInstead`), as
@@ -1937,6 +1953,10 @@ public final class RecorderDriver: LinkDriver {
         } catch let heard as any DeviceError where heard.failure != .silent {
             link.heardInstead = heard
             return (heard.failure, false)
+        } catch is DeviceLetGo {
+            // Nothing was asked: the client was retired, the recorder let go of while the check waited its turn.
+            // Heard as nothing, which the link, its count moved, reads as the let-go's (`NotUp.letGo`).
+            return (.silent, false)
         } catch {
             return ((error as? any DeviceError)?.failure ?? .unexpected(String(describing: error)), false)
         }

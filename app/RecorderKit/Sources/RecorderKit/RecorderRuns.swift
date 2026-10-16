@@ -342,9 +342,10 @@ extension RecorderDriver {
     /// - Refused -- busy with somebody else through the client's tries, a fault, an answer that cannot be read:
     ///   handed back for the run to say of that recording, which is passed over, and the run goes on. A check
     ///   that heard the recorder busy never comes back as this: what is asked here is not sent after one.
-    /// - Answered. A request handed to the client goes whatever happens after, and is answered also once the
-    ///   recorder has been let go of, when `asked` still says that it went through, as it does of a single
-    ///   write. A run does not: it reads the count itself, for an answer and for a refusal, and stops, saying
+    /// - Answered. A request sent before the recorder was let go of is answered also once it has been, when
+    ///   `asked` still says that it went through, as it does of a single write (one that waited in the client's
+    ///   queue meanwhile is not sent, and stops the run as not sent). A run does not: it reads the count itself,
+    ///   for an answer and for a refusal, and stops, saying
     ///   why (`whyLetGo`), so that the caller counts nothing, takes no row out of a list that is the newcomer's
     ///   by then, and keeps no text.
     ///

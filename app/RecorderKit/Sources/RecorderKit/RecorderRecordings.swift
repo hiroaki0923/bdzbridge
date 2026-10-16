@@ -182,11 +182,12 @@ extension RecorderDriver {
     /// result.
     ///
     /// The protect is for the recorder in play as it was asked for (`asked`). Let go of before it is handed to
-    /// the client, nothing is sent and the result says why (`whyLetGo`). Handed over, it goes whatever happens
-    /// after -- the client sends what it was given -- and its answer is taken as across a let-go, as a
-    /// reservation's delete takes one: done, with the newcomer's line left and `keep` not called, since the list
-    /// on screen is the newcomer's; silence said, since it may have arrived, losing nobody, and the recordings
-    /// not to be read again for it; a refusal said.
+    /// the client, nothing is sent and the result says why (`whyLetGo`); so too when it was handed over and
+    /// waited its turn in the client's queue, which sends nothing once the recorder it was made for has been
+    /// let go of (`LinkClients`). Sent before that, its answer is taken as across a let-go, as a reservation's
+    /// delete takes one: done, with the newcomer's line left and `keep` not called, since the list on screen is
+    /// the newcomer's; silence said, since it may have arrived, losing nobody, and the recordings not to be read
+    /// again for it; a refusal said.
     ///
     /// The recordings are to be read again once the recorder answers only after the protect met silence on its
     /// way to the recorder in play: it may have arrived, and the list is read again rather than guessed at. Not
@@ -460,9 +461,11 @@ extension RecorderDriver {
     ///
     /// `began` is the count the operation noted at its door (`DeviceLink.generation`): what is asked is for the
     /// recorder in play then. Something that acts on the recorder, let go of by the time the check has answered,
-    /// is not sent, and says why (`whyLetGo`), whatever the check said. What was handed to the client goes
-    /// whatever happens after -- the client sends what it was given -- and what comes back once the recorder has
-    /// been let go of is about that one: a read's list is not handed back (`OperationFailure.letGoMeanwhile`),
+    /// is not sent, and says why (`whyLetGo`), whatever the check said; so too what was handed to the client and
+    /// waited its turn there, which the client, retired with the recorder it was made for, does not send
+    /// (`LinkClients`) -- a read is then let go of meanwhile, as below. What was sent before the let-go, and what
+    /// comes back once the recorder has been let go of, is about that one: a read's list is not handed back
+    /// (`OperationFailure.letGoMeanwhile`),
     /// something that acts on it is done, and the line, which is the newcomer's, is not cleared either way; a
     /// failure is said by that count (`DeviceLink.say(_:since:ofARead:)`), silence on something sent losing
     /// nobody. `work` reads the count too, for what it keeps. A client made anew for the same recorder meanwhile
@@ -503,6 +506,8 @@ extension RecorderDriver {
                     return .notSent(away.why)
                 } catch {
                     let failure = OperationFailure(error, sending: sending)
+                    // Not sent: the client was retired, the recorder let go of while the write waited its turn.
+                    if !read, failure == .letGoMeanwhile { return .notSent(self.whyLetGo(on: link)) }
                     if leavingTheLine, case .refused = failure { return .failed(failure) }
                     return .failed(link.say(failure, since: began, ofARead: read))
                 }

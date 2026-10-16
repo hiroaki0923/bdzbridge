@@ -1550,6 +1550,7 @@ actor TVSitting {
         case .cannotRecord?: stop = "stopped: no disk to record to"
         case .saysNothing?: stop = "stopped: answers that say nothing"
         case .notKnownThere?: stop = "stopped: not known whether the row is there"
+        case .letGo?: stop = "stopped: the client was retired, its device let go of"
         }
         return "sent \(outcome.sent.count), found there already \(outcome.alreadyThere.count), held with a reason"
             + " \(outcome.refused.count)" + (reasons.isEmpty ? "" : " (\(reasons))")

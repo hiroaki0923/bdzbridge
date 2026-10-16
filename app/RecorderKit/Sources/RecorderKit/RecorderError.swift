@@ -68,7 +68,9 @@ public extension RecorderError {
     ///
     /// A BDZ-FBT4100 answers every call this package makes, but the rest of the series need not, or not in the
     /// same shape. A recorder that refuses such a read, or gives an answer that cannot be read, is there, and
-    /// the value is merely not known: nil. Silence is still thrown, since it says the recorder is not there.
+    /// the value is merely not known: nil. Silence is still thrown, since it says the recorder is not there, and
+    /// so is a retired client's refusal to send (`DeviceLetGo`): nothing was asked, and the value is not
+    /// unknown but not this recorder's to know.
     ///
     /// The read runs on the caller's actor, as if it had been written out in place.
     static func silenceOnly<T>(isolation: isolated (any Actor)? = #isolation,
@@ -76,6 +78,8 @@ public extension RecorderError {
         do {
             return try await read()
         } catch let error as any DeviceError where error.failure == .silent {
+            throw error
+        } catch let error as DeviceLetGo {
             throw error
         } catch {
             return nil

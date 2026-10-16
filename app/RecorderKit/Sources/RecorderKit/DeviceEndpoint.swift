@@ -89,6 +89,10 @@ public enum SendingStop: Sendable, Equatable {
     /// not the whole of what the recorder holds; false when it could not be read. A television's round never
     /// stops so.
     case notKnownThere(listRead: Bool)
+    /// The client the round was sent on was retired before a request of it went: the device it was made for has
+    /// been let go of, and nothing more is sent to whatever answers at its address now. No reason is written on
+    /// any row, nothing is said of the round, and the rows wait for the device in play's next round.
+    case letGo
 }
 
 /// What a round stands on once the device has been read for it.
@@ -161,6 +165,9 @@ extension QueueTarget {
             return .made(saying: nil)
         } catch let error as any DeviceError where error.failure == .silent {
             return .stopped(.silent(afterSending: true), passedOver: false)
+        } catch is DeviceLetGo {
+            // Nothing was sent: the round's client was retired.
+            return .stopped(.letGo, passedOver: false)
         } catch let error as any DeviceError where error.failure.turnsTheRequestDown {
             return .refused(reason: RecorderDisk.waitingRowTurnedDown(error, sentTo: waiting.request.destination))
         } catch {
@@ -270,6 +277,8 @@ extension RecorderClient: QueueTarget {
             read = try await reservationList(count: asked)
         } catch let error as any DeviceError where error.failure == .silent {
             return .stopped(.silent(afterSending: false))
+        } catch is DeviceLetGo {
+            return .stopped(.letGo)
         } catch {
             return .open(RecorderRound(knowsADisk: knowsADisk, listIsWhole: false, listRead: false), alreadyThere: [])
         }

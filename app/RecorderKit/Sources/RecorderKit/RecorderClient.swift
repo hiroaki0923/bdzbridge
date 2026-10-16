@@ -261,7 +261,8 @@ public actor RecorderClient {
                            [("TitleID", titleID), ("Operation", operation), ("Position", "\(position)")])
     }
 
-    /// How long `play` waits for a recorder in standby to come on. How long a BDZ-FBT4100 takes has not been
+    /// How long a play waits for a recorder in standby to come on (`RecorderDriver.play`, the driver's own limit
+    /// unless it is given another). How long a BDZ-FBT4100 takes has not been
     /// timed, so this is as generous as the wait for a magic packet; the wait ends as soon as it says it is on.
     public static let powerOnLimit: TimeInterval = 30
 
@@ -396,15 +397,22 @@ public actor RecorderClient {
     /// a random pause, so that two clients that met are not in step when they ask again, and inside the queue,
     /// so that nothing else of this client's goes in between. A 503 after that is thrown as `busy`, naming
     /// `asking`, rather than left to the callers, each of which would read it as it reads other statuses.
+    ///
+    /// A client of a link's sends nothing once it is retired (`LinkClients`): asked just before the request
+    /// goes and before each time it is sent again, inside the queue, so that what was handed over before the
+    /// device was let go of and waited its turn is not sent to whatever answers at the address now.
     private func send(_ request: HTTPRequest, asking: String) async throws -> HTTPResponse {
         let transport = self.transport
         let delay = busyRetryDelay
+        let place = self.place
         let response = try await queue.run {
+            try place?.mayStillSend()
             var response = try await transport.send(request)
             var retries = 0
             while response.statusCode == 503, retries < Self.busyRetries {
                 retries += 1
                 try await Task.sleep(for: .seconds(Double.random(in: delay)))
+                try place?.mayStillSend()
                 response = try await transport.send(request)
             }
             return response

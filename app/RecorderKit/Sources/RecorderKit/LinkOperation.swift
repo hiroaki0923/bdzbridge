@@ -26,6 +26,12 @@ public enum OperationFailure: Error, Sendable, Equatable {
     /// changes the device and met silence -- an operation gives its own, since what the reader is to check
     /// afterwards differs from one to the next -- and nil for a read.
     public init(_ error: any Error, sending: String?) {
+        // A client retired since the device was let go of sent nothing (`DeviceLetGo`): the request was for the
+        // device let go of, as surely as an answer that came back across the let-go.
+        if error is DeviceLetGo {
+            self = .letGoMeanwhile
+            return
+        }
         guard let error = error as? any DeviceError else {
             self = .refused(nil, sentence: String(describing: error))
             return

@@ -531,9 +531,17 @@ public actor ScalarClient {
         let request = HTTPRequest(url: url, method: "POST", headers: headers, body: body,
                                   timeout: timeout ?? Self.timeout)
         let transport = self.transport
+        let place = self.place
         let response: HTTPResponse
         do {
-            response = try await queue.run { try await transport.send(request) }
+            response = try await queue.run {
+                // Nothing goes once the client is retired (`LinkClients`), as for the recorder's client.
+                try place?.mayStillSend()
+                return try await transport.send(request)
+            }
+        } catch let error as DeviceLetGo {
+            // Not a transport's failure: read as one, it would be silence, and lose the television in play.
+            throw error
         } catch let error as ScalarError {
             throw error
         } catch let error as RecorderError where error.failure != .silent {
@@ -982,9 +990,11 @@ extension ScalarClient: QueueTarget {
     }
 
     /// The stop a failure is, when it is one that ends a round whatever was being asked: nothing answered,
-    /// or the television wants the app registered again. Nil for a failure that says nothing of the kind.
+    /// the television wants the app registered again, or the client was retired and sent nothing (`letGo`).
+    /// Nil for a failure that says nothing of the kind.
     private static func stop(for error: any Error, afterSending: Bool) -> SendingStop? {
-        switch (error as? any DeviceError)?.failure {
+        if error is DeviceLetGo { return .letGo }
+        return switch (error as? any DeviceError)?.failure {
         case .silent?: .silent(afterSending: afterSending)
         case .needsPairing?: .needsPairing
         default: nil
