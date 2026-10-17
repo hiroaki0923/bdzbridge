@@ -7,7 +7,7 @@ import UserNotifications
 /// Everything here happens with no screen in front of it -- the overnight run sends the reservations that
 /// were waiting, to the recorder and to the television, and finds out how much room is left; the Shortcuts
 /// action sends them too -- so a notification is the only way the reader learns of it. What is worth saying
-/// of a run, and when it has been said already, is RecorderKit's (`RecorderDriver.tells`, `TVTold.after`):
+/// of a run, and when it has been said already, is RecorderKit's (`RecorderDriver.tells`, `ToldOnce.after`):
 /// here it is posted, under an identifier that says what it takes the place of.
 ///
 /// Permission comes in two steps. Once the app has reached a real recorder, it asks for provisional permission,
@@ -92,7 +92,7 @@ enum Notify {
         await post(id: "queue-flushed", title: "送信待ちの予約", body: anotherRecorderAnswered)
     }
 
-    /// What a run with no screen has to tell of the television (`TVNotices`), each under an identifier of its
+    /// What a run with no screen has to tell of the television (`NoScreenNotices`), each under an identifier of its
     /// own: neither takes the place of the recorder's two (`queue-flushed`, `recorderNotYet`) nor of the
     /// other. What became of the queue is replaced by the next run's, as the recorder's is; a notice of
     /// reservations not yet there stays until one of its kind replaces it or none of the reservations it told
@@ -103,7 +103,7 @@ enum Notify {
     /// notification with the new one, and places the new notification at the top of the list."
     /// (`UNNotificationRequest.init(identifier:content:trigger:)`). So is taking a delivered one away by its
     /// identifier.
-    static func television(_ notices: TVNotices) async {
+    static func television(_ notices: NoScreenNotices) async {
         if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
         if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }
         if let notYet = notices.notYet { await post(id: televisionNotYet, title: "送信待ちの予約", body: notYet) }

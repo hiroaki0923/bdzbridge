@@ -184,13 +184,13 @@ extension AppModel {
     /// The warning the runs with no screen left of reservations not yet at the recorder is taken away once a
     /// sending of the app's own, or a delete, leaves none of them waiting to go, and they are told of no more:
     /// the television's rule in the recorder's words (`forgetTheWarningOnceSent`,
-    /// `TVTold.afterTheScreensSent`). Asked after each of them: what waits sent (`sendWhatWaits`), a row sent
+    /// `ToldOnce.afterTheScreensSent`). Asked after each of them: what waits sent (`sendWhatWaits`), a row sent
     /// again (`resend`), a reservation made by hand, which takes the place of a row that waited for its
     /// programme (`reserve`), and a waiting row deleted (`deleteWaiting`). Not in the demo, whose queue is not
     /// the one the warning was about.
     func forgetTheRecordersWarningOnceSent() async {
         guard !demo, let saved = defaults.data(forKey: DefaultsKey.recorderTold),
-              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let told = try? JSONDecoder().decode(ToldOnce.self, from: saved),
               let store, let waiting = try? await store.pendingReservations(),
               let after = told.afterTheScreensSent(waiting: waiting, words: .recorder),
               let kept = try? JSONEncoder().encode(after) else { return }

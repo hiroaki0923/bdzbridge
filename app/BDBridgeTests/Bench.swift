@@ -1222,7 +1222,7 @@ final class Tellings: @unchecked Sendable {
         case usbSpace(RecorderDisk)
         /// What is told once: the notice of reservations not yet at the recorder, whether the last such notice
         /// is taken away, and what to keep.
-        case told(notYet: String?, withdraws: Bool, kept: TVTold)
+        case told(notYet: String?, withdraws: Bool, kept: ToldOnce)
         /// Without its time, which is the moment it was told.
         case fetched
 

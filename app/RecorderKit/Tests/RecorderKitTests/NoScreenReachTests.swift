@@ -361,7 +361,7 @@ final class NoScreenReachTests: XCTestCase {
     /// Told with the process's time zone set to one that is not Japan's, as the television's are: a start is
     /// written out in Japan's whatever the machine's is.
     @discardableResult
-    private func tell(_ runs: [Run], from told: TVTold = TVTold(), naming device: String? = nil) -> TVTold {
+    private func tell(_ runs: [Run], from told: ToldOnce = ToldOnce(), naming device: String? = nil) -> ToldOnce {
         let zone = NSTimeZone.default
         NSTimeZone.default = .gmt
         defer { NSTimeZone.default = zone }
@@ -369,7 +369,7 @@ final class NoScreenReachTests: XCTestCase {
         for run in runs {
             let (notices, next) = told.after(run.sending, waiting: run.waiting, before: Self.nextRun, now: Self.now,
                                              naming: device, words: .recorder)
-            XCTAssertEqual(notices, TVNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
+            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
                            run.name)
             told = next
         }
@@ -392,13 +392,13 @@ final class NoScreenReachTests: XCTestCase {
                 notYet: Self.notYet("サンプル劇場", at: "21:00", andOthers: 1) + Self.notAnswering),
             Run(name: "a queue that could not be read", sending: .unreachable, waiting: nil),
         ])
-        XCTAssertEqual(both, TVTold(rows: [theatre.id, journey.id]))
+        XCTAssertEqual(both, ToldOnce(rows: [theatre.id, journey.id]))
         let gone = tell([
             Run(name: "both made", sending: .sent(PendingQueue.Outcome(slot: .recorder, sent: [theatre, journey])),
                 waiting: [], queue: "送信待ちだった「サンプル劇場」ほか 1 件を登録しました", withdraws: true),
             Run(name: "nothing to take away", sending: .nothingWaiting, waiting: []),
         ], from: both)
-        XCTAssertEqual(gone, TVTold())
+        XCTAssertEqual(gone, ToldOnce())
 
         tell([Run(name: "after midnight", sending: .unreachable, waiting: [row("サンプル深夜便", 0x3109, at: 330)],
                   notYet: Self.notYet("サンプル深夜便", at: "1:30") + Self.notAnswering)])
@@ -418,7 +418,7 @@ final class NoScreenReachTests: XCTestCase {
                      row("サンプル音楽館", 0x3111, at: 120, reason: RecorderDriver.heldForAnotherRecorder),
                      row("サンプル討論", 0x3106, at: 120, target: .tv), row("サンプル朝市", 0x3108, at: -120)]
         let none = tell([Run(name: "never late", sending: .unreachable, waiting: never)])
-        XCTAssertEqual(none, TVTold())
+        XCTAssertEqual(none, ToldOnce())
 
         let theatre = row("サンプル劇場", 0x3101, at: 60), journey = row("サンプル紀行", 0x3102, at: 210)
         tell([Run(name: "made, still read as waiting",
@@ -440,7 +440,7 @@ final class NoScreenReachTests: XCTestCase {
         let first = Self.notYet("サンプル劇場", at: "21:00")
         let told = tell([Run(name: "another recorder", sending: .anotherAnswered, waiting: [theatre],
                              notYet: first + Self.another)])
-        XCTAssertEqual(told, TVTold(stop: .another, rows: [theatre.id]))
+        XCTAssertEqual(told, ToldOnce(stop: .another, rows: [theatre.id]))
         tell([Run(name: "silent at the read that opens the round",
                   sending: .sent(PendingQueue.Outcome(slot: .recorder, stopped: .silent(afterSending: false))),
                   waiting: [theatre], notYet: first + Self.notAnswering)])
@@ -462,11 +462,11 @@ final class NoScreenReachTests: XCTestCase {
                            queue: Self.another)
         let again = Run(name: "another recorder again", sending: .anotherAnswered, waiting: [morning])
 
-        XCTAssertEqual(tell([stranger, again]), TVTold(stop: .another))
+        XCTAssertEqual(tell([stranger, again]), ToldOnce(stop: .another))
         XCTAssertEqual(tell([stranger, Run(name: "nobody reached", sending: .unreachable, waiting: [morning]), again]),
-                       TVTold(stop: .another))
+                       ToldOnce(stop: .another))
         let forgotten = tell([stranger, Run(name: "a stranger, nothing waiting", sending: .nothingWaiting)])
-        XCTAssertEqual(forgotten, TVTold(), "the stop told was kept over a run with nothing waiting")
+        XCTAssertEqual(forgotten, ToldOnce(), "the stop told was kept over a run with nothing waiting")
         tell([stranger], from: forgotten)
         let went = PendingQueue.Outcome(slot: .recorder, sent: [row("サンプル劇場", 0x3101, at: 60)])
         tell([stranger,
@@ -505,20 +505,20 @@ final class NoScreenReachTests: XCTestCase {
     /// row that waits does not keep the notice.
     func testTheScreensSendingTakesTheRecordersLateNoticeAwayOnceNoneOfItsReservationsWaits() {
         let theatre = row("サンプル劇場", 0x3101, at: 60), journey = row("サンプル紀行", 0x3102, at: 210)
-        let told = TVTold(stop: .another, rows: [theatre.id])
+        let told = ToldOnce(stop: .another, rows: [theatre.id])
         let held = row("サンプル劇場", 0x3101, at: 60, reason: RecorderDriver.heldForAnotherRecorder)
         let over = row("サンプル劇場", 0x3101, at: -120)
         let televisions = row("サンプル劇場", 0x3101, at: 60, target: .tv)
-        let cases: [(String, [PendingReservation], TVTold?)] = [
+        let cases: [(String, [PendingReservation], ToldOnce?)] = [
             ("still waiting", [theatre, journey], nil),
-            ("sent", [journey, televisions], TVTold(stop: .another)),
-            ("held with a reason", [held], TVTold(stop: .another)),
-            ("over", [over], TVTold(stop: .another)),
+            ("sent", [journey, televisions], ToldOnce(stop: .another)),
+            ("held with a reason", [held], ToldOnce(stop: .another)),
+            ("over", [over], ToldOnce(stop: .another)),
         ]
         for (name, waiting, after) in cases {
             XCTAssertEqual(told.afterTheScreensSent(waiting: waiting, now: Self.now, words: .recorder), after, name)
         }
-        XCTAssertNil(TVTold(stop: .another).afterTheScreensSent(waiting: [], now: Self.now, words: .recorder),
+        XCTAssertNil(ToldOnce(stop: .another).afterTheScreensSent(waiting: [], now: Self.now, words: .recorder),
                      "none told of")
     }
 }

@@ -318,7 +318,7 @@ final class RecorderHost: RecorderLinkHost {
 
     /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
     /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
-    /// told of it (`TVTold`): the next run tells what it finds afresh. Their warning of reservations not yet at
+    /// told of it (`ToldOnce`): the next run tells what it finds afresh. Their warning of reservations not yet at
     /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
     /// are held for the reader now, and none of them waits to go.
     func cacheMadeOver() async {

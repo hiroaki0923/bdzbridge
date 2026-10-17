@@ -16,7 +16,7 @@ enum DefaultsKey {
     static let recorderMac = "recorderMac"
     /// The address the recorder was at when it reported the MAC. See `RecorderDriver.findElsewhere`.
     static let recorderMacHost = "recorderMacHost"
-    /// What the runs with no screen have told of it (`TVTold`, in the recorder's words), as JSON: the stop told
+    /// What the runs with no screen have told of it (`ToldOnce`, in the recorder's words), as JSON: the stop told
     /// last, which for a recorder is another one answering, and the reservations warned of as not having
     /// reached it in time. Read and written by the overnight run and the Shortcuts action
     /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
@@ -32,7 +32,7 @@ enum DefaultsKey {
     static let tvHost = "tvHost"
     /// The MAC it wakes on, which is what tells it from any other. Kept to recognise it, never to wake it.
     static let tvMac = "tvMac"
-    /// What the runs with no screen have told of it (`TVTold`), as JSON; forgotten when a television is
+    /// What the runs with no screen have told of it (`ToldOnce`), as JSON; forgotten when a television is
     /// registered or taken away. The recorder's is kept apart from it (`recorderTold`).
     static let tvTold = "tvTold"
 

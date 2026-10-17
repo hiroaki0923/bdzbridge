@@ -326,7 +326,7 @@ final class TVNoScreenTests: XCTestCase {
     /// to be written out in Japan's, and on a machine in Japan a start written in the machine's own would read
     /// the same.
     @discardableResult
-    private func tell(_ runs: [Run], from told: TVTold = TVTold()) -> TVTold {
+    private func tell(_ runs: [Run], from told: ToldOnce = ToldOnce()) -> ToldOnce {
         let zone = NSTimeZone.default
         NSTimeZone.default = .gmt
         defer { NSTimeZone.default = zone }
@@ -334,7 +334,7 @@ final class TVNoScreenTests: XCTestCase {
         for run in runs {
             let (notices, next) = told.after(run.sending, waiting: run.waiting, before: Self.nextRun, now: Self.now,
                                              naming: "テレビ")
-            XCTAssertEqual(notices, TVNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
+            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
                            run.name)
             told = next
         }
@@ -360,26 +360,26 @@ final class TVNoScreenTests: XCTestCase {
 
         let twice = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                           Run(name: "the disk again", sending: disk, waiting: waits)])
-        XCTAssertEqual(twice, TVTold(stop: .disk))
+        XCTAssertEqual(twice, ToldOnce(stop: .disk))
         let afterARound = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                                 Run(name: "a round that went", sending: went, waiting: [],
                                     queue: "送信待ちだった「サンプル天気」をテレビに登録しました"),
                                 Run(name: "the disk after a round", sending: disk, waiting: waits, queue: theDisk)])
-        XCTAssertEqual(afterARound, TVTold(stop: .disk))
+        XCTAssertEqual(afterARound, ToldOnce(stop: .disk))
         tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
               Run(name: "nothing waiting", sending: .nothingWaiting, waiting: []),
               Run(name: "the disk after nothing waiting", sending: disk, waiting: waits, queue: theDisk)])
         let silent = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                            Run(name: "the television silent", sending: .unreachable, waiting: waits),
                            Run(name: "the disk after a silent run", sending: disk, waiting: waits)])
-        XCTAssertEqual(silent, TVTold(stop: .disk))
+        XCTAssertEqual(silent, ToldOnce(stop: .disk))
         tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
               Run(name: "nothing that reads", sending: unread, waiting: waits),
               Run(name: "the disk after nothing that reads", sending: disk, waiting: waits)])
         let another = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                             Run(name: "another television", sending: .anotherAnswered, waiting: waits,
                                 queue: "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。")])
-        XCTAssertEqual(another, TVTold(stop: .another))
+        XCTAssertEqual(another, ToldOnce(stop: .another))
         tell([Run(name: "no registration", sending: unregistered, waiting: waits,
                   queue: "テレビへの登録が必要です。設定の「テレビ」から登録してください"),
               Run(name: "no registration again", sending: unregistered, waiting: waits)])
@@ -454,7 +454,7 @@ final class TVNoScreenTests: XCTestCase {
                      row("サンプル映画", 50105, at: 120, reason: "この局は録画できません"),
                      row("サンプル討論", 50106, at: 120, target: .recorder), row("サンプル朝市", 50108, at: -120)]
         let none = tell([Run(name: "never late", sending: .unreachable, waiting: never)])
-        XCTAssertEqual(none, TVTold())
+        XCTAssertEqual(none, ToldOnce())
         tell([Run(name: "made, still read as waiting", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [theatre])),
                   waiting: [theatre], queue: "送信待ちだった「サンプル劇場」をテレビに登録しました"),
               Run(name: "found there, still read as waiting",
@@ -478,16 +478,16 @@ final class TVNoScreenTests: XCTestCase {
                 queue: "送信待ちだった「サンプル紀行」をテレビに登録しました", withdraws: true),
             Run(name: "nothing to take away", sending: .nothingWaiting, waiting: []),
         ])
-        XCTAssertEqual(both, TVTold())
+        XCTAssertEqual(both, ToldOnce())
 
-        let one = TVTold(rows: [theatre.id])
+        let one = ToldOnce(rows: [theatre.id])
         tell([Run(name: "another late in its place", sending: .unreachable, waiting: [journey],
                   notYet: "テレビにまだ届いていない予約があります（「サンプル紀行」23:30 から）。" + notAnswering)], from: one)
         let unread = tell([Run(name: "a queue that could not be read", sending: .unreachable, waiting: nil)], from: one)
         XCTAssertEqual(unread, one)
 
-        let told = TVTold(stop: .registration, rows: [theatre.id, journey.id])
-        XCTAssertEqual(try JSONDecoder().decode(TVTold.self, from: JSONEncoder().encode(told)), told)
+        let told = ToldOnce(stop: .registration, rows: [theatre.id, journey.id])
+        XCTAssertEqual(try JSONDecoder().decode(ToldOnce.self, from: JSONEncoder().encode(told)), told)
     }
 
     /// A sending of the screens' own takes the late notice away once none of the rows it told of waits to go
@@ -496,16 +496,16 @@ final class TVNoScreenTests: XCTestCase {
     /// no row told of there is nothing to take away.
     func testTheScreensSendingTakesTheLateNoticeAwayOnceNoneOfItsRowsWaits() {
         let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
-        let told = TVTold(stop: .disk, rows: [theatre.id])
+        let told = ToldOnce(stop: .disk, rows: [theatre.id])
         // The same programme, and so the same row, as it would read held, and once it is over.
         let held = row("サンプル劇場", 50101, at: 60, reason: "この局は録画できません")
         let over = row("サンプル劇場", 50101, at: -60)
-        let cases: [(String, TVTold, [PendingReservation], TVTold?)] = [
+        let cases: [(String, ToldOnce, [PendingReservation], ToldOnce?)] = [
             ("still waiting", told, [theatre, journey], nil),
-            ("sent", told, [journey], TVTold(stop: .disk)),
-            ("held with a reason", told, [held], TVTold(stop: .disk)),
-            ("over", told, [over], TVTold(stop: .disk)),
-            ("none told of", TVTold(stop: .disk), [], nil),
+            ("sent", told, [journey], ToldOnce(stop: .disk)),
+            ("held with a reason", told, [held], ToldOnce(stop: .disk)),
+            ("over", told, [over], ToldOnce(stop: .disk)),
+            ("none told of", ToldOnce(stop: .disk), [], nil),
         ]
         for (name, before, waiting, after) in cases {
             XCTAssertEqual(before.afterTheScreensSent(waiting: waiting, now: Self.now), after, name)

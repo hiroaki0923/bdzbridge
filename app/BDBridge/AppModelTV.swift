@@ -299,7 +299,7 @@ extension AppModel {
         }
     }
 
-    /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play
+    /// What the runs with no screen told of the television (`ToldOnce`) is not held against the one in play
     /// from now on: a registration, or a television taken away, is a change, and the next run tells what it
     /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
     /// the app asks the system about notifications at all: it can end by telling the reader to register,
@@ -312,7 +312,7 @@ extension AppModel {
     private func forgetWhatWasTold() {
         guard !demo else { return }
         let stop = defaults.data(forKey: DefaultsKey.tvTold)
-            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) }?.stop
+            .flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) }?.stop
         defaults.removeObject(forKey: DefaultsKey.tvTold)
         guard surroundings.asksAboutNotifications else { return }
         Notify.withdrawTelevisionNotYet()
@@ -322,13 +322,13 @@ extension AppModel {
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
     /// a sending of the app's own, a reservation made by hand, which takes the place of a row that waited for
     /// its programme (`TVHost.reserve`), or a delete leaves none of them waiting to go, and they are told of no
-    /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
+    /// more (`ToldOnce.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
     /// Not in the demo, whose queue is not the one the warning was about.
     func forgetTheWarningOnceSent() async {
         guard !demo, let saved = defaults.data(forKey: DefaultsKey.tvTold),
-              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
+              let told = try? JSONDecoder().decode(ToldOnce.self, from: saved),
               let store, let waiting = try? await store.pendingReservations(),
               let after = told.afterTheScreensSent(waiting: waiting),
               let kept = try? JSONEncoder().encode(after) else { return }

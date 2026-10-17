@@ -182,7 +182,7 @@ enum BackgroundWork {
             return false
         }
         let told = UserDefaults.standard.data(forKey: DefaultsKey.recorderTold)
-            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
+            .flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) } ?? ToldOnce()
         return await refresh(client: RecorderClient(host: host), store: store,
                              mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system,
                              told: told, nextRun: nextNightlyRun())
@@ -226,7 +226,7 @@ enum BackgroundWork {
         let client = ScalarClient(host: host, transport: URLSessionTransport.withoutCookies(),
                                   credentials: KeychainTVCredentials())
         let told = defaults.data(forKey: DefaultsKey.tvTold)
-            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
+            .flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) } ?? ToldOnce()
         let now = Date()
         let run = await sendToTheTelevision(client: client, store: store,
                                             mac: defaults.string(forKey: DefaultsKey.tvMac), told: told,
@@ -238,7 +238,7 @@ enum BackgroundWork {
             if case .sent(var outcome) = run.sending, !outcome.isEmpty {
                 // The suspension may be what cut the round short, and the television is not to be said to.
                 if outcome.interrupted { outcome.stopped = nil }
-                await Notify.television(TVNotices(queue: outcome.says(naming: DeviceSlot.tv.label)))
+                await Notify.television(NoScreenNotices(queue: outcome.says(naming: DeviceSlot.tv.label)))
             }
             return run.sending
         }
@@ -248,11 +248,11 @@ enum BackgroundWork {
     }
 
     /// The same with its surroundings handed in, which is what the tests give it: the run, the queue read
-    /// after it, and what that tells against what was told before (`TVTold.after`), with the television named
+    /// after it, and what that tells against what was told before (`ToldOnce.after`), with the television named
     /// as the screens name it.
-    static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?, told: TVTold,
+    static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?, told: ToldOnce,
                                     nextRun: Date, now: Date = Date())
-        async -> (sending: NoScreenSending, notices: TVNotices, told: TVTold) {
+        async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
         let sending = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac, now: now)
         let waiting = try? await store.pendingReservations()
         let (notices, after) = told.after(sending, waiting: waiting, before: nextRun, now: now,
@@ -279,7 +279,7 @@ enum BackgroundWork {
         /// What is told once (`NightFound.told`): the notice of reservations that have not reached the recorder
         /// in time, whether the last such notice is taken away, and what has been told, to keep for the next
         /// run. Nothing, unless said: a run handed no next run tells none of it.
-        var kept: @Sendable (_ notYet: String?, _ withdraws: Bool, _ told: TVTold) async -> Void = { _, _, _ in }
+        var kept: @Sendable (_ notYet: String?, _ withdraws: Bool, _ told: ToldOnce) async -> Void = { _, _, _ in }
         /// A guide was fetched, at this time.
         var fetched: @Sendable (Date) -> Void
 
@@ -309,7 +309,7 @@ enum BackgroundWork {
     /// `nextRun` are handed on to it for what is told once; with no next run, as a test that does not look at
     /// that hands none, nothing of it is done and nothing comes to `Telling.kept`.
     static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling,
-                        told: TVTold = TVTold(), nextRun: Date? = nil) async -> Bool {
+                        told: ToldOnce = ToldOnce(), nextRun: Date? = nil) async -> Bool {
         await RecorderDriver.refreshWithNoScreen(client, store: store, told: told, nextRun: nextRun,
                                                  sendPacket: packet(for: client, mac: mac)) { found in
             switch found {
@@ -356,7 +356,7 @@ enum BackgroundWork {
             return .noRecorder
         }
         let told = UserDefaults.standard.data(forKey: DefaultsKey.recorderTold)
-            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) } ?? TVTold()
+            .flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) } ?? ToldOnce()
         let (sending, news) = await sendWaiting(client: RecorderClient(host: host), store: store,
                                                 mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac),
                                                 told: told, nextRun: nextNightlyRun())
@@ -377,7 +377,7 @@ enum BackgroundWork {
     /// before anything goes on the network; what it came to is said here as the action's own `Sending`.
     static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
                             now: Date = Date()) async -> Sending {
-        await sendWaiting(client: client, store: store, mac: mac, told: TVTold(), nextRun: nil, now: now).sending
+        await sendWaiting(client: client, store: store, mac: mac, told: ToldOnce(), nextRun: nil, now: now).sending
     }
 
     /// The same, handing back with the sending what it has to tell once (`NoScreenTold`), against what was
@@ -385,7 +385,7 @@ enum BackgroundWork {
     /// is news, the notice of reservations that have not reached the recorder in time and its withdrawal, and
     /// what to keep. The entry reads and writes what is kept and posts; whether there is anything to tell is
     /// the driver's (`RecorderDriver.sendWithNoScreen`).
-    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?, told: TVTold, nextRun: Date?,
+    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?, told: ToldOnce, nextRun: Date?,
                             now: Date = Date()) async -> (sending: Sending, news: NoScreenTold) {
         let (came, news) = await RecorderDriver.sendWithNoScreen(client, store: store, told: told, nextRun: nextRun,
                                                                  now: now, sendPacket: packet(for: client, mac: mac))
