@@ -28,7 +28,8 @@
   recorder let go of meanwhile is kept where no screen reads it. What is the phone's -- the cache, the queue on
   screen, the demo, the settings, the lines of what is under way -- stays the model's, and the host reaches it
   through the model. The television's host (`TVHost`) is made and let go of with the television's link, so
-  what a television said goes with it, and nothing has to empty it.
+  what a television said goes with it, and nothing has to empty it; the link lets go of its device first
+  (`DeviceLink.forgetTheDevice`), so nothing that waits on its clients is sent.
   The recorder's driver sends what waits for it in the phone's queue and deletes a row of it, makes, changes
   and deletes its reservations, and asks what a new one would clash with, as well (`RecorderDriver.reservations`,
   `refreshReservations`, `sendWhatWaits`, `resend`, `deleteWaiting`, `reserve`, `update`, `cancel`,
@@ -166,11 +167,14 @@ recorder or the network. The model takes what it reaches beyond itself as one va
 databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it may
 put anything on the LAN by itself -- the magic packet, the look at the local network permission, the search for
 a recorder the router has moved, the watch on the network -- or ask about notifications, and how long the
-recorder's client pauses before sending a 503 again and a write to the cache waits for another connection's.
+recorder's client pauses before sending a 503 again, a request to the recorder waits at most while another of
+the link's clients has one out at the same address (`wireWaitLimit`), and a write to the cache waits for
+another connection's.
 And what the search begun by レコーダーとテレビを探す reaches: the interfaces it looks round, the transport its requests go
 through, the pause between the single requests it makes after a look that was turned away, and where it writes
 its log. The app passes `Surroundings.app` and nothing else. A test builds its model on a `Bench`: a defaults
-suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, an invented
+suite and a temporary folder that are thrown away afterwards, no pause before a 503 is sent again, a moment's
+wait at most for another client's request at the same address, an invented
 recorder as the transport -- RecorderKit's `DemoRecorder`, which answers at once unless it is given the demo's
 pace, a `SilentRecorder` that answers nothing, one that is at home or not as the test says and may refuse the
 calls named to it, one with a broadcast on its disk twice, something that answers and is no recorder, and

@@ -1939,22 +1939,19 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertGreaterThan(model.storage?.free ?? 0, room, "the room the deleted recordings took is not shown")
     }
 
-    /// A write answered once another recorder has taken the place of the one it was asked of, which emptied the
-    /// lists in that turn: queued on the last recorder's client behind a list read that was out when the
-    /// newcomer described itself, it goes to the address once that read is back, and so to the newcomer -- what
-    /// is in a client's queue goes; asked and held at its own request, it is answered by the newcomer. Either
-    /// way its answer is taken as one across a let-go, as a reservation's delete takes it: done, but the
-    /// newcomer's line is left alone, and nothing of it is put on the newcomer's lists, which its connect read --
-    /// nor is the list read after a condition added or removed, which would be the newcomer's. A protect, a
-    /// delete, a condition added and one removed.
+    /// A write asked of a recorder once another has taken its place, which emptied the lists in that turn. Asked
+    /// and held at its own request, it is answered by the newcomer, and its answer is taken as one across a
+    /// let-go, as a reservation's delete takes it: done, but the newcomer's line is left alone, and nothing of
+    /// it is put on the newcomer's lists, which its connect read -- nor is the list read after a condition added
+    /// or removed, which would be the newcomer's. A protect, a delete, a condition added and one removed.
     ///
-    /// Queued behind a read, the write is answered as the newcomer's connect reads its own list, which waits for
-    /// that read to be back and clears the line as it goes through: there the write is held to having gone once
-    /// and answered, the newcomer kept; what the line and the lists come to is the held write's to show. A
-    /// recording's delete asks first whether the recording is still there, and a condition's delete reads the
-    /// list of conditions first: queued behind a read, that question or that read is what waits, and once it is
-    /// answered by the newcomer the delete is turned away as one let go of, saying that another recorder
-    /// answered, with nothing sent.
+    /// Queued on the last recorder's client behind a list read that was out when the newcomer described itself,
+    /// it is not sent once that read is back: the client was made for the recorder let go of, and sends nothing
+    /// more. It is turned away as one let go of, saying that another recorder answered, the newcomer kept. What
+    /// the line and the lists come to there is the newcomer's connect's, which waits for that read to be back to
+    /// read its own list and clears the line as it goes through. A recording's delete asks first whether the
+    /// recording is still there, and a condition's delete reads the list of conditions first: there that
+    /// question or that read is what waits, and the delete is turned away the same way.
     func testAWriteAnsweredAfterAnotherRecorderDescribedItselfIsTakenAsAcrossALetGo() async throws {
         let (_, recorder, model, subjects) = try await settled()
         var newcomer = 1
@@ -2015,7 +2012,7 @@ final class FunnelGateTests: XCTestCase {
                 try await within(10, "the newcomer's connect never came back, \(how)") { await connecting.value }
                 try await until("the newcomer's guide was never fetched, \(how)") { !isConnecting(model) }
 
-                if queued, row.asksFirst != nil {
+                if queued {
                     XCTAssertEqual(answer, false, "\(how) was sent across the let-go")
                     XCTAssertEqual(whyNotJustNow(model), Said.anotherAnswered, how)
                     XCTAssertFalse(model.gaveUp, how)

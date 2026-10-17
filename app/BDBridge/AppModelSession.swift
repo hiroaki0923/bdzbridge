@@ -138,7 +138,8 @@ extension AppModel {
             },
             findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) },
             slotReadAgainAfter: surroundings.slotReadAgainAfter,
-            slotSettling: surroundings.slotSettling)
+            slotSettling: surroundings.slotSettling,
+            wireWaitLimit: surroundings.wireWaitLimit)
     }
 
     /// What the link has until the model is made: nothing reaches anything.

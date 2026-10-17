@@ -23,6 +23,10 @@ final class Bench {
     /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
     /// first.
     var slotSettling = SlotSettling.afterAWaking
+    /// How long a request of a model made here waits for another of its link's clients' request at the same
+    /// address: a moment, where the app waits the request's own timeout. A test holds a request at the recorder
+    /// across a connect at its address for as long as it likes; that a request waits is RecorderKit's to test.
+    var wireWaitLimit: TimeInterval? = 0.05
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -263,6 +267,7 @@ final class Bench {
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling,
+            wireWaitLimit: wireWaitLimit,
             tvTransport: { [weak self] host in
                 self?.televisionTransportsMade.append(host)
                 return tvTransport(host)

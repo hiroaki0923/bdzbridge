@@ -102,13 +102,16 @@ extension AppModel {
         tv = link
     }
 
-    /// Lets go of the television's link, and of a wait for the permission it had set going. What the television
+    /// Lets go of the television's link, and of a wait for the permission it had set going. The link lets go of
+    /// its device first (`DeviceLink.forgetTheDevice`), as the recorder's does when another is chosen: what is
+    /// queued on its clients is not sent, and only what is already on the wire still goes. What the television
     /// said goes with its host -- its reservations, and its line of what went wrong -- so no list is emptied
     /// here; the screens are told that it went (`tvTimesForgotten`), when there was a link to let go of. The
     /// lines its host had up are on the model's own list, and come down now rather than when the requests
     /// they stand for end: what is still out on a television the app has let go of says nothing on the screens.
     /// Why 外す left it in place goes with it.
     func dropTVLink() {
+        tv?.forgetTheDevice()
         if tv != nil { tvTimesForgotten += 1 }
         whyTheTelevisionStays = nil
         tvHost?.stopWaitingForPermission()

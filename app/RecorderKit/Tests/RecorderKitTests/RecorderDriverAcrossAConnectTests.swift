@@ -67,7 +67,7 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
     func testAReadAskedAfterTheRecorderWasLetGoOfDoesNotJoinOneAskedBefore() async throws {
         let world = LinkWorld()
         let recorder = try ScriptedRecorder(at: Stub.host, udn: DeviceLinkTests.udn, world: world)
-        await recorder.keep(try RecorderReservations([], guide: Data()))
+        await recorder.keep(RecorderReservations([], guide: Data()))
         let door = HeldList(recorder)
         world.devices[Stub.host] = door
         let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
@@ -83,7 +83,8 @@ final class RecorderDriverAcrossAConnectTests: XCTestCase {
         let generation = link.generation
         let newcomer = try XCTUnwrap(Discovery.parseDescription(try Vectors.descriptionXML(udn: LinkPartsTests.another),
                                                                 host: Stub.host, location: "", via: "test"))
-        link.session.described(newcomer)
+        // Heard on the client the link holds, as an attach hears it.
+        link.session.described(newcomer, heardBy: link.client)
         XCTAssertNotEqual(link.generation, generation, "another describing itself was meant to let go of the first")
         await recorder.become(LinkPartsTests.another)
         world.events = []
@@ -208,7 +209,7 @@ actor SlotRecorder: HTTPTransport {
         self.host = host
         self.world = world
         description = try Vectors.descriptionXML(udn: udn)
-        reservations = try RecorderReservations(rows, guide: Data())
+        reservations = RecorderReservations(rows, guide: Data())
     }
 
     func goSilent() { silent = true }

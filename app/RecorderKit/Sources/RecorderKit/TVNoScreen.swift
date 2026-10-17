@@ -35,7 +35,7 @@ public extension NoScreenSending {
             switch outcome.stopped {
             case .needsPairing?: return .registration
             case .cannotRecord?: return .disk
-            case .silent?, .saysNothing?, .notKnownThere?, nil: return nil
+            case .silent?, .saysNothing?, .notKnownThere?, .letGo?, nil: return nil
             }
         case .nothingWaiting, .unreachable:
             return nil
