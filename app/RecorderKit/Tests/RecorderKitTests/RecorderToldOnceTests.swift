@@ -90,7 +90,7 @@ final class RecorderToldOnceTests: XCTestCase {
                               each: @escaping @Sendable (Handed) async -> Void = { _ in }) async -> [Handed] {
         let record = Record()
         _ = await RecorderDriver.refreshWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: told, nextRun: nextRun,
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told }, nextRun: nextRun,
             sendPacket: {
                 packet()
                 return false
@@ -114,11 +114,11 @@ final class RecorderToldOnceTests: XCTestCase {
                                packet: @escaping @Sendable () -> Void = {}) async
         -> (sending: NoScreenSending, told: NoScreenTold) {
         await RecorderDriver.sendWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: told, nextRun: nextRun,
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told }, nextRun: nextRun,
             now: Self.start, sendPacket: {
                 packet()
                 return false
-            })
+            }, tell: { _, _ in })
     }
 
     /// A night that reaches nobody, with a reservation waiting that starts before the next: it hands over what

@@ -1,4 +1,5 @@
 import Foundation
+import RecorderKit
 
 /// Every name the app keeps something under in UserDefaults, in one place.
 ///
@@ -78,4 +79,46 @@ enum DefaultsKey {
     /// Where the real recorder's address and MAC are kept while the demo has the screen.
     static let hostBeforeDemo = "hostBeforeDemo"
     static let macBeforeDemo = "macBeforeDemo"
+}
+
+/// What the runs with no screen have told once of one device (`ToldOnce`), kept as JSON under its key
+/// (`DefaultsKey.recorderTold`, `DefaultsKey.tvTold`) in the defaults handed in: the entries' own,
+/// `UserDefaults.standard`, or the screens' (`AppModel.defaults`). Every reader and writer of the two keys
+/// reads and keeps it through one of these, so that each does it the same way.
+///
+/// Handed to a run's own task, and Sendable by hand for that: `UserDefaults` is not marked so, and Apple's page
+/// for it says that it "is thread-safe, and you can use the same object in multiple threads or tasks
+/// simultaneously".
+struct KeptOnce: @unchecked Sendable {
+    let key: String
+    let defaults: UserDefaults
+
+    /// The recorder's.
+    static func recorder(in defaults: UserDefaults) -> KeptOnce {
+        KeptOnce(key: DefaultsKey.recorderTold, defaults: defaults)
+    }
+
+    /// The television's.
+    static func television(in defaults: UserDefaults) -> KeptOnce {
+        KeptOnce(key: DefaultsKey.tvTold, defaults: defaults)
+    }
+
+    /// What is kept; nil when nothing is, or what is cannot be read.
+    func read() -> ToldOnce? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) }
+    }
+
+    /// What a run with no screen is handed to read what was told before by: what is kept, or nothing told.
+    var reading: @Sendable () -> ToldOnce {
+        { read() ?? ToldOnce() }
+    }
+
+    /// Keeps `told` in place of what was; nothing is written when it cannot be put as JSON.
+    func keep(_ told: ToldOnce) {
+        if let kept = try? JSONEncoder().encode(told) { defaults.set(kept, forKey: key) }
+    }
+
+    func forget() {
+        defaults.removeObject(forKey: key)
+    }
 }

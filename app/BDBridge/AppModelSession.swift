@@ -189,12 +189,11 @@ extension AppModel {
     /// programme (`reserve`), and a waiting row deleted (`deleteWaiting`). Not in the demo, whose queue is not
     /// the one the warning was about.
     func forgetTheRecordersWarningOnceSent() async {
-        guard !demo, let saved = defaults.data(forKey: DefaultsKey.recorderTold),
-              let told = try? JSONDecoder().decode(ToldOnce.self, from: saved),
+        let kept = KeptOnce.recorder(in: defaults)
+        guard !demo, let told = kept.read(),
               let store, let waiting = try? await store.pendingReservations(),
-              let after = told.afterTheScreensSent(waiting: waiting, words: .recorder),
-              let kept = try? JSONEncoder().encode(after) else { return }
-        defaults.set(kept, forKey: DefaultsKey.recorderTold)
+              let after = told.afterTheScreensSent(waiting: waiting, words: .recorder) else { return }
+        kept.keep(after)
         if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
     }
 }

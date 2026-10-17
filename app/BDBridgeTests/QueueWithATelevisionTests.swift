@@ -1291,8 +1291,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await until("the screens' sending never reached the create") { await door.isHolding }
         let macReads = await television.calls.filter { $0 == readsTheMAC }.count
         let action = Task {
-            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never read the MAC") {
             await television.calls.filter { $0 == readsTheMAC }.count > macReads
@@ -1327,8 +1327,8 @@ final class QueueWithATelevisionTests: XCTestCase {
                                   credentials: await registered(with: television))
         let nextRun = Date().addingTimeInterval(6 * 3600)
         func run(from told: ToldOnce) async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
-            await BackgroundWork.sendToTheTelevision(client: client, store: store, mac: nil, told: told,
-                                                     nextRun: nextRun)
+            await BackgroundWork.sendToTheTelevision(client: client, store: store, mac: nil, told: { told },
+                                                     nextRun: nextRun, tell: { _, _, _ in })
         }
         try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
         try await store.queue(notListed("サンプル特番", programme: 4405))
@@ -1402,8 +1402,9 @@ final class QueueWithATelevisionTests: XCTestCase {
         func heldAction() async throws -> Task<NoScreenSending, Never> {
             await door.hold(only: Self.tvCreate)
             let action = Task {
-                await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                         nextRun: Date().addingTimeInterval(6 * 3600)).sending
+                await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                         nextRun: Date().addingTimeInterval(6 * 3600),
+                                                         tell: { _, _, _ in }).sending
             }
             try await until("the action never reached the create") { await door.isHolding }
             return action
@@ -1469,8 +1470,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
         await door.hold(only: Self.tvCreate)
         let action = Task {
-            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never reached the create") { await door.isHolding }
 
@@ -1508,8 +1509,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let client = ScalarClient(host: Bench.tvHost, transport: door, credentials: model.surroundings.tvCredentials)
         await door.hold(only: Self.tvCreate)
         let action = Task {
-            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never reached the create") { await door.isHolding }
         let asked = await recorder.asked
@@ -1577,8 +1578,9 @@ final class QueueWithATelevisionTests: XCTestCase {
             await door.hold(only: Self.tvCreate)
             addTeardownBlock { await door.letGo() }
             let action = Task {
-                await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                         nextRun: Date().addingTimeInterval(6 * 3600))
+                await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                         nextRun: Date().addingTimeInterval(6 * 3600),
+                                                         tell: { _, _, _ in })
             }
             try await until("\(name): the action never reached the create") { await door.isHolding }
             let asked = await recorder.asked
@@ -1681,8 +1683,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let client = ScalarClient(host: Bench.tvHost, transport: television,
                                   credentials: model.surroundings.tvCredentials)
         _ = await BackgroundWork.sendToTheTelevision(client: client, store: try GuideStore(path: try model.guidePath()),
-                                                     mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+                                                     mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         expectEqual(await television.schedules.map(\.eventId), [4401])
         expectEqual(try await store.pendingReservations(), [])
 
@@ -1708,8 +1710,9 @@ final class QueueWithATelevisionTests: XCTestCase {
                                   credentials: model.surroundings.tvCredentials)
         let run = await BackgroundWork.sendToTheTelevision(client: client,
                                                            store: try GuideStore(path: try model.guidePath()),
-                                                           mac: nil, told: ToldOnce(),
-                                                           nextRun: Date().addingTimeInterval(6 * 3600))
+                                                           mac: nil, told: { ToldOnce() },
+                                                           nextRun: Date().addingTimeInterval(6 * 3600),
+                                                           tell: { _, _, _ in })
         guard case .sent(let round) = run.sending, round.stopped == .silent(afterSending: true) else {
             return XCTFail("the create's answer was not lost: \(run.sending)")
         }
@@ -1764,8 +1767,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let theirs = try GuideStore(path: try model.guidePath())
         await door.hold(only: Self.tvCreate)
         let action = Task {
-            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never reached the create") { await door.isHolding }
         let takingAway = Task { await model.takeTheTelevisionAway(counted: 1) }
@@ -1825,8 +1828,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let theirs = try GuideStore(path: try model.guidePath())
         await door.hold(only: Self.tvCreate)
         let action = Task {
-            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: ToldOnce(),
-                                                     nextRun: Date().addingTimeInterval(6 * 3600))
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil, told: { ToldOnce() },
+                                                     nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never reached the create") { await door.isHolding }
         let first = Task { await model.deleteWaiting(held) }

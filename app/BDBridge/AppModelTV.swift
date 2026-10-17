@@ -311,9 +311,9 @@ extension AppModel {
     /// changes nothing of.
     private func forgetWhatWasTold() {
         guard !demo else { return }
-        let stop = defaults.data(forKey: DefaultsKey.tvTold)
-            .flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) }?.stop
-        defaults.removeObject(forKey: DefaultsKey.tvTold)
+        let kept = KeptOnce.television(in: defaults)
+        let stop = kept.read()?.stop
+        kept.forget()
         guard surroundings.asksAboutNotifications else { return }
         Notify.withdrawTelevisionNotYet()
         if stop == .registration { Notify.withdrawTelevisionQueue() }
@@ -327,12 +327,11 @@ extension AppModel {
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
     /// Not in the demo, whose queue is not the one the warning was about.
     func forgetTheWarningOnceSent() async {
-        guard !demo, let saved = defaults.data(forKey: DefaultsKey.tvTold),
-              let told = try? JSONDecoder().decode(ToldOnce.self, from: saved),
+        let kept = KeptOnce.television(in: defaults)
+        guard !demo, let told = kept.read(),
               let store, let waiting = try? await store.pendingReservations(),
-              let after = told.afterTheScreensSent(waiting: waiting),
-              let kept = try? JSONEncoder().encode(after) else { return }
-        defaults.set(kept, forKey: DefaultsKey.tvTold)
+              let after = told.afterTheScreensSent(waiting: waiting) else { return }
+        kept.keep(after)
         if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
     }
 

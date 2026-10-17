@@ -327,7 +327,7 @@ final class RecorderHost: RecorderLinkHost {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
-        defaults.removeObject(forKey: DefaultsKey.recorderTold)
+        KeptOnce.recorder(in: defaults).forget()
         await model.reloadFromCache()
         await model.loadPending()
         if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }

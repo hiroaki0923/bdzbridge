@@ -1079,7 +1079,7 @@ final class NoScreenGateTests: XCTestCase {
             addTeardownBlock { await recorder.letGo() }
         }
         let run = Task {
-            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: told,
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: { told },
                                          nextRun: Self.nextRun)
         }
         if let kind {
@@ -1259,8 +1259,8 @@ final class NoScreenGateTests: XCTestCase {
         let kept = ToldOnce(rows: [evening.id])
         func action(from told: ToldOnce = ToldOnce(), before nextRun: Date? = Self.nextRun) async
             -> (sending: BackgroundWork.Sending, news: NoScreenTold) {
-            await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil, told: told,
-                                             nextRun: nextRun, now: Self.dueAt)
+            await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil, told: { told },
+                                             nextRun: nextRun, now: Self.dueAt, tell: { _, _ in })
         }
 
         await recorder.goQuiet(for: 1000)
@@ -1273,8 +1273,8 @@ final class NoScreenGateTests: XCTestCase {
 
         let stranger = NamedRecorder(2)
         func asked(of stranger: NamedRecorder, from told: ToldOnce, before nextRun: Date?) async -> NoScreenTold {
-            await BackgroundWork.sendWaiting(client: aClient(of: stranger), store: store, mac: nil, told: told,
-                                             nextRun: nextRun, now: Self.dueAt).news
+            await BackgroundWork.sendWaiting(client: aClient(of: stranger), store: store, mac: nil, told: { told },
+                                             nextRun: nextRun, now: Self.dueAt, tell: { _, _ in }).news
         }
         let late = ToldOnce(stop: .another, rows: [evening.id])
         expectEqual(await asked(of: stranger, from: kept, before: Self.nextRun),
