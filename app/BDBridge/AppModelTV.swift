@@ -293,6 +293,13 @@ extension AppModel {
                 }
             }
             forgetWhatWasTold()
+            // Once more in the queue's turn, not waited for, as the runs with no screen tell and keep it: a run
+            // telling now is over first, and what it kept and posted of the registration before goes after it.
+            if !demo {
+                Task { [weak self] in
+                    _ = await PendingQueue.betweenFlushes { @MainActor in self?.forgetWhatWasTold() }
+                }
+            }
             makeTVLink()
             await tv?.connect()
             return .registered
@@ -309,6 +316,10 @@ extension AppModel {
     ///
     /// Not in the demo: what was told is of the real television, which the demo's registering or taking away
     /// changes nothing of.
+    ///
+    /// Made in the queue's turn by `takeTheTelevisionAway`, and by `registerTV` once more in it after its call at
+    /// once: it cannot take the turn itself, as `takeTheTelevisionAway` holds it already as it calls, and the turn
+    /// is not taken twice.
     private func forgetWhatWasTold() {
         guard !demo else { return }
         let kept = KeptOnce.television(in: defaults)
@@ -325,14 +336,20 @@ extension AppModel {
     /// more (`ToldOnce.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
-    /// Not in the demo, whose queue is not the one the warning was about.
-    func forgetTheWarningOnceSent() async {
-        let kept = KeptOnce.television(in: defaults)
-        guard !demo, let told = kept.read(),
-              let store, let waiting = try? await store.pendingReservations(),
-              let after = told.afterTheScreensSent(waiting: waiting) else { return }
-        kept.keep(after)
-        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+    /// Not in the demo, whose queue is not the one the warning was about. In the queue's turn and in a task of
+    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`).
+    func forgetTheWarningOnceSent() {
+        Task { [weak self] in
+            _ = await PendingQueue.betweenFlushes { @MainActor in
+                guard let self else { return }
+                let kept = KeptOnce.television(in: self.defaults)
+                guard !self.demo, let told = kept.read(),
+                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                      let after = told.afterTheScreensSent(waiting: waiting) else { return }
+                kept.keep(after)
+                if self.surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+            }
+        }
     }
 
     /// Takes the television away: its link, its address and its registration. What the television itself
@@ -384,7 +401,7 @@ extension AppModel {
     /// are over, which is what the question is there to prevent.
     ///
     /// The first step sees the app's own work only. A run with no screen sends through the same queue with a
-    /// client of its own -- inferred for the action, as `deleteWaiting` says -- so the rest is done in the
+    /// client of its own -- the action in the app's process, as `deleteWaiting` says -- so the rest is done in the
     /// queue's turn (`PendingQueue.betweenFlushes`): a sending under way is over first, and one that made what
     /// was counted leaves a count that no longer holds. Taken away while such a run had its round out, the
     /// registration would go from under it, and the run would tell the reader to register a television that is

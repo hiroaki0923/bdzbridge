@@ -247,22 +247,27 @@ enum BackgroundWork {
     }
 
     /// The same with its surroundings handed in, which is what the tests give it: the run, the queue read
-    /// after it, and what that tells against what was told before (`ToldOnce.after`), which `told` reads as the
-    /// run begins, with the television named as the screens name it. What it tells and what is told from then
-    /// on are handed to `tell` as the run ends, which is where the entry posts and keeps them, and handed back.
+    /// after it, and what that tells against what was told before (`ToldOnce.after`), which `told` reads, with
+    /// the television named as the screens name it. What it tells and what is told from then on are handed to
+    /// `tell`, which is where the entry posts and keeps them, and handed back. All of that is done inside the
+    /// queue's turn, the round's or one of its own (`TVDriver.sendWithNoScreen(_:store:knownAs:now:then:)`):
+    /// what the screens send or forget in the turn comes wholly before it or wholly after it; a registration
+    /// also forgets at once, outside the turn, which can fall inside a telling, and once more in the turn,
+    /// which then comes after that telling.
     static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?,
                                     told reading: @escaping @Sendable () -> ToldOnce, nextRun: Date,
                                     now: Date = Date(),
                                     tell: @escaping @Sendable (NoScreenSending, NoScreenNotices, ToldOnce) async
                                         -> Void)
         async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
-        let told = reading()
-        let sending = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac, now: now)
-        let waiting = try? await store.pendingReservations()
-        let (notices, after) = told.after(sending, waiting: waiting, before: nextRun, now: now,
-                                          naming: DeviceSlot.tv.label)
-        await tell(sending, notices, after)
-        return (sending, notices, after)
+        let (sending, told) = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac, now: now) { sending in
+            let waiting = try? await store.pendingReservations()
+            let (notices, after) = reading().after(sending, waiting: waiting, before: nextRun, now: now,
+                                                   naming: DeviceSlot.tv.label)
+            await tell(sending, notices, after)
+            return (notices: notices, after: after)
+        }
+        return (sending, told.notices, told.after)
     }
 
     /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.
@@ -385,7 +390,7 @@ enum BackgroundWork {
     /// The same, handing back with the sending what it has to tell once (`NoScreenTold`), against what was told
     /// before, which `told` reads, and for the reservations that start before `nextRun`: whether another
     /// recorder answering is news, the notice of reservations that have not reached the recorder in time and
-    /// its withdrawal, and what to keep. The two are handed to `tell` as the sending ends, which is where the
+    /// its withdrawal, and what to keep. The two are handed to `tell` inside the queue's turn, which is where the
     /// entry posts and keeps them; whether there is anything to tell is the driver's
     /// (`RecorderDriver.sendWithNoScreen`).
     static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,

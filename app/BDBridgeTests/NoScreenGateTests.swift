@@ -1330,10 +1330,12 @@ final class NoScreenGateTests: XCTestCase {
         await model.connect()
         try await untilIdle(model)
         XCTAssertEqual(model.pending.map(\.id), [night.id], "the second reservation was meant to wait still")
+        try await afterTheQueuesTurn()
         XCTAssertEqual(try kept(), warned, "the reservations warned of forgotten while one still waits")
 
         await model.deleteWaiting(try XCTUnwrap(model.pending.first))
         XCTAssertEqual(model.pending, [])
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce(stop: .another) })
         XCTAssertEqual(try kept(), ToldOnce(stop: .another), "the reservations warned of still told of once deleted")
 
         let morning = due("朝の番組", programme: 4336)
@@ -1342,12 +1344,14 @@ final class NoScreenGateTests: XCTestCase {
         await model.loadPending()
         await model.resend(try XCTUnwrap(model.pending.first))
         XCTAssertEqual(model.pending, [])
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce() })
         XCTAssertEqual(try kept(), ToldOnce(), "the reservation warned of still told of once sent again")
 
         try keep(warned)
         try await store.queue(due("昼の番組", programme: 4337))
         await model.connect()
         try await untilIdle(model)
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce(stop: .another) })
         XCTAssertEqual(try kept(), ToldOnce(stop: .another), "the reservations warned of still told of once sent")
 
         // One waiting that the attach's sending passed over, the recorder too busy, and was told of since.
@@ -1360,6 +1364,145 @@ final class NoScreenGateTests: XCTestCase {
         let reserved = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
         XCTAssertEqual(reserved, .made(saying: nil))
         XCTAssertEqual(model.pending, [], "the reservation made by hand still waits")
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce() })
         XCTAssertEqual(try kept(), ToldOnce(), "the reservation warned of still told of once reserved by hand")
+    }
+
+    /// The Shortcuts action telling as the app, opened at the same arrival, sends what waits itself: what is
+    /// told once is decided, posted and kept inside the queue's turn, and the screens' sending waits for that.
+    /// The action, the recorder not answering it, tells of a reservation that has not reached the recorder,
+    /// and is held there by the test. The screens' sending -- a pull-down -- is begun meanwhile, its line up,
+    /// and its round does not begin while the action is telling. Let go, the action keeps the reservation as
+    /// told of; the screens then send it and take it off what is kept. So nothing kept names the reservation,
+    /// and the action told of it once, before it was sent; the withdrawal that follows the forgetting is not
+    /// seen on the bench, whose notifications are off.
+    func testTheScreensSendingWaitsForTheActionsTellingAndTakesItsNoticeAway() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        try await afterTheQueuesTurn()
+        let store = try GuideStore(path: bench.guidePath)
+        let evening = due("夕方の番組", programme: 4331)
+        try await store.queue(evening)
+        await model.loadPending()
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let held = Held()
+        addTeardownBlock { await held.letGo() }
+        let notices = Notices()
+        let action = Task {
+            await BackgroundWork.sendWaiting(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                             told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun,
+                                             now: Self.dueAt, tell: { _, news in
+                notices.note(news.notYet)
+                await held.wait()
+                if let news = news.kept { kept.value = news }
+            })
+        }
+        try await within(10, "the action never came to tell what it tells once") { await held.untilCome() }
+        let count = await recorder.heard.count
+        let ended = Flag()
+        let sending = Task {
+            await model.refreshReservations()
+            ended.yes = true
+        }
+        // Up while the sending waits for its round; over already where nothing held it back.
+        try await until("the screens' sending never put its line up") {
+            model.busy == RecorderDriver.sendingLine || ended.yes
+        }
+
+        var turns = 0
+        while turns < 20_000, await recorder.heard(since: count).allSatisfy({ $0 == Ask.description }) {
+            turns += 1
+            await Task.yield()
+        }
+        expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [],
+                    "the screens' round began while the action was telling")
+        await held.letGo()
+        let acted = try await within(10, "the action never ended") { await action.value }
+        try await within(10, "the screens' sending never ended") { await sending.value }
+        try await afterTheQueuesTurn(until: { kept.value == ToldOnce() })
+
+        XCTAssertEqual(acted.sending, .unreachable)
+        XCTAssertEqual(model.pending, [], "the screens' sending did not send the reservation")
+        XCTAssertEqual(kept.value, ToldOnce(), "the reservation the screens sent is still told of")
+        XCTAssertEqual(notices.all, [Self.notYet("夕方の番組") + Self.notAnswering],
+                       "the action did not tell of the reservation once, before it was sent")
+    }
+
+    /// A pull-down while the Shortcuts action is telling, with nothing to send: what follows the screens'
+    /// sending -- what the runs told once of reservations that no longer wait, forgotten -- is made in the
+    /// queue's turn, and so not while the action is telling, never from what was kept before it and written
+    /// over what it kept. Kept before: another recorder told of, and a reservation told of that has gone since.
+    /// What waits is held with a reason, so that the action has nothing to send and the pull-down nothing to
+    /// send either. The action is held as it tells; the pull-down is made meanwhile, and what was kept is not
+    /// written while the action is telling. Let go, the action keeps that nothing is told of, the stop with it,
+    /// which a forgetting made from what was kept before would have kept.
+    func testThePullDownForgetsWhatWasToldOnceOnlyAfterARunHasToldIt() async throws {
+        let (bench, _, model) = try await connectedHome()
+        try await afterTheQueuesTurn()
+        let store = try GuideStore(path: bench.guidePath)
+        let gone = due("朝の番組", programme: 4336)
+        var held = due("夕方の番組", programme: 4331)
+        held.problem = "前に断られた理由"
+        try await store.queue(held)
+        await model.loadPending()
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let before = ToldOnce(stop: .another, rows: [gone.id])
+        kept.value = before
+        let telling = Held()
+        addTeardownBlock { await telling.letGo() }
+        let action = Task {
+            await BackgroundWork.sendWaiting(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                             told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun,
+                                             now: Self.dueAt, tell: { _, news in
+                await telling.wait()
+                if let news = news.kept { kept.value = news }
+            })
+        }
+        try await within(10, "the action never came to tell what it tells once") { await telling.untilCome() }
+
+        try await within(10, "the pull-down never came back") { await model.refreshReservations() }
+        for _ in 0..<100_000 where kept.value == before { await Task.yield() }
+        XCTAssertEqual(kept.value, before,
+                       "what follows the screens' sending was made while the action was telling")
+        await telling.letGo()
+        let acted = try await within(10, "the action never ended") { await action.value }
+        try await afterTheQueuesTurn()
+
+        XCTAssertEqual(acted.sending, .nothingWaiting)
+        XCTAssertEqual(kept.value, ToldOnce(), "what the action kept was not what is kept")
+    }
+
+    /// The cache made over to another recorder while a night is telling what it tells once of the recorder
+    /// before: what the make-over forgets of what was told is forgotten in the queue's turn as well, after the
+    /// telling, so that nothing the night kept of the recorder before stays. The night, nobody answering it,
+    /// tells of a reservation that has not reached the recorder, and is held as it keeps that; the screens
+    /// take up another recorder at the address meanwhile. Once the night has ended and the queue's turn has come
+    /// round, nothing is kept.
+    func testACacheMadeOverWhileANightIsTellingKeepsNothingOfTheRecorderBefore() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        try await store.queue(due("夕方の番組", programme: 4331))
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let held = Held()
+        addTeardownBlock { await held.letGo() }
+        var tell = telling(Tellings())
+        tell.kept = { _, _, told in
+            await held.wait()
+            kept.value = told
+        }
+        let night = Task { [tell] in
+            await BackgroundWork.refresh(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                         telling: tell, told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun)
+        }
+        try await within(10, "the night never came to keep what it told once") { await held.untilCome() }
+
+        await recorder.become(2)
+        try await within(10, "the connect to the second recorder never came back") { await model.connect() }
+        try await untilIdle(model)
+        expectEqual(try await store.owner(), NamedRecorder.udn(2), "the cache was meant to be made over")
+        await held.letGo()
+        _ = try await within(10, "the night never ended") { await night.value }
+        try await afterTheQueuesTurn(until: { kept.value == nil })
+
+        XCTAssertNil(kept.value, "what the night told of the recorder before is kept over the cache made over")
     }
 }

@@ -188,13 +188,23 @@ extension AppModel {
     /// again (`resend`), a reservation made by hand, which takes the place of a row that waited for its
     /// programme (`reserve`), and a waiting row deleted (`deleteWaiting`). Not in the demo, whose queue is not
     /// the one the warning was about.
-    func forgetTheRecordersWarningOnceSent() async {
-        let kept = KeptOnce.recorder(in: defaults)
-        guard !demo, let told = kept.read(),
-              let store, let waiting = try? await store.pendingReservations(),
-              let after = told.afterTheScreensSent(waiting: waiting, words: .recorder) else { return }
-        kept.keep(after)
-        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
+    ///
+    /// Read, written and taken away in the queue's turn (`PendingQueue.betweenFlushes`), as the runs with no
+    /// screen tell and keep it: a run telling meanwhile is over first, and what it kept is what is read here.
+    /// In a task of its own, which nothing here waits for: an attach asks for this after its sending, and is not
+    /// to be held behind a round of the screens' own that has the turn, on the client the attach has retired.
+    func forgetTheRecordersWarningOnceSent() {
+        Task { [weak self] in
+            _ = await PendingQueue.betweenFlushes { @MainActor in
+                guard let self else { return }
+                let kept = KeptOnce.recorder(in: self.defaults)
+                guard !self.demo, let told = kept.read(),
+                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                      let after = told.afterTheScreensSent(waiting: waiting, words: .recorder) else { return }
+                kept.keep(after)
+                if self.surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
+            }
+        }
     }
 }
 

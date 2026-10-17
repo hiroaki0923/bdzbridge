@@ -1638,3 +1638,106 @@ func expectNil<T>(_ value: T?, _ message: @autoclosure () -> String = "",
                   file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertNil(value, message(), file: file, line: line)
 }
+
+// MARK: - what is told once, held
+
+/// What the runs with no screen have told once of one device, read and kept in a bench's defaults under its
+/// key (`DefaultsKey.recorderTold`, `DefaultsKey.tvTold`), for a run a test hands a reading and a keeping of it
+/// as the app's entries hand theirs. Sendable by hand: Apple's page for `UserDefaults` says that it "is
+/// thread-safe, and you can use the same object in multiple threads or tasks simultaneously".
+final class KeptIn: @unchecked Sendable {
+    private let defaults: UserDefaults
+    private let key: String
+
+    init(_ defaults: UserDefaults, _ key: String) {
+        self.defaults = defaults
+        self.key = key
+    }
+
+    /// What is kept; nil for nothing. Set to nil, nothing is.
+    var value: ToldOnce? {
+        get { defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) } }
+        set {
+            if let newValue, let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+}
+
+/// Holds whoever waits on it until it is let go, and counts who came: for a test that holds a run's telling
+/// and waits for the run to be in it.
+actor Held {
+    private(set) var came = 0
+    private var open = false
+    private var holding: [CheckedContinuation<Void, Never>] = []
+    private var watching: (count: Int, test: CheckedContinuation<Void, Never>)?
+
+    func wait() async {
+        came += 1
+        if let watching, came >= watching.count {
+            self.watching = nil
+            watching.test.resume()
+        }
+        guard !open else { return }
+        await withCheckedContinuation { holding.append($0) }
+    }
+
+    /// Returns once `count` have come.
+    func untilCome(_ count: Int = 1) async {
+        guard came < count else { return }
+        await withCheckedContinuation { watching = (count, $0) }
+    }
+
+    /// Lets every one held go, and whoever comes afterwards through at once.
+    func letGo() {
+        open = true
+        holding.forEach { $0.resume() }
+        holding = []
+    }
+}
+
+/// Whether something begun in a task of its own has got so far, for a test to look at meanwhile.
+@MainActor
+final class Flag {
+    var yes = false
+}
+
+/// The notices a run handed over, in order, as a test hands a run with no screen a telling of its own.
+final class Notices: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handed: [String?] = []
+
+    var all: [String?] { lock.withLock { handed } }
+
+    func note(_ notice: String?) {
+        lock.withLock { handed.append(notice) }
+    }
+}
+
+extension XCTestCase {
+    /// Returns once the queue's turn has come round (`PendingQueue.betweenFlushes`), ten seconds at most, the
+    /// main actor given a few turns first for a task the screens set going just now to have asked for it. For
+    /// a look that expects what the screens set going in the turn -- what they forget of what was told once --
+    /// to have changed nothing, which has no sign of its own to wait for: it rests on that task's having asked
+    /// for the turn by then. A look that expects a change waits for the change (`afterTheQueuesTurn(until:)`).
+    @MainActor
+    func afterTheQueuesTurn(_ what: String = "the queue's turn never came round") async throws {
+        for _ in 0..<100 { await Task.yield() }
+        _ = try await within(10, what) { await PendingQueue.betweenFlushes {} }
+    }
+
+    /// Takes the queue's turn again and again until `done` holds, fifty turns at most and each in ten seconds
+    /// at most: for a look that expects what the screens set going in the turn to have changed something, the
+    /// change being the sign waited for. It returns either way; the look after it says whether the change came.
+    @MainActor
+    func afterTheQueuesTurn(until done: @MainActor () throws -> Bool) async throws {
+        for _ in 0..<50 {
+            if try done() { return }
+            await Task.yield()
+            _ = try await within(10, "the queue's turn never came round") { await PendingQueue.betweenFlushes {} }
+        }
+    }
+}

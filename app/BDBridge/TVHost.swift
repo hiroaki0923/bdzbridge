@@ -171,7 +171,7 @@ final class TVHost: LinkHost {
     /// of them waits to go any more (`AppModel.forgetTheWarningOnceSent`), whichever sending took them.
     func tell(_ round: PendingQueue.Outcome?) async {
         await model?.loadPending()
-        await model?.forgetTheWarningOnceSent()
+        model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
         if let added = AppModel.adding(said, toUnread: report) { report = added }
     }
@@ -236,7 +236,7 @@ extension TVHost: DeviceHost {
     /// is nobody's to be told of.
     func afterAReservation(_ reserved: Reserved) async {
         await model?.loadPending()
-        await model?.forgetTheWarningOnceSent()
+        model?.forgetTheWarningOnceSent()
         if case .waiting(let row, _) = reserved, row.problem == nil, !isDemo { await model?.askForNotifications() }
     }
 }

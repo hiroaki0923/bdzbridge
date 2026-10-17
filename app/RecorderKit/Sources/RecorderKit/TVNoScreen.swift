@@ -15,19 +15,38 @@ public extension TVDriver {
     /// once, the question, the create and the list again.
     nonisolated static func sendWithNoScreen(_ client: ScalarClient, store: GuideStore, knownAs mac: String?,
                                              now: Date = Date()) async -> NoScreenSending {
+        await sendWithNoScreen(client, store: store, knownAs: mac, now: now, then: { _ in }).sending
+    }
+
+    /// The same, and `then` inside the queue's turn, handed what the sending came to: after the round, in the
+    /// round's own turn (`PendingQueue.flush(client:store:consenting:only:now:then:)`), or, with no round, in a
+    /// turn of its own. For what the run tells once, decided from what is kept as the turn has it and posted
+    /// and kept there (`ToldOnce.after`). What `then` hands back is handed back beside what the sending came to.
+    nonisolated static func sendWithNoScreen<After: Sendable>(
+        _ client: ScalarClient, store: GuideStore, knownAs mac: String?, now: Date = Date(),
+        then: @escaping @Sendable (NoScreenSending) async -> After
+    ) async -> (sending: NoScreenSending, after: After) {
+        func alone(_ sending: NoScreenSending) async -> (sending: NoScreenSending, after: After) {
+            (sending, await PendingQueue.inATurnOfItsOwn { await then(sending) })
+        }
         let waiting = (try? await store.pendingReservations()) ?? []
         guard PendingQueue.hasSomethingToSend(waiting, for: ScalarClient.slot, now: now) else {
-            return .nothingWaiting
+            return await alone(.nothingWaiting)
         }
         let identity: String
         do {
             identity = (try await client.wakeOnLANAddress(timeout: 5)).flatMap(WakeOnLan.normalise) ?? ""
         } catch {
-            return .unreachable
+            return await alone(.unreachable)
         }
         // Its cookie would not be good there, and what waits was made for the television registered.
-        guard SessionState.recognition(of: identity, knownAs: mac) != .another else { return .anotherAnswered }
-        return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+        guard SessionState.recognition(of: identity, knownAs: mac) != .another else {
+            return await alone(.anotherAnswered)
+        }
+        let (outcome, after) = await PendingQueue.flush(client: client, store: store, now: now) { round in
+            await then(.sent(round))
+        }
+        return (.sent(outcome), after)
     }
 
     /// What it came to, in words, for the Shortcuts action's answer: every time, nothing told once. Nil when

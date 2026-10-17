@@ -290,10 +290,12 @@ extension AppModel {
     /// That guard sees the app's own work only. A run with no screen -- the Shortcuts action, the overnight
     /// run -- sends through the same queue with a client of its own, so a row is deleted by its device's driver
     /// in the queue's turn (`TVDriver.deleteWaiting`, `RecorderDriver.deleteWaiting`), which says whether a
-    /// sending whose turn came first made it. That the action shares the queue is inferred, not seen: it is an
-    /// intent in the app's own target, and Apple's article "Creating your first app intent" says only "You can
-    /// also place your app intent types in an app extension, and run them in a separate process from the rest
-    /// of your app."
+    /// sending whose turn came first made it. That the action shares the queue is Apple's word, not seen on a
+    /// phone: it is an intent in the app's own target, which Apple's session "Dive into App Intents" (WWDC22)
+    /// says needs no coordinating "across processes" and is run, in the background, by the app itself launched
+    /// "in a special mode without scenes"; the article "Creating your first app intent" puts the other way as
+    /// "You can also place your app intent types in an app extension, and run them in a separate process from
+    /// the rest of your app."
     ///
     /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
     /// list of the television in play, read by its host, which keeps it for the screens
@@ -320,7 +322,7 @@ extension AppModel {
                                                 inPlay: { self.tvHost != nil },
                                                 queueWritten: { await self.loadPending() }) ?? false
         await loadPending()
-        await forgetTheWarningOnceSent()
+        forgetTheWarningOnceSent()
         return made ? TVDriver.madeBeforeItsDelete(waiting, naming: DeviceSlot.tv.label) : nil
     }
 
