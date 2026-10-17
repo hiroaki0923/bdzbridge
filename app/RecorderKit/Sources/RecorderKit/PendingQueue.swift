@@ -135,11 +135,24 @@ public enum PendingQueue {
         client: Target, store: GuideStore, consenting: [String: String] = [:], only: String? = nil,
         now: Date = Date(), then: @escaping @Sendable (Outcome) async -> After
     ) async -> (outcome: Outcome, after: After) {
+        await flush(client: client, store: store, consenting: consenting, only: only, now: now,
+                    asItBegins: {}) { outcome, _ in await then(outcome) }
+    }
+
+    /// The same, with `asItBegins` read in the turn just before the round and handed to `then` beside what the
+    /// round came to: for what a run holds its telling against as it stood when its round began, not when the
+    /// run was begun (`TVDriver.sendWithNoScreen(_:store:knownAs:now:then:)`).
+    static func flush<Target: QueueTarget, Begun: Sendable, After: Sendable>(
+        client: Target, store: GuideStore, consenting: [String: String] = [:], only: String? = nil,
+        now: Date = Date(), asItBegins: @escaping @Sendable () -> Begun,
+        then: @escaping @Sendable (Outcome, Begun) async -> After
+    ) async -> (outcome: Outcome, after: After) {
         await oneAtATime.whileHeld {
+            let begun = asItBegins()
             let outcome = await Task {
                 await oneRound(client: client, store: store, consenting: consenting, only: only, now: now)
             }.value
-            return (outcome, await then(outcome))
+            return (outcome, await then(outcome, begun))
         }
     }
 

@@ -159,6 +159,9 @@ public actor ScalarClient {
     private let transport: any HTTPTransport
     private let credentials: any TVCredentialStore
     private let queue = SerialQueue()
+    /// When the cookie in the store arrived (`TVCredentials.cookieReceived`), nil with none: what changes with
+    /// each registration, and with each renewal.
+    nonisolated var cookieReceived: Date? { credentials.load()?.cookieReceived }
     private var nextID = 1
     /// For a request with no timeout of its own. The television answers in a fraction of a second, in standby
     /// as well, so this is generous.

@@ -96,10 +96,16 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     public var stop: Stop?
     /// The ids of the rows told of, while they still wait, are not over and are due before the next run.
     public var rows: Set<String>
+    /// The television's alone: when the cookie of the registration that the run's round began under arrived,
+    /// or, with no round, the one in the store as the run's own turn began (`TVCredentials.cookieReceived`,
+    /// handed on by `TVDriver.sendWithNoScreen`), nil for none. A registration made again forgets once more in
+    /// the queue's turn, after a run that was telling then, only what is kept under a cookie from before it.
+    public var registration: Date?
 
-    public init(stop: Stop? = nil, rows: Set<String> = []) {
+    public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {
         self.stop = stop
         self.rows = rows
+        self.registration = registration
     }
 
     /// What to tell after a run that came to `sending`, and what is told from then on. `waiting` is the
@@ -125,10 +131,11 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     ///
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
     /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
-    /// is said each time and never kept.
+    /// is said each time and never kept. What is told from then on carries `registration`, the television's
+    /// registration its round began under (`ToldOnce.registration`).
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
-                      now: Date, naming device: String?, words: NoScreenWords = .television)
-        -> (notices: NoScreenNotices, told: ToldOnce) {
+                      now: Date, naming device: String?, words: NoScreenWords = .television,
+                      registration: Date? = nil) -> (notices: NoScreenNotices, told: ToldOnce) {
         var outcome: PendingQueue.Outcome?
         if case .sent(let round) = sending { outcome = round }
         let settled = Set(((outcome?.sent ?? []) + (outcome?.alreadyThere ?? [])).map(\.id))
@@ -148,6 +155,7 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         notices.queue = queue.isEmpty ? nil : queue.joined(separator: "。")
 
         var told = self
+        told.registration = registration
         if sending == .nothingWaiting {
             told.stop = nil
         } else if !sending.learntNothing {
@@ -166,13 +174,14 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// Otherwise the same with none told of, and the warning about them is to be taken away at once: none of
     /// what it was about waits any more, and the next run with no screen, which would take it away, may come
     /// after their programmes have begun. The stop told is left as it was, for the runs with no screen to
-    /// hold against what they find. The rows are those of the device `words` is of, as in `after`.
+    /// hold against what they find, under the registration it was kept under. The rows are those of the
+    /// device `words` is of, as in `after`.
     public func afterTheScreensSent(waiting: [PendingReservation], now: Date = Date(),
                                     words: NoScreenWords = .television) -> ToldOnce? {
         guard !rows.isEmpty, !waiting.contains(where: {
             rows.contains($0.id) && Self.waitsToGo($0, to: words.slot, now: now)
         }) else { return nil }
-        return ToldOnce(stop: stop)
+        return ToldOnce(stop: stop, registration: registration)
     }
 
     /// Whether a row is still to go to the device in `slot` by itself: one of its, with no reason on it,

@@ -253,17 +253,19 @@ enum BackgroundWork {
     /// queue's turn, the round's or one of its own (`TVDriver.sendWithNoScreen(_:store:knownAs:now:then:)`):
     /// what the screens send or forget in the turn comes wholly before it or wholly after it; a registration
     /// also forgets at once, outside the turn, which can fall inside a telling, and once more in the turn,
-    /// which then comes after that telling.
+    /// which then comes after that telling and takes away only what is kept under a registration before it:
+    /// what is kept carries the one the round began under (`ToldOnce.registration`).
     static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?,
                                     told reading: @escaping @Sendable () -> ToldOnce, nextRun: Date,
                                     now: Date = Date(),
                                     tell: @escaping @Sendable (NoScreenSending, NoScreenNotices, ToldOnce) async
                                         -> Void)
         async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
-        let (sending, told) = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac, now: now) { sending in
+        let (sending, told) = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac,
+                                                              now: now) { sending, registration in
             let waiting = try? await store.pendingReservations()
             let (notices, after) = reading().after(sending, waiting: waiting, before: nextRun, now: now,
-                                                   naming: DeviceSlot.tv.label)
+                                                   naming: DeviceSlot.tv.label, registration: registration)
             await tell(sending, notices, after)
             return (notices: notices, after: after)
         }
