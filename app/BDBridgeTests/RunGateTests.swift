@@ -307,6 +307,7 @@ final class RunGateTests: XCTestCase {
     /// it runs reads nothing either: the run is walking that list. A run of no recordings is not started at all.
     func testAJobStandsInTheTurnItIsAskedForAndKeepsTheRecorderToItself() async throws {
         let (_, recorder, model, idle) = try await settled()
+        addTeardownBlock { await recorder.letGo() }
         model.startBulk(.delete, ids: [])
         XCTAssertNil(model.job, "a run of no recordings was started")
         XCTAssertFalse(model.jobRunning)
@@ -317,7 +318,7 @@ final class RunGateTests: XCTestCase {
         XCTAssertTrue(model.jobRunning, "the job does not stand in the turn it was asked for")
         XCTAssertEqual(model.job?.total, 1)
         XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen in the turn a job was asked for")
-        await model.connect()
+        try await within(10, "a connect asked for in the job's turn never came back") { await model.connect() }
         expectEqual(await recorder.asked(Ask.description, since: before), 0,
                     "a connect asked for in the turn a job was started asked the recorder who it is")
         // Only once that is so: where it is not, either of these would go through and take the recorder away
@@ -428,7 +429,7 @@ final class RunGateTests: XCTestCase {
         let waiting = Task { try? await store.setTitleSummary("0x0", "") }
         await recorder.letGo()
         try await until("the connect never came to the cache with no line up") {
-            model.busy == nil && isConnecting(model)
+            model.busy == nil && model.connecting
         }
         XCTAssertFalse(model.startBulk(.delete, ids: [title.id]),
                        "a bulk delete pressed between the lines of a connect was taken")
@@ -902,6 +903,7 @@ final class RunGateTests: XCTestCase {
     /// gets that far: no job is set up, and nothing is asked.
     func testNoRunIsStartedOnAClientThatHasNotHeardWhichRecorderAnswers() async throws {
         let (bench, recorder, model, idle) = try await settled(withACopy: true)
+        addTeardownBlock { await recorder.letGo() }
         let kinds: [(kind: AppModel.BulkJob.Kind, outcome: String)] = [
             (.delete, "0 件を削除したところで中止しました"), (.protecting(true), "0 件を保護したところで中止しました"),
         ]

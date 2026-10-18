@@ -601,7 +601,7 @@ final class FunnelGateTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
         expectEqual(await recorder.asked(Kind.recordings, since: before), 1,
                     "the newcomer's recordings were asked for while the last recorder's read was out")
-        XCTAssertTrue(isConnecting(model), "the newcomer's connect did not wait for the read out")
+        XCTAssertTrue(model.connecting, "the newcomer's connect did not wait for the read out")
         // The read out comes back with a list of its own, to be told from the newcomer's.
         await recorder.answer(Kind.recordings, with: .result(Self.aListOfOne))
         await recorder.letGo()
@@ -623,11 +623,13 @@ final class FunnelGateTests: XCTestCase {
         }
         await recorder.become(3)
         await model.connect()
+        // And the newcomer's guide, which its connect started and did not wait for.
+        try await until("the newcomer's guide was never fetched") { !isConnecting(model) }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(3), model.problem(for: .recorder) ?? "no reason given")
         XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were meant to be read by its connect")
         await recorder.goQuiet(on: Kind.deleteRecording)
         await recorder.letGo()
-        expectFalse(await deleting.value)
+        expectFalse(try await within(10, "the delete across the arrival never came back") { await deleting.value })
         XCTAssertEqual(model.problem(for: .recorder), Said.mayHaveArrived)
         XCTAssertFalse(model.gaveUp, "the newcomer was given up on for the last recorder's silence")
         XCTAssertTrue(model.titlesLoaded, "the newcomer's recordings were marked unread")
@@ -2436,7 +2438,7 @@ final class FunnelGateTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(300))
                 expectEqual(await recorder.asked(Kind.conditions, since: before), 1,
                             "the newcomer's conditions were asked for while the list after the add was out")
-                XCTAssertTrue(isConnecting(model), "the newcomer's connect did not wait for the list after the add")
+                XCTAssertTrue(model.connecting, "the newcomer's connect did not wait for the list after the add")
                 // The last recorder answers with none, to be told from the newcomer's list.
                 await recorder.answer(Kind.conditions, with: .result("<xsrs></xsrs>"))
             } else {
