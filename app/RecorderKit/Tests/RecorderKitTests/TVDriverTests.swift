@@ -304,6 +304,43 @@ final class TVDriverTests: XCTestCase {
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.read], "made sure of after a connect")
     }
 
+    /// A delete and a change asked after a check that heard a fault in place of the television, whose check
+    /// again then meets silence and is turned away for the local network permission: nothing is read or sent
+    /// after the check's one ask, the television's schedules are as they were, the check's no has cleared the
+    /// line, and the result says that the permission is not given, as the link says it is waiting for it -- not
+    /// merely that the app is not connected. Each on a link of its own: once one has met the permission, the
+    /// other would be turned away at its door, which says the same with nothing asked.
+    ///
+    /// The programme starts far off (2033-05-18), because the change's door reads the clock: the row holds only
+    /// while it is run before that day.
+    func testADeleteOrAChangeWhoseCheckMeetsThePermissionSaysSo() async throws {
+        let later = DemoTV.Schedule(id: "recording.43", title: "サンプル劇場",
+                                    start: Date(timeIntervalSince1970: 2_000_000_000), eventId: 12346)
+        let row = try XCTUnwrap(later.row.reservation(now: Date(timeIntervalSince1970: 1_999_000_000)))
+        for what in ["delete", "change"] {
+            let bench = try await attachedQueueBench()
+            await bench.television.put([later])
+            await bench.gate.answer(Self.asksWhich, with: HTTPResponse(statusCode: 500))
+            _ = await bench.link.ensureUp(evenIfRecent: true)
+            XCTAssertNotNil(bench.link.heardInstead, "the check was meant to hear a fault, \(what)")
+            XCTAssertTrue(bench.link.session.connected, what)
+
+            await bench.gate.stopAnswering(Self.asksWhich)
+            await bench.gate.silence(Self.asksWhich)
+            bench.world.blocked = true
+            let before = await bench.gate.asked.count
+            let came = what == "delete" ? await bench.driver.cancel(row).deleted
+                : await bench.driver.update(row, repeating: "daily").altered
+
+            XCTAssertEqual(came, .notDone(LocalNetwork.accessNotAllowed), what)
+            XCTAssertTrue(bench.link.session.connectBlocked, "the check did not end waiting for the permission, \(what)")
+            XCTAssertNil(bench.world.problem, "the check's no for the permission left a line, \(what)")
+            expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.asksWhich],
+                        "something was read or sent after the check, \(what)")
+            expectEqual(await bench.television.schedules, [later], what)
+        }
+    }
+
     // MARK: - its reservations, after the attach
 
     private nonisolated static let start = Date(timeIntervalSince1970: 1_793_534_400)
